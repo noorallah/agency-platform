@@ -1,0 +1,1 @@
+"""Licensing integration boundary."""

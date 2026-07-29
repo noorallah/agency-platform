@@ -1,0 +1,1 @@
+"""Product platform capabilities."""

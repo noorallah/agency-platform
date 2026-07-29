@@ -1,0 +1,1 @@
+"""File-management capability boundary."""

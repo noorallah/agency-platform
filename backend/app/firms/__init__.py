@@ -1,0 +1,1 @@
+"""Platform firm-management domain."""

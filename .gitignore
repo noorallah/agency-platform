@@ -1,0 +1,35 @@
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/coverage.xml
+**/htmlcov/
+**/.venv/
+**/venv/
+
+# Flutter and Dart
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+
+# Local configuration and runtime files
+**/.env
+**/.env.*
+!**/.env.example
+**/logs/*
+!**/logs/.gitkeep
+**/storage/*
+!**/storage/.gitkeep
+/sn/
+
+# IDE and operating system files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

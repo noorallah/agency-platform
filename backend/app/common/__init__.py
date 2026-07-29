@@ -1,0 +1,1 @@
+"""Shared business capabilities."""
