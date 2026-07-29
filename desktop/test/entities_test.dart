@@ -81,11 +81,13 @@ void main() {
     expect(
       assignments,
       contains(
-        {
-          'firm_id': 'firm-primary',
-          'is_primary': true,
-          'is_active': true,
-        },
+        predicate(
+          (dynamic assignment) =>
+              assignment is Map &&
+              assignment['firm_id'] == 'firm-primary' &&
+              assignment['is_primary'] == true &&
+              assignment['is_active'] == true,
+        ),
       ),
     );
   });

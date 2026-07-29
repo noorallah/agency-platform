@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
+import '../core/branding/branding_config.dart';
+import '../core/theme/theme_manager.dart';
 import '../models/entities.dart';
 import 'dashboard_page.dart';
 import 'resource_management_page.dart';
+import 'theme_selector.dart';
 
 enum AppSection { dashboard, firms, users, roles, permissions }
 
@@ -27,8 +30,15 @@ extension AppSectionDetails on AppSection {
 }
 
 class DesktopShell extends StatefulWidget {
-  const DesktopShell({super.key, required this.session});
+  const DesktopShell({
+    super.key,
+    required this.session,
+    required this.branding,
+    required this.themes,
+  });
   final SessionController session;
+  final BrandingConfig branding;
+  final ThemeManager themes;
   @override
   State<DesktopShell> createState() => _DesktopShellState();
 }
@@ -52,12 +62,19 @@ class _DesktopShellState extends State<DesktopShell> {
                 NavigationRail(
                   selectedIndex: _section.index,
                   labelType: NavigationRailLabelType.all,
-                  leading: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 18),
-                    child: Icon(Icons.account_balance, size: 30),
+                  leading: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Icon(Icons.account_balance, size: 30),
+                      ),
+                      ThemeSelector(manager: widget.themes),
+                    ],
                   ),
                   destinations: _destinations,
-                  onDestinationSelected: (index) => _select(AppSection.values[index]),
+                  onDestinationSelected: (index) =>
+                      _select(AppSection.values[index]),
                   trailing: Expanded(
                     child: Align(
                       alignment: Alignment.bottomCenter,
@@ -75,13 +92,16 @@ class _DesktopShellState extends State<DesktopShell> {
             );
           }
           return Scaffold(
-            appBar: AppBar(title: Text(_section.label)),
+            appBar: AppBar(
+              title: Text(_section.label),
+              actions: [ThemeSelector(manager: widget.themes)],
+            ),
             drawer: Drawer(
               child: SafeArea(
                 child: Column(children: [
-                  const ListTile(
-                    leading: Icon(Icons.account_balance),
-                    title: Text('Agency Platform'),
+                  ListTile(
+                    leading: const Icon(Icons.account_balance),
+                    title: Text(widget.branding.appName),
                   ),
                   const Divider(),
                   ...AppSection.values.map(
@@ -136,7 +156,14 @@ List<String> _ids(dynamic value) => value
 ResourceDefinition<Firm> _firmDefinition(ApiClient api) => ResourceDefinition(
       title: 'Firms',
       resource: 'firms',
-      headers: const ['Code', 'Name', 'Contact', 'Currency', 'Country', 'Status'],
+      headers: const [
+        'Code',
+        'Name',
+        'Contact',
+        'Currency',
+        'Country',
+        'Status'
+      ],
       cells: (firm) => [
         firm.code,
         firm.name,

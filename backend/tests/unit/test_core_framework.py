@@ -9,6 +9,7 @@ from fastapi import Request
 from starlette.responses import Response
 
 from app.core.config.settings import Settings
+from app.core.context import RequestContext, reset_request_context, set_request_context
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import ValidationError
 from app.core.exceptions.handlers import application_error_handler
@@ -18,6 +19,7 @@ from app.core.pagination import PaginationParams
 from app.core.security import JwtService, PasswordSecurity
 from app.core.sorting import SortDirection, SortField
 from app.core.utils.collections import chunked
+from app.core.utils.dates import utc_now
 from app.core.utils.json import json_dumps
 from app.core.validation import (
     validate_date_range,
@@ -75,9 +77,22 @@ def test_utilities_are_stateless_and_serializable() -> None:
 def test_application_errors_use_the_standardized_error_envelope() -> None:
     """Ensure expected exceptions serialize with centralized error codes."""
     request = Request({"type": "http", "method": "GET", "path": "/"})
-    response = asyncio.run(
-        application_error_handler(request, ValidationError(details=["field invalid"]))
+    token = set_request_context(
+        RequestContext(
+            request_id="request-id",
+            correlation_id="correlation-id",
+            client_ip=None,
+            requested_at=utc_now(),
+        )
     )
+    try:
+        response = asyncio.run(
+            application_error_handler(
+                request, ValidationError(details=["field invalid"])
+            )
+        )
+    finally:
+        reset_request_context(token)
 
     assert response.status_code == 422
     payload = json.loads(bytes(response.body))
@@ -88,6 +103,8 @@ def test_application_errors_use_the_standardized_error_envelope() -> None:
         "message": "The request validation failed.",
         "details": ["field invalid"],
     }
+    assert payload["requestId"] == "request-id"
+    assert "request_id" not in payload
 
 
 def test_core_middleware_sets_trace_security_and_timing_headers() -> None:

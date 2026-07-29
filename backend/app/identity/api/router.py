@@ -32,6 +32,8 @@ from app.identity.schemas import (
     UserCreate,
     UserFirmAssignments,
     UserFirmResponse,
+    UserPreferencesResponse,
+    UserPreferencesUpdate,
     UserResponse,
     UserUpdate,
 )
@@ -112,6 +114,54 @@ def change_password(
         _actor_id(principal), data.current_password, data.new_password
     )
     return ApiResponse(data=None, message="Password changed. Sign in again.")
+
+
+@router.get(
+    "/me/preferences",
+    response_model=ApiResponse[UserPreferencesResponse],
+    tags=["User preferences"],
+)
+def get_my_preferences(
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserPreferencesResponse]:
+    """Return the authenticated user's versioned preference document."""
+    preferences = _service(db, settings).get_user_preferences(_actor_id(principal))
+    return ApiResponse(data=UserPreferencesResponse.model_validate(preferences))
+
+
+@router.patch(
+    "/me/preferences",
+    response_model=ApiResponse[UserPreferencesResponse],
+    tags=["User preferences"],
+)
+def update_my_preferences(
+    data: UserPreferencesUpdate,
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserPreferencesResponse]:
+    """Update only the authenticated user's preferences partially."""
+    preferences = _service(db, settings).update_user_preferences(
+        _actor_id(principal), data
+    )
+    return ApiResponse(data=UserPreferencesResponse.model_validate(preferences))
+
+
+@router.post(
+    "/me/preferences/reset",
+    response_model=ApiResponse[UserPreferencesResponse],
+    tags=["User preferences"],
+)
+def reset_my_preferences(
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserPreferencesResponse]:
+    """Restore the authenticated user's preferences to current defaults."""
+    preferences = _service(db, settings).reset_user_preferences(_actor_id(principal))
+    return ApiResponse(data=UserPreferencesResponse.model_validate(preferences))
 
 
 @router.get("/users", response_model=PaginatedResponse[UserResponse], tags=["Users"])

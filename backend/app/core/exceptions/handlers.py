@@ -118,5 +118,5 @@ def _error_response(
     """Build a JSON error response from normalized error fields."""
     payload = response_model(
         error=ApiError(code=code, message=message, details=details)
-    ).model_dump(mode="json", exclude_none=True)
+    ).model_dump(mode="json", by_alias=True, exclude_none=True)
     return JSONResponse(status_code=status_code, content=payload)

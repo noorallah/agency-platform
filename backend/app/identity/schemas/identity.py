@@ -52,6 +52,7 @@ class PermissionSchema(IdentitySchema):
     name: str
     description: str | None
     is_active: bool
+    is_system: bool
 
 
 class UserRoleSchema(IdentitySchema):

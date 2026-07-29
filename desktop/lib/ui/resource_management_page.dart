@@ -123,7 +123,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   }
 
   Future<void> _edit([T? item]) async {
-    final Map<String, dynamic> initialValues = widget.definition.initialValues(item);
+    final Map<String, dynamic> initialValues =
+        widget.definition.initialValues(item);
     if (item != null && widget.definition.loadAssignments != null) {
       try {
         initialValues.addAll(
@@ -166,7 +167,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       }
       if (widget.definition.saveAssignments != null) {
         if (savedId.isEmpty) {
-          throw const ApiException('The API did not return an identifier for the saved item.');
+          throw const ApiException(
+              'The API did not return an identifier for the saved item.');
         }
         await widget.definition.saveAssignments!(savedId, values);
       }
@@ -188,7 +190,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         content: const Text('This action cannot be undone.'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           FilledButton.tonal(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete'),
@@ -198,7 +201,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     );
     if (accepted != true) return;
     try {
-      await widget.api.delete(widget.definition.resource, widget.definition.id(item));
+      await widget.api
+          .delete(widget.definition.resource, widget.definition.id(item));
       if (!mounted) return;
       await _load();
     } on ApiException catch (exception) {
@@ -206,7 +210,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     }
   }
 
-  void _showError(ApiException exception) => ScaffoldMessenger.of(context).showSnackBar(
+  void _showError(ApiException exception) =>
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(exception.isForbidden
               ? 'You are not authorized to perform this action.'
@@ -229,9 +234,11 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(widget.definition.title, style: Theme.of(context).textTheme.headlineMedium),
+        Text(widget.definition.title,
+            style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 6),
-        Text('Create, update, and remove ${widget.definition.title.toLowerCase()}.'),
+        Text(
+            'Create, update, and remove ${widget.definition.title.toLowerCase()}.'),
         const SizedBox(height: 20),
         Row(children: [
           Expanded(
@@ -269,7 +276,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                 builder: (context, constraints) => SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(
-                    width: constraints.maxWidth < 720 ? 720 : constraints.maxWidth,
+                    width:
+                        constraints.maxWidth < 720 ? 720 : constraints.maxWidth,
                     child: PaginatedDataTable(
                       header: Text(widget.definition.title),
                       rowsPerPage: _rowsPerPage,
@@ -321,7 +329,9 @@ class _ResourceDataSource<T> extends DataTableSource {
       index: index,
       cells: [
         ...cells(item).map((value) => DataCell(
-              Tooltip(message: value, child: Text(value, overflow: TextOverflow.ellipsis)),
+              Tooltip(
+                  message: value,
+                  child: Text(value, overflow: TextOverflow.ellipsis)),
             )),
         DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
           IconButton(
@@ -367,9 +377,10 @@ class _EntityEditor extends StatefulWidget {
 class _EntityEditorState extends State<_EntityEditor> {
   final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
-    for (final FieldSpec field
-        in widget.fields.where((field) => !field.boolean && field.optionsResource == null))
-      field.key: TextEditingController(text: widget.values[field.key]?.toString() ?? ''),
+    for (final FieldSpec field in widget.fields
+        .where((field) => !field.boolean && field.optionsResource == null))
+      field.key: TextEditingController(
+          text: widget.values[field.key]?.toString() ?? ''),
   };
   late final Map<String, bool> _booleans = {
     for (final FieldSpec field in widget.fields.where((field) => field.boolean))
@@ -446,7 +457,9 @@ class _EntityEditorState extends State<_EntityEditor> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           FilledButton(onPressed: _save, child: const Text('Save')),
         ],
       );
@@ -470,14 +483,17 @@ class _EntityEditorState extends State<_EntityEditor> {
         padding: const EdgeInsets.only(bottom: 12),
         child: Align(
           alignment: Alignment.centerLeft,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(field.label, style: Theme.of(context).textTheme.titleSmall),
             if (field.helperText != null)
-              Text(field.helperText!, style: Theme.of(context).textTheme.bodySmall),
+              Text(field.helperText!,
+                  style: Theme.of(context).textTheme.bodySmall),
             if (_loadingOptions)
               const Padding(
                 padding: EdgeInsets.only(top: 12),
-                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator()),
+                child: SizedBox(
+                    width: 20, height: 20, child: CircularProgressIndicator()),
               )
             else if (_optionsError != null)
               Text(
@@ -514,12 +530,13 @@ class _EntityEditorState extends State<_EntityEditor> {
         controller: _controllers[field.key],
         readOnly: field.readOnlyWhenEditing && !widget.isCreating,
         maxLines: field.multiline ? 3 : 1,
-        decoration: InputDecoration(labelText: field.label, helperText: field.helperText),
+        decoration: InputDecoration(
+            labelText: field.label, helperText: field.helperText),
         validator: (value) =>
-                (field.required || (field.requiredOnCreate && widget.isCreating)) &&
+            (field.required || (field.requiredOnCreate && widget.isCreating)) &&
                     (value == null || value.trim().isEmpty)
-            ? '${field.label} is required.'
-            : null,
+                ? '${field.label} is required.'
+                : null,
       ),
     );
   }
@@ -527,7 +544,8 @@ class _EntityEditorState extends State<_EntityEditor> {
   void _save() {
     if (!_formKey.currentState!.validate()) return;
     Navigator.pop(context, <String, dynamic>{
-      for (final MapEntry<String, TextEditingController> entry in _controllers.entries)
+      for (final MapEntry<String, TextEditingController> entry
+          in _controllers.entries)
         entry.key: entry.value.text.trim(),
       for (final MapEntry<String, Set<String>> entry in _selections.entries)
         entry.key: entry.value.join(','),

@@ -45,6 +45,8 @@ example bootstrap password or JWT signing key outside local development.
 | `POST /api/v1/auth/refresh` | Rotate a persisted refresh token |
 | `POST /api/v1/auth/logout` | Revoke a refresh token |
 | `POST /api/v1/auth/change-password` | Change password and revoke sessions |
+| `GET/PATCH /api/v1/me/preferences` | Authenticated user's versioned desktop preferences |
+| `POST /api/v1/me/preferences/reset` | Restore the authenticated user's preference defaults |
 | `GET /api/v1/dashboard` | Protected platform administration summary |
 | `/api/v1/users` | Protected user CRUD and role/firm assignment |
 | `/api/v1/roles` | Protected custom/system role CRUD and permission assignment |
@@ -54,8 +56,9 @@ example bootstrap password or JWT signing key outside local development.
 | `/openapi.json` | OpenAPI document |
 
 All administration routes require a bearer access token for the platform
-administrator. Login and refresh endpoints are public. Responses use the
-standard envelope:
+administrator, except `/api/v1/me/preferences`, which every authenticated user
+may manage for themselves. Login and refresh endpoints are public. Responses use
+the standard envelope:
 
 ```json
 {
@@ -129,8 +132,12 @@ The initial identity migration creates these tables:
 All shared entities include UUID and audit fields, soft-deletion state, and a
 version field for future optimistic concurrency handling.
 
-The migration seeds `platform-admin@agency.local` and its `PlatformAdmin`
-designation with a non-usable `*` hash. On the first local-development login,
+The migrations seed `platform-admin@agency.local` and its `PlatformAdmin`
+designation with a non-usable `*` hash, plus the initial system RBAC roles,
+permissions, and role-permission mappings. System roles and permissions are
+protected from modification or deletion; custom roles and permissions remain
+administrator-managed. The reserved `SUPPORT_ADMIN` role is not returned by
+role-list endpoints. On the first local-development login,
 the explicit `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` is exchanged for an Argon2 hash
 and the user is forced to change it. Development defaults to
 `Local-Development-Only1!` only when no environment value is supplied; staging
@@ -145,6 +152,11 @@ All `/api/v1/users`, `/api/v1/roles`, `/api/v1/permissions`, and `/api/v1/firms`
 endpoints require a platform-admin access token. List endpoints use only
 whitelisted `page`, `page_size`, `search`, `sort_by`, and `sort_direction`
 query parameters. Every mutation emits an `audit_logs` record.
+
+Every authenticated user can manage a versioned preference document through
+`GET /api/v1/me/preferences`, `PATCH /api/v1/me/preferences`, and
+`POST /api/v1/me/preferences/reset`. The document stores display, formatting,
+firm, landing-page, paging, notification, and dashboard-layout preferences.
 
 Firm membership replacement locks the owning user and its membership rows.
 PostgreSQL 17 additionally enforces at most one active primary firm through

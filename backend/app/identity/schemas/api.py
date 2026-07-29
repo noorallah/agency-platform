@@ -1,6 +1,7 @@
 """Request and response contracts for identity administration APIs."""
 
 from datetime import date, datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +40,51 @@ class TokenResponse(ApiSchema):
     refresh_token: str
     token_type: str = "bearer"
     must_change_password: bool
+
+
+ThemeName = Literal["light", "dark", "blue", "green", "high_contrast"]
+DateFormat = Literal["yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy"]
+TimeFormat = Literal["12h", "24h"]
+NumberFormat = Literal["1,234.56", "1.234,56"]
+CurrencyFormat = Literal["symbol", "code"]
+
+
+class UserPreferencesUpdate(ApiSchema):
+    """Mutable, versioned preferences owned by the authenticated user."""
+
+    preferences_version: int | None = Field(default=None, ge=1, le=1000)
+    preferred_theme: ThemeName | None = None
+    language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}(-[A-Z]{2})?$")
+    date_format: DateFormat | None = None
+    time_format: TimeFormat | None = None
+    number_format: NumberFormat | None = None
+    currency_format: CurrencyFormat | None = None
+    default_firm_id: UUID | None = None
+    default_landing_page: str | None = Field(
+        default=None, min_length=1, max_length=100, pattern=r"^[a-z0-9._/-]+$"
+    )
+    rows_per_page: int | None = Field(default=None, ge=10, le=100)
+    notification_preferences: dict[str, Any] | None = Field(
+        default=None, max_length=100
+    )
+    dashboard_layout: dict[str, Any] | None = Field(default=None, max_length=100)
+
+
+class UserPreferencesResponse(ApiSchema):
+    """Safe response contract for the authenticated user's preferences."""
+
+    preferences_version: int
+    preferred_theme: ThemeName
+    language: str
+    date_format: DateFormat
+    time_format: TimeFormat
+    number_format: NumberFormat
+    currency_format: CurrencyFormat
+    default_firm_id: UUID | None
+    default_landing_page: str
+    rows_per_page: int
+    notification_preferences: dict[str, Any]
+    dashboard_layout: dict[str, Any]
 
 
 class UserCreate(ApiSchema):
@@ -130,6 +176,7 @@ class PermissionResponse(ApiSchema):
     name: str
     description: str | None
     is_active: bool
+    is_system: bool
 
 
 class IdentifierList(ApiSchema):

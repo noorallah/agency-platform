@@ -1,0 +1,14 @@
+{
+  "app_name": "Agency Platform",
+  "window_name": "Agency Platform Desktop",
+  "product_name": "Agency Platform",
+  "company_name": "Agency",
+  "logo_path": "",
+  "splash_path": "",
+  "version": "1.0.0",
+  "support_email": "support@example.com",
+  "support_website": "https://example.com/support",
+  "copyright": "© 2026 Agency",
+  "login_background_color": "#F6F8FC",
+  "login_accent_color": "#155EEF"
+}

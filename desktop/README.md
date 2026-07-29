@@ -15,12 +15,32 @@ flutter pub get
 flutter run -d windows --dart-define=API_BASE_URL=http://localhost:8000
 ```
 
+For Windows builds that use secure credential-vault storage, enable Windows
+Developer Mode so Flutter can create plugin symlinks:
+
+```powershell
+start ms-settings:developers
+```
+
 For Linux or macOS, replace `windows` with the appropriate device. If the API
 runs on another machine, provide its reachable URL:
 
 ```powershell
 flutter run -d windows --dart-define=API_BASE_URL=http://192.168.1.20:8000
 ```
+
+## Branding and preferences
+
+Release bundles include `config\branding.json` beside the executable. Change
+that external file to update product, company, support, logo, splash, and login
+color branding without recompiling; restart the application to load the new
+branding. Theme selection changes immediately and is synchronized to the
+authenticated user's backend preferences after sign-in.
+
+Local desktop preferences are stored separately from the OS credential-vault
+refresh token. They include remembered username, server history, cached theme,
+and window state. Choosing **Remember me** stores only the refresh token in the
+credential vault; passwords are never stored.
 
 Start the current backend separately from `..\backend`:
 
@@ -48,9 +68,8 @@ endpoints. Login/refresh responses contain `access_token`, `refresh_token`, and
 `must_change_password`.
 
 Only the refresh token is persisted, through a replaceable local token-store
-abstraction. The built-in store uses the current user's application-data
-directory. Replace it with an OS credential-vault implementation for production
-deployment; no credentials or API secrets are embedded in this repository.
+abstraction. The desktop default uses the operating system credential vault;
+no password, credential, or API secret is written to the preferences file.
 
 ## Desktop workflow
 

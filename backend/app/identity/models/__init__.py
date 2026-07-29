@@ -10,6 +10,7 @@ from app.identity.models.identity import (
     RolePermission,
     User,
     UserFirm,
+    UserPreferences,
     UserRole,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "RolePermission",
     "User",
     "UserFirm",
+    "UserPreferences",
     "UserRole",
 ]

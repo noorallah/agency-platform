@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -53,6 +54,9 @@ class User(BaseEntity):
         back_populates="user", cascade="all, delete-orphan"
     )
     login_history: Mapped[list["LoginHistory"]] = relationship(back_populates="user")
+    preferences: Mapped["UserPreferences | None"] = relationship(
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
 
 
 class PlatformAdmin(BaseEntity):
@@ -99,6 +103,9 @@ class Permission(BaseEntity):
     description: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_system: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     role_permissions: Mapped[list["RolePermission"]] = relationship(
@@ -226,3 +233,51 @@ class UserFirm(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+
+
+class UserPreferences(BaseEntity):
+    """Persist versioned, user-owned desktop and workspace preferences."""
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("users.id"), unique=True, nullable=False
+    )
+    preferences_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    preferred_theme: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="light", server_default="light"
+    )
+    language: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="en", server_default="en"
+    )
+    date_format: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="yyyy-MM-dd", server_default="yyyy-MM-dd"
+    )
+    time_format: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="24h", server_default="24h"
+    )
+    number_format: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="1,234.56", server_default="1,234.56"
+    )
+    currency_format: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="symbol", server_default="symbol"
+    )
+    default_firm_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("firms.id")
+    )
+    default_landing_page: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="dashboard", server_default="dashboard"
+    )
+    rows_per_page: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=20, server_default="20"
+    )
+    notification_preferences: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+    dashboard_layout: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
+
+    user: Mapped[User] = relationship(back_populates="preferences")

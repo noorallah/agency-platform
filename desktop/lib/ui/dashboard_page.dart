@@ -28,13 +28,19 @@ class _DashboardPageState extends State<DashboardPage> {
     });
     try {
       final Json response = await widget.api.dashboard();
-      if (mounted) setState(() => _data = response);
+      if (mounted) {
+        setState(() => _data = response);
+      }
     } on ApiException catch (exception) {
-      if (mounted) setState(() => _error = exception.isForbidden
-          ? 'You are not authorized to view the dashboard.'
-          : exception.message);
+      if (mounted) {
+        setState(() => _error = exception.isForbidden
+            ? 'You are not authorized to view the dashboard.'
+            : exception.message);
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -104,7 +110,8 @@ class _MetricCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(children: [
-              Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
+              Icon(icon,
+                  size: 32, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 16),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(value, style: Theme.of(context).textTheme.headlineSmall),

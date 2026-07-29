@@ -16,6 +16,8 @@ from app.identity.schemas.api import (
     UserFirmAssignment,
     UserFirmAssignments,
     UserFirmResponse,
+    UserPreferencesResponse,
+    UserPreferencesUpdate,
     UserResponse,
     UserUpdate,
 )
@@ -60,6 +62,8 @@ __all__ = [
     "UserFirmAssignment",
     "UserFirmAssignments",
     "UserFirmResponse",
+    "UserPreferencesResponse",
+    "UserPreferencesUpdate",
     "UserResponse",
     "UserUpdate",
 ]

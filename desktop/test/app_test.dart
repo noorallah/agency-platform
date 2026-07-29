@@ -20,7 +20,8 @@ void main() {
     expect(AppSection.permissions.label, 'Permission Management');
   });
 
-  testWidgets('restored signed-out session opens login navigation', (tester) async {
+  testWidgets('restored signed-out session opens login navigation',
+      (tester) async {
     final SessionController session = SessionController(
       baseUrl: 'http://localhost:8000',
       tokenStore: _MemoryTokenStore(),

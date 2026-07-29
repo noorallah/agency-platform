@@ -23,7 +23,7 @@ class ApiResponse[PayloadT](BaseModel):
 
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     success: bool = True
     data: PayloadT
@@ -42,7 +42,7 @@ class ApiError(BaseModel):
 
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     code: str
     message: str
@@ -57,7 +57,7 @@ class ErrorResponse(BaseModel):
 
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     success: bool = False
     error: ApiError = Field(...)
@@ -68,7 +68,7 @@ class ErrorResponse(BaseModel):
 class ValidationErrorDetail(BaseModel):
     """Describe one invalid request field."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     field: str
     message: str
@@ -84,7 +84,7 @@ class ValidationErrorResponse(ErrorResponse):
 class PaginationMetadata(BaseModel):
     """Describe pagination state for a collection response."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     page: int = Field(ge=1)
     page_size: int = Field(ge=1)
@@ -95,7 +95,7 @@ class PaginationMetadata(BaseModel):
 class PaginatedResponse[PayloadT](BaseModel):
     """Represent a successful, paginated collection response."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_by_name=True)
 
     success: bool = True
     data: list[PayloadT]

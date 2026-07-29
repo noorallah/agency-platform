@@ -2,6 +2,7 @@
 
 from contextlib import suppress
 from datetime import date
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, select, text
@@ -21,10 +22,22 @@ from app.identity.models import (
     RolePermission,
     User,
     UserFirm,
+    UserPreferences,
     UserRole,
 )
-from app.identity.schemas import UserFirmAssignment
+from app.identity.schemas import (
+    PermissionUpdate,
+    UserFirmAssignment,
+    UserPreferencesUpdate,
+)
 from app.identity.services import IdentityService
+from app.identity.system_seed import (
+    HIDDEN_SYSTEM_ROLE_CODES,
+    ROLE_PERMISSION_CODES,
+    SYSTEM_PERMISSION_CODES,
+    SYSTEM_ROLE_CODES,
+    seed_system_rbac,
+)
 
 
 def _session() -> Session:
@@ -66,6 +79,63 @@ def test_bootstrap_login_rotates_sentinel_password_and_forces_change() -> None:
     assert user.password_hash != "*"
     assert response.access_token
     assert session.query(RefreshToken).count() == 1
+
+
+def test_system_rbac_seed_is_idempotent_and_creates_default_mappings() -> None:
+    """Ensure installation seeding preserves one complete system RBAC model."""
+    session = _session()
+
+    seed_system_rbac(session)
+    session.commit()
+    seed_system_rbac(session)
+    session.commit()
+
+    roles = session.scalars(select(Role)).all()
+    permissions = session.scalars(select(Permission)).all()
+    platform_admin = next(role for role in roles if role.code == "PLATFORM_ADMIN")
+    platform_assignments = session.scalars(
+        select(RolePermission).where(RolePermission.role_id == platform_admin.id)
+    ).all()
+    role_codes = {role.id: role.code for role in roles}
+    permission_codes = {permission.id: permission.code for permission in permissions}
+    assignments_by_role: dict[str, set[str]] = {role.code: set() for role in roles}
+    for assignment in session.scalars(select(RolePermission)):
+        assignments_by_role[role_codes[assignment.role_id]].add(
+            permission_codes[assignment.permission_id]
+        )
+
+    assert {role.code for role in roles} == set(SYSTEM_ROLE_CODES)
+    assert {permission.code for permission in permissions} == set(
+        SYSTEM_PERMISSION_CODES
+    )
+    assert all(role.is_system for role in roles)
+    assert all(permission.is_system for permission in permissions)
+    assert len(platform_assignments) == len(ROLE_PERMISSION_CODES["PLATFORM_ADMIN"])
+    assert assignments_by_role == ROLE_PERMISSION_CODES
+    visible_roles, visible_total = IdentityService(session, _settings()).list_roles(
+        1, 20, None, "code", False
+    )
+    assert {role.code for role in visible_roles}.isdisjoint(HIDDEN_SYSTEM_ROLE_CODES)
+    assert visible_total == len(SYSTEM_ROLE_CODES) - len(HIDDEN_SYSTEM_ROLE_CODES)
+
+
+def test_system_permissions_cannot_be_modified_or_deleted() -> None:
+    """Ensure seeded permissions retain stable system identifiers."""
+    session = _session()
+    seed_system_rbac(session)
+    session.commit()
+    permission = session.scalar(
+        select(Permission).where(Permission.code == "PLATFORM_VIEW")
+    )
+    assert permission is not None
+    service = IdentityService(session, _settings())
+
+    with pytest.raises(BusinessRuleError, match="cannot be modified"):
+        service.update_permission(
+            permission.id, PermissionUpdate(name="Changed"), uuid4()
+        )
+    with pytest.raises(BusinessRuleError, match="cannot be deleted"):
+        service.delete_permission(permission.id, uuid4())
 
 
 def test_failed_logins_lock_account_at_configured_threshold() -> None:
@@ -333,3 +403,70 @@ def test_primary_switch_respects_partial_unique_index() -> None:
     }
     assert memberships[firm_one.id].is_primary is False
     assert memberships[firm_two.id].is_primary is True
+
+
+def test_user_preferences_are_versioned_and_require_active_firm_membership() -> None:
+    """Ensure self-managed preferences default safely and validate default firms."""
+    session = _session()
+    user = User(
+        email="preferences@example.com",
+        full_name="Preferences User",
+        password_hash=PasswordSecurity().hash_password("Secure-Passphrase1!"),
+    )
+    active_firm = Firm(
+        name="Active Firm",
+        code="ACTIVE_PREF_FIRM",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    inactive_firm = Firm(
+        name="Inactive Firm",
+        code="INACTIVE_PREF_FIRM",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add_all([user, active_firm, inactive_firm])
+    session.commit()
+    service = IdentityService(session, _settings())
+
+    defaults = service.get_user_preferences(user.id)
+    assert defaults.preferences_version == 1
+    assert defaults.preferred_theme == "light"
+    assert session.query(UserPreferences).count() == 1
+
+    service.set_user_firms(
+        user.id,
+        [
+            UserFirmAssignment(
+                firm_id=active_firm.id, is_primary=True, is_active=True
+            ),
+            UserFirmAssignment(
+                firm_id=inactive_firm.id, is_primary=False, is_active=False
+            ),
+        ],
+        user.id,
+    )
+    updated = service.update_user_preferences(
+        user.id,
+        UserPreferencesUpdate(
+            preferred_theme="green",
+            default_firm_id=active_firm.id,
+            rows_per_page=50,
+            dashboard_layout={"widgets": ["summary"]},
+        ),
+    )
+    assert updated.preferred_theme == "green"
+    assert updated.default_firm_id == active_firm.id
+    assert updated.rows_per_page == 50
+
+    with pytest.raises(BusinessRuleError, match="active firm membership"):
+        service.update_user_preferences(
+            user.id, UserPreferencesUpdate(default_firm_id=inactive_firm.id)
+        )
+
+    reset = service.reset_user_preferences(user.id)
+    assert reset.preferred_theme == "light"
+    assert reset.default_firm_id is None
+    assert reset.dashboard_layout == {}

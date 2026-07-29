@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -32,6 +33,7 @@ from app.identity.models import (
     RolePermission,
     User,
     UserFirm,
+    UserPreferences,
     UserRole,
 )
 from app.identity.schemas.api import (
@@ -42,8 +44,10 @@ from app.identity.schemas.api import (
     TokenResponse,
     UserCreate,
     UserFirmAssignment,
+    UserPreferencesUpdate,
     UserUpdate,
 )
+from app.identity.system_seed import HIDDEN_SYSTEM_ROLE_CODES
 
 
 class IdentityService:
@@ -250,6 +254,103 @@ class IdentityService:
         )
         self._session.commit()
 
+    def get_user_preferences(self, user_id: UUID) -> UserPreferences:
+        """Return a user's preferences, creating the current default document lazily."""
+        self._get_user(user_id)
+        preferences = self._session.scalar(
+            select(UserPreferences).where(
+                UserPreferences.user_id == user_id,
+                UserPreferences.is_deleted.is_(False),
+            )
+        )
+        if preferences is not None:
+            return preferences
+        preferences = UserPreferences(
+            user_id=user_id,
+            created_by=user_id,
+            updated_by=user_id,
+        )
+        self._session.add(preferences)
+        try:
+            self._session.commit()
+        except IntegrityError:
+            self._session.rollback()
+            preferences = self._session.scalar(
+                select(UserPreferences).where(
+                    UserPreferences.user_id == user_id,
+                    UserPreferences.is_deleted.is_(False),
+                )
+            )
+            if preferences is None:
+                raise
+        return preferences
+
+    def update_user_preferences(
+        self, user_id: UUID, data: UserPreferencesUpdate
+    ) -> UserPreferences:
+        """Apply a partial update to the authenticated user's preferences."""
+        preferences = self.get_user_preferences(user_id)
+        changes = data.model_dump(exclude_unset=True)
+        if "default_firm_id" in changes and changes["default_firm_id"] is not None:
+            firm_id = cast(UUID, changes["default_firm_id"])
+            membership = self._session.scalar(
+                select(UserFirm.id)
+                .join(Firm, Firm.id == UserFirm.firm_id)
+                .where(
+                    UserFirm.user_id == user_id,
+                    UserFirm.firm_id == firm_id,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                    Firm.is_active.is_(True),
+                    Firm.is_deleted.is_(False),
+                )
+            )
+            if membership is None:
+                raise BusinessRuleError(
+                    "Default firm must be an active firm membership for this user."
+                )
+        for field, value in changes.items():
+            setattr(preferences, field, value)
+        preferences.updated_by = user_id
+        record_audit(
+            self._session,
+            action="user_preferences.updated",
+            entity_type="user_preferences",
+            entity_id=preferences.id,
+            actor_id=user_id,
+        )
+        self._session.commit()
+        return preferences
+
+    def reset_user_preferences(self, user_id: UUID) -> UserPreferences:
+        """Replace preferences with the current version's defaults."""
+        preferences = self.get_user_preferences(user_id)
+        for field, value in {
+            "preferences_version": 1,
+            "preferred_theme": "light",
+            "language": "en",
+            "date_format": "yyyy-MM-dd",
+            "time_format": "24h",
+            "number_format": "1,234.56",
+            "currency_format": "symbol",
+            "default_firm_id": None,
+            "default_landing_page": "dashboard",
+            "rows_per_page": 20,
+            "notification_preferences": {},
+            "dashboard_layout": {},
+        }.items():
+            setattr(preferences, field, value)
+        preferences.updated_by = user_id
+        record_audit(
+            self._session,
+            action="user_preferences.reset",
+            entity_type="user_preferences",
+            entity_id=preferences.id,
+            actor_id=user_id,
+        )
+        self._session.commit()
+        return preferences
+
     def create_user(self, data: UserCreate, actor_id: UUID) -> User:
         """Provision a user with a policy-compliant initial password."""
         email = validate_email(data.email)
@@ -410,8 +511,14 @@ class IdentityService:
     ) -> tuple[list[Role], int]:
         """Return a paginated, searchable role collection."""
         columns = {"code": Role.code, "name": Role.name, "created_at": Role.created_at}
-        statement = select(Role).where(Role.is_deleted.is_(False))
-        count = select(func.count()).select_from(Role).where(Role.is_deleted.is_(False))
+        statement = select(Role).where(
+            Role.is_deleted.is_(False),
+            Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
+        )
+        count = select(func.count()).select_from(Role).where(
+            Role.is_deleted.is_(False),
+            Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
+        )
         if search:
             condition = or_(
                 Role.code.ilike(f"%{search.strip()}%"),
@@ -435,7 +542,10 @@ class IdentityService:
         ):
             raise ConflictError("A permission with this code already exists.")
         permission = Permission(
-            **data.model_dump(), created_by=actor_id, updated_by=actor_id
+            **data.model_dump(),
+            is_system=False,
+            created_by=actor_id,
+            updated_by=actor_id,
         )
         self._session.add(permission)
         self._session.flush()
@@ -454,6 +564,8 @@ class IdentityService:
     ) -> Permission:
         """Update a permission capability."""
         permission = self._get_permission(permission_id)
+        if permission.is_system:
+            raise BusinessRuleError("System permissions cannot be modified.")
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(permission, field, value)
         permission.updated_by = actor_id
@@ -470,6 +582,8 @@ class IdentityService:
     def delete_permission(self, permission_id: UUID, actor_id: UUID) -> None:
         """Soft delete a permission not used by active roles."""
         permission = self._get_permission(permission_id)
+        if permission.is_system:
+            raise BusinessRuleError("System permissions cannot be deleted.")
         assigned = self._session.scalar(
             select(RolePermission.id).where(
                 RolePermission.permission_id == permission.id,

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/entities.dart';
+import '../preferences/user_preferences.dart';
 
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode});
@@ -76,7 +77,8 @@ class ApiClient {
     );
   }
 
-  Future<void> changePassword(String currentPassword, String newPassword) async {
+  Future<void> changePassword(
+      String currentPassword, String newPassword) async {
     await request(
       'POST',
       '/api/v1/auth/change-password',
@@ -85,6 +87,25 @@ class ApiClient {
         'new_password': newPassword,
       },
     );
+  }
+
+  Future<UserPreferences> getUserPreferences() async {
+    final Json response = await request('GET', '/api/v1/me/preferences');
+    return UserPreferences.fromJson(_unwrapMap(response));
+  }
+
+  Future<UserPreferences> updateUserPreferences(Json changes) async {
+    final Json response = await request(
+      'PATCH',
+      '/api/v1/me/preferences',
+      body: changes,
+    );
+    return UserPreferences.fromJson(_unwrapMap(response));
+  }
+
+  Future<UserPreferences> resetUserPreferences() async {
+    final Json response = await request('POST', '/api/v1/me/preferences/reset');
+    return UserPreferences.fromJson(_unwrapMap(response));
   }
 
   Future<Json> dashboard() async => _unwrapMap(
@@ -155,6 +176,7 @@ class ApiClient {
           .toList(),
     };
   }
+
   Future<void> setRolePermissions(String roleId, List<String> ids) =>
       request('PUT', '/api/v1/roles/$roleId/permissions', body: {'ids': ids});
 
@@ -179,8 +201,7 @@ class ApiClient {
     return {
       'role_ids': stringList(roles['ids']).join(','),
       'firm_ids': firmIds.join(','),
-      'primary_firm_id':
-          primaryFirmIds.isEmpty ? '' : primaryFirmIds.first,
+      'primary_firm_id': primaryFirmIds.isEmpty ? '' : primaryFirmIds.first,
     };
   }
 
@@ -194,12 +215,8 @@ class ApiClient {
   }
 
   Future<PagedResult<T>> _list<T>(
-    String path,
-    T Function(Json) parser,
-    int page,
-    String search,
-    {int pageSize = 20},
-  ) async {
+      String path, T Function(Json) parser, int page, String search,
+      {int pageSize = 20}) async {
     final query = {
       'page': '$page',
       'page_size': '$pageSize',
@@ -257,7 +274,8 @@ class ApiClient {
       final HttpClientResponse response =
           await httpRequest.close().timeout(const Duration(seconds: 30));
       final String text = await utf8.decoder.bind(response).join();
-      final dynamic decoded = text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
+      final dynamic decoded =
+          text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
       final Json payload = decoded is Map<String, dynamic>
           ? decoded
           : <String, dynamic>{'data': decoded};
@@ -265,7 +283,7 @@ class ApiClient {
           authenticated &&
           !retrying &&
           await refreshAccessToken()) {
-        return this.request(
+        return request(
           method,
           path,
           body: body,
