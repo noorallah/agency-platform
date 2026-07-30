@@ -46,6 +46,7 @@ example bootstrap password or JWT signing key outside local development.
 | `POST /api/v1/auth/logout` | Revoke a refresh token |
 | `POST /api/v1/auth/change-password` | Change password and revoke sessions |
 | `GET/PATCH /api/v1/me/preferences` | Authenticated user's versioned desktop preferences |
+| `GET /api/v1/me/firms` | Active firms assigned to the authenticated user |
 | `POST /api/v1/me/preferences/reset` | Restore the authenticated user's preference defaults |
 | `GET /api/v1/dashboard` | Protected platform administration summary |
 | `/api/v1/users` | Protected user CRUD and role/firm assignment |

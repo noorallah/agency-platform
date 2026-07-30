@@ -209,6 +209,15 @@ class UserFirmResponse(ApiSchema):
     is_active: bool
 
 
+class MyFirmResponse(ApiSchema):
+    """Firm identity and membership metadata available to the current user."""
+
+    id: UUID
+    code: str
+    name: str
+    is_primary: bool
+
+
 class FinancialYearStart(ApiSchema):
     """A date value retained for generated API documentation reuse."""
 

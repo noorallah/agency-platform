@@ -1,7 +1,7 @@
 # Alembic migrations
 
 Alembic owns the backend database schema. The current migration head is
-`20260728_0005`.
+`20260730_0008`.
 
 Run these commands from `backend`:
 
@@ -12,7 +12,10 @@ uv run python -m alembic upgrade head
 ```
 
 The Phase 5 migrations create identity, RBAC, firms, user-firm assignments,
-audit logs, and PostgreSQL's active-primary-firm constraint.
+audit logs, user preferences, and PostgreSQL's active-primary-firm constraint.
+
+`20260730_0008_user_preferences_timestamps` repairs database-level timestamp
+defaults for user preferences so the table follows the shared entity contract.
 
 `20260728_0004_ensure_phase5_identity_schema` inspects a live database to
 repair installations created from an incomplete early Phase 5 revision. It

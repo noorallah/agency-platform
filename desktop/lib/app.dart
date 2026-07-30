@@ -4,6 +4,7 @@ import 'core/auth/session_controller.dart';
 import 'core/branding/branding_config.dart';
 import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/user_preferences.dart';
+import 'core/security/permission_service.dart';
 import 'core/theme/theme_manager.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
@@ -17,11 +18,13 @@ class AgencyApp extends StatefulWidget {
     this.session,
     this.preferences,
     this.branding,
+    this.permissions,
   });
 
   final SessionController? session;
   final DesktopPreferencesService? preferences;
   final BrandingConfig? branding;
+  final PermissionService? permissions;
 
   @override
   State<AgencyApp> createState() => _AgencyAppState();
@@ -33,6 +36,8 @@ class _AgencyAppState extends State<AgencyApp> {
   late final BrandingConfig _branding =
       widget.branding ?? BrandingConfig.defaults;
   late final ThemeManager _themes = ThemeManager(_preferences);
+  late final PermissionService _permissions =
+      widget.permissions ?? PermissionService();
   late final SessionController _session = widget.session ??
       SessionController(
         baseUrl: _preferences.current.serverUrl.isEmpty ||
@@ -41,11 +46,14 @@ class _AgencyAppState extends State<AgencyApp> {
             : _preferences.current.serverUrl,
         preferences: _preferences,
         onPreferencesSynchronized: _applyServerPreferences,
+        onAccessTokenChanged: _permissions.applyAccessToken,
       );
 
   @override
   void initState() {
     super.initState();
+    _session.addListener(_synchronizePermissions);
+    _synchronizePermissions();
     _themes.bindServerSync((theme) {
       if (_session.status == SessionStatus.authenticated ||
           _session.status == SessionStatus.requiresPasswordChange) {
@@ -59,9 +67,13 @@ class _AgencyAppState extends State<AgencyApp> {
   Future<void> _applyServerPreferences(UserPreferences preferences) =>
       _themes.applyServerTheme(preferences.preferredTheme);
 
+  void _synchronizePermissions() =>
+      _permissions.applyAccessToken(_session.accessToken);
+
   @override
   void dispose() {
     _themes.dispose();
+    _session.removeListener(_synchronizePermissions);
     _session.dispose();
     super.dispose();
   }
@@ -106,6 +118,7 @@ class _AgencyAppState extends State<AgencyApp> {
                     session: _session,
                     branding: _branding,
                     themes: _themes,
+                    permissions: _permissions,
                   );
               }
             },

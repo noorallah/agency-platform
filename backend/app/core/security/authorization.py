@@ -101,7 +101,29 @@ def require_permission(*required_permissions: str) -> Callable[[Principal], Prin
     def dependency(
         principal: Principal = Depends(get_current_principal),
     ) -> Principal:
-        if not required.issubset(principal.permissions):
+        if _requires_password_change(principal) or not required.issubset(
+            principal.permissions
+        ):
+            raise AuthorizationError()
+        return principal
+
+    return dependency
+
+
+def require_any_permission(
+    *required_permissions: str,
+) -> Callable[[Principal], Principal]:
+    """Return a dependency requiring at least one declared permission."""
+    required = frozenset(required_permissions)
+    if not required:
+        raise ValueError("At least one permission is required.")
+
+    def dependency(
+        principal: Principal = Depends(get_current_principal),
+    ) -> Principal:
+        if _requires_password_change(principal) or principal.permissions.isdisjoint(
+            required
+        ):
             raise AuthorizationError()
         return principal
 
@@ -114,6 +136,12 @@ def _parse_subject(subject: str) -> UUID | str:
         return UUID(subject)
     except ValueError:
         return subject
+
+
+def _requires_password_change(principal: Principal) -> bool:
+    """Return whether the token is restricted to password-change operations."""
+    extra_claims = principal.claims.model_extra or {}
+    return bool(extra_claims.get("password_change_required"))
 
 
 def _string_claims(value: object) -> tuple[str, ...]:

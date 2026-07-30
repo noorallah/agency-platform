@@ -18,6 +18,25 @@ class AssignmentOption {
   final String id, label;
 }
 
+class AssignedFirm {
+  const AssignedFirm({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.isPrimary,
+  });
+
+  final String id, code, name;
+  final bool isPrimary;
+
+  factory AssignedFirm.fromJson(Json json) => AssignedFirm(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        isPrimary: boolValue(json['is_primary']),
+      );
+}
+
 class Firm {
   const Firm({
     required this.id,

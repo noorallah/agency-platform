@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
+import '../../models/entities.dart';
 import 'refresh_token_store.dart';
 
 enum SessionStatus {
@@ -21,10 +24,14 @@ class SessionController extends ChangeNotifier {
     DesktopPreferencesService? preferences,
     Future<void> Function(UserPreferences preferences)?
         onPreferencesSynchronized,
+    void Function(String? accessToken)? onAccessTokenChanged,
+    Duration sessionTimeout = const Duration(minutes: 30),
   })  : _tokenStore = tokenStore ?? MigratingRefreshTokenStore(),
         _preferences = preferences ?? DesktopPreferencesService(),
         _baseUrl = baseUrl,
-        _onPreferencesSynchronized = onPreferencesSynchronized {
+        _onPreferencesSynchronized = onPreferencesSynchronized,
+        _onAccessTokenChanged = onAccessTokenChanged,
+        _sessionTimeout = sessionTimeout {
     _rememberMe = _preferences.current.rememberMe;
     _createApiClient();
   }
@@ -34,6 +41,8 @@ class SessionController extends ChangeNotifier {
   final DesktopPreferencesService _preferences;
   final Future<void> Function(UserPreferences preferences)?
       _onPreferencesSynchronized;
+  final void Function(String? accessToken)? _onAccessTokenChanged;
+  final Duration _sessionTimeout;
   String _baseUrl;
   String? _accessToken;
   String? _refreshToken;
@@ -41,12 +50,25 @@ class SessionController extends ChangeNotifier {
   SessionStatus _status = SessionStatus.restoring;
   String? _error;
   String? _notice;
+  String? _attemptedUsername;
   Future<bool>? _refreshOperation;
+  Timer? _sessionTimer;
+  UserPreferences? _serverPreferences;
+  List<AssignedFirm> _firms = const [];
+  AssignedFirm? _currentFirm;
+  int _firmContextVersion = 0;
 
   SessionStatus get status => _status;
   String? get error => _error;
   String? get notice => _notice;
+  String? get attemptedUsername => _attemptedUsername;
   String get baseUrl => _baseUrl;
+  String? get accessToken => _accessToken;
+  UserPreferences? get serverPreferences => _serverPreferences;
+  List<AssignedFirm> get firms => List.unmodifiable(_firms);
+  AssignedFirm? get currentFirm => _currentFirm;
+  int get firmContextVersion => _firmContextVersion;
+  String? get lastWorkspace => _preferences.current.lastWorkspace;
 
   Future<void> restore() async {
     _setStatus(SessionStatus.restoring);
@@ -84,6 +106,7 @@ class SessionController extends ChangeNotifier {
   }) async {
     _notice = null;
     _error = null;
+    _attemptedUsername = email;
     _setStatus(SessionStatus.authenticating);
     try {
       final AuthTokens tokens = await api.login(email, password);
@@ -149,6 +172,9 @@ class SessionController extends ChangeNotifier {
       }
       await _applyTokens(tokens);
       await _synchronizePreferences();
+      _setStatus(tokens.forcePasswordChange
+          ? SessionStatus.requiresPasswordChange
+          : SessionStatus.authenticated);
       return true;
     } on ApiException {
       await _clearSession();
@@ -189,16 +215,50 @@ class SessionController extends ChangeNotifier {
   Future<void> updatePreferredTheme(String theme) async {
     final UserPreferences updated =
         await api.updateUserPreferences({'preferred_theme': theme});
-    await _preferences.cacheServerPreferences(updated.toJson());
+    await _applyServerPreferences(updated);
+  }
+
+  Future<void> switchFirm(String firmId) async {
+    final AssignedFirm firm = _firms.firstWhere(
+      (item) => item.id == firmId,
+      orElse: () => throw const ApiException(
+        'The selected firm is not assigned to this user.',
+      ),
+    );
+    if (_currentFirm?.id == firm.id) return;
+    final UserPreferences updated =
+        await api.updateUserPreferences({'default_firm_id': firm.id});
+    _currentFirm = firm;
+    _firmContextVersion++;
+    await _applyServerPreferences(updated);
+    registerActivity();
+    notifyListeners();
+  }
+
+  Future<void> saveLastWorkspace(String location) =>
+      _preferences.saveLastWorkspace(location);
+
+  void registerActivity() {
+    if (_accessToken == null) return;
+    _sessionTimer?.cancel();
+    _sessionTimer = Timer(_sessionTimeout, _expireInactiveSession);
   }
 
   Future<void> _synchronizePreferences() async {
     try {
       final UserPreferences preferences = await api.getUserPreferences();
-      await _preferences.cacheServerPreferences(preferences.toJson());
-      if (_onPreferencesSynchronized != null) {
-        await _onPreferencesSynchronized(preferences);
-      }
+      final List<AssignedFirm> firms = await api.myFirms();
+      _firms = firms;
+      _currentFirm = _resolveCurrentFirm(firms, preferences.defaultFirmId);
+      final UserPreferences synchronizedPreferences =
+          _currentFirm != null && preferences.defaultFirmId != _currentFirm!.id
+              ? await api.updateUserPreferences(
+                  {'default_firm_id': _currentFirm!.id},
+                )
+              : preferences;
+      await _applyServerPreferences(synchronizedPreferences);
+      registerActivity();
+      notifyListeners();
     } on ApiException catch (exception) {
       _notice = 'Signed in, but preferences could not be synchronized: '
           '${exception.message}';
@@ -209,19 +269,27 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> _clearSession() async {
+    _sessionTimer?.cancel();
     _accessToken = null;
     _refreshToken = null;
+    _serverPreferences = null;
+    _firms = const [];
+    _currentFirm = null;
+    _firmContextVersion++;
+    _onAccessTokenChanged?.call(null);
     await _tokenStore.clear();
   }
 
   Future<void> _applyTokens(AuthTokens tokens) async {
     _accessToken = tokens.accessToken;
     _refreshToken = tokens.refreshToken;
+    _onAccessTokenChanged?.call(_accessToken);
     if (_rememberMe) {
       await _tokenStore.write(tokens.refreshToken);
     } else {
       await _tokenStore.clear();
     }
+    registerActivity();
   }
 
   void _createApiClient() {
@@ -229,11 +297,47 @@ class SessionController extends ChangeNotifier {
       baseUrl: _baseUrl,
       accessToken: () => _accessToken,
       refreshAccessToken: refreshAccessToken,
+      activeFirmId: () => _currentFirm?.id,
+      onRequest: registerActivity,
     );
+  }
+
+  Future<void> _applyServerPreferences(UserPreferences preferences) async {
+    _serverPreferences = preferences;
+    await _preferences.cacheServerPreferences(preferences.toJson());
+    if (_onPreferencesSynchronized != null) {
+      await _onPreferencesSynchronized(preferences);
+    }
+  }
+
+  AssignedFirm? _resolveCurrentFirm(
+    List<AssignedFirm> firms,
+    String? preferredFirmId,
+  ) {
+    if (firms.isEmpty) return null;
+    for (final AssignedFirm firm in firms) {
+      if (firm.id == preferredFirmId) return firm;
+    }
+    for (final AssignedFirm firm in firms) {
+      if (firm.isPrimary) return firm;
+    }
+    return firms.first;
+  }
+
+  Future<void> _expireInactiveSession() async {
+    await _clearSession();
+    _notice = 'Your session ended after a period of inactivity.';
+    _setStatus(SessionStatus.signedOut);
   }
 
   void _setStatus(SessionStatus value) {
     _status = value;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _sessionTimer?.cancel();
+    super.dispose();
   }
 }

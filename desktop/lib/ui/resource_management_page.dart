@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api/api_client.dart';
+import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
+import 'workspace/workspace_components.dart';
 
 class FieldSpec {
   const FieldSpec({
@@ -17,12 +20,30 @@ class FieldSpec {
     this.createOnly = false,
     this.editOnly = false,
     this.helperText,
+    this.section = 'General',
   });
   final String key, label;
   final bool required, requiredOnCreate, multiline, boolean;
   final String? optionsResource;
   final bool singleSelection, readOnlyWhenEditing, createOnly, editOnly;
   final String? helperText;
+  final String section;
+}
+
+enum CrudDialogMode { create, view, edit }
+
+class CrudCreateCheckpoint {
+  String? _persistedId;
+
+  String? get persistedId => _persistedId;
+
+  Future<String> persist(Future<String> Function() create) async {
+    final String? existing = _persistedId;
+    if (existing != null) return existing;
+    final String createdId = await create();
+    _persistedId = createdId;
+    return createdId;
+  }
 }
 
 class ResourceDefinition<T> {
@@ -40,13 +61,27 @@ class ResourceDefinition<T> {
     this.loadAssignments,
     this.saveAssignments,
     this.canEdit,
+    this.canCreate = true,
+    this.canDelete = true,
+    this.updateEntity = true,
+    this.description,
+    this.breadcrumbs = const [],
+    this.showFrame = true,
+    this.details,
+    this.canUseAction,
+    this.sortFields = const [],
   });
 
   final String title, resource;
   final List<String> headers;
   final List<String> Function(T) cells;
   final String Function(T) id;
-  final Future<PagedResult<T>> Function({int page, String search}) load;
+  final Future<PagedResult<T>> Function({
+    int page,
+    String search,
+    String sortBy,
+    bool descending,
+  }) load;
   final List<FieldSpec> fields;
   final Map<String, dynamic> Function(T? item) initialValues;
   final Json Function(Map<String, dynamic> values, bool isCreating) payload;
@@ -55,6 +90,12 @@ class ResourceDefinition<T> {
   final Future<void> Function(String id, Map<String, dynamic> values)?
       saveAssignments;
   final bool Function(T item)? canEdit;
+  final bool canCreate, canDelete, updateEntity, showFrame;
+  final String? description;
+  final List<String> breadcrumbs;
+  final List<DetailLine> Function(T item)? details;
+  final bool Function(ToolbarAction action, T? selected)? canUseAction;
+  final List<String?> sortFields;
 }
 
 class ResourceManagementPage<T> extends StatefulWidget {
@@ -77,8 +118,11 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   List<T> _items = const [];
   int _total = 0;
   int _page = 1;
+  String _sortBy = 'created_at';
+  bool _descending = true;
   bool _loading = true;
   String? _error;
+  T? _selected;
 
   @override
   void initState() {
@@ -102,11 +146,20 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       final PagedResult<T> result = await widget.definition.load(
         page: _page,
         search: _search.text.trim(),
+        sortBy: _sortBy,
+        descending: _descending,
       );
       if (!mounted) return;
       setState(() {
         _items = result.items;
         _total = result.total;
+        final T? previouslySelected = _selected;
+        if (previouslySelected != null &&
+            !result.items
+                .map(widget.definition.id)
+                .contains(widget.definition.id(previouslySelected))) {
+          _selected = null;
+        }
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -122,7 +175,19 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     }
   }
 
-  Future<void> _edit([T? item]) async {
+  Future<void> _openDialog(CrudDialogMode mode, [T? item]) async {
+    final ToolbarAction action = switch (mode) {
+      CrudDialogMode.create => ToolbarAction.newItem,
+      CrudDialogMode.view => ToolbarAction.view,
+      CrudDialogMode.edit => ToolbarAction.edit,
+    };
+    if (!_hasCapability(action, item) ||
+        (mode == CrudDialogMode.create && !widget.definition.canCreate) ||
+        (mode == CrudDialogMode.edit &&
+            item != null &&
+            !(widget.definition.canEdit?.call(item) ?? true))) {
+      return;
+    }
     final Map<String, dynamic> initialValues =
         widget.definition.initialValues(item);
     if (item != null && widget.definition.loadAssignments != null) {
@@ -136,70 +201,82 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       }
     }
     if (!mounted) return;
+    final CrudCreateCheckpoint createCheckpoint = CrudCreateCheckpoint();
     final Map<String, dynamic>? values = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (_) => _EntityEditor(
-        title: '${item == null ? 'Create' : 'Edit'} ${widget.definition.title}',
+      barrierDismissible: false,
+      builder: (_) => CrudWorkspaceDialog(
+        title: widget.definition.title,
         fields: widget.definition.fields,
         values: initialValues,
         api: widget.api,
-        isCreating: item == null,
+        mode: mode,
+        onSave: mode == CrudDialogMode.view
+            ? null
+            : (values) => _saveEntity(item, values, createCheckpoint),
       ),
     );
     if (values == null) return;
-    try {
-      late final String savedId;
-      if (item == null) {
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${widget.definition.title} saved.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
+
+  Future<void> _saveEntity(
+    T? item,
+    Map<String, dynamic> values,
+    CrudCreateCheckpoint createCheckpoint,
+  ) async {
+    late final String savedId;
+    if (item == null) {
+      savedId = await createCheckpoint.persist(() async {
         final Json response = await widget.api.create(
           widget.definition.resource,
           widget.definition.payload(values, true),
         );
         final dynamic data = response['data'] ?? response;
-        savedId = data is Map<String, dynamic> ? stringValue(data['id']) : '';
-      } else {
+        final String createdId =
+            data is Map<String, dynamic> ? stringValue(data['id']) : '';
+        if (createdId.isEmpty) {
+          throw const ApiException(
+            'The API did not return an identifier for the saved item.',
+          );
+        }
+        return createdId;
+      });
+    } else {
+      savedId = widget.definition.id(item);
+      if (widget.definition.updateEntity) {
         await widget.api.update(
           widget.definition.resource,
-          widget.definition.id(item),
+          savedId,
           widget.definition.payload(values, false),
           partial: widget.definition.partialUpdate,
         );
-        savedId = widget.definition.id(item);
       }
-      if (widget.definition.saveAssignments != null) {
-        if (savedId.isEmpty) {
-          throw const ApiException(
-              'The API did not return an identifier for the saved item.');
-        }
-        await widget.definition.saveAssignments!(savedId, values);
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${widget.definition.title} saved.')),
-      );
-      await _load();
-    } on ApiException catch (exception) {
-      if (mounted) _showError(exception);
+    }
+    if (widget.definition.saveAssignments != null) {
+      await widget.definition.saveAssignments!(savedId, values);
     }
   }
 
   Future<void> _delete(T item) async {
-    final bool? accepted = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Delete ${widget.definition.title}?'),
-        content: const Text('This action cannot be undone.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
-          FilledButton.tonal(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    if (!_hasCapability(ToolbarAction.delete, item) ||
+        !widget.definition.canDelete ||
+        !(widget.definition.canEdit?.call(item) ?? true)) {
+      return;
+    }
+    final bool accepted = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Delete ${widget.definition.title}?',
+      message: 'This action cannot be undone.',
+      confirmLabel: 'Delete',
     );
-    if (accepted != true) return;
+    if (!accepted) return;
     try {
       await widget.api
           .delete(widget.definition.resource, widget.definition.id(item));
@@ -210,171 +287,204 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     }
   }
 
-  void _showError(ApiException exception) =>
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(exception.isForbidden
-              ? 'You are not authorized to perform this action.'
-              : exception.message),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
+  void _showError(ApiException exception) => NotificationService.show(
+        context,
+        exception.isForbidden
+            ? 'You are not authorized to perform this action.'
+            : exception.message,
+        kind: AppNotificationKind.error,
       );
+
+  bool _hasCapability(ToolbarAction action, T? selected) =>
+      widget.definition.canUseAction?.call(action, selected) ?? true;
 
   @override
   Widget build(BuildContext context) {
-    final _ResourceDataSource<T> source = _ResourceDataSource<T>(
-      _items,
-      widget.definition.cells,
-      total: _total,
-      pageOffset: (_page - 1) * _rowsPerPage,
-      onEdit: _edit,
-      onDelete: _delete,
-      canEdit: widget.definition.canEdit,
+    final T? selected = _selected;
+    final bool canEditSelected =
+        selected != null && (widget.definition.canEdit?.call(selected) ?? true);
+    final Widget search = SearchFilterPanel(
+      controller: _search,
+      hintText: 'Search ${widget.definition.title.toLowerCase()}',
+      onSearch: (_) => _load(page: 1),
     );
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(widget.definition.title,
-            style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 6),
-        Text(
-            'Create, update, and remove ${widget.definition.title.toLowerCase()}.'),
-        const SizedBox(height: 20),
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _search,
-              onSubmitted: (_) => _load(page: 1),
-              decoration: InputDecoration(
-                hintText: 'Search ${widget.definition.title.toLowerCase()}',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  tooltip: 'Refresh',
-                  onPressed: _loading ? null : _load,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: _loading ? null : () => _edit(),
-            icon: const Icon(Icons.add),
-            label: Text('New ${widget.definition.title}'),
-          ),
-        ]),
-        const SizedBox(height: 16),
-        if (_error != null)
-          Expanded(child: _ErrorState(message: _error!, onRetry: _load))
-        else if (_loading && _items.isEmpty)
-          const Expanded(child: Center(child: CircularProgressIndicator()))
-        else
-          Expanded(
-            child: Card(
-              clipBehavior: Clip.antiAlias,
-              child: LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width:
-                        constraints.maxWidth < 720 ? 720 : constraints.maxWidth,
-                    child: PaginatedDataTable(
-                      header: Text(widget.definition.title),
-                      rowsPerPage: _rowsPerPage,
-                      initialFirstRowIndex: (_page - 1) * _rowsPerPage,
-                      showFirstLastButtons: true,
-                      availableRowsPerPage: const [_rowsPerPage],
-                      onPageChanged: (rowIndex) =>
-                          _load(page: rowIndex ~/ _rowsPerPage + 1),
-                      columns: [
-                        ...widget.definition.headers
-                            .map((header) => DataColumn(label: Text(header))),
-                        const DataColumn(label: Text('Actions')),
-                      ],
-                      source: source,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ]),
-    );
-  }
-}
-
-class _ResourceDataSource<T> extends DataTableSource {
-  _ResourceDataSource(
-    this.items,
-    this.cells, {
-    required this.total,
-    required this.pageOffset,
-    required this.onEdit,
-    required this.onDelete,
-    this.canEdit,
-  });
-  final List<T> items;
-  final List<String> Function(T) cells;
-  final int total, pageOffset;
-  final void Function(T) onEdit, onDelete;
-  final bool Function(T)? canEdit;
-
-  @override
-  DataRow? getRow(int index) {
-    final int localIndex = index - pageOffset;
-    if (localIndex < 0 || localIndex >= items.length) return null;
-    final T item = items[localIndex];
-    final bool editable = canEdit?.call(item) ?? true;
-    return DataRow.byIndex(
-      index: index,
-      cells: [
-        ...cells(item).map((value) => DataCell(
-              Tooltip(
-                  message: value,
-                  child: Text(value, overflow: TextOverflow.ellipsis)),
-            )),
-        DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
-          IconButton(
-            tooltip: editable ? 'Edit' : 'This system item cannot be edited',
-            onPressed: editable ? () => onEdit(item) : null,
-            icon: const Icon(Icons.edit_outlined),
-          ),
-          IconButton(
-            tooltip: editable ? 'Delete' : 'This system item cannot be deleted',
-            onPressed: editable ? () => onDelete(item) : null,
-            icon: const Icon(Icons.delete_outline),
-          ),
-        ])),
+    final Widget toolbar = WorkspaceToolbar(
+      actions: const [
+        ToolbarAction.newItem,
+        ToolbarAction.view,
+        ToolbarAction.edit,
+        ToolbarAction.delete,
+        ToolbarAction.refresh,
+        ToolbarAction.import,
+        ToolbarAction.export,
+        ToolbarAction.print,
+        ToolbarAction.settings,
       ],
+      isVisible: (action) =>
+          _hasCapability(action, null) &&
+          switch (action) {
+            ToolbarAction.newItem => widget.definition.canCreate,
+            ToolbarAction.view ||
+            ToolbarAction.edit ||
+            ToolbarAction.delete ||
+            ToolbarAction.refresh =>
+              true,
+            _ => false,
+          },
+      isEnabled: (action) =>
+          !_loading &&
+          _hasCapability(action, selected) &&
+          switch (action) {
+            ToolbarAction.newItem => widget.definition.canCreate,
+            ToolbarAction.view => selected != null,
+            ToolbarAction.edit => canEditSelected,
+            ToolbarAction.delete =>
+              canEditSelected && widget.definition.canDelete,
+            ToolbarAction.refresh => true,
+            _ => false,
+          },
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.newItem:
+            _openDialog(CrudDialogMode.create);
+            break;
+          case ToolbarAction.edit:
+            if (selected != null) {
+              _openDialog(CrudDialogMode.edit, selected);
+            }
+            break;
+          case ToolbarAction.delete:
+            if (selected != null) _delete(selected);
+            break;
+          case ToolbarAction.view:
+            if (selected != null) {
+              _openDialog(CrudDialogMode.view, selected);
+            }
+            break;
+          case ToolbarAction.refresh:
+            _load();
+            break;
+          case ToolbarAction.import:
+          case ToolbarAction.export:
+          case ToolbarAction.print:
+          case ToolbarAction.settings:
+            break;
+        }
+      },
     );
+    final List<DetailLine> lines = selected == null
+        ? const []
+        : (widget.definition.details?.call(selected) ??
+                List.generate(
+                  widget.definition.headers.length,
+                  (index) => DetailLine(
+                    widget.definition.headers[index],
+                    widget.definition.cells(selected)[index],
+                  ),
+                ))
+            .take(6)
+            .toList();
+    final Widget primaryContent;
+    if (_error != null) {
+      primaryContent =
+          WorkspaceErrorState(message: _error!, onRetry: () => _load());
+    } else if (_loading && _items.isEmpty) {
+      primaryContent = const WorkspaceLoadingState();
+    } else if (_items.isEmpty) {
+      primaryContent = WorkspaceEmptyState(
+        title: 'No ${widget.definition.title.toLowerCase()} found',
+        message: 'Try a different search or create a new record.',
+      );
+    } else {
+      primaryContent = EnterpriseDataGrid<T>(
+        items: _items,
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        columns: widget.definition.headers
+            .asMap()
+            .entries
+            .map(
+              (entry) => GridColumn(
+                label: entry.value,
+                onSort: entry.key < widget.definition.sortFields.length &&
+                        widget.definition.sortFields[entry.key] != null
+                    ? (ascending) {
+                        setState(() {
+                          _sortBy = widget.definition.sortFields[entry.key]!;
+                          _descending = !ascending;
+                        });
+                        _load(page: 1);
+                      }
+                    : null,
+              ),
+            )
+            .toList(),
+        id: widget.definition.id,
+        cells: widget.definition.cells,
+        selectedId: selected == null ? null : widget.definition.id(selected),
+        onSelect: (item) => setState(() => _selected = item),
+        onPageChanged: (rowIndex) => _load(page: rowIndex ~/ _rowsPerPage + 1),
+      );
+    }
+    final Widget layout = ManagementWorkspaceLayout(
+      toolbar: toolbar,
+      searchPanel: search,
+      primaryContent: primaryContent,
+      detailsPanel: QuickSummaryPanel(
+        title: selected == null
+            ? 'No ${widget.definition.title.toLowerCase()} selected'
+            : 'Selected ${widget.definition.title}',
+        lines: lines,
+        onView: selected != null && _hasCapability(ToolbarAction.view, selected)
+            ? () => _openDialog(CrudDialogMode.view, selected)
+            : null,
+        onEdit: canEditSelected && _hasCapability(ToolbarAction.edit, selected)
+            ? () => _openDialog(CrudDialogMode.edit, selected)
+            : null,
+      ),
+      statusBar: WorkspaceStatusBar(
+        total: _total,
+        selected: selected != null,
+        message: _loading ? 'Refreshing...' : null,
+      ),
+    );
+    return widget.definition.showFrame
+        ? ModuleWorkspaceFrame(
+            title: widget.definition.title,
+            description: widget.definition.description ??
+                'Create, review, and manage ${widget.definition.title.toLowerCase()}.',
+            breadcrumbs: widget.definition.breadcrumbs,
+            child: layout,
+          )
+        : layout;
   }
-
-  @override
-  bool get isRowCountApproximate => false;
-  @override
-  int get rowCount => total;
-  @override
-  int get selectedRowCount => 0;
 }
 
-class _EntityEditor extends StatefulWidget {
-  const _EntityEditor({
+class CrudWorkspaceDialog extends StatefulWidget {
+  const CrudWorkspaceDialog({
     required this.title,
     required this.fields,
     required this.values,
     required this.api,
-    required this.isCreating,
+    required this.mode,
+    required this.onSave,
+    super.key,
   });
   final String title;
   final List<FieldSpec> fields;
   final Map<String, dynamic> values;
   final ApiClient api;
-  final bool isCreating;
+  final CrudDialogMode mode;
+  final Future<void> Function(Map<String, dynamic> values)? onSave;
+
+  bool get isCreating => mode == CrudDialogMode.create;
+  bool get isReadOnly => mode == CrudDialogMode.view;
+
   @override
-  State<_EntityEditor> createState() => _EntityEditorState();
+  State<CrudWorkspaceDialog> createState() => _CrudWorkspaceDialogState();
 }
 
-class _EntityEditorState extends State<_EntityEditor> {
+class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
     for (final FieldSpec field in widget.fields
@@ -398,6 +508,16 @@ class _EntityEditorState extends State<_EntityEditor> {
   };
   bool _loadingOptions = true;
   String? _optionsError;
+  bool _saving = false;
+  String? _submitError;
+  Map<String, String> _fieldErrors = const {};
+  int _selectedSection = 0;
+
+  List<String> get _sections => widget.fields
+      .where(_isVisible)
+      .map((field) => field.section)
+      .toSet()
+      .toList();
 
   @override
   void initState() {
@@ -442,39 +562,124 @@ class _EntityEditorState extends State<_EntityEditor> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: Text(widget.title),
-        content: SizedBox(
-          width: 560,
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: widget.fields.map(_field).toList(),
+  Widget build(BuildContext context) {
+    final Size window = MediaQuery.sizeOf(context);
+    final List<String> sections = _sections;
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      constraints: const BoxConstraints(),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        key: const ValueKey('crud-workspace-dialog-surface'),
+        width: window.width * .88,
+        height: window.height * .88,
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): _close,
+            const SingleActivator(
+              LogicalKeyboardKey.keyS,
+              control: true,
+            ): _save,
+          },
+          child: Focus(
+            autofocus: true,
+            child: Column(children: [
+              CrudWorkspaceHeader(
+                title: widget.title,
+                mode: widget.mode,
+                onClose: _saving ? null : _close,
               ),
-            ),
+              if (sections.length > 1)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SegmentedButton<int>(
+                        segments: [
+                          for (var index = 0; index < sections.length; index++)
+                            ButtonSegment(
+                              value: index,
+                              label: Text(sections[index]),
+                            ),
+                        ],
+                        selected: {_selectedSection},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (selection) =>
+                            setState(() => _selectedSection = selection.first),
+                      ),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: AbsorbPointer(
+                  absorbing: _saving,
+                  child: Form(
+                    key: _formKey,
+                    child: IndexedStack(
+                      index: _selectedSection,
+                      children: [
+                        for (final String section in sections)
+                          CrudFormPage(
+                            children: [
+                              if (_submitError != null) ...[
+                                _FormErrorBanner(message: _submitError!),
+                                const SizedBox(height: 16),
+                              ],
+                              ...widget.fields
+                                  .where(
+                                    (field) =>
+                                        _isVisible(field) &&
+                                        field.section == section,
+                                  )
+                                  .map(_field),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              CrudWorkspaceFooter(
+                mode: widget.mode,
+                saving: _saving,
+                onCancel: _saving ? null : _close,
+                onSave: widget.isReadOnly || _saving ? null : _save,
+              ),
+            ]),
           ),
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          FilledButton(onPressed: _save, child: const Text('Save')),
-        ],
-      );
+      ),
+    );
+  }
+
+  bool _isVisible(FieldSpec field) =>
+      !((field.createOnly && !widget.isCreating) ||
+          (field.editOnly && widget.isCreating));
 
   Widget _field(FieldSpec field) {
-    if ((field.createOnly && !widget.isCreating) ||
-        (field.editOnly && widget.isCreating)) {
-      return const SizedBox.shrink();
-    }
     if (field.boolean) {
-      return SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: Text(field.label),
-        value: _booleans[field.key]!,
-        onChanged: (value) => setState(() => _booleans[field.key] = value),
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(field.label),
+              value: _booleans[field.key]!,
+              onChanged: widget.isReadOnly
+                  ? null
+                  : (value) => setState(() => _booleans[field.key] = value),
+            ),
+            if (_fieldErrors[field.key] != null)
+              Text(
+                _fieldErrors[field.key]!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
       );
     }
     if (field.optionsResource != null) {
@@ -507,18 +712,28 @@ class _EntityEditorState extends State<_EntityEditor> {
                     .map((option) => FilterChip(
                           label: Text(option.label),
                           selected: _selections[field.key]!.contains(option.id),
-                          onSelected: (selected) => setState(() {
-                            if (selected) {
-                              if (field.singleSelection) {
-                                _selections[field.key]!.clear();
-                              }
-                              _selections[field.key]!.add(option.id);
-                            } else {
-                              _selections[field.key]!.remove(option.id);
-                            }
-                          }),
+                          onSelected: widget.isReadOnly
+                              ? null
+                              : (selected) => setState(() {
+                                    if (selected) {
+                                      if (field.singleSelection) {
+                                        _selections[field.key]!.clear();
+                                      }
+                                      _selections[field.key]!.add(option.id);
+                                    } else {
+                                      _selections[field.key]!.remove(option.id);
+                                    }
+                                  }),
                         ))
                     .toList(),
+              ),
+            if (_fieldErrors[field.key] != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _fieldErrors[field.key]!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
           ]),
         ),
@@ -528,52 +743,206 @@ class _EntityEditorState extends State<_EntityEditor> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _controllers[field.key],
-        readOnly: field.readOnlyWhenEditing && !widget.isCreating,
+        readOnly: widget.isReadOnly ||
+            (field.readOnlyWhenEditing && !widget.isCreating),
         maxLines: field.multiline ? 3 : 1,
         decoration: InputDecoration(
             labelText: field.label, helperText: field.helperText),
         validator: (value) =>
-            (field.required || (field.requiredOnCreate && widget.isCreating)) &&
+            _fieldErrors[field.key] ??
+            ((field.required ||
+                        (field.requiredOnCreate && widget.isCreating)) &&
                     (value == null || value.trim().isEmpty)
                 ? '${field.label} is required.'
-                : null,
+                : null),
       ),
     );
   }
 
-  void _save() {
+  Future<void> _save() async {
+    if (widget.isReadOnly || _saving || widget.onSave == null) return;
     if (!_formKey.currentState!.validate()) return;
-    Navigator.pop(context, <String, dynamic>{
+    setState(() {
+      _saving = true;
+      _submitError = null;
+      _fieldErrors = const {};
+    });
+    final Map<String, dynamic> values = {
       for (final MapEntry<String, TextEditingController> entry
           in _controllers.entries)
         entry.key: entry.value.text.trim(),
       for (final MapEntry<String, Set<String>> entry in _selections.entries)
         entry.key: entry.value.join(','),
       ..._booleans,
-    });
+    };
+    try {
+      await widget.onSave!(values);
+      if (mounted) Navigator.pop(context, values);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _submitError = exception.message;
+        _fieldErrors = _validationErrors(exception.details);
+        _saving = false;
+      });
+      _formKey.currentState!.validate();
+    }
+  }
+
+  void _close() {
+    if (!_saving) Navigator.pop(context);
+  }
+
+  Map<String, String> _validationErrors(Object? details) {
+    if (details is! List) return const {};
+    final Map<String, String> errors = {};
+    for (final Object? item in details) {
+      if (item is! Map) continue;
+      final String field = item['field']?.toString() ?? '';
+      final String message = item['message']?.toString() ?? '';
+      if (field.isEmpty || message.isEmpty) continue;
+      final String key = field.split('.').last;
+      errors[key] = message;
+    }
+    return errors;
   }
 }
 
-class _ErrorState extends StatelessWidget {
-  const _ErrorState({required this.message, required this.onRetry});
-  final String message;
-  final Future<void> Function({int? page}) onRetry;
+class CrudWorkspaceHeader extends StatelessWidget {
+  const CrudWorkspaceHeader({
+    super.key,
+    required this.title,
+    required this.mode,
+    required this.onClose,
+  });
+
+  final String title;
+  final CrudDialogMode mode;
+  final VoidCallback? onClose;
+
   @override
-  Widget build(BuildContext context) => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.error_outline,
-                size: 48, color: Theme.of(context).colorScheme.error),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () => onRetry(),
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try again'),
+  Widget build(BuildContext context) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          child: Row(children: [
+            Icon(
+              switch (mode) {
+                CrudDialogMode.create => Icons.add_circle_outline,
+                CrudDialogMode.view => Icons.visibility_outlined,
+                CrudDialogMode.edit => Icons.edit_outlined,
+              },
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.headlineSmall),
+                  Text(
+                    switch (mode) {
+                      CrudDialogMode.create => 'Create new record',
+                      CrudDialogMode.view => 'View record details',
+                      CrudDialogMode.edit => 'Edit existing record',
+                    },
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Close',
+              onPressed: onClose,
+              icon: const Icon(Icons.close),
             ),
           ]),
+        ),
+      );
+}
+
+class CrudFormPage extends StatelessWidget {
+  const CrudFormPage({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: children,
+            ),
+          ),
+        ),
+      );
+}
+
+class CrudWorkspaceFooter extends StatelessWidget {
+  const CrudWorkspaceFooter({
+    super.key,
+    required this.mode,
+    required this.saving,
+    required this.onCancel,
+    required this.onSave,
+  });
+
+  final CrudDialogMode mode;
+  final bool saving;
+  final VoidCallback? onCancel;
+  final VoidCallback? onSave;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              OutlinedButton(
+                onPressed: onCancel,
+                child: Text(mode == CrudDialogMode.view ? 'Close' : 'Cancel'),
+              ),
+              if (mode != CrudDialogMode.view) ...[
+                const SizedBox(width: 12),
+                FilledButton.icon(
+                  onPressed: onSave,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(saving ? 'Saving...' : 'Save'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+}
+
+class _FormErrorBanner extends StatelessWidget {
+  const _FormErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          message,
+          style:
+              TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
         ),
       );
 }

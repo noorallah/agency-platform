@@ -515,9 +515,13 @@ class IdentityService:
             Role.is_deleted.is_(False),
             Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
         )
-        count = select(func.count()).select_from(Role).where(
-            Role.is_deleted.is_(False),
-            Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
+        count = (
+            select(func.count())
+            .select_from(Role)
+            .where(
+                Role.is_deleted.is_(False),
+                Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
+            )
         )
         if search:
             condition = or_(
@@ -791,6 +795,23 @@ class IdentityService:
             )
         )
 
+    def list_my_firms(self, user_id: UUID) -> list[tuple[UserFirm, Firm]]:
+        """Return active firms assigned to the authenticated user."""
+        self._get_user(user_id)
+        rows = self._session.execute(
+            select(UserFirm, Firm)
+            .join(Firm, Firm.id == UserFirm.firm_id)
+            .where(
+                UserFirm.user_id == user_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+                Firm.is_active.is_(True),
+                Firm.is_deleted.is_(False),
+            )
+            .order_by(UserFirm.is_primary.desc(), Firm.name.asc())
+        )
+        return [(row[0], row[1]) for row in rows]
+
     def _issue_tokens(self, user: User) -> TokenResponse:
         roles = list(
             self._session.scalars(
@@ -804,23 +825,37 @@ class IdentityService:
                 )
             )
         )
-        if self._is_platform_admin(user.id):
+        is_platform_admin = self._is_platform_admin(user.id)
+        if is_platform_admin:
             roles.append("platform_admin")
-        permissions = list(
-            self._session.scalars(
-                select(Permission.code)
-                .join(RolePermission)
-                .join(UserRole, UserRole.role_id == RolePermission.role_id)
-                .where(
-                    UserRole.user_id == user.id,
-                    UserRole.is_deleted.is_(False),
-                    RolePermission.is_deleted.is_(False),
-                    Permission.is_deleted.is_(False),
-                    Permission.is_active.is_(True),
+        if is_platform_admin:
+            permissions = list(
+                self._session.scalars(
+                    select(Permission.code).where(
+                        Permission.is_deleted.is_(False),
+                        Permission.is_active.is_(True),
+                    )
                 )
-                .distinct()
             )
-        )
+        else:
+            permissions = list(
+                self._session.scalars(
+                    select(Permission.code)
+                    .join(RolePermission)
+                    .join(Role, Role.id == RolePermission.role_id)
+                    .join(UserRole, UserRole.role_id == RolePermission.role_id)
+                    .where(
+                        UserRole.user_id == user.id,
+                        UserRole.is_deleted.is_(False),
+                        RolePermission.is_deleted.is_(False),
+                        Role.is_deleted.is_(False),
+                        Role.is_active.is_(True),
+                        Permission.is_deleted.is_(False),
+                        Permission.is_active.is_(True),
+                    )
+                    .distinct()
+                )
+            )
         claims = {
             "roles": roles,
             "permissions": permissions,

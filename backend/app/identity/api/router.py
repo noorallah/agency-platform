@@ -14,13 +14,15 @@ from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import (
     Principal,
+    require_any_permission,
     require_authenticated,
-    require_platform_admin,
+    require_permission,
 )
 from app.identity.schemas import (
     ChangePasswordRequest,
     IdentifierList,
     LoginRequest,
+    MyFirmResponse,
     PermissionCreate,
     PermissionResponse,
     PermissionUpdate,
@@ -40,7 +42,41 @@ from app.identity.schemas import (
 from app.identity.services import IdentityService
 
 router = APIRouter(prefix="/api/v1", responses=STANDARD_ERROR_RESPONSES)
-AdminPrincipal = Annotated[Principal, Depends(require_platform_admin())]
+UserViewPrincipal = Annotated[Principal, Depends(require_permission("USER_VIEW"))]
+UserCreatePrincipal = Annotated[Principal, Depends(require_permission("USER_CREATE"))]
+UserUpdatePrincipal = Annotated[Principal, Depends(require_permission("USER_UPDATE"))]
+UserDeletePrincipal = Annotated[Principal, Depends(require_permission("USER_DELETE"))]
+UserRoleAssignmentPrincipal = Annotated[
+    Principal, Depends(require_permission("ROLE_ASSIGN"))
+]
+UserRoleReadPrincipal = Annotated[
+    Principal, Depends(require_any_permission("USER_VIEW", "ROLE_VIEW"))
+]
+UserFirmAssignmentPrincipal = Annotated[
+    Principal, Depends(require_permission("USER_UPDATE", "FIRM_VIEW"))
+]
+RoleViewPrincipal = Annotated[Principal, Depends(require_permission("ROLE_VIEW"))]
+RoleCreatePrincipal = Annotated[Principal, Depends(require_permission("ROLE_CREATE"))]
+RoleUpdatePrincipal = Annotated[Principal, Depends(require_permission("ROLE_UPDATE"))]
+RoleDeletePrincipal = Annotated[Principal, Depends(require_permission("ROLE_DELETE"))]
+RolePermissionAssignmentPrincipal = Annotated[
+    Principal, Depends(require_permission("ROLE_ASSIGN"))
+]
+RolePermissionReadPrincipal = Annotated[
+    Principal, Depends(require_permission("PERMISSION_ASSIGN"))
+]
+PermissionViewPrincipal = Annotated[
+    Principal, Depends(require_permission("PERMISSION_VIEW"))
+]
+PermissionCreatePrincipal = Annotated[
+    Principal, Depends(require_permission("PERMISSION_CREATE"))
+]
+PermissionUpdatePrincipal = Annotated[
+    Principal, Depends(require_permission("PERMISSION_UPDATE"))
+]
+PermissionDeletePrincipal = Annotated[
+    Principal, Depends(require_permission("PERMISSION_DELETE"))
+]
 
 
 def _service(db: Session, settings: Settings) -> IdentityService:
@@ -164,9 +200,34 @@ def reset_my_preferences(
     return ApiResponse(data=UserPreferencesResponse.model_validate(preferences))
 
 
+@router.get(
+    "/me/firms",
+    response_model=ApiResponse[list[MyFirmResponse]],
+    tags=["User preferences"],
+)
+def list_my_firms(
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[list[MyFirmResponse]]:
+    """Return active firms assigned to the authenticated user."""
+    rows = _service(db, settings).list_my_firms(_actor_id(principal))
+    return ApiResponse(
+        data=[
+            MyFirmResponse(
+                id=firm.id,
+                code=firm.code,
+                name=firm.name,
+                is_primary=membership.is_primary,
+            )
+            for membership, firm in rows
+        ]
+    )
+
+
 @router.get("/users", response_model=PaginatedResponse[UserResponse], tags=["Users"])
 def list_users(
-    principal: AdminPrincipal,
+    principal: UserViewPrincipal,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -194,7 +255,7 @@ def list_users(
 )
 def create_user(
     data: UserCreate,
-    principal: AdminPrincipal,
+    principal: UserCreatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -208,7 +269,7 @@ def create_user(
 )
 def get_user(
     user_id: UUID,
-    principal: AdminPrincipal,
+    principal: UserViewPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -224,7 +285,7 @@ def get_user(
 def update_user(
     user_id: UUID,
     data: UserUpdate,
-    principal: AdminPrincipal,
+    principal: UserUpdatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -238,7 +299,7 @@ def update_user(
 )
 def delete_user(
     user_id: UUID,
-    principal: AdminPrincipal,
+    principal: UserDeletePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
@@ -251,7 +312,7 @@ def delete_user(
 def set_user_roles(
     user_id: UUID,
     data: IdentifierList,
-    principal: AdminPrincipal,
+    principal: UserRoleAssignmentPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
@@ -267,7 +328,7 @@ def set_user_roles(
 )
 def list_user_roles(
     user_id: UUID,
-    principal: AdminPrincipal,
+    principal: UserRoleReadPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -284,7 +345,7 @@ def list_user_roles(
 )
 def list_user_firms(
     user_id: UUID,
-    principal: AdminPrincipal,
+    principal: UserFirmAssignmentPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
@@ -301,7 +362,7 @@ def list_user_firms(
 def set_user_firms(
     user_id: UUID,
     data: UserFirmAssignments,
-    principal: AdminPrincipal,
+    principal: UserFirmAssignmentPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
@@ -314,7 +375,7 @@ def set_user_firms(
 
 @router.get("/roles", response_model=PaginatedResponse[RoleResponse], tags=["Roles"])
 def list_roles(
-    principal: AdminPrincipal,
+    principal: RoleViewPrincipal,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -342,7 +403,7 @@ def list_roles(
 )
 def create_role(
     data: RoleCreate,
-    principal: AdminPrincipal,
+    principal: RoleCreatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
@@ -359,7 +420,7 @@ def create_role(
 )
 def get_role(
     role_id: UUID,
-    principal: AdminPrincipal,
+    principal: RoleViewPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
@@ -375,7 +436,7 @@ def get_role(
 def update_role(
     role_id: UUID,
     data: RoleUpdate,
-    principal: AdminPrincipal,
+    principal: RoleUpdatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
@@ -392,7 +453,7 @@ def update_role(
 )
 def delete_role(
     role_id: UUID,
-    principal: AdminPrincipal,
+    principal: RoleDeletePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
@@ -407,7 +468,7 @@ def delete_role(
 def set_role_permissions(
     role_id: UUID,
     data: IdentifierList,
-    principal: AdminPrincipal,
+    principal: RolePermissionAssignmentPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
@@ -423,7 +484,7 @@ def set_role_permissions(
 )
 def list_role_permissions(
     role_id: UUID,
-    principal: AdminPrincipal,
+    principal: RolePermissionReadPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -441,7 +502,7 @@ def list_role_permissions(
     tags=["Permissions"],
 )
 def list_permissions(
-    principal: AdminPrincipal,
+    principal: PermissionViewPrincipal,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -469,7 +530,7 @@ def list_permissions(
 )
 def create_permission(
     data: PermissionCreate,
-    principal: AdminPrincipal,
+    principal: PermissionCreatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
@@ -488,7 +549,7 @@ def create_permission(
 )
 def get_permission(
     permission_id: UUID,
-    principal: AdminPrincipal,
+    principal: PermissionViewPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
@@ -508,7 +569,7 @@ def get_permission(
 def update_permission(
     permission_id: UUID,
     data: PermissionUpdate,
-    principal: AdminPrincipal,
+    principal: PermissionUpdatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
@@ -529,7 +590,7 @@ def update_permission(
 )
 def delete_permission(
     permission_id: UUID,
-    principal: AdminPrincipal,
+    principal: PermissionDeletePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:

@@ -3,6 +3,7 @@
 from app.core.security.authorization import (
     Principal,
     get_current_principal,
+    require_any_permission,
     require_authenticated,
     require_permission,
     require_role,
@@ -17,6 +18,7 @@ __all__ = [
     "TokenClaims",
     "get_current_principal",
     "require_authenticated",
+    "require_any_permission",
     "require_permission",
     "require_role",
 ]

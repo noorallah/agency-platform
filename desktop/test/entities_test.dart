@@ -3,6 +3,18 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('assigned firm response retains switcher membership metadata', () {
+    final AssignedFirm firm = AssignedFirm.fromJson({
+      'id': 'firm-1',
+      'code': 'ABC',
+      'name': 'ABC Traders',
+      'is_primary': true,
+    });
+
+    expect(firm.name, 'ABC Traders');
+    expect(firm.isPrimary, isTrue);
+  });
+
   test('firm parsing maps the backend FirmResponse fields', () {
     final Firm firm = Firm.fromJson({
       'id': 'firm-1',

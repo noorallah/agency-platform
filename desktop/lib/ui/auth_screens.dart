@@ -44,6 +44,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _rememberMe = stored.rememberMe;
     if (_rememberUsername) {
       _email.text = stored.cachedUsername ?? '';
+    } else {
+      _email.text = widget.session.attemptedUsername ?? '';
     }
   }
 

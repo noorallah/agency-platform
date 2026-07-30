@@ -67,8 +67,18 @@ def upgrade() -> None:
         sa.Column("rows_per_page", sa.Integer(), nullable=False, server_default="20"),
         sa.Column("notification_preferences", sa.JSON(), nullable=False),
         sa.Column("dashboard_layout", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+        ),
         sa.Column(
             "is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")
         ),

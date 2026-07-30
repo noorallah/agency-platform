@@ -6,9 +6,10 @@ import '../../models/entities.dart';
 import '../preferences/user_preferences.dart';
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.details});
   final String message;
   final int? statusCode;
+  final Object? details;
   bool get isForbidden => statusCode == HttpStatus.forbidden;
   @override
   String toString() => message;
@@ -42,12 +43,18 @@ class ApiClient {
     required this.baseUrl,
     required this.accessToken,
     required this.refreshAccessToken,
+    this.activeFirmId,
+    this.onRequest,
   });
 
   final String baseUrl;
   final String? Function() accessToken;
   final Future<bool> Function() refreshAccessToken;
+  final String? Function()? activeFirmId;
+  final void Function()? onRequest;
   final HttpClient _httpClient = HttpClient();
+  static const bool _developmentLogging =
+      bool.fromEnvironment('API_DEBUG_LOGGING', defaultValue: false);
 
   Future<AuthTokens> login(String email, String password) async {
     final response = await request(
@@ -108,18 +115,53 @@ class ApiClient {
     return UserPreferences.fromJson(_unwrapMap(response));
   }
 
+  Future<List<AssignedFirm>> myFirms() async {
+    final Json response = await request('GET', '/api/v1/me/firms');
+    final dynamic data = response['data'];
+    if (data is! List) {
+      throw const ApiException('The API returned an invalid firm list.');
+    }
+    return data
+        .whereType<Map>()
+        .map((value) => AssignedFirm.fromJson(Map<String, dynamic>.from(value)))
+        .toList();
+  }
+
   Future<Json> dashboard() async => _unwrapMap(
         await request('GET', '/api/v1/dashboard'),
       );
-  Future<PagedResult<Firm>> firms({int page = 1, String search = ''}) =>
-      _list('/api/v1/firms', Firm.fromJson, page, search);
-  Future<PagedResult<PlatformUser>> users({int page = 1, String search = ''}) =>
-      _list('/api/v1/users', PlatformUser.fromJson, page, search);
-  Future<PagedResult<Role>> roles({int page = 1, String search = ''}) =>
-      _list('/api/v1/roles', Role.fromJson, page, search);
-  Future<PagedResult<Permission>> permissions(
-          {int page = 1, String search = ''}) =>
-      _list('/api/v1/permissions', Permission.fromJson, page, search);
+  Future<PagedResult<Firm>> firms({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list('/api/v1/firms', Firm.fromJson, page, search,
+          sortBy: sortBy, descending: descending);
+  Future<PagedResult<PlatformUser>> users({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list('/api/v1/users', PlatformUser.fromJson, page, search,
+          sortBy: sortBy, descending: descending);
+  Future<PagedResult<Role>> roles({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list('/api/v1/roles', Role.fromJson, page, search,
+          sortBy: sortBy, descending: descending);
+  Future<PagedResult<Permission>> permissions({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list('/api/v1/permissions', Permission.fromJson, page, search,
+          sortBy: sortBy, descending: descending);
   Future<List<AssignmentOption>> options(String resource) async {
     final PagedResult<AssignmentOption> result = await _list(
       '/api/v1/$resource',
@@ -205,6 +247,27 @@ class ApiClient {
     };
   }
 
+  Future<Map<String, dynamic>> userFirmAssignmentValues(String userId) async {
+    final Json response = await request('GET', '/api/v1/users/$userId/firms');
+    final dynamic data = response['data'];
+    final List<dynamic> memberships = data is List ? data : const [];
+    final List<String> firmIds = memberships
+        .whereType<Map>()
+        .map((membership) => stringValue(membership['firm_id']))
+        .where((id) => id.isNotEmpty)
+        .toList();
+    final List<String> primaryFirmIds = memberships
+        .whereType<Map>()
+        .where((membership) => boolValue(membership['is_primary']))
+        .map((membership) => stringValue(membership['firm_id']))
+        .where((id) => id.isNotEmpty)
+        .toList();
+    return {
+      'firm_ids': firmIds.join(','),
+      'primary_firm_id': primaryFirmIds.isEmpty ? '' : primaryFirmIds.first,
+    };
+  }
+
   Future<Json> roleAssignmentValues(String roleId) async {
     final Json response = await request(
       'GET',
@@ -215,12 +278,20 @@ class ApiClient {
   }
 
   Future<PagedResult<T>> _list<T>(
-      String path, T Function(Json) parser, int page, String search,
-      {int pageSize = 20}) async {
+    String path,
+    T Function(Json) parser,
+    int page,
+    String search, {
+    int pageSize = 20,
+    String? sortBy,
+    bool descending = true,
+  }) async {
     final query = {
       'page': '$page',
       'page_size': '$pageSize',
       if (search.isNotEmpty) 'search': search,
+      if (sortBy != null) 'sort_by': sortBy,
+      if (sortBy != null) 'sort_direction': descending ? 'desc' : 'asc',
     };
     final Json response = await request('GET', path, query: query);
     return parsePagedResponse(response, parser);
@@ -257,6 +328,10 @@ class ApiClient {
     bool retrying = false,
   }) async {
     final Uri uri = _uri(path, query);
+    onRequest?.call();
+    if (_developmentLogging) {
+      stderr.writeln('API $method $uri');
+    }
     try {
       final HttpClientRequest httpRequest =
           await _httpClient.openUrl(method, uri);
@@ -267,12 +342,26 @@ class ApiClient {
           'Bearer ${accessToken()}',
         );
       }
+      final String? token = accessToken();
+      if (authenticated && token?.isNotEmpty == true) {
+        httpRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $token',
+        );
+      }
+      final String? firmId = activeFirmId?.call();
+      if (authenticated && firmId?.isNotEmpty == true) {
+        httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
       if (body != null) {
         httpRequest.headers.contentType = ContentType.json;
         httpRequest.write(jsonEncode(body));
       }
       final HttpClientResponse response =
           await httpRequest.close().timeout(const Duration(seconds: 30));
+      if (_developmentLogging) {
+        stderr.writeln('API ${response.statusCode} $method $uri');
+      }
       final String text = await utf8.decoder.bind(response).join();
       final dynamic decoded =
           text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
@@ -304,6 +393,7 @@ class ApiClient {
               ? 'Request failed (${response.statusCode}).'
               : message,
           statusCode: response.statusCode,
+          details: error is Map<String, dynamic> ? error['details'] : null,
         );
       }
       return payload;

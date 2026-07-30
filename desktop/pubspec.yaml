@@ -1,5 +1,5 @@
 name: agency_desktop
-description: Agency Platform Phase 5 desktop administration client.
+description: Agency Platform reusable Flutter desktop foundation.
 publish_to: none
 version: 1.0.0+1
 

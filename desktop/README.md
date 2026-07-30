@@ -1,7 +1,10 @@
 # Agency Platform Desktop
 
-Flutter Material 3 desktop client for Phase 5 administration. It only calls the
+Flutter Material 3 desktop foundation for Phase 8. It only calls the
 REST API; it never accesses the database.
+
+The official UI/UX rules for every current and future module are defined in
+[`docs\DESIGN_SYSTEM.md`](../docs/DESIGN_SYSTEM.md).
 
 ## Prerequisites and local run
 
@@ -42,6 +45,21 @@ refresh token. They include remembered username, server history, cached theme,
 and window state. Choosing **Remember me** stores only the refresh token in the
 credential vault; passwords are never stored.
 
+## Module workspaces
+
+The desktop shell exposes only high-level modules. Each module uses the shared
+workspace frame, toolbar, search panel, data grid, details panel, pagination,
+and status bar from `lib\ui\workspace`. Administration and Masters provide
+tabbed workspaces for the available APIs; tabs without backend support remain
+clearly marked as coming soon. Future ERP modules extend the module catalog and
+reuse these components rather than adding screens directly to navigation.
+
+Management grids use a compact selection summary for quick reference. New,
+View Details, and Edit open the shared large workspace dialog, which supports
+create, read-only, and edit modes, section tabs, internal form scrolling,
+Escape to close, and Ctrl+S to save. Future entity forms should extend this
+framework instead of creating module-specific dialogs.
+
 Start the current backend separately from `..\backend`:
 
 ```powershell
@@ -58,6 +76,9 @@ uv run uvicorn app.main:app --reload
 in `lib/core/api/api_client.dart`: `/api/v1/auth/{login,refresh,logout,
 change-password}`, `/api/v1/{firms,users,roles,permissions}`, and
 `/api/v1/dashboard`.
+Authenticated firm context uses `/api/v1/me/firms` and persists the selected
+firm through `/api/v1/me/preferences`; each protected request also carries the
+active firm identifier for future firm-scoped APIs.
 
 The client uses the standard backend envelopes: `{ "data": ... }` for a single
 resource and `{ "data": [], "pagination": { "total_records": 0 } }` for a

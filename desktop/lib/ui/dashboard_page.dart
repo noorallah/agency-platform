@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
+import '../core/security/permission_service.dart';
 import '../models/entities.dart';
+import 'workspace/workspace_components.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key, required this.api});
+  const DashboardPage({
+    super.key,
+    required this.api,
+    required this.permissions,
+  });
   final ApiClient api;
+  final PermissionService permissions;
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
@@ -46,51 +53,59 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Try again'),
+    final Json data = _data ?? const {};
+    final Widget content;
+    if (_loading) {
+      content = const WorkspaceLoadingState();
+    } else if (_error != null) {
+      content = WorkspaceErrorState(message: _error!, onRetry: _load);
+    } else {
+      content = SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Wrap(
+            spacing: 16,
+            runSpacing: 16,
+            children: [
+              if (widget.permissions.canViewPage(const ['FIRM_VIEW']))
+                _MetricCard(
+                  label: 'Firms',
+                  value: stringValue(data['firms'] ?? '—'),
+                  icon: Icons.business_outlined,
+                ),
+              if (widget.permissions.canViewPage(const ['USER_VIEW']))
+                _MetricCard(
+                  label: 'Users',
+                  value: stringValue(data['users'] ?? '—'),
+                  icon: Icons.people_outline,
+                ),
+              if (widget.permissions.canViewPage(const ['ROLE_VIEW']))
+                _MetricCard(
+                  label: 'Roles',
+                  value: stringValue(data['roles'] ?? '—'),
+                  icon: Icons.badge_outlined,
+                ),
+              if (widget.permissions.canViewPage(const ['PERMISSION_VIEW']))
+                _MetricCard(
+                  label: 'Permissions',
+                  value: stringValue(data['permissions'] ?? '—'),
+                  icon: Icons.key_outlined,
+                ),
+            ],
           ),
         ]),
       );
     }
-    final Json data = _data ?? const {};
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Dashboard', style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 6),
-        const Text('Platform administration at a glance.'),
-        const SizedBox(height: 24),
-        Wrap(spacing: 16, runSpacing: 16, children: [
-          _MetricCard(
-            label: 'Firms',
-            value: stringValue(data['firms'] ?? '—'),
-            icon: Icons.business_outlined,
-          ),
-          _MetricCard(
-            label: 'Users',
-            value: stringValue(data['users'] ?? '—'),
-            icon: Icons.people_outline,
-          ),
-          _MetricCard(
-            label: 'Roles',
-            value: stringValue(data['roles'] ?? '—'),
-            icon: Icons.badge_outlined,
-          ),
-          _MetricCard(
-            label: 'Permissions',
-            value: stringValue(data['permissions'] ?? '—'),
-            icon: Icons.key_outlined,
-          ),
-        ]),
-      ]),
+    return ModuleWorkspaceFrame(
+      title: 'Dashboard',
+      description: 'Platform administration at a glance.',
+      breadcrumbs: const ['Workspace', 'Dashboard'],
+      status: WorkspaceStatusBar(
+        total: 0,
+        selected: false,
+        message: _loading ? 'Loading dashboard...' : null,
+      ),
+      child: content,
     );
   }
 }

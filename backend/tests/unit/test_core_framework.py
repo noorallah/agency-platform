@@ -3,6 +3,7 @@
 import asyncio
 import json
 from datetime import date
+from uuid import uuid4
 
 import pytest
 from fastapi import Request
@@ -10,13 +11,21 @@ from starlette.responses import Response
 
 from app.core.config.settings import Settings
 from app.core.context import RequestContext, reset_request_context, set_request_context
+from app.core.enums import TokenType
 from app.core.error_codes import ErrorCode
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.exceptions.handlers import application_error_handler
 from app.core.filtering import Filter, FilterOperator
 from app.core.middleware import CoreRequestMiddleware
 from app.core.pagination import PaginationParams
-from app.core.security import JwtService, PasswordSecurity
+from app.core.security import (
+    JwtService,
+    PasswordSecurity,
+    Principal,
+    TokenClaims,
+    require_any_permission,
+    require_permission,
+)
 from app.core.sorting import SortDirection, SortField
 from app.core.utils.collections import chunked
 from app.core.utils.dates import utc_now
@@ -135,3 +144,41 @@ def test_password_and_jwt_utilities_are_reusable() -> None:
     claims = jwt_service.validate_token(token)
     assert claims.subject == "user-123"
     assert claims.token_type.value == "access"
+
+
+def test_permission_dependencies_allow_non_admin_claims() -> None:
+    """Ensure endpoint permissions rely on claims rather than an admin role."""
+    claims = TokenClaims(
+        sub=str(uuid4()),
+        type=TokenType.ACCESS,
+        iat=1,
+        exp=2,
+        permissions=["USER_VIEW"],
+    )
+    principal = Principal(
+        subject=uuid4(),
+        roles=frozenset(),
+        permissions=frozenset({"USER_VIEW"}),
+        claims=claims,
+    )
+
+    assert require_permission("USER_VIEW")(principal) is principal
+    assert require_any_permission("FIRM_VIEW", "USER_VIEW")(principal) is principal
+    with pytest.raises(AuthorizationError):
+        require_permission("USER_UPDATE")(principal)
+    password_change_claims = TokenClaims(
+        sub=str(uuid4()),
+        type=TokenType.ACCESS,
+        iat=1,
+        exp=2,
+        permissions=["USER_VIEW"],
+        password_change_required=True,
+    )
+    restricted_principal = Principal(
+        subject=uuid4(),
+        roles=frozenset(),
+        permissions=frozenset({"USER_VIEW"}),
+        claims=password_change_claims,
+    )
+    with pytest.raises(AuthorizationError):
+        require_permission("USER_VIEW")(restricted_principal)

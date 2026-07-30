@@ -81,6 +81,95 @@ def test_bootstrap_login_rotates_sentinel_password_and_forces_change() -> None:
     assert session.query(RefreshToken).count() == 1
 
 
+def test_platform_admin_access_tokens_include_all_active_permissions() -> None:
+    """Ensure platform-admin designation is sufficient for permission endpoints."""
+    session = _session()
+    seed_system_rbac(session)
+    password = "Secure-Passphrase1!"
+    user = User(
+        email="designated-admin@example.com",
+        full_name="Designated Administrator",
+        password_hash=PasswordSecurity().hash_password(password),
+    )
+    custom_active = Permission(code="CUSTOM_ACTIVE", name="Custom Active")
+    custom_inactive = Permission(
+        code="CUSTOM_INACTIVE", name="Custom Inactive", is_active=False
+    )
+    custom_deleted = Permission(
+        code="CUSTOM_DELETED", name="Custom Deleted", is_deleted=True
+    )
+    session.add_all(
+        [
+            user,
+            PlatformAdmin(user=user),
+            custom_active,
+            custom_inactive,
+            custom_deleted,
+        ]
+    )
+    session.commit()
+
+    service = IdentityService(session, _settings())
+    response = service.login(user.email, password, client_ip=None, user_agent=None)
+    claims = service._jwt.validate_token(response.access_token)
+    extra_claims = claims.model_extra or {}
+
+    assert "platform_admin" in extra_claims["roles"]
+    assert set(extra_claims["permissions"]) == {
+        permission.code
+        for permission in session.scalars(
+            select(Permission).where(
+                Permission.is_active.is_(True),
+                Permission.is_deleted.is_(False),
+            )
+        )
+    }
+
+
+def test_non_admin_access_tokens_keep_role_granted_permissions() -> None:
+    """Ensure ordinary users do not receive permissions outside active roles."""
+    session = _session()
+    password = "Secure-Passphrase1!"
+    user = User(
+        email="role-user@example.com",
+        full_name="Role User",
+        password_hash=PasswordSecurity().hash_password(password),
+    )
+    role = Role(code="limited", name="Limited")
+    permission = Permission(code="USER_VIEW", name="View users")
+    unassigned = Permission(code="FIRM_VIEW", name="View firms")
+    session.add_all([user, role, permission, unassigned])
+    session.flush()
+    session.add_all(
+        [
+            UserRole(user_id=user.id, role_id=role.id),
+            RolePermission(role_id=role.id, permission_id=permission.id),
+        ]
+    )
+    session.commit()
+
+    response = IdentityService(session, _settings()).login(
+        user.email, password, client_ip=None, user_agent=None
+    )
+    claims = IdentityService(session, _settings())._jwt.validate_token(
+        response.access_token
+    )
+    extra_claims = claims.model_extra or {}
+
+    assert extra_claims["permissions"] == ["USER_VIEW"]
+    assert "platform_admin" not in extra_claims["roles"]
+
+    role.is_active = False
+    session.commit()
+    inactive_role_response = IdentityService(session, _settings()).login(
+        user.email, password, client_ip=None, user_agent=None
+    )
+    inactive_role_claims = IdentityService(session, _settings())._jwt.validate_token(
+        inactive_role_response.access_token
+    )
+    assert (inactive_role_claims.model_extra or {})["permissions"] == []
+
+
 def test_system_rbac_seed_is_idempotent_and_creates_default_mappings() -> None:
     """Ensure installation seeding preserves one complete system RBAC model."""
     session = _session()
@@ -439,9 +528,7 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
     service.set_user_firms(
         user.id,
         [
-            UserFirmAssignment(
-                firm_id=active_firm.id, is_primary=True, is_active=True
-            ),
+            UserFirmAssignment(firm_id=active_firm.id, is_primary=True, is_active=True),
             UserFirmAssignment(
                 firm_id=inactive_firm.id, is_primary=False, is_active=False
             ),
@@ -470,3 +557,74 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
     assert reset.preferred_theme == "light"
     assert reset.default_firm_id is None
     assert reset.dashboard_layout == {}
+
+
+def test_authenticated_user_firms_only_include_active_visible_memberships() -> None:
+    """Ensure the firm switcher cannot discover unauthorized or inactive firms."""
+    session = _session()
+    user = User(
+        email="firm-switcher@example.com",
+        full_name="Firm Switcher",
+        password_hash=PasswordSecurity().hash_password("Secure-Passphrase1!"),
+    )
+    primary = Firm(
+        name="Primary Firm",
+        code="SWITCH_PRIMARY",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    secondary = Firm(
+        name="Secondary Firm",
+        code="SWITCH_SECONDARY",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    inactive = Firm(
+        name="Inactive Firm",
+        code="SWITCH_INACTIVE",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+        is_active=False,
+    )
+    unauthorized = Firm(
+        name="Unauthorized Firm",
+        code="SWITCH_UNAUTHORIZED",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add_all([user, primary, secondary, inactive, unauthorized])
+    session.flush()
+    session.add_all(
+        [
+            UserFirm(
+                user_id=user.id,
+                firm_id=primary.id,
+                is_primary=True,
+                is_active=True,
+            ),
+            UserFirm(
+                user_id=user.id,
+                firm_id=secondary.id,
+                is_primary=False,
+                is_active=True,
+            ),
+            UserFirm(
+                user_id=user.id,
+                firm_id=inactive.id,
+                is_primary=False,
+                is_active=True,
+            ),
+        ]
+    )
+    session.commit()
+
+    rows = IdentityService(session, _settings()).list_my_firms(user.id)
+
+    assert [(firm.code, membership.is_primary) for membership, firm in rows] == [
+        ("SWITCH_PRIMARY", True),
+        ("SWITCH_SECONDARY", False),
+    ]
