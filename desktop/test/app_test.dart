@@ -6,9 +6,13 @@ import 'package:agency_desktop/core/auth/session_controller.dart';
 import 'package:agency_desktop/core/navigation/workspace_router.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/customer.dart';
+import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
+import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/workspace_components.dart';
+import 'package:agency_desktop/ui/workspace/workspace_interactions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -126,6 +130,10 @@ void main() {
       ModuleCatalog.byId(AppModule.administration).tabs.last.available,
       isFalse,
     );
+    expect(
+      ModuleCatalog.byId(AppModule.masters).tabs.map((tab) => tab.label),
+      contains('Customers'),
+    );
   });
 
   test('workspace toolbar provides standard actions', () {
@@ -134,6 +142,35 @@ void main() {
     expect(ToolbarAction.delete.label, 'Delete');
     expect(
         const GridColumn(label: 'Internal', visible: false).visible, isFalse);
+  });
+
+  test('workspace shortcut registry exposes the standard desktop bindings', () {
+    final WorkspaceShortcutBindings bindings = WorkspaceShortcutBindings(
+      create: () {},
+      save: () {},
+      focusSearch: () {},
+      refresh: () {},
+      copy: () {},
+      cancel: () {},
+      delete: () {},
+      globalSearch: () {},
+    );
+
+    expect(bindings.toCallbacks(), hasLength(9));
+  });
+
+  testWidgets('standard empty states provide distinct reusable messages',
+      (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: StandardEmptyState(type: EmptyStateType.noSearchResults),
+        ),
+      ),
+    );
+
+    expect(find.text('No search results'), findsOneWidget);
+    expect(find.byIcon(Icons.search_off_outlined), findsOneWidget);
   });
 
   for (final Size size in [
@@ -414,10 +451,155 @@ void main() {
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Agency Platform'), findsOneWidget);
   });
+
+  testWidgets('customer workspace composes the shared management framework',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1366, 768);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': [
+          'CUSTOMER_VIEW',
+          'CUSTOMER_CREATE',
+          'CUSTOMER_UPDATE',
+          'CUSTOMER_DELETE',
+          'CUSTOMER_RESTORE',
+          'CUSTOMER_EXPORT',
+        ],
+      }));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomerManagementPage(
+            api: _CustomerApi(),
+            permissions: permissions,
+            hasActiveFirm: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('New'), findsOneWidget);
+    expect(find.text('CUST-001'), findsOneWidget);
+    expect(find.text('Acme Customer'), findsWidgets);
+    expect(find.text('1 record'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('customer dialog exposes all master-data tabs without overflow',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1366, 768);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CustomerWorkspaceDialog(
+            mode: CustomerDialogMode.create,
+            customer: null,
+            onSave: (_) async => _customer,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final String tab in [
+      'General',
+      'Address',
+      'Contacts',
+      'Financial',
+      'Audit'
+    ]) {
+      expect(find.text(tab), findsOneWidget);
+    }
+    expect(find.text('Customer code'), findsOneWidget);
+    await tester.tap(find.text('Address'));
+    await tester.pumpAndSettle();
+    expect(find.text('Add address'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 String _accessToken(Map<String, dynamic> claims) {
   final String payload =
       base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '');
   return 'header.$payload.signature';
+}
+
+final Customer _customer = Customer.fromJson({
+  'id': 'customer-1',
+  'firm_id': 'firm-1',
+  'code': 'CUST-001',
+  'customer_type': 'BUSINESS',
+  'name': 'Acme Customer',
+  'display_name': 'Acme Customer',
+  'gst_number': 'GST-001',
+  'pan_number': 'PAN-001',
+  'email': 'billing@acme.test',
+  'phone': '+919876543210',
+  'alternate_phone': '',
+  'website': 'https://acme.test',
+  'credit_limit': 25000,
+  'opening_balance': -150,
+  'payment_terms_days': 30,
+  'currency_code': 'INR',
+  'status': 'ACTIVE',
+  'notes': '',
+  'created_by': 'user-1',
+  'created_at': '2026-07-31T00:00:00Z',
+  'updated_by': 'user-1',
+  'updated_at': '2026-07-31T00:00:00Z',
+  'is_deleted': false,
+  'addresses': [
+    {
+      'id': 'address-1',
+      'address_type': 'BILLING',
+      'address_line1': '1 Main Street',
+      'city': 'Chennai',
+      'state': 'Tamil Nadu',
+      'country': 'IN',
+      'postal_code': '600001',
+      'is_default_billing': true,
+      'is_default_shipping': false,
+    },
+  ],
+  'contacts': [
+    {
+      'id': 'contact-1',
+      'name': 'Accounts',
+      'email': 'accounts@acme.test',
+      'is_primary': true,
+    },
+  ],
+});
+
+class _CustomerApi extends ApiClient {
+  _CustomerApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Customer>> customers({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    CustomerQuery filters = const CustomerQuery(),
+  }) async =>
+      PagedResult(items: [_customer], total: 1);
 }

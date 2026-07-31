@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api/api_client.dart';
+import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
 import 'workspace/workspace_components.dart';
+import 'workspace/workspace_interactions.dart';
 
 class FieldSpec {
   const FieldSpec({
@@ -70,6 +72,7 @@ class ResourceDefinition<T> {
     this.details,
     this.canUseAction,
     this.sortFields = const [],
+    this.export,
   });
 
   final String title, resource;
@@ -96,6 +99,7 @@ class ResourceDefinition<T> {
   final List<DetailLine> Function(T item)? details;
   final bool Function(ToolbarAction action, T? selected)? canUseAction;
   final List<String?> sortFields;
+  final Future<void> Function(List<T> items)? export;
 }
 
 class ResourceManagementPage<T> extends StatefulWidget {
@@ -115,6 +119,7 @@ class ResourceManagementPage<T> extends StatefulWidget {
 class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   List<T> _items = const [];
   int _total = 0;
   int _page = 1;
@@ -127,12 +132,15 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   @override
   void initState() {
     super.initState();
+    _searchFocus.addListener(_searchFocusChanged);
     _load();
   }
 
   @override
   void dispose() {
     _search.dispose();
+    _searchFocus.removeListener(_searchFocusChanged);
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -275,6 +283,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       title: 'Delete ${widget.definition.title}?',
       message: 'This action cannot be undone.',
       confirmLabel: 'Delete',
+      type: ConfirmationType.delete,
     );
     if (!accepted) return;
     try {
@@ -298,6 +307,62 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   bool _hasCapability(ToolbarAction action, T? selected) =>
       widget.definition.canUseAction?.call(action, selected) ?? true;
 
+  void _searchFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _copy(T item) async {
+    final String row = widget.definition.cells(item).join('\t');
+    await copyTextToClipboard(row);
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${widget.definition.title} row copied.',
+      kind: AppNotificationKind.information,
+    );
+  }
+
+  Future<void> _export() async {
+    final Future<void> Function(List<T>)? export = widget.definition.export;
+    if (export == null || _loading) return;
+    try {
+      await export(List.unmodifiable(_items));
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${widget.definition.title} exported.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (mounted) _showError(exception);
+    }
+  }
+
+  void _contextAction(WorkspaceContextAction action, T item) {
+    switch (action) {
+      case WorkspaceContextAction.view:
+        _openDialog(CrudDialogMode.view, item);
+        break;
+      case WorkspaceContextAction.edit:
+        _openDialog(CrudDialogMode.edit, item);
+        break;
+      case WorkspaceContextAction.delete:
+        _delete(item);
+        break;
+      case WorkspaceContextAction.restore:
+        break;
+      case WorkspaceContextAction.copy:
+        _copy(item);
+        break;
+      case WorkspaceContextAction.refresh:
+        _load();
+        break;
+      case WorkspaceContextAction.export:
+        _export();
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final T? selected = _selected;
@@ -307,6 +372,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       controller: _search,
       hintText: 'Search ${widget.definition.title.toLowerCase()}',
       onSearch: (_) => _load(page: 1),
+      focusNode: _searchFocus,
     );
     final Widget toolbar = WorkspaceToolbar(
       actions: const [
@@ -329,6 +395,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             ToolbarAction.delete ||
             ToolbarAction.refresh =>
               true,
+            ToolbarAction.export => widget.definition.export != null,
             _ => false,
           },
       isEnabled: (action) =>
@@ -341,6 +408,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             ToolbarAction.delete =>
               canEditSelected && widget.definition.canDelete,
             ToolbarAction.refresh => true,
+            ToolbarAction.export => widget.definition.export != null,
             _ => false,
           },
       onAction: (action) {
@@ -364,8 +432,10 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
           case ToolbarAction.refresh:
             _load();
             break;
-          case ToolbarAction.import:
           case ToolbarAction.export:
+            _export();
+            break;
+          case ToolbarAction.import:
           case ToolbarAction.print:
           case ToolbarAction.settings:
             break;
@@ -423,6 +493,20 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         cells: widget.definition.cells,
         selectedId: selected == null ? null : widget.definition.id(selected),
         onSelect: (item) => setState(() => _selected = item),
+        onOpen: (item) => _openDialog(CrudDialogMode.view, item),
+        contextActions: [
+          if (_hasCapability(ToolbarAction.view, selected))
+            WorkspaceContextAction.view,
+          if (_hasCapability(ToolbarAction.edit, selected))
+            WorkspaceContextAction.edit,
+          if (widget.definition.canDelete &&
+              _hasCapability(ToolbarAction.delete, selected))
+            WorkspaceContextAction.delete,
+          WorkspaceContextAction.copy,
+          WorkspaceContextAction.refresh,
+          if (widget.definition.export != null) WorkspaceContextAction.export,
+        ],
+        onContextAction: _contextAction,
         onPageChanged: (rowIndex) => _load(page: rowIndex ~/ _rowsPerPage + 1),
       );
     }
@@ -448,15 +532,36 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         message: _loading ? 'Refreshing...' : null,
       ),
     );
+    final Widget shortcutLayout = WorkspaceShortcuts(
+      bindings: WorkspaceShortcutBindings(
+        create: widget.definition.canCreate &&
+                _hasCapability(ToolbarAction.newItem, null)
+            ? () => _openDialog(CrudDialogMode.create)
+            : null,
+        focusSearch: _searchFocus.requestFocus,
+        refresh: _load,
+        copy: selected == null || _searchFocus.hasFocus
+            ? null
+            : () => _copy(selected),
+        cancel:
+            selected == null ? null : () => setState(() => _selected = null),
+        delete: canEditSelected &&
+                widget.definition.canDelete &&
+                _hasCapability(ToolbarAction.delete, selected)
+            ? () => _delete(selected)
+            : null,
+      ),
+      child: layout,
+    );
     return widget.definition.showFrame
         ? ModuleWorkspaceFrame(
             title: widget.definition.title,
             description: widget.definition.description ??
                 'Create, review, and manage ${widget.definition.title.toLowerCase()}.',
             breadcrumbs: widget.definition.breadcrumbs,
-            child: layout,
+            child: shortcutLayout,
           )
-        : layout;
+        : shortcutLayout;
   }
 }
 

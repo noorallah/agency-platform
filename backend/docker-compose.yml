@@ -7,10 +7,10 @@ services:
     environment:
       POSTGRES_DB: agency_platform
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${AGENCY_DATABASE_PASSWORD:?set AGENCY_DATABASE_PASSWORD}
       TZ: Asia/Kolkata
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +32,7 @@ services:
       AGENCY_DATABASE_PORT: 5432
       AGENCY_DATABASE_NAME: agency_platform
       AGENCY_DATABASE_USERNAME: postgres
-      AGENCY_DATABASE_PASSWORD: postgres
+      AGENCY_DATABASE_PASSWORD: ${AGENCY_DATABASE_PASSWORD:?set AGENCY_DATABASE_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
         "uv run --no-sync alembic upgrade head && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port 8000",
       ]
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./logs:/app/logs
     healthcheck:

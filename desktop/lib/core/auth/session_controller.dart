@@ -68,7 +68,9 @@ class SessionController extends ChangeNotifier {
   List<AssignedFirm> get firms => List.unmodifiable(_firms);
   AssignedFirm? get currentFirm => _currentFirm;
   int get firmContextVersion => _firmContextVersion;
-  String? get lastWorkspace => _preferences.current.lastWorkspace;
+  String? get lastWorkspace =>
+      _preferences.current.lastWorkspace ??
+      _preferences.current.defaultLandingPage;
 
   Future<void> restore() async {
     _setStatus(SessionStatus.restoring);
@@ -198,12 +200,7 @@ class SessionController extends ChangeNotifier {
   }
 
   Future<void> updateServerUrl(String value) async {
-    final Uri parsed = Uri.parse(value.trim());
-    if (!parsed.hasScheme || !parsed.hasAuthority) {
-      throw const FormatException(
-          'Enter a complete server URL, including https://.');
-    }
-    await _preferences.saveServerUrl(value);
+    await _preferences.saveServerUrl(normalizeServerUrl(value));
     _baseUrl = _preferences.current.serverUrl;
     _createApiClient();
     if (_accessToken != null || _refreshToken != null) {

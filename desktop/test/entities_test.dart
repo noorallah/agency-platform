@@ -1,4 +1,5 @@
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -102,5 +103,42 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('customer parsing retains nested master data and financial values', () {
+    final Customer customer = Customer.fromJson({
+      'id': 'customer-1',
+      'firm_id': 'firm-1',
+      'code': 'CUST-001',
+      'customer_type': 'BUSINESS',
+      'name': 'Acme',
+      'display_name': 'Acme',
+      'credit_limit': '1000.00',
+      'opening_balance': '-50.00',
+      'payment_terms_days': 30,
+      'currency_code': 'INR',
+      'status': 'ACTIVE',
+      'is_deleted': false,
+      'addresses': [
+        {
+          'id': 'address-1',
+          'address_type': 'BILLING',
+          'address_line1': 'Main Street',
+          'city': 'Chennai',
+          'state': 'Tamil Nadu',
+          'country': 'IN',
+          'postal_code': '600001',
+          'is_default_billing': true,
+        },
+      ],
+      'contacts': [
+        {'id': 'contact-1', 'name': 'Accounts', 'is_primary': true},
+      ],
+    });
+
+    expect(customer.city, 'Chennai');
+    expect(customer.creditLimit, '1000.00');
+    expect(customer.openingBalance, '-50.00');
+    expect(customer.contacts.single.isPrimary, isTrue);
   });
 }

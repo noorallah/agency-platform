@@ -9,6 +9,7 @@ from app.common.audit.models import audit_log  # noqa: F401
 from app.core.config.settings import Settings
 from app.core.database.base import Base
 from app.core.database.engine import EngineFactory
+from app.customers.models import customer  # noqa: F401
 from app.firms.models import firm  # noqa: F401
 from app.identity.models import identity  # noqa: F401
 

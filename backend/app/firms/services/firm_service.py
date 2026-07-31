@@ -32,6 +32,7 @@ class FirmService:
             entity_type="firm",
             entity_id=firm.id,
             actor_id=actor_id,
+            firm_id=firm.id,
             after_data={"code": firm.code},
         )
         self._session.commit()
@@ -60,6 +61,7 @@ class FirmService:
             entity_type="firm",
             entity_id=firm.id,
             actor_id=actor_id,
+            firm_id=firm.id,
             before_data=before,
         )
         self._session.commit()
@@ -77,13 +79,17 @@ class FirmService:
             is not None
         ):
             raise BusinessRuleError("Assigned firms cannot be deleted.")
-        firm.is_deleted, firm.deleted_at, firm.updated_by = True, utc_now(), actor_id
+        firm.is_deleted = True
+        firm.deleted_at = utc_now()
+        firm.deleted_by = actor_id
+        firm.updated_by = actor_id
         record_audit(
             self._session,
             action="firm.deleted",
             entity_type="firm",
             entity_id=firm.id,
             actor_id=actor_id,
+            firm_id=firm.id,
         )
         self._session.commit()
 

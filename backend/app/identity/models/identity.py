@@ -40,6 +40,9 @@ class User(BaseEntity):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    authorization_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     platform_admin: Mapped["PlatformAdmin | None"] = relationship(
         back_populates="user", uselist=False
@@ -84,6 +87,9 @@ class Role(BaseEntity):
     is_system: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    firm_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("firms.id", ondelete="RESTRICT"), index=True
+    )
 
     user_roles: Mapped[list["UserRole"]] = relationship(
         back_populates="role", cascade="all, delete-orphan"
@@ -120,7 +126,13 @@ class UserRole(BaseEntity):
     __table_args__ = (
         Index("IX_user_roles_user_id", "user_id"),
         Index("IX_user_roles_role_id", "role_id"),
-        UniqueConstraint("user_id", "role_id"),
+        Index("IX_user_roles_firm_id", "firm_id"),
+        UniqueConstraint(
+            "user_id",
+            "role_id",
+            "firm_id",
+            name="UQ_user_roles_user_role_firm",
+        ),
     )
 
     user_id: Mapped[UUID] = mapped_column(
@@ -128,6 +140,9 @@ class UserRole(BaseEntity):
     )
     role_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("roles.id"), nullable=False
+    )
+    firm_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("firms.id", ondelete="RESTRICT"), nullable=True
     )
     user: Mapped[User] = relationship(back_populates="user_roles")
     role: Mapped[Role] = relationship(back_populates="user_roles")

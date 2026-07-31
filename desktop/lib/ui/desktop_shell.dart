@@ -5,24 +5,30 @@ import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
 import '../core/navigation/workspace_router.dart';
 import '../core/notifications/notification_service.dart';
+import '../core/preferences/desktop_preferences_service.dart';
 import '../core/security/permission_service.dart';
 import '../core/theme/theme_manager.dart';
 import '../models/entities.dart';
+import 'customers/customer_management_page.dart';
 import 'dashboard_page.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/workspace_components.dart';
+import 'workspace/global_search.dart';
+import 'workspace/workspace_interactions.dart';
 
 class DesktopShell extends StatefulWidget {
   const DesktopShell({
     super.key,
     required this.session,
+    required this.preferences,
     required this.branding,
     required this.themes,
     required this.permissions,
   });
   final SessionController session;
+  final DesktopPreferencesService preferences;
   final BrandingConfig branding;
   final ThemeManager themes;
   final PermissionService permissions;
@@ -32,10 +38,12 @@ class DesktopShell extends StatefulWidget {
 
 class _DesktopShellState extends State<DesktopShell> {
   late final WorkspaceRouter _router;
+  late bool _sidebarCollapsed;
 
   @override
   void initState() {
     super.initState();
+    _sidebarCollapsed = widget.preferences.current.sidebarCollapsed;
     _router = WorkspaceRouter(
       initialLocation: widget.session.lastWorkspace,
       onPersist: widget.session.saveLastWorkspace,
@@ -103,43 +111,48 @@ class _DesktopShellState extends State<DesktopShell> {
               modules.any((module) => module.id == requestedSection)
                   ? requestedSection
                   : modules.first.id;
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final bool wide = constraints.maxWidth >= 1000;
-              final Widget page = _page(widget.session.api, section);
-              if (wide) {
+          return WorkspaceShortcuts(
+            bindings: WorkspaceShortcutBindings(
+              globalSearch: () => showGlobalSearch(context),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final bool wide = constraints.maxWidth >= 1000;
+                final Widget page = _page(widget.session.api, section);
+                if (wide) {
+                  return Scaffold(
+                    body: Row(children: [
+                      SizedBox(
+                        width: _sidebarCollapsed ? 72 : 248,
+                        child: _navigationPanel(modules, section),
+                      ),
+                      const VerticalDivider(width: 1),
+                      Expanded(
+                        child: Column(children: [
+                          _applicationHeader(section),
+                          const Divider(height: 1),
+                          Expanded(child: page),
+                          _applicationStatusBar(),
+                        ]),
+                      ),
+                    ]),
+                  );
+                }
                 return Scaffold(
-                  body: Row(children: [
-                    SizedBox(
-                      width: 248,
-                      child: _navigationPanel(modules, section),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      child: Column(children: [
-                        _applicationHeader(section),
-                        const Divider(height: 1),
-                        Expanded(child: page),
-                        _applicationStatusBar(),
-                      ]),
-                    ),
-                  ]),
+                  appBar: AppBar(
+                    title: Text(ModuleCatalog.byId(section).label),
+                    actions: [
+                      _firmControl(compact: true),
+                      ThemeSelector(manager: widget.themes),
+                    ],
+                  ),
+                  drawer: Drawer(
+                    child: _navigationPanel(modules, section),
+                  ),
+                  body: page,
                 );
-              }
-              return Scaffold(
-                appBar: AppBar(
-                  title: Text(ModuleCatalog.byId(section).label),
-                  actions: [
-                    _firmControl(compact: true),
-                    ThemeSelector(manager: widget.themes),
-                  ],
-                ),
-                drawer: Drawer(
-                  child: _navigationPanel(modules, section),
-                ),
-                body: page,
-              );
-            },
+              },
+            ),
           );
         },
       );
@@ -241,18 +254,15 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
-  Widget _applicationStatusBar() => Material(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(children: [
-            Text(widget.session.currentFirm?.name ?? 'No active firm'),
-            const SizedBox(width: 16),
-            Text(widget.session.baseUrl),
-            const Spacer(),
-            Text('${widget.branding.companyName} ${widget.branding.version}'),
-          ]),
-        ),
+  Widget _applicationStatusBar() => ApplicationStatusBar(
+        currentUser: widget.session.attemptedUsername,
+        currentFirm: widget.session.currentFirm?.name ?? 'No active firm',
+        backend: ConnectionStateIndicator.checking,
+        database: ConnectionStateIndicator.unknown,
+        environment: Uri.tryParse(widget.session.baseUrl)?.host == 'localhost'
+            ? 'Development'
+            : 'Configured',
+        version: '${widget.branding.companyName} ${widget.branding.version}',
       );
 
   Widget _navigationPanel(
@@ -261,26 +271,41 @@ class _DesktopShellState extends State<DesktopShell> {
   ) =>
       SafeArea(
         child: Column(children: [
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-            leading: const Icon(Icons.account_balance, size: 30),
-            title: Text(
-              widget.branding.appName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          if (_sidebarCollapsed)
+            IconButton(
+              tooltip: 'Expand sidebar',
+              onPressed: _toggleSidebar,
+              icon: const Icon(Icons.account_balance, size: 30),
+            )
+          else
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+              leading: const Icon(Icons.account_balance, size: 30),
+              title: Text(
+                widget.branding.appName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: IconButton(
+                tooltip: 'Collapse sidebar',
+                onPressed: _toggleSidebar,
+                icon: const Icon(Icons.chevron_left),
+              ),
             ),
-          ),
           const Divider(height: 1),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 8),
               children: modules
                   .map(
-                    (module) => ListTile(
-                      selected: module.id == section,
-                      leading: Icon(module.icon),
-                      title: Text(module.label),
-                      onTap: () => _select(module.id),
+                    (module) => Tooltip(
+                      message: module.label,
+                      child: ListTile(
+                        selected: module.id == section,
+                        leading: Icon(module.icon),
+                        title: _sidebarCollapsed ? null : Text(module.label),
+                        onTap: () => _select(module.id),
+                      ),
                     ),
                   )
                   .toList(),
@@ -289,17 +314,28 @@ class _DesktopShellState extends State<DesktopShell> {
           const Divider(height: 1),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(children: [
-              Expanded(child: ThemeSelector(manager: widget.themes)),
-              IconButton(
-                tooltip: 'Sign out',
-                icon: const Icon(Icons.logout),
-                onPressed: widget.session.logout,
-              ),
-            ]),
+            child: _sidebarCollapsed
+                ? IconButton(
+                    tooltip: 'Sign out',
+                    icon: const Icon(Icons.logout),
+                    onPressed: widget.session.logout,
+                  )
+                : Row(children: [
+                    Expanded(child: ThemeSelector(manager: widget.themes)),
+                    IconButton(
+                      tooltip: 'Sign out',
+                      icon: const Icon(Icons.logout),
+                      onPressed: widget.session.logout,
+                    ),
+                  ]),
           ),
         ]),
       );
+
+  Future<void> _toggleSidebar() async {
+    setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+    await widget.preferences.saveSidebarCollapsed(_sidebarCollapsed);
+  }
 
   Widget _page(ApiClient api, AppModule section) => switch (section) {
         AppModule.dashboard => DashboardPage(
@@ -483,16 +519,28 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
               showFrame: false,
             ),
           )
-        : WorkspaceEmptyState(
-            title:
-                '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
-            message:
-                'The current API does not provide ${visibleTabs.firstWhere((tab) => tab.id == tabId).label.toLowerCase()} operations.',
-          );
+        : tabId == 'customers'
+            ? CustomerManagementPage(
+                api: widget.api,
+                permissions: widget.permissions,
+                hasActiveFirm: widget.api.activeFirmId?.call() != null,
+              )
+            : WorkspaceEmptyState(
+                title:
+                    '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
+                message:
+                    'The current API does not provide ${visibleTabs.firstWhere((tab) => tab.id == tabId).label.toLowerCase()} operations.',
+              );
     return ModuleWorkspaceFrame(
-      title: 'Firm Management',
-      description: 'Manage organization records and future firm configuration.',
-      breadcrumbs: const ['Workspace', 'Masters', 'Firm Management'],
+      title: tabId == 'customers' ? 'Customer Management' : 'Firm Management',
+      description: tabId == 'customers'
+          ? 'Manage firm-scoped customer masters, addresses, and contacts.'
+          : 'Manage organization records and future firm configuration.',
+      breadcrumbs: [
+        'Workspace',
+        'Masters',
+        tabId == 'customers' ? 'Customer Management' : 'Firm Management',
+      ],
       tabs: visibleTabs
           .map(
               (tab) => WorkspaceTab(label: tab.label, available: tab.available))

@@ -149,6 +149,7 @@ class RoleResponse(ApiSchema):
     description: str | None
     is_active: bool
     is_system: bool
+    firm_id: UUID | None
 
 
 class PermissionCreate(ApiSchema):

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/entities.dart';
+import '../../models/customer.dart';
+import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
 class ApiException implements Exception {
@@ -162,6 +164,46 @@ class ApiClient {
   }) =>
       _list('/api/v1/permissions', Permission.fromJson, page, search,
           sortBy: sortBy, descending: descending);
+
+  Future<PagedResult<Customer>> customers({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    CustomerQuery filters = const CustomerQuery(),
+  }) =>
+      _list(
+        '/api/v1/customers',
+        Customer.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<Customer> createCustomer(Json data) async =>
+      Customer.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/customers', body: data),
+      ));
+
+  Future<Customer> updateCustomer(String id, Json data) async =>
+      Customer.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/customers/$id', body: data),
+      ));
+
+  Future<void> deleteCustomer(String id) =>
+      request('DELETE', '/api/v1/customers/$id');
+
+  Future<Customer> restoreCustomer(String id) async =>
+      Customer.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/customers/$id/restore'),
+      ));
+
+  Future<String> exportCustomers({String search = ''}) => downloadText(
+        '/api/v1/customers/export',
+        query: {if (search.isNotEmpty) 'search': search},
+      );
   Future<List<AssignmentOption>> options(String resource) async {
     final PagedResult<AssignmentOption> result = await _list(
       '/api/v1/$resource',
@@ -285,6 +327,7 @@ class ApiClient {
     int pageSize = 20,
     String? sortBy,
     bool descending = true,
+    Map<String, String> additionalQuery = const {},
   }) async {
     final query = {
       'page': '$page',
@@ -292,6 +335,7 @@ class ApiClient {
       if (search.isNotEmpty) 'search': search,
       if (sortBy != null) 'sort_by': sortBy,
       if (sortBy != null) 'sort_direction': descending ? 'desc' : 'asc',
+      ...additionalQuery,
     };
     final Json response = await request('GET', path, query: query);
     return parsePagedResponse(response, parser);
@@ -332,9 +376,11 @@ class ApiClient {
     if (_developmentLogging) {
       stderr.writeln('API $method $uri');
     }
+
     try {
       final HttpClientRequest httpRequest =
           await _httpClient.openUrl(method, uri);
+      httpRequest.followRedirects = false;
       httpRequest.headers.set(HttpHeaders.acceptHeader, 'application/json');
       if (authenticated && accessToken()?.isNotEmpty == true) {
         httpRequest.headers.set(
@@ -406,7 +452,69 @@ class ApiClient {
     }
   }
 
+  Future<String> downloadText(
+    String path, {
+    Map<String, String>? query,
+    bool retrying = false,
+  }) async {
+    final Uri uri = _uri(path, query);
+    onRequest?.call();
+    try {
+      final HttpClientRequest httpRequest =
+          await _httpClient.openUrl('GET', uri);
+      httpRequest.followRedirects = false;
+      httpRequest.headers.set(HttpHeaders.acceptHeader, 'text/csv');
+      final String? token = accessToken();
+      if (token?.isNotEmpty == true) {
+        httpRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $token',
+        );
+      }
+      final String? firmId = activeFirmId?.call();
+      if (firmId?.isNotEmpty == true) {
+        httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
+      final HttpClientResponse response =
+          await httpRequest.close().timeout(const Duration(seconds: 30));
+      final String text = await utf8.decoder.bind(response).join();
+      if (response.statusCode == HttpStatus.unauthorized &&
+          !retrying &&
+          await refreshAccessToken()) {
+        return downloadText(path, query: query, retrying: true);
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        String message = 'The export request failed.';
+        try {
+          final dynamic decoded = jsonDecode(text);
+          if (decoded is Map<String, dynamic>) {
+            final dynamic error = decoded['error'];
+            message = stringValue(
+              error is Map<String, dynamic>
+                  ? error['message']
+                  : decoded['message'] ?? decoded['detail'],
+            );
+          }
+        } on FormatException {
+          // Keep the safe public error when the server did not return JSON.
+        }
+        throw ApiException(
+          message.isEmpty ? 'The export request failed.' : message,
+          statusCode: response.statusCode,
+        );
+      }
+      return text;
+    } on TimeoutException {
+      throw const ApiException('The server did not respond in time.');
+    } on SocketException {
+      throw const ApiException(
+        'Unable to connect to the server. Check the API address.',
+      );
+    }
+  }
+
   Uri _uri(String path, Map<String, String>? query) {
+    normalizeServerUrl(baseUrl);
     final String root = baseUrl.endsWith('/')
         ? baseUrl.substring(0, baseUrl.length - 1)
         : baseUrl;

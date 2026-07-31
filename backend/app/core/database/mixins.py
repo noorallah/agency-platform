@@ -33,6 +33,7 @@ class SoftDeleteMixin:
         Boolean, nullable=False, default=False, server_default="false"
     )
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    deleted_by: Mapped[UUID | None] = mapped_column(UUIDType(), nullable=True)
 
 
 class AuditMixin:

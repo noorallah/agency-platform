@@ -42,6 +42,18 @@ void main() {
     expect(preferences.cachedTheme, 'green');
   });
 
+  test('remote server URLs require HTTPS while loopback permits HTTP', () {
+    expect(
+      normalizeServerUrl('https://api.example.test/'),
+      'https://api.example.test',
+    );
+    expect(normalizeServerUrl('http://localhost:8000'), contains('localhost'));
+    expect(
+      () => normalizeServerUrl('http://api.example.test'),
+      throwsFormatException,
+    );
+  });
+
   test('user preference response parses versioned server preferences', () {
     final UserPreferences preferences = UserPreferences.fromJson({
       'preferences_version': 1,
@@ -66,5 +78,18 @@ void main() {
     expect(AppTheme.values, hasLength(5));
     expect(ThemeRegistry.themeFor(AppTheme.dark).brightness, isNotNull);
     expect(AppThemeDetails.fromWireName('green'), AppTheme.green);
+  });
+
+  test('desktop preferences retain framework display preferences', () {
+    final DesktopPreferences preferences = DesktopPreferences.fromJson({
+      'sidebar_collapsed': true,
+      'grid_density': 'compact',
+      'default_landing_page': 'reports',
+    });
+
+    expect(preferences.sidebarCollapsed, isTrue);
+    expect(preferences.gridDensity, GridDensity.compact);
+    expect(preferences.defaultLandingPage, 'reports');
+    expect(preferences.toJson(), containsPair('grid_density', 'compact'));
   });
 }

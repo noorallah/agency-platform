@@ -3,7 +3,7 @@
 The Agency Platform backend is a FastAPI administration platform. It provides
 the reusable core framework plus the first vertical slice: authentication,
 platform users, dynamic roles and permissions, firms, assignments, audit logs,
-and the administration dashboard. ERP modules are intentionally not present.
+the administration dashboard, and firm-scoped customer management.
 
 ## Quick start
 
@@ -53,6 +53,7 @@ example bootstrap password or JWT signing key outside local development.
 | `/api/v1/roles` | Protected custom/system role CRUD and permission assignment |
 | `/api/v1/permissions` | Protected permission CRUD |
 | `/api/v1/firms` | Protected firm CRUD |
+| `/api/v1/customers` | Firm-scoped customer CRUD, search, filters, soft delete, restore, import, and export |
 | `/docs` | Swagger UI |
 | `/openapi.json` | OpenAPI document |
 
@@ -149,8 +150,8 @@ production value in a secret manager and rotate it after bootstrap.
 reject that known value at startup; configure a unique high-entropy signing key
 explicitly through the deployment secret store.
 
-All `/api/v1/users`, `/api/v1/roles`, `/api/v1/permissions`, and `/api/v1/firms`
-endpoints require a platform-admin access token. List endpoints use only
+Administration endpoints require the relevant permission claims. Customer
+endpoints additionally validate the `X-Firm-ID` membership context. List endpoints use only
 whitelisted `page`, `page_size`, `search`, `sort_by`, and `sort_direction`
 query parameters. Every mutation emits an `audit_logs` record.
 

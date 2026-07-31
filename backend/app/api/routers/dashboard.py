@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
-from app.core.security.authorization import Principal, require_any_permission
+from app.core.security.authorization import Principal, require_platform_admin
 from app.firms.models import Firm
 from app.identity.models import Permission, Role, User
 
@@ -34,11 +34,7 @@ class DashboardSummary(BaseModel):
 def get_dashboard(
     principal: Annotated[
         Principal,
-        Depends(
-            require_any_permission(
-                "FIRM_VIEW", "USER_VIEW", "ROLE_VIEW", "PERMISSION_VIEW"
-            )
-        ),
+        Depends(require_platform_admin()),
     ],
     db: Session = Depends(get_db),
 ) -> ApiResponse[DashboardSummary]:

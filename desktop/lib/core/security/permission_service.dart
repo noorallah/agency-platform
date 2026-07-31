@@ -10,7 +10,14 @@ class PermissionService extends ChangeNotifier {
 
   void applyAccessToken(String? token) {
     final Map<String, dynamic>? claims = _decodePayload(token);
-    final Set<String> permissions = _stringClaims(claims?['permissions']);
+    final Set<String> permissions =
+        _stringClaims(claims?['permissions']).toSet();
+    final Object? firmClaims = claims?['firm_permissions'];
+    if (firmClaims is Map) {
+      for (final Object? value in firmClaims.values) {
+        permissions.addAll(_stringClaims(value));
+      }
+    }
     if (setEquals(_permissions, permissions)) {
       return;
     }

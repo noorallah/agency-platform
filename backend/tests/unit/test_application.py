@@ -28,6 +28,8 @@ def test_application_factory_registers_foundation_routes() -> None:
         "/api/v1/me/preferences/reset",
         "/api/v1/dashboard",
         "/api/v1/firms",
+        "/api/v1/customers",
+        "/api/v1/customers/summary",
     } <= set(application.openapi()["paths"])
 
 

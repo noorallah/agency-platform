@@ -5,6 +5,8 @@ REST API; it never accesses the database.
 
 The official UI/UX rules for every current and future module are defined in
 [`docs\DESIGN_SYSTEM.md`](../docs/DESIGN_SYSTEM.md).
+The implementation guide and public component contracts are defined in
+[`docs\DESKTOP_FRAMEWORK.md`](docs/DESKTOP_FRAMEWORK.md).
 
 ## Prerequisites and local run
 
@@ -60,6 +62,12 @@ create, read-only, and edit modes, section tabs, internal form scrolling,
 Escape to close, and Ctrl+S to save. Future entity forms should extend this
 framework instead of creating module-specific dialogs.
 
+Customer Management is the reference business module under **Masters**. It
+reuses the desktop framework for firm-scoped search, filters, soft-delete and
+restore actions, CSV export, row copy, keyboard shortcuts, and the five-tab
+customer workspace dialog. Its backend and extension contract are documented
+in [`docs\CUSTOMER_MANAGEMENT.md`](../docs/CUSTOMER_MANAGEMENT.md).
+
 Start the current backend separately from `..\backend`:
 
 ```powershell
@@ -84,6 +92,8 @@ The client uses the standard backend envelopes: `{ "data": ... }` for a single
 resource and `{ "data": [], "pagination": { "total_records": 0 } }` for a
 collection. Lists use `page`, `page_size`, and optional `search` query
 parameters. Firm updates use PUT; user, role, and permission updates use PATCH.
+Customer operations use `/api/v1/customers` and send the active firm through
+`X-Firm-ID`; addresses and contacts are saved with the parent customer.
 User roles, firms, and role permissions use their dedicated PUT assignment
 endpoints. Login/refresh responses contain `access_token`, `refresh_token`, and
 `must_change_password`.

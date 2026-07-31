@@ -1,6 +1,34 @@
 import 'dart:convert';
 import 'dart:io';
 
+String normalizeServerUrl(String value) {
+  final Uri uri = Uri.parse(value.trim());
+  final bool loopback =
+      uri.host == 'localhost' || uri.host == '127.0.0.1' || uri.host == '::1';
+  if (!uri.hasAuthority ||
+      (uri.scheme != 'https' && !(uri.scheme == 'http' && loopback)) ||
+      uri.userInfo.isNotEmpty ||
+      uri.query.isNotEmpty ||
+      uri.fragment.isNotEmpty) {
+    throw const FormatException(
+      'Use an HTTPS server URL. HTTP is allowed only for localhost.',
+    );
+  }
+  return uri.toString().replaceFirst(RegExp(r'/$'), '');
+}
+
+enum GridDensity { compact, comfortable, spacious }
+
+extension GridDensityDetails on GridDensity {
+  String get wireName => name;
+
+  static GridDensity fromWireName(String? value) =>
+      GridDensity.values.firstWhere(
+        (density) => density.wireName == value,
+        orElse: () => GridDensity.comfortable,
+      );
+}
+
 class DesktopPreferences {
   const DesktopPreferences({
     this.version = 1,
@@ -13,6 +41,9 @@ class DesktopPreferences {
     this.windowState = const {},
     this.lastWorkspace,
     this.serverPreferences = const {},
+    this.sidebarCollapsed = false,
+    this.gridDensity = GridDensity.comfortable,
+    this.defaultLandingPage = 'dashboard',
   });
 
   final int version;
@@ -25,6 +56,9 @@ class DesktopPreferences {
   final Map<String, dynamic> windowState;
   final String? lastWorkspace;
   final Map<String, dynamic> serverPreferences;
+  final bool sidebarCollapsed;
+  final GridDensity gridDensity;
+  final String defaultLandingPage;
 
   factory DesktopPreferences.fromJson(Map<String, dynamic> json) {
     List<String> strings(dynamic value) => value is List
@@ -44,6 +78,11 @@ class DesktopPreferences {
       windowState: object(json['window_state']),
       lastWorkspace: optionalString(json['last_workspace']),
       serverPreferences: object(json['server_preferences']),
+      sidebarCollapsed: json['sidebar_collapsed'] == true,
+      gridDensity:
+          GridDensityDetails.fromWireName(optionalString(json['grid_density'])),
+      defaultLandingPage:
+          optionalString(json['default_landing_page']) ?? 'dashboard',
     );
   }
 
@@ -58,6 +97,9 @@ class DesktopPreferences {
         'window_state': windowState,
         'last_workspace': lastWorkspace,
         'server_preferences': serverPreferences,
+        'sidebar_collapsed': sidebarCollapsed,
+        'grid_density': gridDensity.wireName,
+        'default_landing_page': defaultLandingPage,
       };
 
   DesktopPreferences copyWith({
@@ -72,6 +114,9 @@ class DesktopPreferences {
     String? lastWorkspace,
     bool clearLastWorkspace = false,
     Map<String, dynamic>? serverPreferences,
+    bool? sidebarCollapsed,
+    GridDensity? gridDensity,
+    String? defaultLandingPage,
   }) =>
       DesktopPreferences(
         version: version,
@@ -86,6 +131,9 @@ class DesktopPreferences {
         lastWorkspace:
             clearLastWorkspace ? null : lastWorkspace ?? this.lastWorkspace,
         serverPreferences: serverPreferences ?? this.serverPreferences,
+        sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
+        gridDensity: gridDensity ?? this.gridDensity,
+        defaultLandingPage: defaultLandingPage ?? this.defaultLandingPage,
       );
 }
 
@@ -148,7 +196,7 @@ class DesktopPreferencesService {
       );
 
   Future<void> saveServerUrl(String url) {
-    final String normalized = url.trim().replaceFirst(RegExp(r'/$'), '');
+    final String normalized = normalizeServerUrl(url);
     final List<String> recent = [
       normalized,
       ..._preferences.recentServers.where((entry) => entry != normalized),
@@ -171,6 +219,15 @@ class DesktopPreferencesService {
 
   Future<void> cacheServerPreferences(Map<String, dynamic> preferences) =>
       _save(_preferences.copyWith(serverPreferences: preferences));
+
+  Future<void> saveSidebarCollapsed(bool collapsed) =>
+      _save(_preferences.copyWith(sidebarCollapsed: collapsed));
+
+  Future<void> saveGridDensity(GridDensity density) =>
+      _save(_preferences.copyWith(gridDensity: density));
+
+  Future<void> saveDefaultLandingPage(String page) =>
+      _save(_preferences.copyWith(defaultLandingPage: page));
 
   Future<void> _save(DesktopPreferences preferences) async {
     _preferences = preferences;

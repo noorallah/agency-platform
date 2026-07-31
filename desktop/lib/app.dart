@@ -116,6 +116,7 @@ class _AgencyAppState extends State<AgencyApp> {
                 case SessionStatus.authenticated:
                   return DesktopShell(
                     session: _session,
+                    preferences: _preferences,
                     branding: _branding,
                     themes: _themes,
                     permissions: _permissions,

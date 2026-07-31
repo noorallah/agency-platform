@@ -16,6 +16,10 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "Roles", "description": "Dynamic role administration."},
     {"name": "Permissions", "description": "Capability administration."},
     {"name": "Firms", "description": "Platform firm administration."},
+    {
+        "name": "Customers",
+        "description": "Firm-scoped customer master management.",
+    },
     {"name": "Dashboard", "description": "Platform administration summary."},
 ]
 STANDARD_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {

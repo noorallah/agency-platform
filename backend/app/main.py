@@ -15,6 +15,7 @@ from app.core.exceptions.handlers import register_exception_handlers
 from app.core.logging.configuration import configure_logging
 from app.core.middleware import CoreRequestMiddleware
 from app.core.openapi import OPENAPI_TAGS, build_openapi_metadata
+from app.customers.api import router as customers_router
 from app.firms.api import router as firms_router
 from app.identity.api import router as identity_router
 
@@ -61,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(dashboard_router)
     application.include_router(identity_router)
     application.include_router(firms_router)
+    application.include_router(customers_router)
     register_exception_handlers(application)
     return application
 

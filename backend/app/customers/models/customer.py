@@ -1,0 +1,136 @@
+"""Firm-scoped customer, address, and contact persistence models."""
+
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import (
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    and_,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database.entity import BaseEntity
+from app.core.database.types import UUIDType
+
+
+class Customer(BaseEntity):
+    """Represent one customer master owned by a firm."""
+
+    __tablename__ = "customers"
+    __table_args__ = (
+        UniqueConstraint("firm_id", "code", name="UQ_customers_firm_code"),
+        UniqueConstraint("firm_id", "gst_number", name="UQ_customers_firm_gst_number"),
+        UniqueConstraint("firm_id", "pan_number", name="UQ_customers_firm_pan_number"),
+        Index("IX_customers_firm_name", "firm_id", "name"),
+        Index("IX_customers_firm_status", "firm_id", "status"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    customer_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    gst_number: Mapped[str | None] = mapped_column(String(32))
+    pan_number: Mapped[str | None] = mapped_column(String(32))
+    email: Mapped[str | None] = mapped_column(String(320))
+    phone: Mapped[str | None] = mapped_column(String(20))
+    alternate_phone: Mapped[str | None] = mapped_column(String(20))
+    website: Mapped[str | None] = mapped_column(String(500))
+    credit_limit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    payment_terms_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    currency_code: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    addresses: Mapped[list["CustomerAddress"]] = relationship(
+        back_populates="customer",
+        cascade="save-update, merge",
+        primaryjoin=lambda: and_(
+            Customer.id == CustomerAddress.customer_id,
+            CustomerAddress.is_deleted.is_(False),
+        ),
+        lazy="selectin",
+        order_by="CustomerAddress.created_at",
+    )
+    contacts: Mapped[list["CustomerContact"]] = relationship(
+        back_populates="customer",
+        cascade="save-update, merge",
+        primaryjoin=lambda: and_(
+            Customer.id == CustomerContact.customer_id,
+            CustomerContact.is_deleted.is_(False),
+        ),
+        lazy="selectin",
+        order_by="CustomerContact.created_at",
+    )
+
+
+class CustomerAddress(BaseEntity):
+    """Represent one reusable customer address."""
+
+    __tablename__ = "customer_addresses"
+    __table_args__ = (
+        Index("IX_customer_addresses_customer_city", "customer_id", "city"),
+    )
+
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    address_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    address_line1: Mapped[str] = mapped_column(String(250), nullable=False)
+    address_line2: Mapped[str | None] = mapped_column(String(250))
+    area: Mapped[str | None] = mapped_column(String(100))
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    district: Mapped[str | None] = mapped_column(String(100))
+    state: Mapped[str] = mapped_column(String(100), nullable=False)
+    country: Mapped[str] = mapped_column(String(2), nullable=False)
+    postal_code: Mapped[str] = mapped_column(String(24), nullable=False)
+    is_default_billing: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    is_default_shipping: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    customer: Mapped[Customer] = relationship(back_populates="addresses")
+
+
+class CustomerContact(BaseEntity):
+    """Represent one customer contact person."""
+
+    __tablename__ = "customer_contacts"
+
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    designation: Mapped[str | None] = mapped_column(String(100))
+    mobile: Mapped[str | None] = mapped_column(String(20))
+    email: Mapped[str | None] = mapped_column(String(320))
+    department: Mapped[str | None] = mapped_column(String(100))
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    customer: Mapped[Customer] = relationship(back_populates="contacts")

@@ -17,6 +17,7 @@ from app.core.security.authorization import (
     require_any_permission,
     require_authenticated,
     require_permission,
+    require_platform_admin,
 )
 from app.identity.schemas import (
     ChangePasswordRequest,
@@ -77,6 +78,7 @@ PermissionUpdatePrincipal = Annotated[
 PermissionDeletePrincipal = Annotated[
     Principal, Depends(require_permission("PERMISSION_DELETE"))
 ]
+PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
 
 def _service(db: Session, settings: Settings) -> IdentityService:
@@ -89,6 +91,11 @@ def _actor_id(principal: Principal) -> UUID:
     if not isinstance(principal.subject, UUID):
         raise RuntimeError("Platform administration requires a user principal.")
     return principal.subject
+
+
+def _firm_scope(principal: Principal) -> UUID | None:
+    """Return tenant scope for firm principals and global scope for platform admins."""
+    return None if principal.is_platform_admin else principal.firm_id
 
 
 @router.post(
@@ -239,7 +246,12 @@ def list_users(
     """List users using whitelisted filtering, paging, and sorting fields."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = _service(db, settings).list_users(
-        params.page, params.page_size, search, sort_by, sort_direction == "desc"
+        params.page,
+        params.page_size,
+        search,
+        sort_by,
+        sort_direction == "desc",
+        _firm_scope(principal),
     )
     return PaginatedResponse(
         data=[UserResponse.model_validate(row) for row in rows],
@@ -260,7 +272,9 @@ def create_user(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
     """Provision an interactive user."""
-    user = _service(db, settings).create_user(data, _actor_id(principal))
+    user = _service(db, settings).create_user(
+        data, _actor_id(principal), _firm_scope(principal)
+    )
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -275,7 +289,9 @@ def get_user(
 ) -> ApiResponse[UserResponse]:
     """Retrieve a visible user."""
     return ApiResponse(
-        data=UserResponse.model_validate(_service(db, settings)._get_user(user_id))
+        data=UserResponse.model_validate(
+            _service(db, settings)._get_user(user_id, _firm_scope(principal))
+        )
     )
 
 
@@ -290,7 +306,9 @@ def update_user(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
     """Update user status, expiry, name, or clear a lock."""
-    user = _service(db, settings).update_user(user_id, data, _actor_id(principal))
+    user = _service(db, settings).update_user(
+        user_id, data, _actor_id(principal), _firm_scope(principal)
+    )
     return ApiResponse(data=UserResponse.model_validate(user))
 
 
@@ -304,7 +322,9 @@ def delete_user(
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
     """Soft delete a user and revoke active refresh tokens."""
-    _service(db, settings).delete_user(user_id, _actor_id(principal))
+    _service(db, settings).delete_user(
+        user_id, _actor_id(principal), _firm_scope(principal)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -317,7 +337,9 @@ def set_user_roles(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
     """Replace a user's role assignment collection."""
-    _service(db, settings).set_user_roles(user_id, data.ids, _actor_id(principal))
+    _service(db, settings).set_user_roles(
+        user_id, data.ids, _actor_id(principal), _firm_scope(principal)
+    )
     return ApiResponse(data=None)
 
 
@@ -334,7 +356,11 @@ def list_user_roles(
 ) -> ApiResponse[IdentifierList]:
     """List role assignment identifiers for one user."""
     return ApiResponse(
-        data=IdentifierList(ids=_service(db, settings).list_user_role_ids(user_id))
+        data=IdentifierList(
+            ids=_service(db, settings).list_user_role_ids(
+                user_id, _firm_scope(principal)
+            )
+        )
     )
 
 
@@ -345,7 +371,7 @@ def list_user_roles(
 )
 def list_user_firms(
     user_id: UUID,
-    principal: UserFirmAssignmentPrincipal,
+    principal: RoleViewPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
@@ -362,7 +388,7 @@ def list_user_firms(
 def set_user_firms(
     user_id: UUID,
     data: UserFirmAssignments,
-    principal: UserFirmAssignmentPrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
@@ -375,7 +401,7 @@ def set_user_firms(
 
 @router.get("/roles", response_model=PaginatedResponse[RoleResponse], tags=["Roles"])
 def list_roles(
-    principal: RoleViewPrincipal,
+    principal: PlatformPrincipal,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -387,7 +413,12 @@ def list_roles(
     """List system and custom roles with approved collection query fields."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = _service(db, settings).list_roles(
-        params.page, params.page_size, search, sort_by, sort_direction == "desc"
+        params.page,
+        params.page_size,
+        search,
+        sort_by,
+        sort_direction == "desc",
+        _firm_scope(principal),
     )
     return PaginatedResponse(
         data=[RoleResponse.model_validate(item) for item in rows],
@@ -410,7 +441,9 @@ def create_role(
     """Create a custom role."""
     return ApiResponse(
         data=RoleResponse.model_validate(
-            _service(db, settings).create_role(data, _actor_id(principal))
+            _service(db, settings).create_role(
+                data, _actor_id(principal), _firm_scope(principal)
+            )
         )
     )
 
@@ -426,7 +459,9 @@ def get_role(
 ) -> ApiResponse[RoleResponse]:
     """Retrieve a system or custom role."""
     return ApiResponse(
-        data=RoleResponse.model_validate(_service(db, settings).get_role(role_id))
+        data=RoleResponse.model_validate(
+            _service(db, settings).get_role(role_id, _firm_scope(principal))
+        )
     )
 
 
@@ -443,7 +478,9 @@ def update_role(
     """Update a custom role."""
     return ApiResponse(
         data=RoleResponse.model_validate(
-            _service(db, settings).update_role(role_id, data, _actor_id(principal))
+            _service(db, settings).update_role(
+                role_id, data, _actor_id(principal), _firm_scope(principal)
+            )
         )
     )
 
@@ -458,7 +495,9 @@ def delete_role(
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
     """Soft delete a custom role."""
-    _service(db, settings).delete_role(role_id, _actor_id(principal))
+    _service(db, settings).delete_role(
+        role_id, _actor_id(principal), _firm_scope(principal)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -473,7 +512,9 @@ def set_role_permissions(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
     """Replace role permission assignments."""
-    _service(db, settings).set_role_permissions(role_id, data.ids, _actor_id(principal))
+    _service(db, settings).set_role_permissions(
+        role_id, data.ids, _actor_id(principal), _firm_scope(principal)
+    )
     return ApiResponse(data=None)
 
 
@@ -491,7 +532,9 @@ def list_role_permissions(
     """List permission assignment identifiers for a role."""
     return ApiResponse(
         data=IdentifierList(
-            ids=_service(db, settings).list_role_permission_ids(role_id)
+            ids=_service(db, settings).list_role_permission_ids(
+                role_id, _firm_scope(principal)
+            )
         )
     )
 
@@ -514,7 +557,12 @@ def list_permissions(
     """List permissions with approved collection query fields."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = _service(db, settings).list_permissions(
-        params.page, params.page_size, search, sort_by, sort_direction == "desc"
+        params.page,
+        params.page_size,
+        search,
+        sort_by,
+        sort_direction == "desc",
+        _firm_scope(principal),
     )
     return PaginatedResponse(
         data=[PermissionResponse.model_validate(item) for item in rows],
@@ -530,7 +578,7 @@ def list_permissions(
 )
 def create_permission(
     data: PermissionCreate,
-    principal: PermissionCreatePrincipal,
+    principal: PermissionViewPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
@@ -549,14 +597,16 @@ def create_permission(
 )
 def get_permission(
     permission_id: UUID,
-    principal: PermissionViewPrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
     """Retrieve a visible permission."""
     return ApiResponse(
         data=PermissionResponse.model_validate(
-            _service(db, settings).get_permission(permission_id)
+            _service(db, settings).get_permission(
+                permission_id, _firm_scope(principal)
+            )
         )
     )
 
@@ -569,7 +619,7 @@ def get_permission(
 def update_permission(
     permission_id: UUID,
     data: PermissionUpdate,
-    principal: PermissionUpdatePrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
@@ -590,7 +640,7 @@ def update_permission(
 )
 def delete_permission(
     permission_id: UUID,
-    principal: PermissionDeletePrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:

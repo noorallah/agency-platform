@@ -70,6 +70,7 @@ PERMISSION_GROUPS = {
         "CUSTOMER_VIEW",
         "CUSTOMER_UPDATE",
         "CUSTOMER_DELETE",
+        "CUSTOMER_RESTORE",
         "CUSTOMER_IMPORT",
         "CUSTOMER_EXPORT",
     ),
@@ -147,20 +148,26 @@ PERMISSION_GROUPS = {
 SYSTEM_PERMISSION_CODES = tuple(
     code for codes in PERMISSION_GROUPS.values() for code in codes
 )
+PLATFORM_ROLE_CODES = frozenset(
+    {"PLATFORM_ADMIN", "SUPPORT_ADMIN", "LICENSE_ADMIN", "SYSTEM_AUDITOR"}
+)
+FIRM_ROLE_CODES = frozenset(SYSTEM_ROLE_CODES) - PLATFORM_ROLE_CODES
+PLATFORM_PERMISSION_CODES = frozenset(
+    code
+    for group in ("platform", "firm", "system_administration", "high_risk")
+    for code in PERMISSION_GROUPS[group]
+)
 
 
 def _codes(*groups: str) -> frozenset[str]:
     """Combine named permission groups into an immutable permission set."""
-    return frozenset(
-        code for group in groups for code in PERMISSION_GROUPS[group]
-    )
+    return frozenset(code for group in groups for code in PERMISSION_GROUPS[group])
 
 
 _all_permissions = frozenset(SYSTEM_PERMISSION_CODES)
 _platform_administration = _codes("platform", "system_administration")
-_firm_administration = _codes("firm", "user", "role", "permission")
+_firm_administration = _codes("user", "role", "permission")
 _operational_permissions = _codes(
-    "firm",
     "customer",
     "vendor",
     "product",
@@ -182,9 +189,9 @@ ROLE_PERMISSION_CODES = {
     "SYSTEM_AUDITOR": frozenset(
         {"FIRM_VIEW", "USER_VIEW", "REPORT_VIEW", "AUDIT_LOG_VIEW"}
     ),
-    "FIRM_ADMIN": _all_permissions
-    - _platform_administration
-    - frozenset({"LICENSE_MANAGE"}),
+    "FIRM_ADMIN": _operational_permissions
+    | _firm_administration
+    | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE"}),
     "FIRM_MANAGER": _operational_permissions
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
@@ -206,9 +213,7 @@ ROLE_PERMISSION_CODES = {
     "INVENTORY_MANAGER": _codes("inventory"),
     "CASHIER": frozenset({"PAYMENT_CREATE", "RECEIPT_CREATE"}),
     "BILLING_EXECUTIVE": frozenset({"SALES_INVOICE_CREATE", "SALES_VIEW"}),
-    "CUSTOMER_SUPPORT": frozenset(
-        {"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}
-    ),
+    "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
     "VIEWER": _all_read_permissions
     - frozenset(
         {
@@ -245,6 +250,7 @@ def seed_system_rbac(session: Session) -> None:
             elif assignment.is_deleted:
                 assignment.is_deleted = False
                 assignment.deleted_at = None
+                assignment.deleted_by = None
 
 
 def _seed_roles(session: Session) -> dict[str, Role]:
@@ -265,6 +271,7 @@ def _seed_roles(session: Session) -> dict[str, Role]:
             role.is_system = True
             role.is_deleted = False
             role.deleted_at = None
+            role.deleted_by = None
         seeded[code] = role
     return seeded
 
@@ -290,6 +297,7 @@ def _seed_permissions(session: Session) -> dict[str, Permission]:
             permission.is_system = True
             permission.is_deleted = False
             permission.deleted_at = None
+            permission.deleted_by = None
         seeded[code] = permission
     return seeded
 

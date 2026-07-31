@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../design/design_tokens.dart';
 import '../preferences/desktop_preferences_service.dart';
 
 enum AppTheme { light, dark, blue, green, highContrast }
@@ -80,6 +81,7 @@ class ThemeRegistry {
     return ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
+      extensions: [AppSemanticColors.forScheme(scheme)],
       inputDecorationTheme: const InputDecorationTheme(
         border: OutlineInputBorder(),
       ),

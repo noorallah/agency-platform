@@ -132,6 +132,14 @@ class Settings(BaseSettings):
                 "AGENCY_JWT_SECRET_KEY must be explicitly configured "
                 "outside development."
             )
+        if (
+            self.environment in {Environment.STAGING, Environment.PRODUCTION}
+            and self.database_password.get_secret_value() == "postgres"
+        ):
+            raise ValueError(
+                "AGENCY_DATABASE_PASSWORD must be explicitly configured "
+                "outside development."
+            )
         if self.bootstrap_admin_password is None:
             if self.environment is Environment.DEVELOPMENT:
                 self.bootstrap_admin_password = SecretStr("Local-Development-Only1!")

@@ -47,7 +47,12 @@ from app.identity.schemas.api import (
     UserPreferencesUpdate,
     UserUpdate,
 )
-from app.identity.system_seed import HIDDEN_SYSTEM_ROLE_CODES
+from app.identity.system_seed import (
+    FIRM_ROLE_CODES,
+    HIDDEN_SYSTEM_ROLE_CODES,
+    PLATFORM_PERMISSION_CODES,
+    PLATFORM_ROLE_CODES,
+)
 
 
 class IdentityService:
@@ -351,7 +356,9 @@ class IdentityService:
         self._session.commit()
         return preferences
 
-    def create_user(self, data: UserCreate, actor_id: UUID) -> User:
+    def create_user(
+        self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> User:
         """Provision a user with a policy-compliant initial password."""
         email = validate_email(data.email)
         if self._session.scalar(select(User.id).where(User.email == email)):
@@ -369,20 +376,40 @@ class IdentityService:
         )
         self._session.add(user)
         self._session.flush()
+        if firm_scope is not None:
+            self._session.add(
+                UserFirm(
+                    user_id=user.id,
+                    firm_id=firm_scope,
+                    is_primary=True,
+                    is_active=True,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
         record_audit(
             self._session,
             action="user.created",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
             after_data={"email": user.email},
         )
         self._session.commit()
         return user
 
-    def update_user(self, user_id: UUID, data: UserUpdate, actor_id: UUID) -> User:
+    def update_user(
+        self,
+        user_id: UUID,
+        data: UserUpdate,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> User:
         """Update allowed user properties or explicitly remove a lock."""
-        user = self._get_user(user_id)
+        user = self._get_user(user_id, firm_scope)
+        if firm_scope is not None:
+            self._assert_exclusive_firm_user(user.id, firm_scope)
         before = {"full_name": user.full_name, "is_active": user.is_active}
         if data.full_name is not None:
             user.full_name = data.full_name.strip()
@@ -393,23 +420,32 @@ class IdentityService:
         if data.unlock:
             user.locked_until, user.failed_login_attempts = None, 0
         user.updated_by = actor_id
+        self._revoke_user_tokens(user.id)
         record_audit(
             self._session,
             action="user.updated",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
             before_data=before,
         )
         self._session.commit()
         return user
 
-    def delete_user(self, user_id: UUID, actor_id: UUID) -> None:
+    def delete_user(
+        self, user_id: UUID, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> None:
         """Soft delete a non-platform-admin user and revoke all sessions."""
-        user = self._get_user(user_id)
+        user = self._get_user(user_id, firm_scope)
+        if firm_scope is not None:
+            self._assert_exclusive_firm_user(user.id, firm_scope)
         if self._is_platform_admin(user.id):
             raise BusinessRuleError("Platform administrator users cannot be deleted.")
-        user.is_deleted, user.deleted_at, user.updated_by = True, utc_now(), actor_id
+        user.is_deleted = True
+        user.deleted_at = utc_now()
+        user.deleted_by = actor_id
+        user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
         record_audit(
             self._session,
@@ -417,6 +453,7 @@ class IdentityService:
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
 
@@ -427,6 +464,7 @@ class IdentityService:
         search: str | None,
         sort_by: str,
         descending: bool,
+        firm_scope: UUID | None = None,
     ) -> tuple[list[User], int]:
         """Return a safe, bounded and whitelisted user page."""
         columns = {
@@ -436,6 +474,28 @@ class IdentityService:
         }
         statement = select(User).where(User.is_deleted.is_(False))
         count = select(func.count()).select_from(User).where(User.is_deleted.is_(False))
+        if firm_scope is not None:
+            scoped_users = select(UserFirm.user_id).where(
+                UserFirm.firm_id == firm_scope,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
+            statement = statement.where(
+                User.id.in_(scoped_users),
+                ~User.id.in_(
+                    select(PlatformAdmin.user_id).where(
+                        PlatformAdmin.is_deleted.is_(False)
+                    )
+                ),
+            )
+            count = count.where(
+                User.id.in_(scoped_users),
+                ~User.id.in_(
+                    select(PlatformAdmin.user_id).where(
+                        PlatformAdmin.is_deleted.is_(False)
+                    )
+                ),
+            )
         if search:
             term = f"%{search.strip()}%"
             condition = or_(User.email.ilike(term), User.full_name.ilike(term))
@@ -446,13 +506,16 @@ class IdentityService:
         ).all()
         return list(rows), int(self._session.scalar(count) or 0)
 
-    def create_role(self, data: RoleCreate, actor_id: UUID) -> Role:
+    def create_role(
+        self, data: RoleCreate, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> Role:
         """Create a custom role; system classification cannot be client supplied."""
         if self._session.scalar(select(Role.id).where(Role.code == data.code)):
             raise ConflictError("A role with this code already exists.")
         role = Role(
             **data.model_dump(),
             is_system=False,
+            firm_id=firm_scope,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -464,40 +527,56 @@ class IdentityService:
             entity_type="role",
             entity_id=role.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
         return role
 
-    def update_role(self, role_id: UUID, data: RoleUpdate, actor_id: UUID) -> Role:
+    def update_role(
+        self,
+        role_id: UUID,
+        data: RoleUpdate,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> Role:
         """Update a role unless it is system-defined."""
-        role = self._get_role(role_id)
+        role = self._get_role(role_id, firm_scope)
         if role.is_system:
             raise BusinessRuleError("System roles cannot be modified.")
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(role, field, value)
         role.updated_by = actor_id
+        self._revoke_role_users(role.id)
         record_audit(
             self._session,
             action="role.updated",
             entity_type="role",
             entity_id=role.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
         return role
 
-    def delete_role(self, role_id: UUID, actor_id: UUID) -> None:
+    def delete_role(
+        self, role_id: UUID, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> None:
         """Soft delete a custom role."""
-        role = self._get_role(role_id)
+        role = self._get_role(role_id, firm_scope)
         if role.is_system:
             raise BusinessRuleError("System roles cannot be deleted.")
-        role.is_deleted, role.deleted_at, role.updated_by = True, utc_now(), actor_id
+        role.is_deleted = True
+        role.deleted_at = utc_now()
+        role.deleted_by = actor_id
+        role.updated_by = actor_id
+        self._revoke_role_users(role.id)
         record_audit(
             self._session,
             action="role.deleted",
             entity_type="role",
             entity_id=role.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
 
@@ -508,6 +587,7 @@ class IdentityService:
         search: str | None,
         sort_by: str,
         descending: bool,
+        firm_scope: UUID | None = None,
     ) -> tuple[list[Role], int]:
         """Return a paginated, searchable role collection."""
         columns = {"code": Role.code, "name": Role.name, "created_at": Role.created_at}
@@ -523,6 +603,13 @@ class IdentityService:
                 Role.code.not_in(HIDDEN_SYSTEM_ROLE_CODES),
             )
         )
+        if firm_scope is not None:
+            scope_condition = or_(
+                Role.firm_id == firm_scope,
+                Role.code.in_(FIRM_ROLE_CODES),
+            )
+            statement = statement.where(scope_condition)
+            count = count.where(scope_condition)
         if search:
             condition = or_(
                 Role.code.ilike(f"%{search.strip()}%"),
@@ -535,9 +622,9 @@ class IdentityService:
         )
         return list(rows), int(self._session.scalar(count) or 0)
 
-    def get_role(self, role_id: UUID) -> Role:
+    def get_role(self, role_id: UUID, firm_scope: UUID | None = None) -> Role:
         """Return one visible role."""
-        return self._get_role(role_id)
+        return self._get_role(role_id, firm_scope)
 
     def create_permission(self, data: PermissionCreate, actor_id: UUID) -> Permission:
         """Create a permission capability."""
@@ -573,6 +660,7 @@ class IdentityService:
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(permission, field, value)
         permission.updated_by = actor_id
+        self._revoke_permission_users(permission.id)
         record_audit(
             self._session,
             action="permission.updated",
@@ -601,6 +689,8 @@ class IdentityService:
             utc_now(),
             actor_id,
         )
+        permission.deleted_by = actor_id
+        self._revoke_permission_users(permission.id)
         record_audit(
             self._session,
             action="permission.deleted",
@@ -617,6 +707,7 @@ class IdentityService:
         search: str | None,
         sort_by: str,
         descending: bool,
+        firm_scope: UUID | None = None,
     ) -> tuple[list[Permission], int]:
         """Return a paginated, searchable permission collection."""
         columns = {
@@ -630,6 +721,11 @@ class IdentityService:
             .select_from(Permission)
             .where(Permission.is_deleted.is_(False))
         )
+        if firm_scope is not None:
+            statement = statement.where(
+                Permission.code.not_in(PLATFORM_PERMISSION_CODES)
+            )
+            count = count.where(Permission.code.not_in(PLATFORM_PERMISSION_CODES))
         if search:
             condition = or_(
                 Permission.code.ilike(f"%{search.strip()}%"),
@@ -642,24 +738,42 @@ class IdentityService:
         )
         return list(rows), int(self._session.scalar(count) or 0)
 
-    def get_permission(self, permission_id: UUID) -> Permission:
+    def get_permission(
+        self, permission_id: UUID, firm_scope: UUID | None = None
+    ) -> Permission:
         """Return one visible permission."""
-        return self._get_permission(permission_id)
+        permission = self._get_permission(permission_id)
+        if (
+            firm_scope is not None
+            and permission.code in PLATFORM_PERMISSION_CODES
+        ):
+            raise ResourceNotFoundError("Permission not found.")
+        return permission
 
-    def list_user_role_ids(self, user_id: UUID) -> list[UUID]:
+    def list_user_role_ids(
+        self, user_id: UUID, firm_scope: UUID | None = None
+    ) -> list[UUID]:
         """Return role identifiers assigned to one visible user."""
-        self._get_user(user_id)
+        self._get_user(user_id, firm_scope)
+        conditions = [
+            UserRole.user_id == user_id,
+            UserRole.is_deleted.is_(False),
+        ]
+        if firm_scope is not None:
+            conditions.append(UserRole.firm_id == firm_scope)
         return list(
             self._session.scalars(
                 select(UserRole.role_id).where(
-                    UserRole.user_id == user_id, UserRole.is_deleted.is_(False)
+                    *conditions
                 )
             )
         )
 
-    def list_role_permission_ids(self, role_id: UUID) -> list[UUID]:
+    def list_role_permission_ids(
+        self, role_id: UUID, firm_scope: UUID | None = None
+    ) -> list[UUID]:
         """Return permission identifiers assigned to one visible role."""
-        self._get_role(role_id)
+        self._get_role(role_id, firm_scope)
         return list(
             self._session.scalars(
                 select(RolePermission.permission_id).where(
@@ -670,13 +784,28 @@ class IdentityService:
         )
 
     def set_role_permissions(
-        self, role_id: UUID, permission_ids: list[UUID], actor_id: UUID
+        self,
+        role_id: UUID,
+        permission_ids: list[UUID],
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
     ) -> None:
         """Replace a role's permission assignment set."""
-        role = self._get_role(role_id)
+        role = self._get_role(role_id, firm_scope)
         if role.is_system:
             raise BusinessRuleError("System role assignments cannot be modified.")
         self._ensure_identifiers(Permission, permission_ids)
+        if firm_scope is not None:
+            forbidden = self._session.scalar(
+                select(Permission.id).where(
+                    Permission.id.in_(permission_ids),
+                    Permission.code.in_(PLATFORM_PERMISSION_CODES),
+                )
+            )
+            if forbidden is not None:
+                raise BusinessRuleError(
+                    "Platform permissions cannot be assigned to firm roles."
+                )
         self._replace_associations(
             RolePermission,
             "role_id",
@@ -685,30 +814,59 @@ class IdentityService:
             permission_ids,
             actor_id,
         )
+        self._revoke_role_users(role.id)
         record_audit(
             self._session,
             action="role.permissions_set",
             entity_type="role",
             entity_id=role.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
 
     def set_user_roles(
-        self, user_id: UUID, role_ids: list[UUID], actor_id: UUID
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
     ) -> None:
         """Replace a user's role assignment set."""
-        user = self._get_user(user_id)
+        user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
-        self._replace_associations(
-            UserRole, "user_id", user.id, "role_id", role_ids, actor_id
-        )
+        if firm_scope is None:
+            self._replace_associations(
+                UserRole, "user_id", user.id, "role_id", role_ids, actor_id
+            )
+        else:
+            allowed_count = self._session.scalar(
+                select(func.count())
+                .select_from(Role)
+                .where(
+                    Role.id.in_(role_ids),
+                    Role.is_deleted.is_(False),
+                    or_(
+                        Role.firm_id == firm_scope,
+                        Role.code.in_(FIRM_ROLE_CODES),
+                    ),
+                )
+            )
+            if int(allowed_count or 0) != len(role_ids):
+                raise BusinessRuleError(
+                    "Platform or cross-firm roles cannot be assigned."
+                )
+            self._replace_scoped_user_roles(
+                user.id, role_ids, actor_id, firm_scope
+            )
+        self._revoke_user_tokens(user.id)
         record_audit(
             self._session,
             action="user.roles_set",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
+            firm_id=firm_scope,
         )
         self._session.commit()
 
@@ -765,6 +923,7 @@ class IdentityService:
             ):
                 existing.is_deleted = False
                 existing.deleted_at = None
+                existing.deleted_by = None
                 existing.is_primary = assignment.is_primary
                 existing.is_active = assignment.is_active
                 existing.updated_by = actor_id
@@ -773,6 +932,7 @@ class IdentityService:
             if not existing.is_deleted and firm_id not in requested_firm_ids:
                 existing.is_deleted = True
                 existing.deleted_at = now
+                existing.deleted_by = actor_id
                 existing.updated_by = actor_id
         record_audit(
             self._session,
@@ -781,6 +941,7 @@ class IdentityService:
             entity_id=user.id,
             actor_id=actor_id,
         )
+        self._revoke_user_tokens(user.id)
         self._session.commit()
         return result
 
@@ -846,19 +1007,63 @@ class IdentityService:
                     .join(UserRole, UserRole.role_id == RolePermission.role_id)
                     .where(
                         UserRole.user_id == user.id,
+                        UserRole.firm_id.is_(None),
                         UserRole.is_deleted.is_(False),
                         RolePermission.is_deleted.is_(False),
                         Role.is_deleted.is_(False),
                         Role.is_active.is_(True),
                         Permission.is_deleted.is_(False),
                         Permission.is_active.is_(True),
+                        or_(
+                            Role.code.in_(PLATFORM_ROLE_CODES),
+                            Role.is_system.is_(False),
+                        ),
                     )
                     .distinct()
                 )
             )
+        firm_permissions: dict[str, list[str]] = {}
+        if not is_platform_admin:
+            memberships = list(
+                self._session.scalars(
+                    select(UserFirm.firm_id).where(
+                        UserFirm.user_id == user.id,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                )
+            )
+            for firm_id in memberships:
+                firm_permissions[str(firm_id)] = list(
+                    self._session.scalars(
+                        select(Permission.code)
+                        .join(RolePermission)
+                        .join(Role, Role.id == RolePermission.role_id)
+                        .join(UserRole, UserRole.role_id == RolePermission.role_id)
+                        .where(
+                            UserRole.user_id == user.id,
+                            or_(
+                                UserRole.firm_id == firm_id,
+                                (
+                                    UserRole.firm_id.is_(None)
+                                    & Role.code.in_(FIRM_ROLE_CODES)
+                                ),
+                            ),
+                            UserRole.is_deleted.is_(False),
+                            RolePermission.is_deleted.is_(False),
+                            Role.is_deleted.is_(False),
+                            Role.is_active.is_(True),
+                            Permission.is_deleted.is_(False),
+                            Permission.is_active.is_(True),
+                        )
+                        .distinct()
+                    )
+                )
         claims = {
             "roles": roles,
             "permissions": permissions,
+            "firm_permissions": firm_permissions,
+            "authorization_version": user.authorization_version,
             "password_change_required": user.force_password_change,
         }
         access = self._jwt.generate_access_token(user.id, claims=claims)
@@ -916,6 +1121,9 @@ class IdentityService:
         )
 
     def _revoke_user_tokens(self, user_id: UUID) -> None:
+        user = self._session.get(User, user_id)
+        if user is not None:
+            user.authorization_version += 1
         now = utc_now()
         for token in self._session.scalars(
             select(RefreshToken).where(
@@ -924,10 +1132,48 @@ class IdentityService:
         ):
             token.revoked_at = now
 
-    def _get_user(self, user_id: UUID) -> User:
-        user = self._session.scalar(
-            select(User).where(User.id == user_id, User.is_deleted.is_(False))
+    def _revoke_role_users(self, role_id: UUID) -> None:
+        user_ids = self._session.scalars(
+            select(UserRole.user_id).where(
+                UserRole.role_id == role_id,
+                UserRole.is_deleted.is_(False),
+            )
+        ).all()
+        for user_id in set(user_ids):
+            self._revoke_user_tokens(user_id)
+
+    def _revoke_permission_users(self, permission_id: UUID) -> None:
+        role_ids = self._session.scalars(
+            select(RolePermission.role_id).where(
+                RolePermission.permission_id == permission_id,
+                RolePermission.is_deleted.is_(False),
+            )
+        ).all()
+        for role_id in set(role_ids):
+            self._revoke_role_users(role_id)
+
+    def _get_user(
+        self, user_id: UUID, firm_scope: UUID | None = None
+    ) -> User:
+        statement = select(User).where(
+            User.id == user_id, User.is_deleted.is_(False)
         )
+        if firm_scope is not None:
+            statement = statement.where(
+                User.id.in_(
+                    select(UserFirm.user_id).where(
+                        UserFirm.firm_id == firm_scope,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                ),
+                ~User.id.in_(
+                    select(PlatformAdmin.user_id).where(
+                        PlatformAdmin.is_deleted.is_(False)
+                    )
+                ),
+            )
+        user = self._session.scalar(statement)
         if user is None:
             raise ResourceNotFoundError("User not found.")
         return user
@@ -943,10 +1189,31 @@ class IdentityService:
             raise ResourceNotFoundError("User not found.")
         return user
 
-    def _get_role(self, role_id: UUID) -> Role:
-        role = self._session.scalar(
-            select(Role).where(Role.id == role_id, Role.is_deleted.is_(False))
+    def _assert_exclusive_firm_user(self, user_id: UUID, firm_id: UUID) -> None:
+        other_membership = self._session.scalar(
+            select(UserFirm.id).where(
+                UserFirm.user_id == user_id,
+                UserFirm.firm_id != firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
         )
+        if other_membership is not None:
+            raise BusinessRuleError(
+                "Users assigned to multiple firms require platform administration."
+            )
+
+    def _get_role(
+        self, role_id: UUID, firm_scope: UUID | None = None
+    ) -> Role:
+        statement = select(Role).where(
+            Role.id == role_id, Role.is_deleted.is_(False)
+        )
+        if firm_scope is not None:
+            statement = statement.where(
+                or_(Role.firm_id == firm_scope, Role.code.in_(FIRM_ROLE_CODES))
+            )
+        role = self._session.scalar(statement)
         if role is None:
             raise ResourceNotFoundError("Role not found.")
         return role
@@ -1008,13 +1275,56 @@ class IdentityService:
             elif existing.is_deleted:
                 existing.is_deleted = False
                 existing.deleted_at = None
+                existing.deleted_by = None
                 existing.updated_by = actor_id
         for related_id, existing in existing_by_related_id.items():
             if not existing.is_deleted and related_id not in requested_related_ids:
                 existing.is_deleted = True
                 existing.deleted_at = now
+                existing.deleted_by = actor_id
                 existing.updated_by = actor_id
 
+    def _replace_scoped_user_roles(
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        firm_id: UUID,
+    ) -> None:
+        existing_by_role = {
+            item.role_id: item
+            for item in self._session.scalars(
+                select(UserRole).where(
+                    UserRole.user_id == user_id,
+                    UserRole.firm_id == firm_id,
+                )
+            )
+        }
+        requested = set(role_ids)
+        now = utc_now()
+        for role_id in role_ids:
+            existing = existing_by_role.get(role_id)
+            if existing is None:
+                self._session.add(
+                    UserRole(
+                        user_id=user_id,
+                        role_id=role_id,
+                        firm_id=firm_id,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
+            elif existing.is_deleted:
+                existing.is_deleted = False
+                existing.deleted_at = None
+                existing.deleted_by = None
+                existing.updated_by = actor_id
+        for role_id, existing in existing_by_role.items():
+            if not existing.is_deleted and role_id not in requested:
+                existing.is_deleted = True
+                existing.deleted_at = now
+                existing.deleted_by = actor_id
+                existing.updated_by = actor_id
     def _is_platform_admin(self, user_id: UUID) -> bool:
         return (
             self._session.scalar(

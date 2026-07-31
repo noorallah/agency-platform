@@ -12,17 +12,14 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import Principal, require_permission
+from app.core.security.authorization import Principal, require_platform_admin
 from app.firms.schemas import FirmCreate, FirmResponse, FirmUpdate
 from app.firms.services import FirmService
 
 router = APIRouter(
     prefix="/api/v1/firms", tags=["Firms"], responses=STANDARD_ERROR_RESPONSES
 )
-FirmViewPrincipal = Annotated[Principal, Depends(require_permission("FIRM_VIEW"))]
-FirmCreatePrincipal = Annotated[Principal, Depends(require_permission("FIRM_CREATE"))]
-FirmUpdatePrincipal = Annotated[Principal, Depends(require_permission("FIRM_UPDATE"))]
-FirmDeletePrincipal = Annotated[Principal, Depends(require_permission("FIRM_DELETE"))]
+PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
 
 def _actor_id(principal: Principal) -> UUID:
@@ -34,7 +31,7 @@ def _actor_id(principal: Principal) -> UUID:
 
 @router.get("", response_model=PaginatedResponse[FirmResponse])
 def list_firms(
-    principal: FirmViewPrincipal,
+    principal: PlatformPrincipal,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -58,7 +55,7 @@ def list_firms(
 )
 def create_firm(
     data: FirmCreate,
-    principal: FirmCreatePrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     _: Settings = Depends(get_request_settings),
 ) -> ApiResponse[FirmResponse]:
@@ -69,7 +66,7 @@ def create_firm(
 
 @router.get("/{firm_id}", response_model=ApiResponse[FirmResponse])
 def get_firm(
-    firm_id: UUID, principal: FirmViewPrincipal, db: Session = Depends(get_db)
+    firm_id: UUID, principal: PlatformPrincipal, db: Session = Depends(get_db)
 ) -> ApiResponse[FirmResponse]:
     """Retrieve a visible firm."""
     return ApiResponse(data=FirmResponse.model_validate(FirmService(db).get(firm_id)))
@@ -79,7 +76,7 @@ def get_firm(
 def update_firm(
     firm_id: UUID,
     data: FirmUpdate,
-    principal: FirmUpdatePrincipal,
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
 ) -> ApiResponse[FirmResponse]:
     """Replace one firm."""
@@ -89,7 +86,7 @@ def update_firm(
 
 @router.delete("/{firm_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_firm(
-    firm_id: UUID, principal: FirmDeletePrincipal, db: Session = Depends(get_db)
+    firm_id: UUID, principal: PlatformPrincipal, db: Session = Depends(get_db)
 ) -> Response:
     """Soft delete an unassigned firm."""
     FirmService(db).delete(firm_id, _actor_id(principal))

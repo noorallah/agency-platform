@@ -1,16 +1,22 @@
 """Reusable FastAPI authorization dependencies for future API modules."""
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from uuid import UUID
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
+from app.core.database.dependencies import get_db
 from app.core.enums import TokenType
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.security.jwt import JwtService, TokenClaims
+from app.core.utils.dates import utc_now
+from app.identity.models import User
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -23,11 +29,30 @@ class Principal:
     roles: frozenset[str]
     permissions: frozenset[str]
     claims: TokenClaims
+    firm_id: UUID | None = None
+    firm_permissions: Mapping[UUID, frozenset[str]] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    @property
+    def is_platform_admin(self) -> bool:
+        """Return whether the principal holds the immutable platform designation."""
+        return "platform_admin" in self.roles
+
+    def has_permission(self, permission: str) -> bool:
+        """Check global or selected-firm permission grants."""
+        if self.is_platform_admin or permission in self.permissions:
+            return True
+        return (
+            self.firm_id is not None
+            and permission in self.firm_permissions.get(self.firm_id, frozenset())
+        )
 
 
 def get_current_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: Session = Depends(get_db),
 ) -> Principal:
     """Validate a bearer access token and expose its generic authorization data."""
     if credentials is None:
@@ -41,11 +66,30 @@ def get_current_principal(
     )
     extra_claims = claims.model_extra or {}
     subject = _parse_subject(claims.subject)
+    if not isinstance(subject, UUID):
+        raise AuthenticationError()
+    user = db.scalar(
+        select(User).where(User.id == subject, User.is_deleted.is_(False))
+    )
+    now = utc_now()
+    if (
+        user is None
+        or not user.is_active
+        or (user.expires_at is not None and user.expires_at <= now)
+        or int(extra_claims.get("authorization_version", 0))
+        != user.authorization_version
+    ):
+        raise AuthenticationError()
+    firm_id = _selected_firm_id(request)
     return Principal(
         subject=subject,
         roles=frozenset(_string_claims(extra_claims.get("roles"))),
         permissions=frozenset(_string_claims(extra_claims.get("permissions"))),
         claims=claims,
+        firm_id=firm_id,
+        firm_permissions=_firm_permission_claims(
+            extra_claims.get("firm_permissions")
+        ),
     )
 
 
@@ -101,8 +145,8 @@ def require_permission(*required_permissions: str) -> Callable[[Principal], Prin
     def dependency(
         principal: Principal = Depends(get_current_principal),
     ) -> Principal:
-        if _requires_password_change(principal) or not required.issubset(
-            principal.permissions
+        if _requires_password_change(principal) or not all(
+            principal.has_permission(permission) for permission in required
         ):
             raise AuthorizationError()
         return principal
@@ -121,8 +165,8 @@ def require_any_permission(
     def dependency(
         principal: Principal = Depends(get_current_principal),
     ) -> Principal:
-        if _requires_password_change(principal) or principal.permissions.isdisjoint(
-            required
+        if _requires_password_change(principal) or not any(
+            principal.has_permission(permission) for permission in required
         ):
             raise AuthorizationError()
         return principal
@@ -149,3 +193,30 @@ def _string_claims(value: object) -> tuple[str, ...]:
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return tuple(value)
     return ()
+
+
+def _selected_firm_id(request: Request) -> UUID | None:
+    value = request.headers.get("X-Firm-ID")
+    if value is None:
+        return None
+    try:
+        return UUID(value)
+    except ValueError as error:
+        raise AuthorizationError(
+            "X-Firm-ID must be a valid firm identifier."
+        ) from error
+
+
+def _firm_permission_claims(
+    value: object,
+) -> Mapping[UUID, frozenset[str]]:
+    if not isinstance(value, dict):
+        return MappingProxyType({})
+    result: dict[UUID, frozenset[str]] = {}
+    for firm_id, permissions in value.items():
+        try:
+            parsed_id = UUID(firm_id)
+        except (TypeError, ValueError):
+            continue
+        result[parsed_id] = frozenset(_string_claims(permissions))
+    return MappingProxyType(result)

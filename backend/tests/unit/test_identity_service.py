@@ -10,8 +10,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config.settings import Environment, Settings
 from app.core.database.base import Base
-from app.core.exceptions import AuthenticationError, BusinessRuleError
+from app.core.enums import TokenType
+from app.core.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    BusinessRuleError,
+    ResourceNotFoundError,
+)
 from app.core.security import PasswordSecurity
+from app.core.security.authorization import Principal, require_platform_admin
+from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import (
     LoginHistory,
@@ -29,6 +37,7 @@ from app.identity.schemas import (
     PermissionUpdate,
     UserFirmAssignment,
     UserPreferencesUpdate,
+    UserUpdate,
 )
 from app.identity.services import IdentityService
 from app.identity.system_seed import (
@@ -280,12 +289,153 @@ def test_production_rejects_the_known_development_jwt_key() -> None:
     settings = Settings(
         environment=Environment.PRODUCTION,
         jwt_secret_key="production-secret-not-the-default",
+        database_password="production-database-secret",
         bootstrap_admin_password="Production-bootstrap-secret",
     )
     assert (
         settings.jwt.secret_key.get_secret_value()
         == "production-secret-not-the-default"
     )
+
+
+def test_firm_admin_has_no_platform_permissions_or_platform_access() -> None:
+    """Prevent firm roles from crossing the immutable platform boundary."""
+    assert ROLE_PERMISSION_CODES["FIRM_ADMIN"].isdisjoint(
+        {
+            "PLATFORM_VIEW",
+            "PLATFORM_SETTINGS",
+            "SYSTEM_CONFIGURATION",
+            "LICENSE_MANAGE",
+            "FIRM_CREATE",
+            "FIRM_VIEW",
+            "AUDIT_LOG_VIEW",
+        }
+    )
+    user_id = uuid4()
+    principal = Principal(
+        subject=user_id,
+        roles=frozenset({"FIRM_ADMIN"}),
+        permissions=ROLE_PERMISSION_CODES["FIRM_ADMIN"],
+        claims=TokenClaims(
+            sub=str(user_id),
+            type=TokenType.ACCESS,
+            iat=1,
+            exp=4_102_444_800,
+        ),
+    )
+    with pytest.raises(AuthorizationError):
+        require_platform_admin()(principal)
+
+
+def test_role_and_firm_changes_invalidate_existing_sessions() -> None:
+    """Increment authorization state and revoke refresh tokens on grant changes."""
+    session = _session()
+    password = "Secure-Passphrase1!"
+    user = User(
+        email="invalidate@example.com",
+        full_name="Invalidate User",
+        password_hash=PasswordSecurity().hash_password(password),
+    )
+    role = Role(code="invalidate-role", name="Invalidate Role")
+    firm = Firm(
+        name="Invalidate Firm",
+        code="INVALIDATE_FIRM",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add_all([user, role, firm])
+    session.commit()
+    service = IdentityService(session, _settings())
+    tokens = service.login(user.email, password, client_ip=None, user_agent=None)
+
+    service.set_user_roles(user.id, [role.id], uuid4())
+
+    assert user.authorization_version == 1
+    assert session.scalar(
+        select(RefreshToken).where(
+            RefreshToken.token_hash.is_not(None),
+            RefreshToken.revoked_at.is_not(None),
+        )
+    )
+    claims = service._jwt.validate_token(tokens.access_token)
+    assert (claims.model_extra or {})["authorization_version"] == 0
+
+
+def test_firm_admin_identity_scope_blocks_cross_firm_and_platform_roles() -> None:
+    """Keep user discovery and role assignment inside the selected firm."""
+    session = _session()
+    seed_system_rbac(session)
+    firm_a = Firm(
+        name="Firm A",
+        code="BOUNDARY_A",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    firm_b = Firm(
+        name="Firm B",
+        code="BOUNDARY_B",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    user_a = User(
+        email="firm-a@example.com",
+        full_name="Firm A User",
+        password_hash=PasswordSecurity().hash_password("Secure-Passphrase1!"),
+    )
+    user_b = User(
+        email="firm-b@example.com",
+        full_name="Firm B User",
+        password_hash=PasswordSecurity().hash_password("Secure-Passphrase1!"),
+    )
+    session.add_all([firm_a, firm_b, user_a, user_b])
+    session.flush()
+    session.add_all(
+        [
+            UserFirm(user_id=user_a.id, firm_id=firm_a.id, is_primary=True),
+            UserFirm(user_id=user_b.id, firm_id=firm_b.id, is_primary=True),
+        ]
+    )
+    session.commit()
+    service = IdentityService(session, _settings())
+
+    users, total = service.list_users(
+        1, 20, None, "email", False, firm_scope=firm_a.id
+    )
+
+    assert total == 1
+    assert [user.id for user in users] == [user_a.id]
+    with pytest.raises(ResourceNotFoundError):
+        service.update_user(
+            user_b.id,
+            data=UserUpdate(full_name="Escalated"),
+            actor_id=user_a.id,
+            firm_scope=firm_a.id,
+        )
+
+    platform_role = session.scalar(
+        select(Role).where(Role.code == "PLATFORM_ADMIN")
+    )
+    firm_role = session.scalar(select(Role).where(Role.code == "FIRM_ADMIN"))
+    assert platform_role is not None
+    assert firm_role is not None
+    with pytest.raises(BusinessRuleError, match="Platform or cross-firm"):
+        service.set_user_roles(
+            user_a.id, [platform_role.id], user_a.id, firm_scope=firm_a.id
+        )
+    service.set_user_roles(
+        user_a.id, [firm_role.id], user_a.id, firm_scope=firm_a.id
+    )
+    assignment = session.scalar(
+        select(UserRole).where(
+            UserRole.user_id == user_a.id,
+            UserRole.role_id == firm_role.id,
+        )
+    )
+    assert assignment is not None
+    assert assignment.firm_id == firm_a.id
 
 
 def test_assignment_replacement_reuses_existing_rows() -> None:

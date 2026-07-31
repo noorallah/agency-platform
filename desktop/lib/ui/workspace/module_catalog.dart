@@ -98,10 +98,16 @@ abstract final class ModuleCatalog {
       label: 'Masters',
       icon: Icons.business_center_outlined,
       description: 'Manage organization and master-data workspaces.',
-      requiredPermissions: ['FIRM_VIEW'],
+      requiredPermissions: ['FIRM_VIEW', 'CUSTOMER_VIEW'],
+      requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(
             id: 'firms', label: 'Firms', requiredPermissions: ['FIRM_VIEW']),
+        ModuleTabDefinition(
+          id: 'customers',
+          label: 'Customers',
+          requiredPermissions: ['CUSTOMER_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'financial-years',
           label: 'Financial Years',
