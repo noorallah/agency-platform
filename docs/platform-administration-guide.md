@@ -67,9 +67,11 @@ User: priya.shah@example.test
         └── Firms: ACME-MUM (primary), ACME-DEL (active)
 ```
 
-Only platform administrators can create or change users, roles, permissions,
-firms, and assignments. Roles and permissions then authorize future protected
-ERP APIs.
+Platform administrators create firms, platform users, global permissions, and
+global assignments. Firm administrators may manage non-platform users, custom
+firm roles, and allowed role-permission assignments only inside their active
+`X-Firm-ID` context. They cannot view other firms, assign platform roles, alter
+firm membership, or change global resources.
 
 ## 1. Create permissions
 
@@ -301,15 +303,16 @@ Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/auth/login" `
 
 The first response has `data.must_change_password = true`. The user must call
 `POST /api/v1/auth/change-password` with their bearer access token before
-continuing. Their permissions are inherited from all assigned active roles;
-firm mappings identify the firms available to future firm-scoped APIs.
+continuing. Global permissions and firm-scoped permissions are issued separately. The
+selected `X-Firm-ID` determines which firm grant applies, and authorization
+changes immediately invalidate existing access and refresh sessions.
 
 ## Troubleshooting
 
 | Response | Cause | Action |
 | --- | --- | --- |
-| `401` | Missing, expired, or invalid access token. | Sign in again or refresh the token. |
-| `403` | Caller is not a platform administrator. | Use the bootstrap administrator or grant the required administration access. |
+| `401` | Missing, expired, invalid, or authorization-version-stale access token. | Sign in again or refresh the token. |
+| `403` | Caller lacks platform authority, an active selected-firm membership, or the required scoped permission. | Use the correct administrator, send `X-Firm-ID` for firm administration, and verify assignments. |
 | `409` | Duplicate email, role code, permission code, or firm code. | Use a unique value or update the existing resource. |
 | `422` | Invalid request field or more than one active primary firm. | Inspect `error.details`, then correct and resend the complete assignment set. |
 

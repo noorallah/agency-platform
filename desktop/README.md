@@ -86,7 +86,8 @@ change-password}`, `/api/v1/{firms,users,roles,permissions}`, and
 `/api/v1/dashboard`.
 Authenticated firm context uses `/api/v1/me/firms` and persists the selected
 firm through `/api/v1/me/preferences`; each protected request also carries the
-active firm identifier for future firm-scoped APIs.
+active firm identifier for firm-scoped APIs. Remote server addresses must use
+HTTPS; plain HTTP is accepted only for loopback development addresses.
 
 The client uses the standard backend envelopes: `{ "data": ... }` for a single
 resource and `{ "data": [], "pagination": { "total_records": 0 } }` for a
@@ -119,9 +120,9 @@ Validation and authorization errors are shown in the relevant screen.
 
 | Symptom | Resolution |
 | --- | --- |
-| Cannot connect to API | Confirm the backend is running, then set `API_BASE_URL` to the backend's reachable address. |
+| Cannot connect to API | Confirm the backend is running, then configure an HTTPS URL; HTTP is allowed only for localhost development. |
 | `401` after startup | Sign in again. The stored refresh token may be revoked after a password change or logout. |
-| `403` on an administration screen | Sign in with the platform administrator and verify backend role/permission assignments. |
+| `403` on an administration screen | Verify platform authority or the selected firm's membership and scoped role/permission assignments. |
 | A form reports validation errors | Match the field requirements shown by the screen or inspect the backend `/docs` schema. |
 | Flutter command is unavailable | Install the Flutter SDK with desktop support and ensure `flutter` is on `PATH`. |
 

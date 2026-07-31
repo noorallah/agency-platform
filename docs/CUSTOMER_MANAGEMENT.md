@@ -42,9 +42,8 @@ for every action even when the desktop hides unauthorized controls.
 
 The desktop sends the selected firm in `X-Firm-ID`. Ordinary users must have an
 active, non-deleted `user_firms` membership for that identifier. Every query and
-mutation is scoped to it. Platform administrators may omit the header to query
-all firms, or provide it to work in a specific firm. Create and import always
-require an explicit firm.
+mutation is scoped to it. Platform administrators must also provide the header:
+platform authority never turns a firm-owned endpoint into an unscoped query.
 
 ## REST API
 
@@ -63,9 +62,9 @@ require an explicit firm.
 | `POST /api/v1/customers/import` | Import | Import `{ "records": [...] }` atomically |
 
 List search covers code, name, display name, GST, PAN, email, phone, city, and
-status. Filters support status, customer type, firm (platform administrators),
-city, state, creation-date range, and deleted records. Sort fields are
-whitelisted: code, name, status, credit limit, and creation date.
+status. Filters support status, customer type, city, state, creation-date range,
+and deleted records within the selected firm. Sort fields are whitelisted:
+code, name, status, credit limit, and creation date.
 
 ## Validation and audit
 

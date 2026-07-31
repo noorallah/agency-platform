@@ -123,7 +123,9 @@ AGENCY_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/agency
 
 The Alembic revisions create UUID-backed identity tables plus:
 `firms`, `user_firms`, and `audit_logs`. Roles carry an immutable system/custom
-classification and users can have an optional expiry timestamp.
+classification and optional firm ownership. User-role grants can be firm
+scoped, and users carry an authorization version for immediate session
+invalidation.
 
 The initial identity migration creates these tables:
 `users`, `platform_admins`, `roles`, `permissions`, `user_roles`,
@@ -131,8 +133,10 @@ The initial identity migration creates these tables:
 `login_history`. SQLAlchemy models, schemas, and repositories are under
 `app/identity`.
 
-All shared entities include UUID and audit fields, soft-deletion state, and a
-version field for future optimistic concurrency handling.
+All shared entities include UUID, created/updated actor fields, soft-deletion
+state with `deleted_at` and `deleted_by`, and an optimistic-concurrency version.
+Audit events are the exception: they are append-only and PostgreSQL rejects
+updates or deletes through `TR_audit_logs_append_only`.
 
 The migrations seed `platform-admin@agency.local` and its `PlatformAdmin`
 designation with a non-usable `*` hash, plus the initial system RBAC roles,
@@ -150,10 +154,13 @@ production value in a secret manager and rotate it after bootstrap.
 reject that known value at startup; configure a unique high-entropy signing key
 explicitly through the deployment secret store.
 
-Administration endpoints require the relevant permission claims. Customer
-endpoints additionally validate the `X-Firm-ID` membership context. List endpoints use only
+Firm lifecycle and global administration endpoints require the immutable
+platform-administrator designation. Firm administrators can manage only
+non-platform users and firm roles through an active `X-Firm-ID` context and
+firm-scoped permission grants. Customer endpoints require the same explicit
+firm context even for platform administrators. List endpoints use only
 whitelisted `page`, `page_size`, `search`, `sort_by`, and `sort_direction`
-query parameters. Every mutation emits an `audit_logs` record.
+query parameters. Every mutation emits an append-only `audit_logs` record.
 
 Every authenticated user can manage a versioned preference document through
 `GET /api/v1/me/preferences`, `PATCH /api/v1/me/preferences`, and
@@ -220,7 +227,7 @@ and mappings, see the
 | Alembic reports a missing database or fails to connect | Correct the same database settings, then rerun `uv run python -m alembic upgrade head`. |
 | `uv run pytest`, `mypy`, or `black` reports `uv trampoline failed to canonicalize script path` on Windows | This is a Windows `uv` launcher issue, not a project failure. Run the equivalent command through the project environment, for example `.\.venv\Scripts\python.exe -m pytest -q`. |
 | Request fails with `401` | Sign in again or refresh the session. Access tokens are short lived and the client retries a refresh once. |
-| Request fails with `403` | The authenticated account is not the platform administrator or lacks the required permission. Check role and permission assignments. |
+| Request fails with `403` | The account lacks platform authority, an active selected-firm membership, or the required scoped permission. Check `X-Firm-ID`, role, permission, and membership assignments. |
 | Request fails with `422` | Inspect the `error.details` response field and the OpenAPI schema at `/docs`. |
 | Need to correlate a client error with logs | Use the `X-Request-ID` response header. Logs are written to `AGENCY_LOG_DIRECTORY\AGENCY_LOG_FILE_NAME` when file logging is enabled. |
 
