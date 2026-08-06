@@ -162,11 +162,16 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
   final List<ComponentDraft> _components = [];
   final List<ProfileDraft> _profiles = [];
 
+  // track saved system id so edit mode activates after first create
+  String? _savedSystemId;
+  bool _saveSuccess = false;
+
   bool _isLoading = false;
   bool _isSaving = false;
   String? _errorMessage;
 
-  bool get _isEditMode => widget.systemId != null;
+  bool get _isEditMode => widget.systemId != null || _savedSystemId != null;
+  String? get _activeSystemId => widget.systemId ?? _savedSystemId;
 
   @override
   void initState() {
@@ -177,6 +182,26 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
       _components.add(ComponentDraft());
       _profiles.add(ProfileDraft());
     }
+  }
+
+  void _resetForm() {
+    for (final c in _components) c.dispose();
+    for (final p in _profiles) p.dispose();
+    setState(() {
+      _codeCtrl.clear();
+      _nameCtrl.clear();
+      _displayNameCtrl.clear();
+      _descriptionCtrl.clear();
+      _status = 'ACTIVE';
+      _displayOrder = 1;
+      _components.clear();
+      _components.add(ComponentDraft());
+      _profiles.clear();
+      _profiles.add(ProfileDraft());
+      _savedSystemId = null;
+      _saveSuccess = false;
+      _errorMessage = null;
+    });
   }
 
   @override
@@ -295,28 +320,45 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
       if (_isEditMode) {
         await widget.api.request(
           'PUT',
-          '/api/v1/tax-framework/setup/${widget.systemId}',
+          '/api/v1/tax-framework/setup/$_activeSystemId',
           body: payload,
         );
+        if (mounted) {
+          setState(() => _saveSuccess = true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Tax setup updated successfully.'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       } else {
-        await widget.api.request(
+        final response = await widget.api.request(
           'POST',
           '/api/v1/tax-framework/setup',
           body: payload,
         );
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _isEditMode
-                  ? 'Tax setup updated successfully.'
-                  : 'Tax setup created successfully.',
+        // Extract the created system id so subsequent saves use PUT
+        final systemId = (response['data']?['system']?['id'] as String?);
+        if (mounted) {
+          setState(() {
+            _savedSystemId = systemId;
+            _saveSuccess = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Tax setup created successfully.'),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 3),
+              action: SnackBarAction(
+                label: 'New Setup',
+                textColor: Colors.white,
+                onPressed: _resetForm,
+              ),
             ),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-        Navigator.of(context).pop(true); // return true = reload parent list
+          );
+        }
       }
     } catch (e) {
       setState(() => _errorMessage = 'Save failed: $e');
@@ -355,6 +397,7 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (_errorMessage != null) _buildErrorBanner(),
+                  if (_saveSuccess) _buildSuccessBanner(),
                   _buildSystemInfoCard(theme, colorScheme),
                   const SizedBox(height: 20),
                   _buildComponentsCard(theme, colorScheme),
@@ -375,11 +418,13 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
       backgroundColor: colorScheme.surface,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.of(context).pop(),
-        tooltip: 'Back',
-      ),
+      leading: Navigator.of(context).canPop()
+          ? IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+              tooltip: 'Back',
+            )
+          : null,
       title: Text(
         _isEditMode ? 'Edit Tax Setup' : 'Create Tax Setup',
         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
@@ -437,6 +482,45 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
   }
 
   // ─── System Info Card ──────────────────────────────────────────────────────
+
+  Widget _buildSuccessBanner() {
+    final isEdit = widget.systemId != null || (_savedSystemId != null);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        border: Border.all(color: Colors.green.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isEdit
+                  ? 'Tax setup saved successfully. You can continue editing.'
+                  : 'Tax setup created successfully. You can edit it below or create another.',
+              style: TextStyle(color: Colors.green.shade800, fontSize: 13),
+            ),
+          ),
+          if (!isEdit)
+            TextButton.icon(
+              onPressed: _resetForm,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New Setup'),
+              style: TextButton.styleFrom(foregroundColor: Colors.green.shade700),
+            ),
+          IconButton(
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: () => setState(() => _saveSuccess = false),
+            color: Colors.green.shade700,
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildSystemInfoCard(ThemeData theme, ColorScheme colorScheme) {
     return _SectionCard(
