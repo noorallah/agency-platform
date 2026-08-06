@@ -33,3 +33,27 @@
 *.iml
 .DS_Store
 Thumbs.db
+
+# Auto-generated AI report and architecture documents (root level only)
+/*_REPORT.md
+/*_ARCHITECTURE.md
+/*_SUMMARY.md
+/*_REVIEW.md
+/*_GUIDE.md
+/*_FRAMEWORK.md
+/*_REGISTER.md
+/*_PLAN.md
+/*_INDEX.md
+/*_BRIEFING.md
+/*_EXECUTION.md
+/DEVELOPMENT_*.md
+/PLATFORM_*.md
+/PROJECT_*.md
+/GO_NO_GO_DECISION.md
+/DEFECT_*.md
+/DATABASE_*.md
+/_tmp_*.txt
+
+# Installer and root-level test artifacts
+/installer/
+/tests/
