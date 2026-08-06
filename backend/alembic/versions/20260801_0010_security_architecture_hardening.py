@@ -92,10 +92,13 @@ def upgrade() -> None:
     if connection.dialect.name == "postgresql":
         connection.execute(
             sa.text(
-                "CREATE FUNCTION reject_audit_log_mutation() RETURNS trigger "
+                "CREATE OR REPLACE FUNCTION reject_audit_log_mutation() RETURNS trigger "
                 "LANGUAGE plpgsql AS $$ BEGIN "
                 "RAISE EXCEPTION 'audit_logs is append-only'; END; $$"
             )
+        )
+        connection.execute(
+            sa.text("DROP TRIGGER IF EXISTS TR_audit_logs_append_only ON audit_logs")
         )
         connection.execute(
             sa.text(
