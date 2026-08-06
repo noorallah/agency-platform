@@ -1,0 +1,332 @@
+"""Validated contracts for enterprise UOM and packaging APIs."""
+
+from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class UomSchema(BaseModel):
+    """Shared strict schema behavior."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+class UomCreate(UomSchema):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=30)
+    dimension: str = Field(default="COUNT", min_length=1, max_length=30)
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+    is_decimal_allowed: bool = True
+
+
+class UomUpdate(UomSchema):
+    code: str | None = Field(default=None, min_length=1, max_length=40)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, max_length=30)
+    dimension: str | None = Field(default=None, min_length=1, max_length=30)
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+    is_decimal_allowed: bool | None = None
+
+
+class UomResponse(UomSchema):
+    id: UUID
+    code: str
+    name: str
+    symbol: str | None
+    dimension: str
+    status: str
+    is_decimal_allowed: bool
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class UomGroupCreate(UomSchema):
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+
+
+class UomGroupUpdate(UomSchema):
+    code: str | None = Field(default=None, min_length=1, max_length=50)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+
+
+class UomGroupResponse(UomSchema):
+    id: UUID
+    code: str
+    name: str
+    description: str | None
+    status: str
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PackagingTypeCreate(UomSchema):
+    code: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+
+
+class PackagingTypeUpdate(UomSchema):
+    code: str | None = Field(default=None, min_length=1, max_length=40)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+
+
+class PackagingTypeResponse(UomSchema):
+    id: UUID
+    code: str
+    name: str
+    description: str | None
+    status: str
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversionRuleCreate(UomSchema):
+    business_profile_id: UUID | None = None
+    product_id: UUID | None = None
+    from_uom_id: UUID
+    to_uom_id: UUID
+    conversion_factor: Decimal = Field(gt=0, max_digits=24)
+    rounding_mode: str = Field(default="HALF_UP", min_length=1, max_length=20)
+    precision_scale: int = Field(default=4, ge=0, le=10)
+    effective_from: date
+    effective_to: date | None = None
+    version: int = Field(default=1, ge=1)
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+    reason: str | None = None
+
+
+class ConversionRuleUpdate(UomSchema):
+    business_profile_id: UUID | None = None
+    product_id: UUID | None = None
+    from_uom_id: UUID | None = None
+    to_uom_id: UUID | None = None
+    conversion_factor: Decimal | None = Field(default=None, gt=0, max_digits=24)
+    rounding_mode: str | None = Field(default=None, min_length=1, max_length=20)
+    precision_scale: int | None = Field(default=None, ge=0, le=10)
+    effective_from: date | None = None
+    effective_to: date | None = None
+    version: int | None = Field(default=None, ge=1)
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+    reason: str | None = None
+
+
+class ConversionRuleResponse(UomSchema):
+    id: UUID
+    firm_id: UUID
+    business_profile_id: UUID | None
+    product_id: UUID | None
+    from_uom_id: UUID
+    to_uom_id: UUID
+    conversion_factor: Decimal
+    rounding_mode: str
+    precision_scale: int
+    effective_from: date
+    effective_to: date | None
+    version: int
+    status: str
+    reason: str | None
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversionRuleListFilters(UomSchema):
+    product_id: UUID | None = None
+    business_profile_id: UUID | None = None
+    from_uom_id: UUID | None = None
+    to_uom_id: UUID | None = None
+    status: str | None = None
+    effective_on: date | None = None
+
+
+class IndustryTemplateCreate(UomSchema):
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(min_length=1, max_length=140)
+    industry_type: str = Field(min_length=1, max_length=60)
+    template_payload: dict = Field(default_factory=dict)
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+    is_system: bool = False
+
+
+class IndustryTemplateUpdate(UomSchema):
+    code: str | None = Field(default=None, min_length=1, max_length=60)
+    name: str | None = Field(default=None, min_length=1, max_length=140)
+    industry_type: str | None = Field(default=None, min_length=1, max_length=60)
+    template_payload: dict | None = None
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+    is_system: bool | None = None
+
+
+class IndustryTemplateResponse(UomSchema):
+    id: UUID
+    code: str
+    name: str
+    industry_type: str
+    template_payload: dict
+    status: str
+    is_system: bool
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class BusinessProfileUomDefaultUpsert(UomSchema):
+    base_uom_id: UUID | None = None
+    inventory_uom_id: UUID | None = None
+    purchase_uom_id: UUID | None = None
+    sales_uom_id: UUID | None = None
+    allow_fraction: bool = False
+    allow_decimal: bool = True
+
+
+class BusinessProfileUomDefaultResponse(UomSchema):
+    id: UUID
+    firm_id: UUID | None
+    business_profile_id: UUID
+    base_uom_id: UUID | None
+    inventory_uom_id: UUID | None
+    purchase_uom_id: UUID | None
+    sales_uom_id: UUID | None
+    allow_fraction: bool
+    allow_decimal: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProductUomConfigUpsert(UomSchema):
+    base_uom_id: UUID | None = None
+    inventory_uom_id: UUID | None = None
+    purchase_uom_id: UUID | None = None
+    sales_uom_id: UUID | None = None
+    default_receiving_uom_id: UUID | None = None
+    default_dispatch_uom_id: UUID | None = None
+    minimum_sales_uom_id: UUID | None = None
+    allow_fraction: bool = False
+    allow_decimal: bool = True
+    weight: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    volume: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    height: Decimal | None = Field(default=None, ge=0, max_digits=18)
+
+
+class ProductUomConfigResponse(UomSchema):
+    id: UUID
+    firm_id: UUID
+    product_id: UUID
+    base_uom_id: UUID | None
+    inventory_uom_id: UUID | None
+    purchase_uom_id: UUID | None
+    sales_uom_id: UUID | None
+    default_receiving_uom_id: UUID | None
+    default_dispatch_uom_id: UUID | None
+    minimum_sales_uom_id: UUID | None
+    allow_fraction: bool
+    allow_decimal: bool
+    weight: Decimal | None
+    volume: Decimal | None
+    length: Decimal | None
+    width: Decimal | None
+    height: Decimal | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PackagingLevelCreate(UomSchema):
+    parent_level_id: UUID | None = None
+    packaging_type_id: UUID | None = None
+    uom_id: UUID | None = None
+    level_name: str = Field(min_length=1, max_length=120)
+    conversion_to_base_factor: Decimal = Field(gt=0, max_digits=24)
+    barcode: str | None = Field(default=None, max_length=120)
+    qr_code: str | None = Field(default=None, max_length=300)
+    gtin: str | None = Field(default=None, max_length=30)
+    ean: str | None = Field(default=None, max_length=30)
+    upc: str | None = Field(default=None, max_length=30)
+    weight: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    volume: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    height: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    status: str = Field(default="ACTIVE", min_length=1, max_length=20)
+    display_order: int = Field(default=0, ge=0)
+
+
+class PackagingLevelUpdate(UomSchema):
+    parent_level_id: UUID | None = None
+    packaging_type_id: UUID | None = None
+    uom_id: UUID | None = None
+    level_name: str | None = Field(default=None, min_length=1, max_length=120)
+    conversion_to_base_factor: Decimal | None = Field(default=None, gt=0, max_digits=24)
+    barcode: str | None = Field(default=None, max_length=120)
+    qr_code: str | None = Field(default=None, max_length=300)
+    gtin: str | None = Field(default=None, max_length=30)
+    ean: str | None = Field(default=None, max_length=30)
+    upc: str | None = Field(default=None, max_length=30)
+    weight: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    volume: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    length: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    width: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    height: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    status: str | None = Field(default=None, min_length=1, max_length=20)
+    display_order: int | None = Field(default=None, ge=0)
+
+
+class PackagingLevelResponse(UomSchema):
+    id: UUID
+    firm_id: UUID
+    product_id: UUID
+    parent_level_id: UUID | None
+    packaging_type_id: UUID | None
+    uom_id: UUID | None
+    level_name: str
+    conversion_to_base_factor: Decimal
+    barcode: str | None
+    qr_code: str | None
+    gtin: str | None
+    ean: str | None
+    upc: str | None
+    weight: Decimal | None
+    volume: Decimal | None
+    length: Decimal | None
+    width: Decimal | None
+    height: Decimal | None
+    status: str
+    display_order: int
+    is_deleted: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversionRequest(UomSchema):
+    quantity: Decimal = Field(max_digits=24)
+    from_uom_id: UUID
+    to_uom_id: UUID
+    product_id: UUID | None = None
+    conversion_date: date | None = None
+
+
+class ConversionResponse(UomSchema):
+    quantity: Decimal
+    converted_quantity: Decimal
+    from_uom_id: UUID
+    to_uom_id: UUID
+    conversion_factor: Decimal
+    version: int
+    conversion_rule_id: UUID
+    conversion_date: date
+

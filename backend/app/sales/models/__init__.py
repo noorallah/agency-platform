@@ -1,0 +1,41 @@
+"""Sales territory persistence models."""
+
+from app.sales.models.territory import (
+    AddressMaster,
+    BeatPlan,
+    BeatPlanStop,
+    GeoCity,
+    GeoCountry,
+    GeoDistrict,
+    GeoLocality,
+    GeoPostalCode,
+    GeoState,
+    RouteTypeMaster,
+    SalesHierarchyConfig,
+    SalesHierarchyLevel,
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritoryRouteProfile,
+    TerritorySalesmanAssignment,
+    TerritoryWorkingDay,
+)
+
+__all__ = [
+    "AddressMaster",
+    "BeatPlan",
+    "BeatPlanStop",
+    "GeoCity",
+    "GeoCountry",
+    "GeoDistrict",
+    "GeoLocality",
+    "GeoPostalCode",
+    "GeoState",
+    "RouteTypeMaster",
+    "SalesHierarchyConfig",
+    "SalesHierarchyLevel",
+    "SalesTerritoryNode",
+    "TerritoryRouteProfile",
+    "TerritoryCustomerAssignment",
+    "TerritorySalesmanAssignment",
+    "TerritoryWorkingDay",
+]

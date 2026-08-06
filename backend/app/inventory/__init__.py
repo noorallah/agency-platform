@@ -1,0 +1,1 @@
+"""Enterprise inventory foundation domain."""

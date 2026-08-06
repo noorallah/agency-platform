@@ -1,0 +1,43 @@
+"""Product API contracts."""
+
+from app.products.schemas.product import (
+    BulkProductRequest,
+    ProductAttributeInput,
+    ProductAttributeResponse,
+    ProductCategoryCreate,
+    ProductCategoryFilter,
+    ProductCategoryResponse,
+    ProductCategoryUpdate,
+    ProductCreate,
+    ProductFeatureState,
+    ProductImportRequest,
+    ProductListFilters,
+    ProductMediaInput,
+    ProductMediaResponse,
+    ProductMetadataResponse,
+    ProductResponse,
+    ProductSummary,
+    ProductTaxProfileOption,
+    ProductUpdate,
+)
+
+__all__ = [
+    "BulkProductRequest",
+    "ProductAttributeInput",
+    "ProductAttributeResponse",
+    "ProductCategoryCreate",
+    "ProductCategoryFilter",
+    "ProductCategoryResponse",
+    "ProductCategoryUpdate",
+    "ProductCreate",
+    "ProductFeatureState",
+    "ProductImportRequest",
+    "ProductListFilters",
+    "ProductMediaInput",
+    "ProductMediaResponse",
+    "ProductMetadataResponse",
+    "ProductResponse",
+    "ProductSummary",
+    "ProductTaxProfileOption",
+    "ProductUpdate",
+]

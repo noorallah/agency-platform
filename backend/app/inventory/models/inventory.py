@@ -1,0 +1,414 @@
+"""Inventory, transaction, ledger, and opening-stock persistence models."""
+
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database.entity import BaseEntity
+from app.core.database.types import UTCDateTime, UUIDType
+
+
+class InventoryRecord(BaseEntity):
+    """Persist one firm-scoped inventory projection per product location."""
+
+    __tablename__ = "inventories"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id",
+            "branch_id",
+            "warehouse_id",
+            "storage_locator",
+            "product_id",
+            name="UQ_inventories_location_product",
+        ),
+        Index("IX_inventories_firm_product", "firm_id", "product_id"),
+        Index("IX_inventories_firm_status", "firm_id", "status"),
+        Index("IX_inventories_firm_warehouse", "firm_id", "warehouse_id"),
+        Index("IX_inventories_firm_branch", "firm_id", "branch_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    branch_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_node_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    storage_locator: Mapped[str] = mapped_column(String(80), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    business_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
+    )
+    current_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    available_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    blocked_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    quarantine_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    in_transit_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    display_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    display_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
+    )
+    minimum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    maximum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    reorder_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    safety_stock: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    last_transaction_at: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
+    )
+
+    transactions: Mapped[list["InventoryTransaction"]] = relationship(
+        back_populates="inventory",
+        order_by="InventoryTransaction.created_at",
+        lazy="selectin",
+    )
+    ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(
+        back_populates="inventory",
+        order_by="StockLedgerEntry.created_at",
+        lazy="selectin",
+    )
+
+
+class InventoryTransaction(BaseEntity):
+    """Persist one immutable inventory movement event."""
+
+    __tablename__ = "inventory_transactions"
+    __table_args__ = (
+        Index("IX_inventory_transactions_firm_date", "firm_id", "transaction_date"),
+        Index("IX_inventory_transactions_firm_type", "firm_id", "transaction_type"),
+        Index("IX_inventory_transactions_firm_product", "firm_id", "product_id"),
+        Index("IX_inventory_transactions_firm_reference", "firm_id", "reference_type"),
+    )
+
+    inventory_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("inventories.id", ondelete="RESTRICT"), nullable=False
+    )
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    branch_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_node_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    business_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
+    )
+    transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    reference_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    current_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    reserved_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    blocked_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    damaged_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    quarantine_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    in_transit_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    previous_current_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_current_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_available_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_available_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    previous_blocked_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_blocked_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_damaged_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_quarantine_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_quarantine_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    previous_in_transit_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_in_transit_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    remarks: Mapped[str | None] = mapped_column(Text)
+    entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    entered_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
+    )
+    conversion_version: Mapped[int | None] = mapped_column()
+    batch_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True)
+    lot_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("lots.id", ondelete="RESTRICT"), index=True)
+    serial_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("serial_numbers.id", ondelete="RESTRICT"), index=True)
+
+    inventory: Mapped[InventoryRecord] = relationship(back_populates="transactions")
+    ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(
+        back_populates="transaction",
+        order_by="StockLedgerEntry.created_at",
+        lazy="selectin",
+    )
+
+
+class StockLedgerEntry(BaseEntity):
+    """Persist one immutable stock-ledger row per inventory transaction."""
+
+    __tablename__ = "stock_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "transaction_id", name="UQ_stock_ledger_entries_transaction_id"
+        ),
+        Index("IX_stock_ledger_entries_firm_date", "firm_id", "transaction_date"),
+        Index("IX_stock_ledger_entries_firm_product", "firm_id", "product_id"),
+        Index("IX_stock_ledger_entries_firm_warehouse", "firm_id", "warehouse_id"),
+        Index("IX_stock_ledger_entries_firm_type", "firm_id", "transaction_type"),
+    )
+
+    transaction_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("inventory_transactions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    inventory_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("inventories.id", ondelete="RESTRICT"), nullable=False
+    )
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    branch_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_node_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    business_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
+    )
+    transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    reference_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    reference_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    current_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    reserved_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    blocked_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    damaged_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    quarantine_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    in_transit_quantity_delta: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    previous_current_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_current_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_available_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_available_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    previous_blocked_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_blocked_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_damaged_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    previous_quarantine_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_quarantine_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    previous_in_transit_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    new_in_transit_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
+    remarks: Mapped[str | None] = mapped_column(Text)
+    original_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    original_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
+    )
+    base_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+
+    transaction: Mapped[InventoryTransaction] = relationship(back_populates="ledger_entries")
+    inventory: Mapped[InventoryRecord] = relationship(back_populates="ledger_entries")
+
+
+class OpeningStockBatch(BaseEntity):
+    """Persist a draft or posted opening-stock document."""
+
+    __tablename__ = "opening_stock_batches"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id", "reference_number", name="UQ_opening_stock_batches_reference"
+        ),
+        Index("IX_opening_stock_batches_firm_date", "firm_id", "posting_date"),
+        Index("IX_opening_stock_batches_firm_status", "firm_id", "status"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    branch_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    reference_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    posting_date: Mapped[date] = mapped_column(Date, nullable=False)
+    source_format: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="MANUAL", server_default="MANUAL"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="DRAFT", server_default="DRAFT"
+    )
+    remarks: Mapped[str | None] = mapped_column(Text)
+    posted_at: Mapped[date | None] = mapped_column(Date)
+
+    lines: Mapped[list["OpeningStockLine"]] = relationship(
+        back_populates="batch",
+        order_by="OpeningStockLine.line_number",
+        lazy="selectin",
+        cascade="save-update, merge",
+    )
+
+
+class OpeningStockLine(BaseEntity):
+    """Persist one opening-stock line before or after posting."""
+
+    __tablename__ = "opening_stock_lines"
+    __table_args__ = (
+        UniqueConstraint(
+            "opening_stock_batch_id",
+            "line_number",
+            name="UQ_opening_stock_lines_batch_line",
+        ),
+        UniqueConstraint(
+            "opening_stock_batch_id",
+            "product_id",
+            "storage_locator",
+            name="UQ_opening_stock_lines_batch_product_location",
+        ),
+    )
+
+    opening_stock_batch_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("opening_stock_batches.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    line_number: Mapped[int] = mapped_column(nullable=False)
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    storage_node_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    storage_locator: Mapped[str] = mapped_column(String(80), nullable=False)
+    business_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
+    )
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    entered_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
+    )
+    conversion_version: Mapped[int | None] = mapped_column()
+    minimum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    maximum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    reorder_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    safety_stock: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    remarks: Mapped[str | None] = mapped_column(Text)
+    transaction_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("inventory_transactions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+
+    batch: Mapped[OpeningStockBatch] = relationship(back_populates="lines")
