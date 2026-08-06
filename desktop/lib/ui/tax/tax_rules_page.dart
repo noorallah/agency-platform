@@ -267,7 +267,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       final resp = await widget.api.request(
         'GET',
         '/api/v1/tax-framework/rules',
-        query: {'page': '1', 'page_size': '200'},
+        query: {'page': '1', 'page_size': '100'},
       );
       if (!mounted) return;
       final raw = resp['data'];
@@ -295,7 +295,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       final resp = await widget.api.request(
         'GET',
         '/api/v1/tax-framework/profiles',
-        query: {'page': '1', 'page_size': '200'},
+        query: {'page': '1', 'page_size': '100'},
       );
       if (!mounted) return;
       final raw = resp['data'];
@@ -317,7 +317,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       final resp = await widget.api.request(
         'GET',
         '/api/v1/tax-framework/components',
-        query: {'page': '1', 'page_size': '200'},
+        query: {'page': '1', 'page_size': '100'},
       );
       if (!mounted) return;
       final raw = resp['data'];
