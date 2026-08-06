@@ -3,7 +3,18 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/entities.dart';
+import '../../models/batch_serial.dart';
+import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
+import '../../models/document_framework.dart';
+import '../../models/product.dart';
+import '../../models/goods_receipt.dart';
+import '../../models/purchase.dart';
+import '../../models/sales_territory.dart';
+import '../../models/tax_framework.dart';
+import '../../models/uom_packaging.dart';
+import '../../models/inventory.dart';
+import '../../models/vendor.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
@@ -132,6 +143,30 @@ class ApiClient {
   Future<Json> dashboard() async => _unwrapMap(
         await request('GET', '/api/v1/dashboard'),
       );
+
+  Future<Json> globalSearch({
+    required String query,
+    String category = 'all',
+    int page = 1,
+    int pageSize = 20,
+    List<String> entityTypes = const [],
+    bool includeDeleted = false,
+  }) async =>
+      _unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/search',
+          query: {
+            'query': query,
+            'category': category,
+            'page': '$page',
+            'page_size': '$pageSize',
+            if (entityTypes.isNotEmpty) 'entity_types': entityTypes.join(','),
+            if (includeDeleted) 'include_deleted': 'true',
+          },
+        ),
+      );
+
   Future<PagedResult<Firm>> firms({
     int page = 1,
     String search = '',
@@ -164,6 +199,384 @@ class ApiClient {
   }) =>
       _list('/api/v1/permissions', Permission.fromJson, page, search,
           sortBy: sortBy, descending: descending);
+
+  Future<PagedResult<BusinessProfileRecord>> businessProfiles({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/business-framework/profiles',
+        BusinessProfileRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<PagedResult<BusinessFeatureRecord>> businessFeatures({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/business-framework/features',
+        BusinessFeatureRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<PagedResult<BusinessModuleRecord>> businessModules({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/business-framework/modules',
+        BusinessModuleRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<PagedResult<AttributeDefinitionRecord>> attributeDefinitions({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/business-framework/attribute-definitions',
+        AttributeDefinitionRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<PagedResult<TaxSystemRecord>> taxSystems({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/tax-framework/systems',
+        TaxSystemRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<TaxSystemRecord> createTaxSystem(Json data) async =>
+      TaxSystemRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/tax-framework/systems', body: data)),
+      );
+
+  Future<TaxSystemRecord> updateTaxSystem(String id, Json data) async =>
+      TaxSystemRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/tax-framework/systems/$id',
+            body: data)),
+      );
+
+  Future<void> deleteTaxSystem(String id) =>
+      request('DELETE', '/api/v1/tax-framework/systems/$id');
+
+  Future<TaxSystemRecord> restoreTaxSystem(String id) async =>
+      TaxSystemRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/tax-framework/systems/$id/restore')),
+      );
+
+  Future<PagedResult<TaxComponentRecord>> taxComponents({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    String? taxSystemId,
+  }) =>
+      _list(
+        '/api/v1/tax-framework/components',
+        TaxComponentRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: {
+          if (taxSystemId != null && taxSystemId.isNotEmpty)
+            'tax_system_id': taxSystemId,
+        },
+      );
+
+  Future<TaxComponentRecord> createTaxComponent(Json data) async =>
+      TaxComponentRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/tax-framework/components',
+            body: data)),
+      );
+
+  Future<TaxComponentRecord> updateTaxComponent(String id, Json data) async =>
+      TaxComponentRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/tax-framework/components/$id',
+            body: data)),
+      );
+
+  Future<void> deleteTaxComponent(String id) =>
+      request('DELETE', '/api/v1/tax-framework/components/$id');
+
+  Future<TaxComponentRecord> restoreTaxComponent(String id) async =>
+      TaxComponentRecord.fromJson(
+        _unwrapMap(await request(
+            'POST', '/api/v1/tax-framework/components/$id/restore')),
+      );
+
+  Future<PagedResult<TaxProfileRecord>> taxProfiles({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    String? taxSystemId,
+  }) =>
+      _list(
+        '/api/v1/tax-framework/profiles',
+        TaxProfileRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: {
+          if (taxSystemId != null && taxSystemId.isNotEmpty)
+            'tax_system_id': taxSystemId,
+        },
+      );
+
+  Future<TaxProfileRecord> createTaxProfile(Json data) async =>
+      TaxProfileRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/tax-framework/profiles',
+            body: data)),
+      );
+
+  Future<TaxProfileRecord> updateTaxProfile(String id, Json data) async =>
+      TaxProfileRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/tax-framework/profiles/$id',
+            body: data)),
+      );
+
+  Future<void> deleteTaxProfile(String id) =>
+      request('DELETE', '/api/v1/tax-framework/profiles/$id');
+
+  Future<TaxProfileRecord> restoreTaxProfile(String id) async =>
+      TaxProfileRecord.fromJson(
+        _unwrapMap(await request(
+            'POST', '/api/v1/tax-framework/profiles/$id/restore')),
+      );
+
+  Future<List<TaxCountryMappingRecord>> taxCountryMappings() async {
+    final Json response =
+        await request('GET', '/api/v1/tax-framework/country-mappings');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxCountryMappingRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaxCountryMappingRecord> createTaxCountryMapping(Json data) async =>
+      TaxCountryMappingRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/tax-framework/country-mappings',
+              body: data),
+        ),
+      );
+
+  Future<TaxCountryMappingRecord> updateTaxCountryMapping(
+          String id, Json data) async =>
+      TaxCountryMappingRecord.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/tax-framework/country-mappings/$id',
+              body: data),
+        ),
+      );
+
+  Future<void> deleteTaxCountryMapping(String id) =>
+      request('DELETE', '/api/v1/tax-framework/country-mappings/$id');
+
+  Future<List<TaxMigrationMappingRecord>> taxMigrationMappings() async {
+    final Json response =
+        await request('GET', '/api/v1/tax-framework/migration-mappings');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxMigrationMappingRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaxMigrationMappingRecord> createTaxMigrationMapping(
+          Json data) async =>
+      TaxMigrationMappingRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/tax-framework/migration-mappings',
+              body: data),
+        ),
+      );
+
+  Future<TaxMigrationMappingRecord> updateTaxMigrationMapping(
+          String id, Json data) async =>
+      TaxMigrationMappingRecord.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/tax-framework/migration-mappings/$id',
+              body: data),
+        ),
+      );
+
+  Future<void> deleteTaxMigrationMapping(String id) =>
+      request('DELETE', '/api/v1/tax-framework/migration-mappings/$id');
+
+  Future<List<EffectiveDateRecord>> taxEffectiveDates() async {
+    final Json response =
+        await request('GET', '/api/v1/tax-framework/effective-dates');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            EffectiveDateRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaxSettingsRecord> taxSettings() async => TaxSettingsRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/tax-framework/settings')),
+      );
+
+  Future<TaxSettingsRecord> updateTaxSettings(Json data) async =>
+      TaxSettingsRecord.fromJson(
+        _unwrapMap(
+            await request('PUT', '/api/v1/tax-framework/settings', body: data)),
+      );
+
+  Future<List<TaxHistoryRecord>> taxHistory({int limit = 200}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/tax-framework/history',
+      query: {'limit': '$limit'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxHistoryRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<PagedResult<TaxRuleRecord>> taxRules({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/tax-framework/rules',
+        TaxRuleRecord.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
+  Future<TaxRuleRecord> createTaxRule(Json data) async =>
+      TaxRuleRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/tax-framework/rules', body: data)),
+      );
+
+  Future<TaxRuleRecord> updateTaxRule(String id, Json data) async =>
+      TaxRuleRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/tax-framework/rules/$id',
+            body: data)),
+      );
+
+  Future<void> deleteTaxRule(String id) =>
+      request('DELETE', '/api/v1/tax-framework/rules/$id');
+
+  Future<List<TaxRuleConditionRecord>> taxRuleConditions(
+      {String? ruleId}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/tax-framework/rule-conditions',
+      query: {
+        if (ruleId != null && ruleId.isNotEmpty) 'rule_id': ruleId,
+      },
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxRuleConditionRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<TaxRulePriorityRecord>> taxRulePriorities() async {
+    final Json response =
+        await request('GET', '/api/v1/tax-framework/rule-priorities');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxRulePriorityRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<TaxRuleRecord>> taxRuleHistory({String? code}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/tax-framework/rule-history',
+      query: {if (code != null && code.isNotEmpty) 'code': code},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => TaxRuleRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<TaxRuleExecutionLogRecord>> taxRuleExecutionLogs(
+      {int limit = 200}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/tax-framework/execution-logs',
+      query: {'limit': '$limit'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            TaxRuleExecutionLogRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TaxRuleSimulationResultRecord> simulateTaxRule(Json data) async =>
+      TaxRuleSimulationResultRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/tax-framework/simulate',
+            body: data)),
+      );
 
   Future<PagedResult<Customer>> customers({
     int page = 1,
@@ -204,6 +617,1011 @@ class ApiClient {
         '/api/v1/customers/export',
         query: {if (search.isNotEmpty) 'search': search},
       );
+
+  Future<PagedResult<Vendor>> vendors({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    VendorQuery filters = const VendorQuery(),
+  }) =>
+      _list(
+        '/api/v1/vendors',
+        Vendor.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<Vendor> createVendor(Json data) async => Vendor.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/vendors', body: data),
+      ));
+
+  Future<Vendor> updateVendor(String id, Json data) async =>
+      Vendor.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/vendors/$id', body: data),
+      ));
+
+  Future<void> deleteVendor(String id) =>
+      request('DELETE', '/api/v1/vendors/$id');
+
+  Future<Vendor> restoreVendor(String id) async => Vendor.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/vendors/$id/restore'),
+      ));
+
+  Future<int> bulkDeleteVendors(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/vendors/bulk-delete',
+      body: {'ids': ids},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkRestoreVendors(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/vendors/bulk-restore',
+      body: {'ids': ids},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<String> exportVendors({String search = ''}) => downloadText(
+        '/api/v1/vendors/export',
+        query: {if (search.isNotEmpty) 'search': search},
+      );
+
+  Future<PagedResult<BranchRecord>> branches({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    BranchQuery filters = const BranchQuery(),
+  }) =>
+      _list(
+        '/api/v1/branches',
+        BranchRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<BranchRecord> createBranch(Json data) async => BranchRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/branches', body: data)),
+      );
+
+  Future<BranchRecord> updateBranch(String id, Json data) async =>
+      BranchRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/branches/$id', body: data)),
+      );
+
+  Future<void> deleteBranch(String id) =>
+      request('DELETE', '/api/v1/branches/$id');
+
+  Future<BranchRecord> restoreBranch(String id) async => BranchRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/branches/$id/restore')),
+      );
+
+  Future<int> bulkDeleteBranches(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/branches/bulk-delete',
+      body: {'ids': ids},
+    );
+    return (response['data']?['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkRestoreBranches(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/branches/bulk-restore',
+      body: {'ids': ids},
+    );
+    return (response['data']?['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<String> exportBranches({String search = ''}) => downloadText(
+        '/api/v1/branches/export',
+        query: {if (search.isNotEmpty) 'search': search},
+      );
+
+  Future<PagedResult<WarehouseRecord>> warehouses({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    WarehouseQuery filters = const WarehouseQuery(),
+  }) =>
+      _list(
+        '/api/v1/warehouses',
+        WarehouseRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<WarehouseRecord> createWarehouse(Json data) async =>
+      WarehouseRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/warehouses', body: data)),
+      );
+
+  Future<WarehouseRecord> updateWarehouse(String id, Json data) async =>
+      WarehouseRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/warehouses/$id', body: data)),
+      );
+
+  Future<void> deleteWarehouse(String id) =>
+      request('DELETE', '/api/v1/warehouses/$id');
+
+  Future<WarehouseRecord> restoreWarehouse(String id) async =>
+      WarehouseRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/warehouses/$id/restore')),
+      );
+
+  Future<int> bulkDeleteWarehouses(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/warehouses/bulk-delete',
+      body: {'ids': ids},
+    );
+    return (response['data']?['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkRestoreWarehouses(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/warehouses/bulk-restore',
+      body: {'ids': ids},
+    );
+    return (response['data']?['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<String> exportWarehouses({String search = ''}) => downloadText(
+        '/api/v1/warehouses/export',
+        query: {if (search.isNotEmpty) 'search': search},
+      );
+
+  Future<List<TypeRecord>> branchTypes({bool includeDeleted = false}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/branch-types',
+      query: {if (includeDeleted) 'include_deleted': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => TypeRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TypeRecord> createBranchType(Json data) async => TypeRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/branch-types', body: data)),
+      );
+
+  Future<TypeRecord> updateBranchType(String id, Json data) async =>
+      TypeRecord.fromJson(
+        _unwrapMap(
+            await request('PUT', '/api/v1/branch-types/$id', body: data)),
+      );
+
+  Future<void> deleteBranchType(String id) =>
+      request('DELETE', '/api/v1/branch-types/$id');
+
+  Future<List<TypeRecord>> warehouseTypes({bool includeDeleted = false}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/warehouse-types',
+      query: {if (includeDeleted) 'include_deleted': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => TypeRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<TypeRecord> createWarehouseType(Json data) async =>
+      TypeRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/warehouse-types', body: data)),
+      );
+
+  Future<TypeRecord> updateWarehouseType(String id, Json data) async =>
+      TypeRecord.fromJson(
+        _unwrapMap(
+            await request('PUT', '/api/v1/warehouse-types/$id', body: data)),
+      );
+
+  Future<void> deleteWarehouseType(String id) =>
+      request('DELETE', '/api/v1/warehouse-types/$id');
+
+  Future<List<StorageNodeRecord>> storageNodes(
+    String warehouseId, {
+    bool includeDeleted = false,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/warehouses/$warehouseId/storage-nodes',
+      query: {if (includeDeleted) 'include_deleted': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            StorageNodeRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<StorageNodeRecord> createStorageNode(Json data) async =>
+      StorageNodeRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/warehouses/storage-nodes',
+            body: data)),
+      );
+
+  Future<StorageNodeRecord> updateStorageNode(String id, Json data) async =>
+      StorageNodeRecord.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/warehouses/storage-nodes/$id',
+              body: data),
+        ),
+      );
+
+  Future<void> deleteStorageNode(String id) =>
+      request('DELETE', '/api/v1/warehouses/storage-nodes/$id');
+
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) =>
+      _list(
+        '/api/v1/products',
+        Product.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<PagedResult<InventoryRecord>> inventory({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'updated_at',
+    bool descending = true,
+    InventoryQuery filters = const InventoryQuery(),
+  }) =>
+      _list(
+        '/api/v1/inventory',
+        InventoryRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<InventoryRecord> inventoryRecord(
+    String id, {
+    bool includeDeleted = false,
+  }) async =>
+      InventoryRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/inventory/$id',
+            query: {if (includeDeleted) 'include_deleted': 'true'},
+          ),
+        ),
+      );
+
+  Future<InventoryRecord> updateInventoryRecord(String id, Json data) async =>
+      InventoryRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/inventory/$id', body: data)),
+      );
+
+  Future<void> deleteInventoryRecord(String id) =>
+      request('DELETE', '/api/v1/inventory/$id');
+
+  // ── Batch & Serial ──────────────────────────────────────────────────────────
+
+  Future<PagedResult<BatchRecord>> batches({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    BatchQuery filters = const BatchQuery(),
+  }) =>
+      _list(
+        '/api/v1/batch-serial/batches',
+        BatchRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQueryParams(),
+      );
+
+  Future<BatchRecord> batchRecord(String id) async => BatchRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/batch-serial/batches/$id')),
+      );
+
+  Future<BatchRecord> createBatch(Json data) async => BatchRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/batch-serial/batches', body: data)),
+      );
+
+  Future<BatchRecord> updateBatch(String id, Json data) async =>
+      BatchRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/batch-serial/batches/$id',
+            body: data)),
+      );
+
+  Future<void> deleteBatch(String id) =>
+      request('DELETE', '/api/v1/batch-serial/batches/$id');
+
+  Future<BatchSummaryRecord> batchSummary() async =>
+      BatchSummaryRecord.fromJson(
+        _unwrapMap(
+            await request('GET', '/api/v1/batch-serial/batches/summary')),
+      );
+
+  Future<ExpiryDashboardRecord> expiryDashboard() async =>
+      ExpiryDashboardRecord.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/batch-serial/batches/expiry-dashboard'),
+        ),
+      );
+
+  Future<PagedResult<LotRecord>> lots({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    LotQuery filters = const LotQuery(),
+  }) =>
+      _list(
+        '/api/v1/batch-serial/lots',
+        LotRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQueryParams(),
+      );
+
+  Future<LotRecord> lotRecord(String id) async => LotRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/batch-serial/lots/$id')),
+      );
+
+  Future<LotRecord> createLot(Json data) async => LotRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/batch-serial/lots', body: data)),
+      );
+
+  Future<LotRecord> updateLot(String id, Json data) async => LotRecord.fromJson(
+        _unwrapMap(
+            await request('PUT', '/api/v1/batch-serial/lots/$id', body: data)),
+      );
+
+  Future<void> deleteLot(String id) =>
+      request('DELETE', '/api/v1/batch-serial/lots/$id');
+
+  Future<PagedResult<SerialRecord>> serials({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    SerialQuery filters = const SerialQuery(),
+  }) =>
+      _list(
+        '/api/v1/batch-serial/serials',
+        SerialRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQueryParams(),
+      );
+
+  Future<SerialRecord> serialRecord(String id) async => SerialRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/batch-serial/serials/$id')),
+      );
+
+  Future<SerialRecord> createSerial(Json data) async => SerialRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/batch-serial/serials', body: data)),
+      );
+
+  Future<SerialRecord> updateSerial(String id, Json data) async =>
+      SerialRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/batch-serial/serials/$id',
+            body: data)),
+      );
+
+  Future<void> deleteSerial(String id) =>
+      request('DELETE', '/api/v1/batch-serial/serials/$id');
+
+  // ── UOM & Packaging ────────────────────────────────────────────────────────
+
+  Future<List<UomRecord>> uoms({bool includeInactive = false}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/uom-framework/uoms',
+      query: {if (includeInactive) 'include_inactive': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => UomRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<UomRecord> createUom(Json data) async => UomRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/uom-framework/uoms', body: data)),
+      );
+
+  Future<UomRecord> updateUom(String id, Json data) async => UomRecord.fromJson(
+        _unwrapMap(
+            await request('PUT', '/api/v1/uom-framework/uoms/$id', body: data)),
+      );
+
+  Future<void> deleteUom(String id) =>
+      request('DELETE', '/api/v1/uom-framework/uoms/$id');
+
+  Future<List<UomGroupRecord>> uomGroups() async {
+    final Json response =
+        await request('GET', '/api/v1/uom-framework/uom-groups');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => UomGroupRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<UomGroupRecord> createUomGroup(Json data) async =>
+      UomGroupRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/uom-framework/uom-groups',
+            body: data)),
+      );
+
+  Future<UomGroupRecord> updateUomGroup(String id, Json data) async =>
+      UomGroupRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/uom-framework/uom-groups/$id',
+            body: data)),
+      );
+
+  Future<void> deleteUomGroup(String id) =>
+      request('DELETE', '/api/v1/uom-framework/uom-groups/$id');
+
+  Future<List<PackagingTypeRecord>> packagingTypes() async {
+    final Json response =
+        await request('GET', '/api/v1/uom-framework/packaging-types');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            PackagingTypeRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<PackagingTypeRecord> createPackagingType(Json data) async =>
+      PackagingTypeRecord.fromJson(
+        _unwrapMap(await request(
+            'POST', '/api/v1/uom-framework/packaging-types',
+            body: data)),
+      );
+
+  Future<PackagingTypeRecord> updatePackagingType(String id, Json data) async =>
+      PackagingTypeRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/packaging-types/$id',
+          body: data,
+        )),
+      );
+
+  Future<void> deletePackagingType(String id) =>
+      request('DELETE', '/api/v1/uom-framework/packaging-types/$id');
+
+  Future<PagedResult<ConversionRuleRecord>> conversionRules({
+    int page = 1,
+    int pageSize = 20,
+    String productId = '',
+  }) =>
+      _list(
+        '/api/v1/uom-framework/conversion-rules',
+        ConversionRuleRecord.fromJson,
+        page,
+        '',
+        pageSize: pageSize,
+        additionalQuery: {
+          if (productId.isNotEmpty) 'product_id': productId,
+        },
+      );
+
+  Future<ConversionRuleRecord> createConversionRule(Json data) async =>
+      ConversionRuleRecord.fromJson(
+        _unwrapMap(await request(
+            'POST', '/api/v1/uom-framework/conversion-rules',
+            body: data)),
+      );
+
+  Future<ConversionRuleRecord> updateConversionRule(
+          String id, Json data) async =>
+      ConversionRuleRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/conversion-rules/$id',
+          body: data,
+        )),
+      );
+
+  Future<void> deleteConversionRule(String id) =>
+      request('DELETE', '/api/v1/uom-framework/conversion-rules/$id');
+
+  Future<List<IndustryTemplateRecord>> industryTemplates(
+      {bool includeInactive = false}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/uom-framework/industry-templates',
+      query: {if (includeInactive) 'include_inactive': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            IndustryTemplateRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<IndustryTemplateRecord> createIndustryTemplate(Json data) async =>
+      IndustryTemplateRecord.fromJson(
+        _unwrapMap(await request(
+          'POST',
+          '/api/v1/uom-framework/industry-templates',
+          body: data,
+        )),
+      );
+
+  Future<IndustryTemplateRecord> updateIndustryTemplate(
+          String id, Json data) async =>
+      IndustryTemplateRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/industry-templates/$id',
+          body: data,
+        )),
+      );
+
+  Future<void> deleteIndustryTemplate(String id) =>
+      request('DELETE', '/api/v1/uom-framework/industry-templates/$id');
+
+  Future<InventorySummaryRecord> inventorySummary({
+    bool includeDeleted = false,
+  }) async =>
+      InventorySummaryRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/inventory/summary',
+            query: {if (includeDeleted) 'include_deleted': 'true'},
+          ),
+        ),
+      );
+
+  Future<List<InventoryLocationSummaryRecord>> inventoryByFirm() async {
+    final Json response =
+        await request('GET', '/api/v1/inventory/summary/by-firm');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => InventoryLocationSummaryRecord.fromJson(
+              Map<String, dynamic>.from(item),
+            ))
+        .toList();
+  }
+
+  Future<List<InventoryLocationSummaryRecord>> inventoryByBranch() async {
+    final Json response =
+        await request('GET', '/api/v1/inventory/summary/by-branch');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => InventoryLocationSummaryRecord.fromJson(
+              Map<String, dynamic>.from(item),
+            ))
+        .toList();
+  }
+
+  Future<List<InventoryLocationSummaryRecord>> inventoryByWarehouse() async {
+    final Json response =
+        await request('GET', '/api/v1/inventory/summary/by-warehouse');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => InventoryLocationSummaryRecord.fromJson(
+              Map<String, dynamic>.from(item),
+            ))
+        .toList();
+  }
+
+  Future<PagedResult<InventoryTransactionRecord>> inventoryTransactions({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    InventoryTransactionQuery filters = const InventoryTransactionQuery(),
+  }) =>
+      _list(
+        '/api/v1/inventory/transactions',
+        InventoryTransactionRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<PagedResult<InventoryTransactionRecord>> stockLedger({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    InventoryTransactionQuery filters = const InventoryTransactionQuery(),
+  }) =>
+      _list(
+        '/api/v1/inventory/ledger',
+        InventoryTransactionRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<PagedResult<OpeningStockBatchRecord>> openingStockBatches({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    OpeningStockBatchQuery filters = const OpeningStockBatchQuery(),
+  }) =>
+      _list(
+        '/api/v1/inventory/opening-stock',
+        OpeningStockBatchRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<OpeningStockBatchRecord> createOpeningStock(Json data) async =>
+      OpeningStockBatchRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/opening-stock', body: data),
+        ),
+      );
+
+  Future<OpeningStockBatchRecord> updateOpeningStock(
+          String id, Json data) async =>
+      OpeningStockBatchRecord.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/inventory/opening-stock/$id',
+              body: data),
+        ),
+      );
+
+  Future<OpeningStockBatchRecord> postOpeningStock(String id) async =>
+      OpeningStockBatchRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/inventory/opening-stock/$id/post')),
+      );
+
+  Future<InventoryTransactionRecord> createInventoryAdjustment(
+          Json data) async =>
+      InventoryTransactionRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/inventory/adjustments', body: data)),
+      );
+
+  Future<String> exportInventory({
+    String search = '',
+    String dataset = 'inventory',
+    String format = 'csv',
+  }) =>
+      downloadText(
+        '/api/v1/inventory/export',
+        query: {
+          if (search.isNotEmpty) 'search': search,
+          if (dataset.isNotEmpty) 'dataset': dataset,
+          if (format.isNotEmpty) 'format': format,
+        },
+      );
+
+  Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
+      ProductMetadataRecord.fromJson(_unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/products/metadata',
+          query: {
+            if (categoryId != null && categoryId.isNotEmpty)
+              'category_id': categoryId,
+          },
+        ),
+      ));
+
+  Future<List<ProductCategoryRecord>> productCategories() async {
+    final Json response = await request('GET', '/api/v1/products/categories');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            ProductCategoryRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<Product> createProduct(Json data) async => Product.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/products', body: data),
+      ));
+
+  Future<Product> updateProduct(String id, Json data) async =>
+      Product.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/products/$id', body: data),
+      ));
+
+  Future<void> deleteProduct(String id) =>
+      request('DELETE', '/api/v1/products/$id');
+
+  Future<Product> restoreProduct(String id) async =>
+      Product.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/products/$id/restore'),
+      ));
+
+  Future<Product> duplicateProduct(String id) async =>
+      Product.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/products/$id/duplicate'),
+      ));
+
+  Future<int> bulkDeleteProducts(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/products/bulk-delete',
+      body: {'ids': ids},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkRestoreProducts(List<String> ids) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/products/bulk-restore',
+      body: {'ids': ids},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<String> exportProducts({
+    String search = '',
+    String format = 'csv',
+  }) =>
+      downloadText(
+        '/api/v1/products/export',
+        query: {
+          if (search.isNotEmpty) 'search': search,
+          if (format.isNotEmpty) 'format': format,
+        },
+      );
+
+  Future<TerritoryHierarchyRecord> territoryHierarchy() async =>
+      TerritoryHierarchyRecord.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/sales-territories/hierarchy-levels'),
+      ));
+
+  Future<PagedResult<SalesTerritory>> territories({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    TerritoryQuery filters = const TerritoryQuery(),
+  }) =>
+      _list(
+        '/api/v1/sales-territories',
+        SalesTerritory.fromJson,
+        page,
+        search,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<List<TerritoryTreeNodeRecord>> territoryTree({
+    bool includeDeleted = false,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/tree',
+      query: {if (includeDeleted) 'include_deleted': 'true'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => TerritoryTreeNodeRecord.fromJson(
+              Map<String, dynamic>.from(item),
+            ))
+        .toList();
+  }
+
+  Future<Json> territoryDashboard() async =>
+      _unwrapMap(await request('GET', '/api/v1/sales-territories/dashboard'));
+
+  Future<List<SalesTerritory>> searchTerritories(
+    String query, {
+    int limit = 100,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/search',
+      query: {'q': query, 'limit': '$limit'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => SalesTerritory.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<SalesTerritory> copyTerritory(String id, Json body) async =>
+      SalesTerritory.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/sales-territories/$id/copy', body: body),
+      ));
+
+  Future<SalesTerritory> createTerritory(Json data) async =>
+      SalesTerritory.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/sales-territories', body: data),
+      ));
+
+  Future<SalesTerritory> updateTerritory(String id, Json data) async =>
+      SalesTerritory.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/sales-territories/$id', body: data),
+      ));
+
+  Future<void> deleteTerritory(String id) =>
+      request('DELETE', '/api/v1/sales-territories/$id');
+
+  Future<SalesTerritory> restoreTerritory(String id) async =>
+      SalesTerritory.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/sales-territories/$id/restore'),
+      ));
+
+  Future<List<String>> territoryCustomers(String territoryId) async {
+    final Json response = await request(
+        'GET', '/api/v1/sales-territories/$territoryId/customers');
+    return stringList(response['data']);
+  }
+
+  Future<List<String>> setTerritoryCustomers(
+    String territoryId,
+    List<String> customerIds,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/sales-territories/$territoryId/customers',
+      body: {'customer_ids': customerIds},
+    );
+    return stringList(response['data']);
+  }
+
+  Future<List<Json>> territorySalesmen(String territoryId) async {
+    final Json response =
+        await request('GET', '/api/v1/sales-territories/$territoryId/salesmen');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<List<Json>> setTerritorySalesmen(
+    String territoryId,
+    List<Json> assignments,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/sales-territories/$territoryId/salesmen',
+      body: {'assignments': assignments},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<int> bulkTerritoryStatus(Json body) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/status',
+      body: body,
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkTerritoryMove(Json body) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/move',
+      body: body,
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<String> exportTerritories({
+    String search = '',
+    String format = 'csv',
+    String dataset = 'hierarchy',
+  }) =>
+      downloadText(
+        '/api/v1/sales-territories/export',
+        query: {
+          if (search.isNotEmpty) 'search': search,
+          if (format.isNotEmpty) 'format': format,
+          if (dataset.isNotEmpty) 'dataset': dataset,
+        },
+      );
+
   Future<List<AssignmentOption>> options(String resource) async {
     final PagedResult<AssignmentOption> result = await _list(
       '/api/v1/$resource',
@@ -216,6 +1634,229 @@ class ApiClient {
       pageSize: 100,
     );
     return result.items;
+  }
+
+  Future<PagedResult<PurchaseOrder>> purchases({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    PurchaseQuery filters = const PurchaseQuery(),
+  }) =>
+      _list(
+        '/api/v1/purchases',
+        PurchaseOrder.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters.toQuery(),
+      );
+
+  Future<PagedResult<GoodsReceiptRecord>> goodsReceipts({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    Map<String, String> filters = const {},
+  }) =>
+      _list(
+        '/api/v1/goods-receipts',
+        GoodsReceiptRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+        additionalQuery: filters,
+      );
+
+  Future<GoodsReceiptRecord> goodsReceipt(String id) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/goods-receipts/$id')),
+      );
+
+  Future<GoodsReceiptRecord> createGoodsReceipt(Json data) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/goods-receipts', body: data)),
+      );
+
+  Future<GoodsReceiptRecord> updateGoodsReceipt(String id, Json data) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/goods-receipts/$id', body: data)),
+      );
+
+  Future<GoodsReceiptRecord> completeGoodsReceipt(String id) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/goods-receipts/$id/complete')),
+      );
+
+  Future<GoodsReceiptRecord> cancelGoodsReceipt(String id, {String reason = ''}) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/goods-receipts/$id/cancel',
+            body: {'reason': reason.isEmpty ? null : reason},
+          ),
+        ),
+      );
+
+  Future<GoodsReceiptRecord> closeGoodsReceipt(String id, {String reason = ''}) async =>
+      GoodsReceiptRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/goods-receipts/$id/close',
+            body: {'reason': reason.isEmpty ? null : reason},
+          ),
+        ),
+      );
+
+  Future<Json> goodsReceiptSummary() async =>
+      _unwrapMap(await request('GET', '/api/v1/goods-receipts/summary'));
+
+  Future<List<DocumentTimelineSnapshot>> goodsReceiptHistory(String id) async {
+    final Json response =
+        await request('GET', '/api/v1/goods-receipts/$id/history');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<PurchaseSummaryRecord> purchaseSummary() async =>
+      PurchaseSummaryRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/purchases/summary')),
+      );
+
+  Future<PurchaseOrder> purchaseOrder(
+    String id, {
+    bool includeDeleted = false,
+  }) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/purchases/$id',
+            query: includeDeleted ? {'include_deleted': 'true'} : null,
+          ),
+        ),
+      );
+
+  Future<PurchaseOrder> createPurchaseOrder(PurchaseOrder order) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/purchases',
+              body: order.toCreateJson()),
+        ),
+      );
+
+  Future<PurchaseOrder> updatePurchaseOrder(PurchaseOrder order) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/purchases/${order.id}',
+            body: order.toUpdateJson(),
+          ),
+        ),
+      );
+
+  Future<void> deletePurchaseOrder(String id) =>
+      request('DELETE', '/api/v1/purchases/$id');
+
+  Future<PurchaseOrder> restorePurchaseOrder(String id) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/purchases/$id/restore')),
+      );
+
+  Future<PurchaseOrder> cancelPurchaseOrder(String id,
+          {String reason = ''}) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/$id/cancel',
+            body: {'reason': reason.isEmpty ? null : reason},
+          ),
+        ),
+      );
+
+  Future<PurchaseOrder> closePurchaseOrder(String id,
+          {String reason = ''}) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/$id/close',
+            body: {'reason': reason.isEmpty ? null : reason},
+          ),
+        ),
+      );
+
+  Future<List<PurchaseOrderHistoryRecord>> purchaseOrderHistory(
+      String id) async {
+    final Json response = await request('GET', '/api/v1/purchases/$id/history');
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map(
+          (item) => PurchaseOrderHistoryRecord.fromJson(
+            Map<String, dynamic>.from(item),
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<PurchaseOrder>> importPurchaseOrdersJson(
+    List<Json> records,
+  ) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/purchases/import',
+      fields: {
+        'format': 'json',
+        'payload': jsonEncode({'records': records}),
+      },
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => PurchaseOrder.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<PurchaseOrder>> importPurchaseOrdersFile({
+    required String format,
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/purchases/import',
+      fields: {'format': format},
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: format == 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => PurchaseOrder.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
   }
 
   Future<Json> create(String resource, Json body) =>
@@ -263,6 +1904,82 @@ class ApiClient {
 
   Future<void> setRolePermissions(String roleId, List<String> ids) =>
       request('PUT', '/api/v1/roles/$roleId/permissions', body: {'ids': ids});
+
+  Future<Map<String, dynamic>> businessProfileConfigurationValues(
+    String profileId,
+  ) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/business-framework/profiles/$profileId/configuration',
+    );
+    final Json data = _unwrapMap(response);
+    return {
+      'feature_ids': stringList(data['feature_ids']).join(','),
+      'module_ids': stringList(data['module_ids']).join(','),
+    };
+  }
+
+  Future<void> setBusinessProfileFeatures(String profileId, List<String> ids) =>
+      request(
+        'PUT',
+        '/api/v1/business-framework/profiles/$profileId/features',
+        body: {'ids': ids},
+      );
+
+  Future<void> setBusinessProfileModules(String profileId, List<String> ids) =>
+      request(
+        'PUT',
+        '/api/v1/business-framework/profiles/$profileId/modules',
+        body: {'ids': ids},
+      );
+
+  Future<Map<String, dynamic>> firmBusinessProfileAssignmentValues(
+    String firmId,
+  ) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/business-framework/firms/$firmId/profile-assignment',
+    );
+    final dynamic data = response['data'];
+    if (data is! Map<String, dynamic>) {
+      return {'business_profile_id': '', 'is_active': true, 'notes': ''};
+    }
+    return {
+      'business_profile_id': stringValue(data['business_profile_id']),
+      'is_active': boolValue(data['is_active'], fallback: true),
+      'notes': stringValue(data['notes']),
+    };
+  }
+
+  Future<void> assignBusinessProfileToFirm(
+    String firmId,
+    String businessProfileId, {
+    bool isActive = true,
+    String notes = '',
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/business-framework/firms/$firmId/profile-assignment',
+        body: {
+          'business_profile_id': businessProfileId,
+          'is_active': isActive,
+          if (notes.isNotEmpty) 'notes': notes,
+        },
+      );
+
+  Future<List<String>> activeBusinessModuleCodes() async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/business-framework/active-modules',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((value) => stringValue(value['code']).toUpperCase())
+        .where((code) => code.isNotEmpty)
+        .toList();
+  }
 
   Future<Json> userAssignmentValues(String userId) async {
     final List<Json> responses = await Future.wait([
@@ -510,6 +2227,179 @@ class ApiClient {
       throw const ApiException(
         'Unable to connect to the server. Check the API address.',
       );
+    }
+  }
+
+  Future<List<int>> downloadBytes(
+    String path, {
+    Map<String, String>? query,
+    bool retrying = false,
+  }) async {
+    final Uri uri = _uri(path, query);
+    onRequest?.call();
+    try {
+      final HttpClientRequest httpRequest =
+          await _httpClient.openUrl('GET', uri);
+      httpRequest.followRedirects = false;
+      final String? token = accessToken();
+      if (token?.isNotEmpty == true) {
+        httpRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $token',
+        );
+      }
+      final String? firmId = activeFirmId?.call();
+      if (firmId?.isNotEmpty == true) {
+        httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
+      final HttpClientResponse response =
+          await httpRequest.close().timeout(const Duration(seconds: 30));
+      final List<int> bytes = await response.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) => buffer..addAll(chunk),
+      );
+      if (response.statusCode == HttpStatus.unauthorized &&
+          !retrying &&
+          await refreshAccessToken()) {
+        return downloadBytes(path, query: query, retrying: true);
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        String message = 'The download request failed.';
+        try {
+          final dynamic decoded = jsonDecode(utf8.decode(bytes));
+          if (decoded is Map<String, dynamic>) {
+            final dynamic error = decoded['error'];
+            message = stringValue(
+              error is Map<String, dynamic>
+                  ? error['message']
+                  : decoded['message'] ?? decoded['detail'],
+            );
+          }
+        } on FormatException {
+          // Keep the safe public error when the server did not return JSON.
+        }
+        throw ApiException(
+          message.isEmpty ? 'The download request failed.' : message,
+          statusCode: response.statusCode,
+        );
+      }
+      return bytes;
+    } on TimeoutException {
+      throw const ApiException('The server did not respond in time.');
+    } on SocketException {
+      throw const ApiException(
+        'Unable to connect to the server. Check the API address.',
+      );
+    }
+  }
+
+  Future<Json> multipartRequest(
+    String method,
+    String path, {
+    required Map<String, String> fields,
+    String? fileField,
+    String? fileName,
+    List<int>? fileBytes,
+    String? fileContentType,
+    bool authenticated = true,
+    bool retrying = false,
+  }) async {
+    final Uri uri = _uri(path, null);
+    onRequest?.call();
+    final String boundary =
+        '----agency-platform-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      final HttpClientRequest httpRequest =
+          await _httpClient.openUrl(method, uri);
+      httpRequest.followRedirects = false;
+      httpRequest.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      if (authenticated && accessToken()?.isNotEmpty == true) {
+        httpRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer ${accessToken()}',
+        );
+      }
+      final String? token = accessToken();
+      if (authenticated && token?.isNotEmpty == true) {
+        httpRequest.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Bearer $token',
+        );
+      }
+      final String? firmId = activeFirmId?.call();
+      if (authenticated && firmId?.isNotEmpty == true) {
+        httpRequest.headers.set('X-Firm-ID', firmId!);
+      }
+      httpRequest.headers.contentType = ContentType('multipart', 'form-data',
+          parameters: {'boundary': boundary});
+
+      for (final MapEntry<String, String> entry in fields.entries) {
+        httpRequest.write('--$boundary\r\n');
+        httpRequest.write(
+          'Content-Disposition: form-data; name="${entry.key}"\r\n\r\n',
+        );
+        httpRequest.write(entry.value);
+        httpRequest.write('\r\n');
+      }
+      if (fileField != null && fileName != null && fileBytes != null) {
+        httpRequest.write('--$boundary\r\n');
+        httpRequest.write(
+          'Content-Disposition: form-data; name="$fileField"; filename="$fileName"\r\n',
+        );
+        httpRequest.write(
+          'Content-Type: ${fileContentType ?? 'application/octet-stream'}\r\n\r\n',
+        );
+        httpRequest.add(fileBytes);
+        httpRequest.write('\r\n');
+      }
+      httpRequest.write('--$boundary--\r\n');
+
+      final HttpClientResponse response =
+          await httpRequest.close().timeout(const Duration(seconds: 30));
+      final String text = await utf8.decoder.bind(response).join();
+      final dynamic decoded =
+          text.isEmpty ? <String, dynamic>{} : jsonDecode(text);
+      final Json payload = decoded is Map<String, dynamic>
+          ? decoded
+          : <String, dynamic>{'data': decoded};
+      if (response.statusCode == HttpStatus.unauthorized &&
+          authenticated &&
+          !retrying &&
+          await refreshAccessToken()) {
+        return multipartRequest(
+          method,
+          path,
+          fields: fields,
+          fileField: fileField,
+          fileName: fileName,
+          fileBytes: fileBytes,
+          fileContentType: fileContentType,
+          authenticated: authenticated,
+          retrying: true,
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final dynamic error = payload['error'];
+        final String message = stringValue(
+          error is Map<String, dynamic>
+              ? error['message']
+              : payload['message'] ?? payload['detail'],
+        );
+        throw ApiException(
+          message.isEmpty
+              ? 'Request failed (${response.statusCode}).'
+              : message,
+          statusCode: response.statusCode,
+          details: error is Map<String, dynamic> ? error['details'] : null,
+        );
+      }
+      return payload;
+    } on SocketException {
+      throw const ApiException('Cannot reach the API server.');
+    } on TimeoutException {
+      throw const ApiException('The API request timed out.');
+    } on FormatException {
+      throw const ApiException('The API returned an invalid JSON response.');
     }
   }
 

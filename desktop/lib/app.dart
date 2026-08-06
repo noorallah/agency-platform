@@ -90,12 +90,12 @@ class _AgencyAppState extends State<AgencyApp> {
             builder: (context, _) {
               switch (_session.status) {
                 case SessionStatus.restoring:
-                case SessionStatus.authenticating:
                   return _StatusPage(
                     message: 'Connecting to ${_branding.productName}…',
                     loading: true,
                     branding: _branding,
                   );
+                case SessionStatus.authenticating:
                 case SessionStatus.signedOut:
                 case SessionStatus.error:
                   return LoginScreen(

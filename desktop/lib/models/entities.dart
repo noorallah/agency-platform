@@ -55,6 +55,10 @@ class Firm {
     required this.contactPhone,
     required this.currencyCode,
     required this.financialYearStart,
+    required this.deploymentMode,
+    required this.databaseType,
+    required this.databaseName,
+    required this.schemaName,
     required this.isActive,
     required this.notes,
     required this.createdAt,
@@ -64,7 +68,9 @@ class Firm {
   final String id, code, name, gstNumber, panNumber;
   final String addressLine1, addressLine2, city, state, postalCode, country;
   final String contactName, contactEmail, contactPhone;
-  final String currencyCode, financialYearStart, notes, createdAt, updatedAt;
+  final String currencyCode, financialYearStart;
+  final String deploymentMode, databaseType, databaseName, schemaName;
+  final String notes, createdAt, updatedAt;
   final bool isActive;
 
   factory Firm.fromJson(Json json) => Firm(
@@ -84,6 +90,10 @@ class Firm {
         contactPhone: stringValue(json['contact_phone']),
         currencyCode: stringValue(json['currency_code']),
         financialYearStart: stringValue(json['financial_year_start']),
+        deploymentMode: stringValue(json['deployment_mode']),
+        databaseType: stringValue(json['database_type']),
+        databaseName: stringValue(json['database_name']),
+        schemaName: stringValue(json['schema_name']),
         isActive: boolValue(json['is_active'], fallback: true),
         notes: stringValue(json['notes']),
         createdAt: stringValue(json['created_at']),
@@ -106,6 +116,10 @@ class Firm {
         'contact_phone': contactPhone,
         'currency_code': currencyCode,
         'financial_year_start': financialYearStart,
+        'deployment_mode': deploymentMode,
+        'database_type': databaseType,
+        'database_name': databaseName,
+        'schema_name': schemaName,
         'is_active': isActive,
         'notes': notes,
       };
@@ -119,10 +133,58 @@ class PlatformUser {
     required this.isActive,
     required this.forcePasswordChange,
     required this.expiresAt,
+    this.personalMobile = '',
+    this.alternateMobile = '',
+    this.personalEmail = '',
+    this.officeEmail = '',
+    this.emergencyContactName = '',
+    this.emergencyMobile = '',
+    this.emergencyRelationship = '',
+    this.employeeCode = '',
+    this.joiningDate = '',
+    this.leavingDate = '',
+    this.department = '',
+    this.designation = '',
+    this.reportingManager = '',
+    this.employmentType = '',
+    this.costCenter = '',
+    this.profilePhotoUrl = '',
+    this.profileAddresses = const [],
+    this.profileDocuments = const [],
+    this.failedLoginAttempts = 0,
+    this.lastLoginAt = '',
+    this.createdAt = '',
+    this.updatedAt = '',
   });
   final String id, email, fullName;
   final bool isActive, forcePasswordChange;
   final String expiresAt;
+
+  // Optional HR/profile enrichment (Phase 9). Never consulted for
+  // authentication/authorization — those continue to rely solely on
+  // email/password/roles.
+  final String personalMobile,
+      alternateMobile,
+      personalEmail,
+      officeEmail,
+      emergencyContactName,
+      emergencyMobile,
+      emergencyRelationship,
+      employeeCode,
+      joiningDate,
+      leavingDate,
+      department,
+      designation,
+      reportingManager,
+      employmentType,
+      costCenter,
+      profilePhotoUrl;
+  final List<Json> profileAddresses;
+  final List<Json> profileDocuments;
+
+  // Read-only audit trail data already exposed by the backend.
+  final int failedLoginAttempts;
+  final String lastLoginAt, createdAt, updatedAt;
 
   factory PlatformUser.fromJson(Json json) => PlatformUser(
         id: stringValue(json['id']),
@@ -131,6 +193,38 @@ class PlatformUser {
         isActive: boolValue(json['is_active'], fallback: true),
         forcePasswordChange: boolValue(json['force_password_change']),
         expiresAt: stringValue(json['expires_at']),
+        personalMobile: stringValue(json['personal_mobile']),
+        alternateMobile: stringValue(json['alternate_mobile']),
+        personalEmail: stringValue(json['personal_email']),
+        officeEmail: stringValue(json['office_email']),
+        emergencyContactName: stringValue(json['emergency_contact_name']),
+        emergencyMobile: stringValue(json['emergency_mobile']),
+        emergencyRelationship: stringValue(json['emergency_relationship']),
+        employeeCode: stringValue(json['employee_code']),
+        joiningDate: stringValue(json['joining_date']),
+        leavingDate: stringValue(json['leaving_date']),
+        department: stringValue(json['department']),
+        designation: stringValue(json['designation']),
+        reportingManager: stringValue(json['reporting_manager']),
+        employmentType: stringValue(json['employment_type']),
+        costCenter: stringValue(json['cost_center']),
+        profilePhotoUrl: stringValue(json['profile_photo_url']),
+        profileAddresses: (json['profile_addresses'] as List?)
+                ?.whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList() ??
+            const [],
+        profileDocuments: (json['profile_documents'] as List?)
+                ?.whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList() ??
+            const [],
+        failedLoginAttempts: json['failed_login_attempts'] is int
+            ? json['failed_login_attempts'] as int
+            : int.tryParse(stringValue(json['failed_login_attempts'])) ?? 0,
+        lastLoginAt: stringValue(json['last_login_at']),
+        createdAt: stringValue(json['created_at']),
+        updatedAt: stringValue(json['updated_at']),
       );
 
   Json toJson({String? password}) => {
@@ -140,6 +234,24 @@ class PlatformUser {
         'force_password_change': forcePasswordChange,
         if (expiresAt.isNotEmpty) 'expires_at': expiresAt,
         if (password != null && password.isNotEmpty) 'password': password,
+        'personal_mobile': personalMobile,
+        'alternate_mobile': alternateMobile,
+        'personal_email': personalEmail,
+        'office_email': officeEmail,
+        'emergency_contact_name': emergencyContactName,
+        'emergency_mobile': emergencyMobile,
+        'emergency_relationship': emergencyRelationship,
+        'employee_code': employeeCode,
+        if (joiningDate.isNotEmpty) 'joining_date': joiningDate,
+        if (leavingDate.isNotEmpty) 'leaving_date': leavingDate,
+        'department': department,
+        'designation': designation,
+        'reporting_manager': reportingManager,
+        'employment_type': employmentType,
+        'cost_center': costCenter,
+        'profile_photo_url': profilePhotoUrl,
+        'profile_addresses': profileAddresses,
+        'profile_documents': profileDocuments,
       };
 }
 
@@ -197,4 +309,101 @@ class Permission {
         'description': description,
         'is_active': isActive,
       };
+}
+
+class BusinessProfileRecord {
+  const BusinessProfileRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.industryType,
+    required this.status,
+    required this.isDefault,
+    required this.description,
+  });
+
+  final String id, code, name, industryType, status, description;
+  final bool isDefault;
+
+  factory BusinessProfileRecord.fromJson(Json json) => BusinessProfileRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        industryType: stringValue(json['industry_type']),
+        status: stringValue(json['status']),
+        isDefault: boolValue(json['is_default']),
+        description: stringValue(json['description']),
+      );
+}
+
+class BusinessFeatureRecord {
+  const BusinessFeatureRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.category,
+    required this.defaultEnabled,
+    required this.isActive,
+  });
+
+  final String id, code, name, category;
+  final bool defaultEnabled, isActive;
+
+  factory BusinessFeatureRecord.fromJson(Json json) => BusinessFeatureRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        category: stringValue(json['category']),
+        defaultEnabled: boolValue(json['default_enabled']),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
+class BusinessModuleRecord {
+  const BusinessModuleRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.uiRoute,
+    required this.defaultEnabled,
+    required this.isActive,
+  });
+
+  final String id, code, name, uiRoute;
+  final bool defaultEnabled, isActive;
+
+  factory BusinessModuleRecord.fromJson(Json json) => BusinessModuleRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        uiRoute: stringValue(json['ui_route']),
+        defaultEnabled: boolValue(json['default_enabled'], fallback: true),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
+class AttributeDefinitionRecord {
+  const AttributeDefinitionRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.dataType,
+    required this.mandatory,
+    required this.isActive,
+    required this.applicableCategory,
+  });
+
+  final String id, code, name, dataType, applicableCategory;
+  final bool mandatory, isActive;
+
+  factory AttributeDefinitionRecord.fromJson(Json json) =>
+      AttributeDefinitionRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        dataType: stringValue(json['data_type']),
+        mandatory: boolValue(json['mandatory']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        applicableCategory: stringValue(json['applicable_category']),
+      );
 }

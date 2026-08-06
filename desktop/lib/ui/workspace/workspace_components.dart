@@ -17,27 +17,49 @@ class PageHeader extends StatelessWidget {
   final List<Widget> actions;
 
   @override
-  Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final bool wrapActions =
+              !constraints.hasBoundedWidth || constraints.maxWidth < 720;
+          final Widget titleBlock = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.headlineMedium),
+              if (description != null) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  description!,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ],
+          );
+          if (wrapActions) {
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.headlineMedium),
-                if (description != null) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(description!,
-                      style: Theme.of(context).textTheme.bodyMedium),
+                titleBlock,
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: actions),
                 ],
               ],
-            ),
-          ),
-          if (actions.isNotEmpty) ...[
-            const SizedBox(width: AppSpacing.lg),
-            Wrap(spacing: AppSpacing.sm, children: actions),
-          ],
-        ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: titleBlock),
+              if (actions.isNotEmpty) ...[
+                const SizedBox(width: AppSpacing.lg),
+                Wrap(spacing: AppSpacing.sm, children: actions),
+              ],
+            ],
+          );
+        },
       );
 }
 
@@ -54,18 +76,33 @@ class SectionHeader extends StatelessWidget {
   final Widget? trailing;
 
   @override
-  Widget build(BuildContext context) => Row(children: [
-        Expanded(
-          child: Column(
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final Widget titleBlock = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title, style: Theme.of(context).textTheme.titleMedium),
               if (description != null) Text(description!),
             ],
-          ),
-        ),
-        if (trailing != null) trailing!,
-      ]);
+          );
+          if (!constraints.hasBoundedWidth || constraints.maxWidth < 720) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                titleBlock,
+                if (trailing != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  trailing!,
+                ],
+              ],
+            );
+          }
+          return Row(children: [
+            Expanded(child: titleBlock),
+            if (trailing != null) trailing!,
+          ]);
+        },
+      );
 }
 
 class WorkspaceLayout extends StatelessWidget {
@@ -185,6 +222,335 @@ class WorkspaceBreadcrumbs extends StatelessWidget {
               const Icon(Icons.chevron_right, size: 16),
           ],
         ],
+      );
+}
+
+class Breadcrumb extends StatelessWidget {
+  const Breadcrumb({super.key, required this.items});
+
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) => WorkspaceBreadcrumbs(items: items);
+}
+
+class SummaryCards extends StatelessWidget {
+  const SummaryCards({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.md,
+        children: children,
+      );
+}
+
+class QuickActions extends StatelessWidget {
+  const QuickActions({super.key, required this.actions});
+
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        children: actions,
+      );
+}
+
+class AuditPanel extends StatelessWidget {
+  const AuditPanel({
+    super.key,
+    required this.title,
+    this.lines = const [],
+    this.emptyMessage = 'No audit trail available.',
+  });
+
+  final String title;
+  final List<DetailLine> lines;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const Divider(),
+              if (lines.isEmpty)
+                Text(emptyMessage)
+              else
+                for (final DetailLine line in lines)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(line.label,
+                            style: Theme.of(context).textTheme.labelMedium),
+                        const SizedBox(height: 2),
+                        SelectableText(line.value),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
+}
+
+class HistoryPanel extends StatelessWidget {
+  const HistoryPanel({
+    super.key,
+    required this.title,
+    this.entries = const [],
+    this.emptyMessage = 'No history available.',
+  });
+
+  final String title;
+  final List<String> entries;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const Divider(),
+              if (entries.isEmpty)
+                Text(emptyMessage)
+              else
+                for (final String entry in entries)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: Text(entry),
+                  ),
+            ],
+          ),
+        ),
+      );
+}
+
+class AttachmentPanel extends StatelessWidget {
+  const AttachmentPanel({
+    super.key,
+    required this.title,
+    this.items = const [],
+    this.emptyMessage = 'No attachments available.',
+  });
+
+  final String title;
+  final List<Widget> items;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const Divider(),
+              if (items.isEmpty)
+                Text(emptyMessage)
+              else
+                for (final Widget item in items) ...[
+                  item,
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+            ],
+          ),
+        ),
+      );
+}
+
+class NotificationCenter extends StatelessWidget {
+  const NotificationCenter({
+    super.key,
+    required this.title,
+    this.children = const [],
+    this.emptyMessage = 'No notifications.',
+  });
+
+  final String title;
+  final List<Widget> children;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const Divider(),
+              if (children.isEmpty) Text(emptyMessage) else ...children,
+            ],
+          ),
+        ),
+      );
+}
+
+class StatusBar extends StatelessWidget {
+  const StatusBar({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+class EditorDialog extends StatelessWidget {
+  const EditorDialog({
+    super.key,
+    required this.title,
+    required this.child,
+    this.subtitle,
+    this.onCancel,
+    this.onSave,
+    this.loading = false,
+  });
+
+  final String title;
+  final String? subtitle;
+  final Widget child;
+  final VoidCallback? onCancel;
+  final VoidCallback? onSave;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 760),
+          child: Column(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              ListTile(
+                title: Text(title),
+                subtitle: subtitle == null ? null : Text(subtitle!),
+                trailing: IconButton(
+                  onPressed: loading ? null : onCancel,
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(child: child),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: loading ? null : onCancel,
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    FilledButton(
+                      onPressed: loading ? null : onSave,
+                      child: const Text('Save'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class ConfirmationDialog extends StatelessWidget {
+  const ConfirmationDialog({
+    super.key,
+    required this.title,
+    required this.message,
+    this.confirmLabel = 'Confirm',
+    this.onConfirm,
+    this.onCancel,
+  });
+
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final VoidCallback? onConfirm;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: onCancel, child: const Text('Cancel')),
+          FilledButton(
+            onPressed: onConfirm,
+            child: Text(confirmLabel),
+          ),
+        ],
+      );
+}
+
+class ImportWizard extends StatelessWidget {
+  const ImportWizard({
+    super.key,
+    required this.title,
+    required this.body,
+    this.onClose,
+    this.onImport,
+    this.loading = false,
+  });
+
+  final String title;
+  final Widget body;
+  final VoidCallback? onClose;
+  final VoidCallback? onImport;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) => EditorDialog(
+        title: title,
+        child: body,
+        onCancel: onClose,
+        onSave: onImport,
+        loading: loading,
+      );
+}
+
+class ExportWizard extends StatelessWidget {
+  const ExportWizard({
+    super.key,
+    required this.title,
+    required this.body,
+    this.onClose,
+    this.onExport,
+    this.loading = false,
+  });
+
+  final String title;
+  final Widget body;
+  final VoidCallback? onClose;
+  final VoidCallback? onExport;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) => EditorDialog(
+        title: title,
+        child: body,
+        onCancel: onClose,
+        onSave: onExport,
+        loading: loading,
       );
 }
 
@@ -467,7 +833,7 @@ class ManagementWorkspaceLayout extends StatelessWidget {
     required this.toolbar,
     required this.searchPanel,
     required this.primaryContent,
-    required this.detailsPanel,
+    this.detailsPanel,
     required this.statusBar,
     this.detailsWidth = 300,
     this.filterPanel,
@@ -476,7 +842,7 @@ class ManagementWorkspaceLayout extends StatelessWidget {
   final Widget toolbar;
   final Widget searchPanel;
   final Widget primaryContent;
-  final Widget detailsPanel;
+  final Widget? detailsPanel;
   final Widget statusBar;
   final double detailsWidth;
   final Widget? filterPanel;
@@ -512,8 +878,12 @@ class ManagementWorkspaceLayout extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final double panelWidth =
-                    detailsWidth.clamp(240, constraints.maxWidth * .36);
+                if (detailsPanel == null) {
+                  return primaryContent;
+                }
+                final double panelWidth = detailsWidth
+                    .clamp(240, constraints.maxWidth * .36)
+                    .toDouble();
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -532,13 +902,17 @@ class ManagementWorkspaceLayout extends StatelessWidget {
 
 class GridColumn {
   const GridColumn({
+    required this.key,
     required this.label,
     this.onSort,
     this.visible = true,
+    this.tooltip,
   });
+  final String key;
   final String label;
   final void Function(bool ascending)? onSort;
   final bool visible;
+  final String? tooltip;
 }
 
 class EnterpriseDataGrid<T> extends StatelessWidget {
@@ -553,11 +927,16 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
     required this.onSelect,
     required this.onPageChanged,
     this.selectedId,
+    this.selectedIds = const {},
+    this.onSelectionChanged,
     this.rowsPerPage = 20,
     this.onOpen,
     this.contextActions = const [],
     this.contextActionsFor,
     this.onContextAction,
+    this.showRowNumbers = false,
+    this.rowNumberLabel = '#',
+    this.cellBuilder,
   });
 
   final List<T> items;
@@ -569,11 +948,22 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
   final ValueChanged<T> onSelect;
   final ValueChanged<int> onPageChanged;
   final String? selectedId;
+  final Set<String> selectedIds;
+  final ValueChanged<Set<String>>? onSelectionChanged;
   final int rowsPerPage;
   final ValueChanged<T>? onOpen;
   final List<WorkspaceContextAction> contextActions;
   final List<WorkspaceContextAction> Function(T item)? contextActionsFor;
   final void Function(WorkspaceContextAction action, T item)? onContextAction;
+  final bool showRowNumbers;
+  final String rowNumberLabel;
+  final Widget Function(int columnIndex, String value, T item)? cellBuilder;
+
+  bool get _showActionsColumn =>
+      onOpen != null ||
+      contextActions.isNotEmpty ||
+      contextActionsFor != null ||
+      onContextAction != null;
 
   @override
   Widget build(BuildContext context) {
@@ -596,13 +986,23 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
                 showFirstLastButtons: true,
                 onPageChanged: onPageChanged,
                 columns: [
+                  if (showRowNumbers)
+                    DataColumn(
+                      label: Text(rowNumberLabel),
+                      numeric: true,
+                    ),
                   for (final MapEntry<int, GridColumn> entry in visibleColumns)
                     DataColumn(
-                      label: Text(entry.value.label),
+                      label: Tooltip(
+                        message: entry.value.tooltip ?? entry.value.label,
+                        child: Text(entry.value.label),
+                      ),
                       onSort: entry.value.onSort == null
                           ? null
                           : (_, ascending) => entry.value.onSort!(ascending),
                     ),
+                  if (_showActionsColumn)
+                    const DataColumn(label: Text('Actions')),
                 ],
                 source: _GridDataSource<T>(
                   menuContext: context,
@@ -614,11 +1014,16 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
                   visibleColumnIndexes:
                       visibleColumns.map((entry) => entry.key).toList(),
                   selectedId: selectedId,
+                  selectedIds: selectedIds,
+                  onSelectionChanged: onSelectionChanged,
                   onSelect: onSelect,
                   onOpen: onOpen,
                   contextActions: contextActions,
                   contextActionsFor: contextActionsFor,
                   onContextAction: onContextAction,
+                  showRowNumbers: showRowNumbers,
+                  showActionsColumn: _showActionsColumn,
+                  cellBuilder: cellBuilder,
                 ),
               ),
             ),
@@ -639,11 +1044,16 @@ class _GridDataSource<T> extends DataTableSource {
     required this.cells,
     required this.visibleColumnIndexes,
     required this.selectedId,
+    required this.selectedIds,
+    required this.onSelectionChanged,
     required this.onSelect,
     required this.onOpen,
     required this.contextActions,
     required this.contextActionsFor,
     required this.onContextAction,
+    required this.showRowNumbers,
+    required this.showActionsColumn,
+    required this.cellBuilder,
   });
   final BuildContext menuContext;
   final List<T> items;
@@ -653,11 +1063,16 @@ class _GridDataSource<T> extends DataTableSource {
   final List<String> Function(T) cells;
   final List<int> visibleColumnIndexes;
   final String? selectedId;
+  final Set<String> selectedIds;
+  final ValueChanged<Set<String>>? onSelectionChanged;
   final ValueChanged<T> onSelect;
   final ValueChanged<T>? onOpen;
   final List<WorkspaceContextAction> contextActions;
   final List<WorkspaceContextAction> Function(T item)? contextActionsFor;
   final void Function(WorkspaceContextAction action, T item)? onContextAction;
+  final bool showRowNumbers;
+  final bool showActionsColumn;
+  final Widget Function(int columnIndex, String value, T item)? cellBuilder;
 
   @override
   DataRow? getRow(int index) {
@@ -665,42 +1080,101 @@ class _GridDataSource<T> extends DataTableSource {
     if (localIndex < 0 || localIndex >= items.length) return null;
     final T item = items[localIndex];
     final List<String> values = cells(item);
+    final String itemId = id(item);
+    final bool multiSelection = onSelectionChanged != null;
+    final bool isSelected =
+        multiSelection ? selectedIds.contains(itemId) : selectedId == itemId;
     final List<WorkspaceContextAction> itemContextActions =
         contextActionsFor?.call(item) ?? contextActions;
     return DataRow.byIndex(
       index: index,
-      selected: selectedId == id(item),
-      onSelectChanged: (_) => onSelect(item),
-      cells: visibleColumnIndexes.map((columnIndex) {
-        final String value =
-            columnIndex < values.length ? values[columnIndex] : '';
-        return DataCell(
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onSecondaryTapDown: itemContextActions.isEmpty
-                ? null
-                : (details) {
-                    onSelect(item);
-                    showWorkspaceContextMenu(
-                      menuContext,
-                      position: details.globalPosition,
-                      actions: itemContextActions,
-                      onSelected: (action) =>
-                          onContextAction?.call(action, item),
-                    );
-                  },
-            child: Tooltip(
-              message: value,
-              child: SizedBox(
-                width: double.infinity,
-                child: Text(value, overflow: TextOverflow.ellipsis),
+      selected: isSelected,
+      onSelectChanged: (_) {
+        if (multiSelection) {
+          final Set<String> next = {...selectedIds};
+          if (next.contains(itemId)) {
+            next.remove(itemId);
+          } else {
+            next.add(itemId);
+          }
+          onSelectionChanged?.call(next);
+          onSelect(item);
+          return;
+        }
+        onSelect(item);
+      },
+      cells: [
+        if (showRowNumbers) DataCell(Text('${index + 1}')),
+        ...visibleColumnIndexes.map((columnIndex) {
+          final String value =
+              columnIndex < values.length ? values[columnIndex] : '';
+          final Widget cell = cellBuilder?.call(columnIndex, value, item) ??
+              Tooltip(
+                message: value,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Text(value, overflow: TextOverflow.ellipsis),
+                ),
+              );
+          return DataCell(
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onSecondaryTapDown: itemContextActions.isEmpty
+                  ? null
+                  : (details) {
+                      onSelect(item);
+                      showWorkspaceContextMenu(
+                        menuContext,
+                        position: details.globalPosition,
+                        actions: itemContextActions,
+                        onSelected: (action) =>
+                            onContextAction?.call(action, item),
+                      );
+                    },
+              child: cell,
+            ),
+            onTap: () => onSelect(item),
+            onDoubleTap: onOpen == null ? null : () => onOpen!(item),
+          );
+        }),
+        if (showActionsColumn)
+          DataCell(
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 0,
+                runSpacing: 0,
+                children: [
+                  if (onOpen != null)
+                    IconButton(
+                      tooltip: WorkspaceContextAction.view.label,
+                      icon: Icon(WorkspaceContextAction.view.icon),
+                      onPressed: () {
+                        onSelect(item);
+                        onOpen!(item);
+                      },
+                    ),
+                  for (final WorkspaceContextAction action
+                      in itemContextActions)
+                    if (action != WorkspaceContextAction.refresh &&
+                        action != WorkspaceContextAction.export &&
+                        !(action == WorkspaceContextAction.view &&
+                            onOpen != null))
+                      IconButton(
+                        tooltip: action.label,
+                        icon: Icon(action.icon),
+                        onPressed: onContextAction == null
+                            ? null
+                            : () {
+                                onSelect(item);
+                                onContextAction!(action, item);
+                              },
+                      ),
+                ],
               ),
             ),
           ),
-          onTap: () => onSelect(item),
-          onDoubleTap: onOpen == null ? null : () => onOpen!(item),
-        );
-      }).toList(),
+      ],
     );
   }
 
@@ -709,13 +1183,122 @@ class _GridDataSource<T> extends DataTableSource {
   @override
   int get rowCount => total;
   @override
-  int get selectedRowCount => selectedId == null ? 0 : 1;
+  int get selectedRowCount => onSelectionChanged == null
+      ? (selectedId == null ? 0 : 1)
+      : selectedIds.length;
 }
 
 class DetailLine {
   const DetailLine(this.label, this.value);
   final String label;
   final String value;
+}
+
+enum StatusBadgeTone {
+  neutral,
+  success,
+  warning,
+  danger,
+  info,
+}
+
+class StatusBadge extends StatelessWidget {
+  const StatusBadge({
+    super.key,
+    required this.label,
+    this.tone = StatusBadgeTone.neutral,
+  });
+
+  final String label;
+  final StatusBadgeTone tone;
+
+  factory StatusBadge.fromStatus(String value) {
+    final String status = value.trim().toUpperCase();
+    final StatusBadgeTone tone = switch (status) {
+      'ACTIVE' || 'APPROVED' => StatusBadgeTone.success,
+      'PENDING' ||
+      'DRAFT' ||
+      'NEAR EXPIRY' ||
+      'NEAR_EXPIRY' =>
+        StatusBadgeTone.warning,
+      'INACTIVE' ||
+      'REJECTED' ||
+      'BLOCKED' ||
+      'DELETED' ||
+      'ARCHIVED' ||
+      'EXPIRED' =>
+        StatusBadgeTone.danger,
+      'INFO' => StatusBadgeTone.info,
+      _ => StatusBadgeTone.neutral,
+    };
+    return StatusBadge(label: value, tone: tone);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final AppSemanticColors semantic = context.semanticColors;
+    final (Color, Color) palette = switch (tone) {
+      StatusBadgeTone.success => (semantic.success, semantic.onSuccess),
+      StatusBadgeTone.warning => (semantic.warning, semantic.onWarning),
+      StatusBadgeTone.danger => (colors.error, colors.onError),
+      StatusBadgeTone.info => (semantic.information, semantic.onInformation),
+      StatusBadgeTone.neutral => (
+          colors.surfaceContainerHighest,
+          colors.onSurfaceVariant
+        ),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: palette.$1,
+        borderRadius: AppRadius.large,
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: palette.$2,
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+    );
+  }
+}
+
+class SummaryMetricCard extends StatelessWidget {
+  const SummaryMetricCard({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    this.width = 230,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: width,
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(children: [
+              Icon(icon,
+                  size: 32, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 16),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(value, style: Theme.of(context).textTheme.headlineSmall),
+                Text(label),
+              ]),
+            ]),
+          ),
+        ),
+      );
 }
 
 class QuickSummaryPanel extends StatelessWidget {
@@ -859,10 +1442,12 @@ class WorkspaceStatusBar extends StatelessWidget {
     super.key,
     required this.total,
     required this.selected,
+    this.selectedCount,
     this.message,
   });
   final int total;
   final bool selected;
+  final int? selectedCount;
   final String? message;
 
   @override
@@ -872,7 +1457,7 @@ class WorkspaceStatusBar extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           child: Row(children: [
             Text('$total record${total == 1 ? '' : 's'}'),
-            if (selected) const Text('  |  1 selected'),
+            if (selected) Text('  |  ${selectedCount ?? 1} selected'),
             const Spacer(),
             if (message != null) Text(message!),
           ]),

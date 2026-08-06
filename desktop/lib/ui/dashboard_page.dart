@@ -68,25 +68,25 @@ class _DashboardPageState extends State<DashboardPage> {
             runSpacing: 16,
             children: [
               if (widget.permissions.canViewPage(const ['FIRM_VIEW']))
-                _MetricCard(
+                SummaryMetricCard(
                   label: 'Firms',
                   value: stringValue(data['firms'] ?? '—'),
                   icon: Icons.business_outlined,
                 ),
               if (widget.permissions.canViewPage(const ['USER_VIEW']))
-                _MetricCard(
+                SummaryMetricCard(
                   label: 'Users',
                   value: stringValue(data['users'] ?? '—'),
                   icon: Icons.people_outline,
                 ),
               if (widget.permissions.canViewPage(const ['ROLE_VIEW']))
-                _MetricCard(
+                SummaryMetricCard(
                   label: 'Roles',
                   value: stringValue(data['roles'] ?? '—'),
                   icon: Icons.badge_outlined,
                 ),
               if (widget.permissions.canViewPage(const ['PERMISSION_VIEW']))
-                _MetricCard(
+                SummaryMetricCard(
                   label: 'Permissions',
                   value: stringValue(data['permissions'] ?? '—'),
                   icon: Icons.key_outlined,
@@ -108,32 +108,4 @@ class _DashboardPageState extends State<DashboardPage> {
       child: content,
     );
   }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-  final String label, value;
-  final IconData icon;
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        width: 230,
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(children: [
-              Icon(icon,
-                  size: 32, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 16),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(value, style: Theme.of(context).textTheme.headlineSmall),
-                Text(label),
-              ]),
-            ]),
-          ),
-        ),
-      );
 }

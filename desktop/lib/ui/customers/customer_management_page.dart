@@ -497,9 +497,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           columns: [
             _column('Code', 'code'),
             _column('Name', 'name'),
-            const GridColumn(label: 'GST'),
-            const GridColumn(label: 'Phone'),
-            const GridColumn(label: 'City'),
+            const GridColumn(key: 'gst', label: 'GST'),
+            const GridColumn(key: 'phone', label: 'Phone'),
+            const GridColumn(key: 'city', label: 'City'),
             _column('Status', 'status'),
             _column('Credit limit', 'credit_limit'),
             _column('Created', 'created_at'),
@@ -553,7 +553,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         primaryContent: primaryContent,
-        detailsPanel: _summary(selected),
+        detailsPanel: selected == null ? null : _summary(selected),
         statusBar: WorkspaceStatusBar(
           total: _controller.total,
           selected: selected != null,
@@ -564,6 +564,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
   }
 
   GridColumn _column(String label, String sortField) => GridColumn(
+        key: sortField,
         label: label,
         onSort: (ascending) {
           _controller

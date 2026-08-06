@@ -16,7 +16,7 @@ class WorkspaceLocation {
         .toList();
     return WorkspaceLocation(
       segments.isEmpty ? 'dashboard' : segments.first,
-      segments.length > 1 ? segments[1] : null,
+      segments.length > 1 ? segments.sublist(1).join('/') : null,
     );
   }
 }

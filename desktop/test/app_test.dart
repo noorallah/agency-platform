@@ -4,12 +4,15 @@ import 'package:agency_desktop/app.dart';
 import 'package:agency_desktop/core/auth/refresh_token_store.dart';
 import 'package:agency_desktop/core/auth/session_controller.dart';
 import 'package:agency_desktop/core/navigation/workspace_router.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
+import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/workspace_components.dart';
 import 'package:agency_desktop/ui/workspace/workspace_interactions.dart';
@@ -25,6 +28,18 @@ class _MemoryTokenStore implements RefreshTokenStore {
   Future<String?> read() async => token;
   @override
   Future<void> write(String value) async => token = value;
+}
+
+class _ProductApiWithoutAttributeDefinitions extends _ProductApi {
+  @override
+  Future<PagedResult<AttributeDefinitionRecord>> attributeDefinitions({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) async =>
+      throw const ApiException('Forbidden', statusCode: 403);
 }
 
 void main() {
@@ -75,14 +90,15 @@ void main() {
 
   test('workspace router restores locations and tracks navigation history', () {
     final WorkspaceRouter router =
-        WorkspaceRouter(initialLocation: 'administration/roles');
+        WorkspaceRouter(initialLocation: 'administration/tax/tax-profiles');
 
     expect(router.current.module, 'administration');
-    expect(router.current.tab, 'roles');
+    expect(router.current.tab, 'tax/tax-profiles');
+    expect(router.current.path, 'administration/tax/tax-profiles');
     router.navigate('masters', tab: 'firms');
     expect(router.canGoBack, isTrue);
     router.back();
-    expect(router.current.path, 'administration/roles');
+    expect(router.current.path, 'administration/tax/tax-profiles');
     router.forward();
     expect(router.current.path, 'masters/firms');
   });
@@ -106,7 +122,7 @@ void main() {
     expect(creates, 1);
   });
 
-  test('module catalog exposes only high-level navigation modules', () {
+  test('module catalog exposes configured navigation modules', () {
     expect(
       ModuleCatalog.modules.map((module) => module.label),
       [
@@ -114,7 +130,12 @@ void main() {
         'Administration',
         'Masters',
         'Sales',
+        'Sales Orders',
+        'Delivery Notes',
         'Purchases',
+        'Purchase Invoices',
+        'Purchase Returns',
+        'Goods Receipts',
         'Inventory',
         'Accounting',
         'Reports',
@@ -124,15 +145,27 @@ void main() {
     );
     expect(
       ModuleCatalog.byId(AppModule.administration).tabs.map((tab) => tab.label),
-      containsAll(['Users', 'Roles', 'Permissions', 'User-Firm Assignments']),
+      containsAll([
+        'Users',
+        'Roles',
+        'Permissions',
+        'User-Firm Assignments',
+        'Business Profiles',
+        'Feature Management',
+        'Module Configuration',
+        'Attribute Definitions',
+        'Profile Assignment',
+      ]),
     );
     expect(
-      ModuleCatalog.byId(AppModule.administration).tabs.last.available,
-      isFalse,
-    );
+        ModuleCatalog.byId(AppModule.administration)
+            .tabs
+            .firstWhere((tab) => tab.id == 'user-audit')
+            .available,
+        isFalse);
     expect(
       ModuleCatalog.byId(AppModule.masters).tabs.map((tab) => tab.label),
-      contains('Customers'),
+      containsAll(['Customers', 'Products', 'Vendors']),
     );
   });
 
@@ -141,7 +174,9 @@ void main() {
     expect(ToolbarAction.values, contains(ToolbarAction.export));
     expect(ToolbarAction.delete.label, 'Delete');
     expect(
-        const GridColumn(label: 'Internal', visible: false).visible, isFalse);
+        const GridColumn(key: 'internal', label: 'Internal', visible: false)
+            .visible,
+        isFalse);
   });
 
   test('workspace shortcut registry exposes the standard desktop bindings', () {
@@ -173,6 +208,26 @@ void main() {
     expect(find.byIcon(Icons.search_off_outlined), findsOneWidget);
   });
 
+  testWidgets('status badge applies enterprise tone mapping', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              StatusBadge.fromStatus('ACTIVE'),
+              StatusBadge.fromStatus('PENDING'),
+              StatusBadge.fromStatus('EXPIRED'),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('ACTIVE'), findsOneWidget);
+    expect(find.text('PENDING'), findsOneWidget);
+    expect(find.text('EXPIRED'), findsOneWidget);
+  });
+
   for (final Size size in [
     const Size(1366, 768),
     const Size(1600, 900),
@@ -198,7 +253,7 @@ void main() {
                 items: List.generate(20, (index) => index),
                 total: 2000,
                 pageOffset: 0,
-                columns: const [GridColumn(label: 'Record')],
+                columns: const [GridColumn(key: 'record', label: 'Record')],
                 id: (item) => '$item',
                 cells: (item) => ['Record $item'],
                 onSelect: (_) {},
@@ -242,7 +297,7 @@ void main() {
                 items: List.generate(20, (index) => pageOffset + index),
                 total: 100,
                 pageOffset: pageOffset,
-                columns: const [GridColumn(label: 'Record')],
+                columns: const [GridColumn(key: 'record', label: 'Record')],
                 id: (item) => '$item',
                 cells: (item) => ['Record $item'],
                 onSelect: (_) {},
@@ -261,7 +316,7 @@ void main() {
     expect(find.byKey(const ValueKey(20)), findsNothing);
   });
 
-  testWidgets('CRUD workspace dialog is large, tabbed, and mode aware',
+  testWidgets('CRUD workspace dialog is single-column with collapsible sections',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1366, 768);
@@ -304,14 +359,13 @@ void main() {
     );
     expect(dialogSize.width, closeTo(1366 * .88, 1));
     expect(dialogSize.height, closeTo(768 * .88, 1));
+    // Both sections are visible simultaneously (no tab switching) and start
+    // expanded, so their fields are immediately visible together.
     expect(find.text('General'), findsOneWidget);
     expect(find.text('Security'), findsOneWidget);
-    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Save & Close'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.text('Existing user'), findsOneWidget);
-
-    await tester.tap(find.text('Security'));
-    await tester.pumpAndSettle();
     expect(find.text('Active'), findsOneWidget);
   });
 
@@ -341,7 +395,7 @@ void main() {
         tester.widget<EditableText>(find.byType(EditableText));
     expect(field.readOnly, isTrue);
     expect(find.text('Close'), findsOneWidget);
-    expect(find.text('Save'), findsNothing);
+    expect(find.text('Save & Close'), findsNothing);
   });
 
   testWidgets('workspace dialog preserves values after API save failure',
@@ -373,7 +427,7 @@ void main() {
       ),
     );
     await tester.enterText(find.byType(TextFormField), 'Entered value');
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Save & Close'));
     await tester.pumpAndSettle();
 
     expect(find.text('Unable to save user.'), findsOneWidget);
@@ -449,7 +503,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Sign in'), findsOneWidget);
-    expect(find.text('Agency Platform'), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget);
   });
 
   testWidgets('customer workspace composes the shared management framework',
@@ -529,6 +583,78 @@ void main() {
     expect(find.text('Add address'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('product workspace composes dynamic metadata-driven controls',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1366, 768);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': [
+          'PRODUCT_VIEW',
+          'PRODUCT_CREATE',
+          'PRODUCT_UPDATE',
+          'PRODUCT_DELETE',
+          'PRODUCT_RESTORE',
+          'PRODUCT_EXPORT',
+        ],
+      }));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProductManagementPage(
+            api: _ProductApi(),
+            permissions: permissions,
+            preferences: DesktopPreferencesService(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('PROD-001'), findsOneWidget);
+    expect(find.text('Pain Relief'), findsOneWidget);
+    expect(find.text('1 record'), findsOneWidget);
+  });
+
+  testWidgets(
+      'product list still loads when attribute definitions are forbidden',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1366, 768);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': ['PRODUCT_VIEW'],
+      }));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ProductManagementPage(
+            api: _ProductApiWithoutAttributeDefinitions(),
+            permissions: permissions,
+            preferences: DesktopPreferencesService(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('PROD-001'), findsOneWidget);
+    expect(find.text('Pain Relief'), findsOneWidget);
+    expect(find.text('1 record'), findsOneWidget);
+  });
 }
 
 String _accessToken(Map<String, dynamic> claims) {
@@ -603,3 +729,95 @@ class _CustomerApi extends ApiClient {
   }) async =>
       PagedResult(items: [_customer], total: 1);
 }
+
+class _ProductApi extends ApiClient {
+  _ProductApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async =>
+      PagedResult(items: [_product], total: 1);
+
+  @override
+  Future<List<ProductCategoryRecord>> productCategories() async => const [
+        ProductCategoryRecord(
+          id: 'cat-1',
+          code: 'MEDICINE',
+          name: 'Medicine',
+          parentId: '',
+          level: 0,
+          path: 'MEDICINE',
+          isActive: true,
+        ),
+      ];
+
+  @override
+  Future<PagedResult<AttributeDefinitionRecord>> attributeDefinitions({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) async =>
+      const PagedResult(
+        items: [
+          AttributeDefinitionRecord(
+            id: 'attr-1',
+            code: 'EXPIRY_DATE',
+            name: 'Expiry Date',
+            dataType: 'DATE',
+            mandatory: true,
+            isActive: true,
+            applicableCategory: 'MEDICINE',
+          )
+        ],
+        total: 1,
+      );
+
+  @override
+  Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
+      const ProductMetadataRecord(
+        profileCode: 'MEDICAL',
+        features: [ProductFeatureState(code: 'BARCODE', enabled: true)],
+        categories: [
+          ProductCategoryRecord(
+            id: 'cat-1',
+            code: 'MEDICINE',
+            name: 'Medicine',
+            parentId: '',
+            level: 0,
+            path: 'MEDICINE',
+            isActive: true,
+          )
+        ],
+        taxProfiles: [],
+        requiredAttributeDefinitionIds: ['attr-1'],
+        optionalAttributeDefinitionIds: [],
+      );
+}
+
+final Product _product = Product.fromJson({
+  'id': 'product-1',
+  'firm_id': 'firm-1',
+  'code': 'PROD-001',
+  'name': 'Pain Relief',
+  'product_type': 'STOCK_ITEM',
+  'status': 'ACTIVE',
+  'selling_price': '120.00',
+  'is_deleted': false,
+  'category_id': 'cat-1',
+  'attributes': [],
+  'media': [],
+});

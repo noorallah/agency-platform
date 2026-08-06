@@ -11,6 +11,10 @@ class WorkspaceShortcutBindings {
     this.cancel,
     this.delete,
     this.globalSearch,
+    this.advancedSearch,
+    this.edit,
+    this.export,
+    this.copyRow,
   });
 
   final VoidCallback? create;
@@ -21,6 +25,10 @@ class WorkspaceShortcutBindings {
   final VoidCallback? cancel;
   final VoidCallback? delete;
   final VoidCallback? globalSearch;
+  final VoidCallback? advancedSearch;
+  final VoidCallback? edit;
+  final VoidCallback? export;
+  final VoidCallback? copyRow;
 
   Map<ShortcutActivator, VoidCallback> toCallbacks() => {
         if (create != null)
@@ -31,13 +39,32 @@ class WorkspaceShortcutBindings {
         if (focusSearch != null)
           const SingleActivator(LogicalKeyboardKey.keyF, control: true):
               focusSearch!,
+        if (advancedSearch != null)
+          const SingleActivator(
+            LogicalKeyboardKey.keyF,
+            control: true,
+            shift: true,
+          ): advancedSearch!,
         if (refresh != null) ...{
           const SingleActivator(LogicalKeyboardKey.keyR, control: true):
               refresh!,
           const SingleActivator(LogicalKeyboardKey.f5): refresh!,
         },
+        if (edit != null) ...{
+          const SingleActivator(LogicalKeyboardKey.f2): edit!,
+          const SingleActivator(LogicalKeyboardKey.enter): edit!,
+        },
+        if (export != null)
+          const SingleActivator(LogicalKeyboardKey.keyE, control: true):
+              export!,
         if (copy != null)
           const SingleActivator(LogicalKeyboardKey.keyC, control: true): copy!,
+        if (copyRow != null)
+          const SingleActivator(
+            LogicalKeyboardKey.keyC,
+            control: true,
+            shift: true,
+          ): copyRow!,
         if (cancel != null)
           const SingleActivator(LogicalKeyboardKey.escape): cancel!,
         if (delete != null)

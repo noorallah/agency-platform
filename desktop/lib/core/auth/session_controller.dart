@@ -106,6 +106,9 @@ class SessionController extends ChangeNotifier {
     required bool rememberUsername,
     required bool rememberMe,
   }) async {
+    if (_status == SessionStatus.authenticating) {
+      return;
+    }
     _notice = null;
     _error = null;
     _attemptedUsername = email;

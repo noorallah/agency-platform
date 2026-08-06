@@ -3,10 +3,19 @@
 Flutter Material 3 desktop foundation for Phase 8. It only calls the
 REST API; it never accesses the database.
 
-The official UI/UX rules for every current and future module are defined in
-[`docs\DESIGN_SYSTEM.md`](../docs/DESIGN_SYSTEM.md).
-The implementation guide and public component contracts are defined in
-[`docs\DESKTOP_FRAMEWORK.md`](docs/DESKTOP_FRAMEWORK.md).
+The official desktop UX standards and reusable component contracts are:
+
+- [`docs\DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md)
+- [`docs\DESKTOP_FRAMEWORK.md`](docs/DESKTOP_FRAMEWORK.md)
+- [`docs\UX_GUIDELINES.md`](docs/UX_GUIDELINES.md)
+- [`docs\COMPONENT_LIBRARY.md`](docs/COMPONENT_LIBRARY.md)
+- [`docs\DESKTOP_STYLE_GUIDE.md`](docs/DESKTOP_STYLE_GUIDE.md)
+- [`docs\ICON_GUIDELINES.md`](docs/ICON_GUIDELINES.md)
+- [`docs\COLOR_GUIDELINES.md`](docs/COLOR_GUIDELINES.md)
+- [`docs\LOGIN_SCREEN_GUIDELINES.md`](docs/LOGIN_SCREEN_GUIDELINES.md)
+
+The broader enterprise design baseline is also documented in
+[`..\docs\DESIGN_SYSTEM.md`](../docs/DESIGN_SYSTEM.md).
 
 ## Prerequisites and local run
 
@@ -56,17 +65,25 @@ tabbed workspaces for the available APIs; tabs without backend support remain
 clearly marked as coming soon. Future ERP modules extend the module catalog and
 reuse these components rather than adding screens directly to navigation.
 
-Management grids use a compact selection summary for quick reference. New,
-View Details, and Edit open the shared large workspace dialog, which supports
-create, read-only, and edit modes, section tabs, internal form scrolling,
-Escape to close, and Ctrl+S to save. Future entity forms should extend this
-framework instead of creating module-specific dialogs.
+Management grids use a compact selection summary for quick reference and
+standard status badges. New, View Details, and Edit open the shared large
+workspace dialog, which supports create, read-only, and edit modes, section
+tabs, internal form scrolling, Escape to close, and Ctrl+S to save. Future
+entity forms should extend this framework instead of creating module-specific
+dialogs.
 
 Customer Management is the reference business module under **Masters**. It
 reuses the desktop framework for firm-scoped search, filters, soft-delete and
 restore actions, CSV export, row copy, keyboard shortcuts, and the five-tab
 customer workspace dialog. Its backend and extension contract are documented
 in [`docs\CUSTOMER_MANAGEMENT.md`](../docs/CUSTOMER_MANAGEMENT.md).
+
+Purchase Management is now the reference transactional module under
+**Purchases**. It reuses the same workspace foundation for dashboard cards,
+search and filter panels, lifecycle actions, tabbed order editing, CSV/XLSX
+import preview, CSV/XLSX export, history, and responsive desktop behavior. Its
+desktop and backend integration contract is documented in
+[`..\PURCHASE_MANAGEMENT_ARCHITECTURE.md`](../PURCHASE_MANAGEMENT_ARCHITECTURE.md).
 
 Start the current backend separately from `..\backend`:
 
@@ -83,11 +100,15 @@ uv run uvicorn app.main:app --reload
 `API_BASE_URL` defaults to `http://localhost:8000`. Endpoint paths are isolated
 in `lib/core/api/api_client.dart`: `/api/v1/auth/{login,refresh,logout,
 change-password}`, `/api/v1/{firms,users,roles,permissions}`, and
-`/api/v1/dashboard`.
+`/api/v1/dashboard`, plus `/api/v1/business-framework/*` for business profile
+administration and runtime module/feature activation.
 Authenticated firm context uses `/api/v1/me/firms` and persists the selected
 firm through `/api/v1/me/preferences`; each protected request also carries the
 active firm identifier for firm-scoped APIs. Remote server addresses must use
 HTTPS; plain HTTP is accepted only for loopback development addresses.
+
+Purchase Management consumes `/api/v1/purchases` for list, summary, create,
+update, delete, restore, cancel, close, history, and import flows.
 
 The client uses the standard backend envelopes: `{ "data": ... }` for a single
 resource and `{ "data": [], "pagination": { "total_records": 0 } }` for a
@@ -95,6 +116,8 @@ collection. Lists use `page`, `page_size`, and optional `search` query
 parameters. Firm updates use PUT; user, role, and permission updates use PATCH.
 Customer operations use `/api/v1/customers` and send the active firm through
 `X-Firm-ID`; addresses and contacts are saved with the parent customer.
+Business profile configuration uses `/api/v1/business-framework` endpoints and
+the desktop module menu also filters from `/api/v1/business-framework/active-modules`.
 User roles, firms, and role permissions use their dedicated PUT assignment
 endpoints. Login/refresh responses contain `access_token`, `refresh_token`, and
 `must_change_password`.

@@ -5,6 +5,13 @@ Flutter desktop infrastructure. Business modules must not create alternative
 workspace shells, CRUD dialogs, notifications, loading states, or table
 interaction patterns.
 
+See also:
+
+- `DESIGN_SYSTEM.md`
+- `UX_GUIDELINES.md`
+- `COMPONENT_LIBRARY.md`
+- `DESKTOP_STYLE_GUIDE.md`
+
 ## Public component library
 
 Import the framework barrel:
@@ -25,6 +32,8 @@ The library provides:
 | `WorkspaceToolbar` | Stable CRUD action ordering and enabled/visible states |
 | `SearchFilterPanel` / `FilterPanel` | Search and basic/advanced filter composition |
 | `EnterpriseDataGrid` | Pagination, sorting, selection, double-click, and context actions |
+| `StatusBadge` | Standardized status visualization for grids and detail views |
+| `SummaryMetricCard` | Reusable metric/summary card for dashboard-style surfaces |
 | `ApplicationStatusBar` / `WorkspaceStatusBar` | Global health/context and record status |
 | `LoadingOverlay` / `TableLoadingSkeleton` | Page, dialog, table, and background loading |
 | `StandardEmptyState` | Typed no-data, no-results, permission, network, firm, and license states |

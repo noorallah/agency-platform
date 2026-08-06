@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -5,8 +7,14 @@ import '../core/api/api_client.dart';
 import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
+import 'workspace/enterprise_form_kit.dart';
 import 'workspace/workspace_components.dart';
 import 'workspace/workspace_interactions.dart';
+
+/// Field "kind" for composite/specialized enterprise widgets that go beyond
+/// a plain text/boolean/options control. Plain fields (the historical
+/// default) keep using [FieldSpec.boolean]/[FieldSpec.optionsResource].
+enum FieldKind { text, date, addressList, documentList }
 
 class FieldSpec {
   const FieldSpec({
@@ -23,6 +31,9 @@ class FieldSpec {
     this.editOnly = false,
     this.helperText,
     this.section = 'General',
+    this.sectionIcon,
+    this.kind = FieldKind.text,
+    this.alwaysReadOnly = false,
   });
   final String key, label;
   final bool required, requiredOnCreate, multiline, boolean;
@@ -30,6 +41,18 @@ class FieldSpec {
   final bool singleSelection, readOnlyWhenEditing, createOnly, editOnly;
   final String? helperText;
   final String section;
+
+  /// Optional icon shown next to [section] in the enterprise form.
+  final IconData? sectionIcon;
+
+  /// Selects a specialized enterprise widget for this field instead of a
+  /// plain text box (e.g. a date picker or a composite address/document
+  /// list editor).
+  final FieldKind kind;
+
+  /// Marks a field as always read-only (e.g. audit trail data), regardless
+  /// of the dialog's create/edit/view mode.
+  final bool alwaysReadOnly;
 }
 
 enum CrudDialogMode { create, view, edit }
@@ -365,6 +388,16 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final Set<int> statusColumnIndexes = widget.definition.headers
+        .asMap()
+        .entries
+        .where(
+          (entry) => entry.value.toLowerCase().replaceAll(' ', '').contains(
+                'status',
+              ),
+        )
+        .map((entry) => entry.key)
+        .toSet();
     final T? selected = _selected;
     final bool canEditSelected =
         selected != null && (widget.definition.canEdit?.call(selected) ?? true);
@@ -475,6 +508,10 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             .entries
             .map(
               (entry) => GridColumn(
+                key: widget.definition.sortFields.length > entry.key &&
+                        widget.definition.sortFields[entry.key] != null
+                    ? widget.definition.sortFields[entry.key]!
+                    : entry.value.toLowerCase().replaceAll(' ', '_'),
                 label: entry.value,
                 onSort: entry.key < widget.definition.sortFields.length &&
                         widget.definition.sortFields[entry.key] != null
@@ -491,6 +528,22 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             .toList(),
         id: widget.definition.id,
         cells: widget.definition.cells,
+        cellBuilder: (columnIndex, value, _) {
+          if (statusColumnIndexes.contains(columnIndex) &&
+              value.trim().isNotEmpty) {
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: StatusBadge.fromStatus(value),
+            );
+          }
+          return Tooltip(
+            message: value,
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(value, overflow: TextOverflow.ellipsis),
+            ),
+          );
+        },
         selectedId: selected == null ? null : widget.definition.id(selected),
         onSelect: (item) => setState(() => _selected = item),
         onOpen: (item) => _openDialog(CrudDialogMode.view, item),
@@ -514,18 +567,19 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       toolbar: toolbar,
       searchPanel: search,
       primaryContent: primaryContent,
-      detailsPanel: QuickSummaryPanel(
-        title: selected == null
-            ? 'No ${widget.definition.title.toLowerCase()} selected'
-            : 'Selected ${widget.definition.title}',
-        lines: lines,
-        onView: selected != null && _hasCapability(ToolbarAction.view, selected)
-            ? () => _openDialog(CrudDialogMode.view, selected)
-            : null,
-        onEdit: canEditSelected && _hasCapability(ToolbarAction.edit, selected)
-            ? () => _openDialog(CrudDialogMode.edit, selected)
-            : null,
-      ),
+      detailsPanel: selected == null
+          ? null
+          : QuickSummaryPanel(
+              title: 'Selected ${widget.definition.title}',
+              lines: lines,
+              onView: _hasCapability(ToolbarAction.view, selected)
+                  ? () => _openDialog(CrudDialogMode.view, selected)
+                  : null,
+              onEdit: canEditSelected &&
+                      _hasCapability(ToolbarAction.edit, selected)
+                  ? () => _openDialog(CrudDialogMode.edit, selected)
+                  : null,
+            ),
       statusBar: WorkspaceStatusBar(
         total: _total,
         selected: selected != null,
@@ -592,8 +646,11 @@ class CrudWorkspaceDialog extends StatefulWidget {
 class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   final _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _controllers = {
-    for (final FieldSpec field in widget.fields
-        .where((field) => !field.boolean && field.optionsResource == null))
+    for (final FieldSpec field in widget.fields.where((field) =>
+        !field.boolean &&
+        field.optionsResource == null &&
+        field.kind != FieldKind.addressList &&
+        field.kind != FieldKind.documentList))
       field.key: TextEditingController(
           text: widget.values[field.key]?.toString() ?? ''),
   };
@@ -611,12 +668,39 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
           .where((id) => id.isNotEmpty)
           .toSet(),
   };
+  late final Map<String, List<AddressRecord>> _addressLists = {
+    for (final FieldSpec field
+        in widget.fields.where((field) => field.kind == FieldKind.addressList))
+      field.key:
+          _decodeRecords(widget.values[field.key], AddressRecord.fromJson),
+  };
+  late final Map<String, List<DocumentRecord>> _documentLists = {
+    for (final FieldSpec field
+        in widget.fields.where((field) => field.kind == FieldKind.documentList))
+      field.key:
+          _decodeRecords(widget.values[field.key], DocumentRecord.fromJson),
+  };
   bool _loadingOptions = true;
   String? _optionsError;
   bool _saving = false;
+  bool _dirty = false;
   String? _submitError;
   Map<String, String> _fieldErrors = const {};
-  int _selectedSection = 0;
+
+  static List<R> _decodeRecords<R>(
+    Object? raw,
+    R Function(Map<String, dynamic>) fromJson,
+  ) {
+    if (raw is! List) return [];
+    return [
+      for (final Object? item in raw)
+        if (item is Map) fromJson(Map<String, dynamic>.from(item)),
+    ];
+  }
+
+  void _markDirty() {
+    if (!_dirty) setState(() => _dirty = true);
+  }
 
   List<String> get _sections => widget.fields
       .where(_isVisible)
@@ -627,6 +711,9 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   @override
   void initState() {
     super.initState();
+    for (final TextEditingController controller in _controllers.values) {
+      controller.addListener(_markDirty);
+    }
     _loadOptions();
   }
 
@@ -694,63 +781,59 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                 mode: widget.mode,
                 onClose: _saving ? null : _close,
               ),
-              if (sections.length > 1)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SegmentedButton<int>(
-                        segments: [
-                          for (var index = 0; index < sections.length; index++)
-                            ButtonSegment(
-                              value: index,
-                              label: Text(sections[index]),
-                            ),
-                        ],
-                        selected: {_selectedSection},
-                        showSelectedIcon: false,
-                        onSelectionChanged: (selection) =>
-                            setState(() => _selectedSection = selection.first),
-                      ),
-                    ),
-                  ),
-                ),
               Expanded(
                 child: AbsorbPointer(
                   absorbing: _saving,
                   child: Form(
                     key: _formKey,
-                    child: IndexedStack(
-                      index: _selectedSection,
+                    child: CrudFormPage(
                       children: [
+                        EnterpriseValidationSummary(
+                          message: _submitError,
+                          fieldErrors: _fieldErrors,
+                        ),
                         for (final String section in sections)
-                          CrudFormPage(
-                            children: [
-                              if (_submitError != null) ...[
-                                _FormErrorBanner(message: _submitError!),
-                                const SizedBox(height: 16),
-                              ],
-                              ...widget.fields
-                                  .where(
-                                    (field) =>
-                                        _isVisible(field) &&
-                                        field.section == section,
-                                  )
-                                  .map(_field),
-                            ],
+                          EnterpriseSection(
+                            title: section,
+                            icon: widget.fields
+                                .firstWhere(
+                                  (field) =>
+                                      field.section == section &&
+                                      field.sectionIcon != null,
+                                  orElse: () => widget.fields.firstWhere(
+                                      (field) => field.section == section),
+                                )
+                                .sectionIcon,
+                            errorCount: widget.fields
+                                .where((field) =>
+                                    _isVisible(field) &&
+                                    field.section == section &&
+                                    _fieldErrors[field.key] != null)
+                                .length,
+                            readOnly: widget.fields
+                                .where((field) => field.section == section)
+                                .every((field) => field.alwaysReadOnly),
+                            children: widget.fields
+                                .where((field) =>
+                                    _isVisible(field) &&
+                                    field.section == section)
+                                .map(_field)
+                                .toList(),
                           ),
                       ],
                     ),
                   ),
                 ),
               ),
-              CrudWorkspaceFooter(
-                mode: widget.mode,
+              EnterpriseActionBar(
                 saving: _saving,
+                readOnly: widget.isReadOnly,
                 onCancel: _saving ? null : _close,
-                onSave: widget.isReadOnly || _saving ? null : _save,
+                onSaveAndClose: widget.isReadOnly || _saving ? null : _save,
+                onSaveAndNew:
+                    widget.isCreating && !widget.isReadOnly && !_saving
+                        ? () => _save(andNew: true)
+                        : null,
               ),
             ]),
           ),
@@ -763,7 +846,102 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       !((field.createOnly && !widget.isCreating) ||
           (field.editOnly && widget.isCreating));
 
+  /// Groups options by inferring a category from the code prefix before the
+  /// first underscore (e.g. "USER_CREATE" -> "User"). Falls back to a single
+  /// "General" group when there is nothing to usefully group by.
+  Map<String, List<AssignmentOption>> _groupOptions(
+      List<AssignmentOption> options) {
+    if (options.length <= 8) {
+      return {'': options};
+    }
+    final Map<String, List<AssignmentOption>> grouped = {};
+    for (final option in options) {
+      final int underscoreIndex = option.label.indexOf('_');
+      final String rawKey = underscoreIndex > 0
+          ? option.label.substring(0, underscoreIndex)
+          : 'General';
+      final String key = rawKey
+          .split('_')
+          .map((w) => w.isEmpty
+              ? w
+              : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+          .join(' ');
+      grouped.putIfAbsent(key, () => []).add(option);
+    }
+    return grouped;
+  }
+
+  Widget _permissionChip(FieldSpec field, AssignmentOption option) {
+    final bool selected = _selections[field.key]!.contains(option.id);
+    return FilterChip(
+      label: Text(option.label),
+      labelStyle: Theme.of(context).textTheme.bodySmall,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
+      selected: selected,
+      onSelected: widget.isReadOnly
+          ? null
+          : (bool value) {
+              _markDirty();
+              setState(() {
+                if (value) {
+                  if (field.singleSelection) {
+                    _selections[field.key]!.clear();
+                  }
+                  _selections[field.key]!.add(option.id);
+                } else {
+                  _selections[field.key]!.remove(option.id);
+                }
+              });
+            },
+    );
+  }
+
   Widget _field(FieldSpec field) {
+    if (field.alwaysReadOnly) {
+      final String value = widget.values[field.key]?.toString() ?? '';
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(field.label,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            const SizedBox(height: 2),
+            Text(value.trim().isNotEmpty ? value : '—'),
+          ],
+        ),
+      );
+    }
+    if (field.kind == FieldKind.addressList) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: EnterpriseAddressEditor(
+          addresses: _addressLists[field.key] ?? const [],
+          readOnly: widget.isReadOnly,
+          onChanged: (addresses) {
+            _markDirty();
+            setState(() => _addressLists[field.key] = addresses);
+          },
+        ),
+      );
+    }
+    if (field.kind == FieldKind.documentList) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: EnterpriseDocumentSection(
+          documents: _documentLists[field.key] ?? const [],
+          readOnly: widget.isReadOnly,
+          onChanged: (documents) {
+            _markDirty();
+            setState(() => _documentLists[field.key] = documents);
+          },
+        ),
+      );
+    }
     if (field.boolean) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
@@ -776,7 +954,10 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
               value: _booleans[field.key]!,
               onChanged: widget.isReadOnly
                   ? null
-                  : (value) => setState(() => _booleans[field.key] = value),
+                  : (value) {
+                      _markDirty();
+                      setState(() => _booleans[field.key] = value);
+                    },
             ),
             if (_fieldErrors[field.key] != null)
               Text(
@@ -789,6 +970,9 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
     }
     if (field.optionsResource != null) {
       final List<AssignmentOption> options = _options[field.key] ?? const [];
+      final Map<String, List<AssignmentOption>> grouped =
+          _groupOptions(options);
+      final List<String> groupKeys = grouped.keys.toList()..sort();
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Align(
@@ -796,9 +980,6 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(field.label, style: Theme.of(context).textTheme.titleSmall),
-            if (field.helperText != null)
-              Text(field.helperText!,
-                  style: Theme.of(context).textTheme.bodySmall),
             if (_loadingOptions)
               const Padding(
                 padding: EdgeInsets.only(top: 12),
@@ -811,26 +992,39 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               )
             else
-              Wrap(
-                spacing: 8,
-                children: options
-                    .map((option) => FilterChip(
-                          label: Text(option.label),
-                          selected: _selections[field.key]!.contains(option.id),
-                          onSelected: widget.isReadOnly
-                              ? null
-                              : (selected) => setState(() {
-                                    if (selected) {
-                                      if (field.singleSelection) {
-                                        _selections[field.key]!.clear();
-                                      }
-                                      _selections[field.key]!.add(option.id);
-                                    } else {
-                                      _selections[field.key]!.remove(option.id);
-                                    }
-                                  }),
-                        ))
-                    .toList(),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final String groupKey in groupKeys) ...[
+                      if (groupKeys.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4, top: 8),
+                          child: Text(
+                            groupKey,
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.4,
+                                ),
+                          ),
+                        ),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: grouped[groupKey]!
+                            .map((option) => _permissionChip(field, option))
+                            .toList(),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             if (_fieldErrors[field.key] != null)
               Padding(
@@ -841,6 +1035,48 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                 ),
               ),
           ]),
+        ),
+      );
+    }
+    if (field.kind == FieldKind.date) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextFormField(
+          controller: _controllers[field.key],
+          readOnly: true,
+          decoration: InputDecoration(
+            labelText: field.label,
+            helperText: field.helperText,
+            suffixIcon: widget.isReadOnly
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                    onPressed: () async {
+                      final DateTime now = DateTime.now();
+                      final DateTime initial = DateTime.tryParse(
+                            _controllers[field.key]!.text,
+                          ) ??
+                          now;
+                      final DateTime? picked = await showDatePicker(
+                        context: context,
+                        initialDate: initial,
+                        firstDate: DateTime(now.year - 80),
+                        lastDate: DateTime(now.year + 20),
+                      );
+                      if (picked != null) {
+                        _controllers[field.key]!.text =
+                            picked.toIso8601String().split('T').first;
+                      }
+                    },
+                  ),
+          ),
+          validator: (value) =>
+              _fieldErrors[field.key] ??
+              ((field.required ||
+                          (field.requiredOnCreate && widget.isCreating)) &&
+                      (value == null || value.trim().isEmpty)
+                  ? '${field.label} is required.'
+                  : null),
         ),
       );
     }
@@ -864,7 +1100,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
     );
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool andNew = false}) async {
     if (widget.isReadOnly || _saving || widget.onSave == null) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() {
@@ -878,11 +1114,45 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         entry.key: entry.value.text.trim(),
       for (final MapEntry<String, Set<String>> entry in _selections.entries)
         entry.key: entry.value.join(','),
+      for (final MapEntry<String, List<AddressRecord>> entry
+          in _addressLists.entries)
+        entry.key: entry.value.map((address) => address.toJson()).toList(),
+      for (final MapEntry<String, List<DocumentRecord>> entry
+          in _documentLists.entries)
+        entry.key: entry.value.map((document) => document.toJson()).toList(),
       ..._booleans,
     };
     try {
       await widget.onSave!(values);
-      if (mounted) Navigator.pop(context, values);
+      if (!mounted) return;
+      if (andNew) {
+        setState(() {
+          _saving = false;
+          _dirty = false;
+        });
+        for (final TextEditingController controller in _controllers.values) {
+          controller.text = '';
+        }
+        for (final String key in _booleans.keys) {
+          _booleans[key] = false;
+        }
+        for (final Set<String> selection in _selections.values) {
+          selection.clear();
+        }
+        for (final String key in _addressLists.keys) {
+          _addressLists[key] = [];
+        }
+        for (final String key in _documentLists.keys) {
+          _documentLists[key] = [];
+        }
+        NotificationService.show(
+          context,
+          '${widget.title} saved. Ready for a new entry.',
+          kind: AppNotificationKind.success,
+        );
+      } else {
+        Navigator.pop(context, values);
+      }
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -895,7 +1165,17 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   }
 
   void _close() {
-    if (!_saving) Navigator.pop(context);
+    if (_saving) return;
+    unawaited(_confirmAndClose());
+  }
+
+  Future<void> _confirmAndClose() async {
+    if (_dirty && !widget.isReadOnly) {
+      final bool discard =
+          await EnterpriseConfirmationDialog.confirmDiscard(context);
+      if (!discard || !mounted) return;
+    }
+    if (mounted) Navigator.pop(context);
   }
 
   Map<String, String> _validationErrors(Object? details) {
@@ -981,73 +1261,6 @@ class CrudFormPage extends StatelessWidget {
               children: children,
             ),
           ),
-        ),
-      );
-}
-
-class CrudWorkspaceFooter extends StatelessWidget {
-  const CrudWorkspaceFooter({
-    super.key,
-    required this.mode,
-    required this.saving,
-    required this.onCancel,
-    required this.onSave,
-  });
-
-  final CrudDialogMode mode;
-  final bool saving;
-  final VoidCallback? onCancel;
-  final VoidCallback? onSave;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              OutlinedButton(
-                onPressed: onCancel,
-                child: Text(mode == CrudDialogMode.view ? 'Close' : 'Cancel'),
-              ),
-              if (mode != CrudDialogMode.view) ...[
-                const SizedBox(width: 12),
-                FilledButton.icon(
-                  onPressed: onSave,
-                  icon: saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_outlined),
-                  label: Text(saving ? 'Saving...' : 'Save'),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-}
-
-class _FormErrorBanner extends StatelessWidget {
-  const _FormErrorBanner({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          message,
-          style:
-              TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
         ),
       );
 }
