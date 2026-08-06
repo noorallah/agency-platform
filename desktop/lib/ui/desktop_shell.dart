@@ -27,6 +27,7 @@ import 'sales/sales_order_management_page.dart';
 import 'sales/sales_territory_management_page.dart';
 import 'tax/tax_configuration_page.dart';
 import 'tax/tax_management_page.dart';
+import 'tax/tax_rule_simulator_page.dart';
 import 'tax/tax_rules_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
@@ -1058,11 +1059,9 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
-      'tax-rule-simulator' => TaxManagementPage(
+      'tax-rule-simulator' => TaxRuleSimulatorPage(
           api: widget.api,
           permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.ruleSimulator,
         ),
       'tax-execution-log' => TaxManagementPage(
           api: widget.api,
