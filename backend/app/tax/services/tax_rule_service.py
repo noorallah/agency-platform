@@ -689,7 +689,7 @@ class TaxRuleService:
             )
             if product is None:
                 raise ValidationError("The selected product is unavailable.")
-            context.setdefault("tax_profile_id", product.tax_profile_id)
+            context.setdefault("tax_profile_group_code", product.tax_profile_group_code)
             context.setdefault("product_category_id", product.category_id)
             context.setdefault("product_type", product.product_type)
         return context

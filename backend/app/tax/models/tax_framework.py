@@ -52,8 +52,6 @@ class TaxSystem(BaseEntity):
     display_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
-    effective_from: Mapped[date | None] = mapped_column(Date)
-    effective_to: Mapped[date | None] = mapped_column(Date)
 
     components: Mapped[list["TaxComponent"]] = relationship(
         back_populates="tax_system",
@@ -108,8 +106,6 @@ class TaxComponent(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
-    effective_from: Mapped[date | None] = mapped_column(Date)
-    effective_to: Mapped[date | None] = mapped_column(Date)
 
     tax_system: Mapped[TaxSystem] = relationship(back_populates="components")
 
@@ -122,6 +118,7 @@ class TaxProfile(BaseEntity):
         UniqueConstraint("firm_id", "code", name="UQ_tax_profiles_firm_code"),
         Index("IX_tax_profiles_firm_system", "firm_id", "tax_system_id"),
         Index("IX_tax_profiles_firm_status", "firm_id", "status"),
+        Index("IX_tax_profiles_firm_group_code", "firm_id", "group_code"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -149,6 +146,7 @@ class TaxProfile(BaseEntity):
     is_historical: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    group_code: Mapped[str | None] = mapped_column(String(50))
     effective_from: Mapped[date | None] = mapped_column(Date)
     effective_to: Mapped[date | None] = mapped_column(Date)
 

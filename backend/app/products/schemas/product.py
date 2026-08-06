@@ -111,7 +111,7 @@ class ProductWrite(ProductSchema):
     brand: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
     hsn_sac: str | None = Field(default=None, max_length=20)
-    tax_profile_id: UUID | None = None
+    tax_profile_group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     base_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -216,7 +216,7 @@ class ProductResponse(ProductSchema):
     brand: str | None
     model: str | None
     hsn_sac: str | None
-    tax_profile_id: UUID | None
+    tax_profile_group_code: str | None
     base_uom_id: UUID | None
     inventory_uom_id: UUID | None
     purchase_uom_id: UUID | None
@@ -264,7 +264,7 @@ class ProductListFilters(ProductSchema):
     product_type: ProductType | None = None
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
-    tax_profile_id: UUID | None = None
+    tax_profile_group_code: str | None = None
     brand: str | None = Field(default=None, max_length=120)
     hsn_sac: str | None = Field(default=None, max_length=20)
     include_deleted: bool = False
@@ -290,6 +290,7 @@ class ProductTaxProfileOption(ProductSchema):
 
     id: UUID
     code: str
+    group_code: str | None
     label: str
     tax_system_id: UUID
 

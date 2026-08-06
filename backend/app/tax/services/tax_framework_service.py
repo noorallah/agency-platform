@@ -230,8 +230,6 @@ class TaxFrameworkService:
             description=data.description,
             status=data.status.value,
             display_order=data.display_order,
-            effective_from=data.effective_from,
-            effective_to=data.effective_to,
             created_by=actor_id,
             created_at=now,
             updated_by=actor_id,
@@ -264,8 +262,6 @@ class TaxFrameworkService:
         row.description = data.description
         row.status = data.status.value
         row.display_order = data.display_order
-        row.effective_from = data.effective_from
-        row.effective_to = data.effective_to
         row.updated_by = actor_id
         self._flush_conflicts("Tax system code already exists in this firm.")
         record_audit(
@@ -299,8 +295,6 @@ class TaxFrameworkService:
             included_in_price=data.included_in_price,
             recoverable=data.recoverable,
             status=data.status.value,
-            effective_from=data.effective_from,
-            effective_to=data.effective_to,
             created_by=actor_id,
             created_at=now,
             updated_by=actor_id,
@@ -342,8 +336,6 @@ class TaxFrameworkService:
         row.included_in_price = data.included_in_price
         row.recoverable = data.recoverable
         row.status = data.status.value
-        row.effective_from = data.effective_from
-        row.effective_to = data.effective_to
         row.updated_by = actor_id
         self._flush_conflicts("Tax component code already exists in this tax system.")
         record_audit(
@@ -373,6 +365,7 @@ class TaxFrameworkService:
             status=data.status.value,
             display_order=data.display_order,
             is_historical=data.is_historical,
+            group_code=data.group_code or data.code,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             created_by=actor_id,
@@ -417,6 +410,7 @@ class TaxFrameworkService:
         row.status = data.status.value
         row.display_order = data.display_order
         row.is_historical = data.is_historical
+        row.group_code = data.group_code or data.code
         row.effective_from = data.effective_from
         row.effective_to = data.effective_to
         row.updated_by = actor_id
@@ -604,11 +598,11 @@ class TaxFrameworkService:
         )
         output = StringIO()
         output.write(
-            "Code,Name,DisplayName,Status,EffectiveFrom,EffectiveTo,DisplayOrder\n"
+            "Code,Name,DisplayName,Status,DisplayOrder\n"
         )
         for row in rows:
             output.write(
-                f"{row.code},{row.name},{row.display_name},{row.status},{row.effective_from or ''},{row.effective_to or ''},{row.display_order}\n"
+                f"{row.code},{row.name},{row.display_name},{row.status},{row.display_order}\n"
             )
         return output.getvalue()
 
@@ -683,42 +677,6 @@ class TaxFrameworkService:
 
     def effective_dates(self, *, firm_scope: UUID) -> list[EffectiveDateRecord]:
         result: list[EffectiveDateRecord] = []
-        systems = self._session.scalars(
-            select(TaxSystem).where(
-                TaxSystem.firm_id == firm_scope,
-                TaxSystem.is_deleted.is_(False),
-            )
-        ).all()
-        for row in systems:
-            result.append(
-                EffectiveDateRecord(
-                    entity_type="SYSTEM",
-                    entity_id=row.id,
-                    code=row.code,
-                    name=row.name,
-                    status=row.status,
-                    effective_from=row.effective_from,
-                    effective_to=row.effective_to,
-                )
-            )
-        components = self._session.scalars(
-            select(TaxComponent).where(
-                TaxComponent.firm_id == firm_scope,
-                TaxComponent.is_deleted.is_(False),
-            )
-        ).all()
-        for row in components:
-            result.append(
-                EffectiveDateRecord(
-                    entity_type="COMPONENT",
-                    entity_id=row.id,
-                    code=row.code,
-                    name=row.name,
-                    status=row.status,
-                    effective_from=row.effective_from,
-                    effective_to=row.effective_to,
-                )
-            )
         profiles = self._session.scalars(
             select(TaxProfile).where(
                 TaxProfile.firm_id == firm_scope,
@@ -737,8 +695,33 @@ class TaxFrameworkService:
                     effective_to=row.effective_to,
                 )
             )
-        result.sort(key=lambda item: (item.entity_type, item.code))
+        result.sort(key=lambda item: item.code)
         return result
+
+    def resolve_active_profile(
+        self, group_code: str, transaction_date: date, *, firm_scope: UUID
+    ) -> TaxProfile | None:
+        """Return the active profile for a group_code on a given transaction date."""
+        return self._session.scalar(
+            select(TaxProfile)
+            .where(
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.group_code == group_code,
+                TaxProfile.is_deleted.is_(False),
+                TaxProfile.status == "ACTIVE",
+                or_(
+                    TaxProfile.effective_from.is_(None),
+                    TaxProfile.effective_from <= transaction_date,
+                ),
+                or_(
+                    TaxProfile.effective_to.is_(None),
+                    TaxProfile.effective_to >= transaction_date,
+                ),
+            )
+            .options(selectinload(TaxProfile.components))
+            .order_by(TaxProfile.effective_from.desc().nullslast())
+            .limit(1)
+        )
 
     def history(self, *, firm_scope: UUID, limit: int = 200) -> list[TaxHistoryRecord]:
         rows = self._session.scalars(
@@ -1041,15 +1024,17 @@ class TaxFrameworkService:
             raise ValidationError("Tax systems with active profiles cannot be deleted.")
 
     def _ensure_profile_can_be_deleted(self, profile_id: UUID, *, firm_scope: UUID) -> None:
-        in_use = self._session.scalar(
-            select(Product.id).where(
-                Product.firm_id == firm_scope,
-                Product.tax_profile_id == profile_id,
-                Product.is_deleted.is_(False),
+        profile = self.get_profile(profile_id, firm_scope=firm_scope)
+        if profile.group_code:
+            in_use = self._session.scalar(
+                select(Product.id).where(
+                    Product.firm_id == firm_scope,
+                    Product.tax_profile_group_code == profile.group_code,
+                    Product.is_deleted.is_(False),
+                )
             )
-        )
-        if in_use is not None:
-            raise ValidationError("Tax profile assigned to active products cannot be deleted.")
+            if in_use is not None:
+                raise ValidationError("Tax profile group assigned to active products cannot be deleted.")
 
     @staticmethod
     def _soft_delete(row: Any, *, actor_id: UUID) -> None:
@@ -1166,8 +1151,6 @@ class TaxFrameworkService:
         system.description = data.description
         system.status = data.status.value
         system.display_order = data.display_order
-        system.effective_from = data.effective_from
-        system.effective_to = data.effective_to
         system.updated_by = actor_id
         self._session.flush()
 
@@ -1187,8 +1170,6 @@ class TaxFrameworkService:
                 comp.included_in_price = comp_input.included_in_price
                 comp.recoverable = comp_input.recoverable
                 comp.status = comp_input.status.value
-                comp.effective_from = comp_input.effective_from
-                comp.effective_to = comp_input.effective_to
                 comp.updated_by = actor_id
             else:
                 comp = self._create_component_no_commit(
@@ -1213,6 +1194,7 @@ class TaxFrameworkService:
                 prof.status = prof_input.status.value
                 prof.display_order = prof_input.display_order
                 prof.is_historical = prof_input.is_historical
+                prof.group_code = prof_input.group_code or prof_input.code
                 prof.effective_from = prof_input.effective_from
                 prof.effective_to = prof_input.effective_to
                 prof.business_profile_id = prof_input.business_profile_id
@@ -1301,8 +1283,6 @@ class TaxFrameworkService:
             description=data.description,
             status=data.status.value,
             display_order=data.display_order,
-            effective_from=data.effective_from,
-            effective_to=data.effective_to,
             created_by=actor_id,
             created_at=now,
             updated_by=actor_id,
@@ -1334,8 +1314,6 @@ class TaxFrameworkService:
             included_in_price=data.included_in_price,
             recoverable=data.recoverable,
             status=data.status.value,
-            effective_from=data.effective_from,
-            effective_to=data.effective_to,
             created_by=actor_id,
             created_at=now,
             updated_by=actor_id,
@@ -1365,6 +1343,7 @@ class TaxFrameworkService:
             status=data.status.value,
             display_order=data.display_order,
             is_historical=data.is_historical,
+            group_code=data.group_code or data.code,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
             created_by=actor_id,

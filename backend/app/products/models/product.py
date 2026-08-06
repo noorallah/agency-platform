@@ -71,7 +71,7 @@ class Product(BaseEntity):
         Index("IX_products_firm_status", "firm_id", "status"),
         Index("IX_products_firm_barcode", "firm_id", "barcode"),
         Index("IX_products_firm_qr_code", "firm_id", "qr_code"),
-        Index("IX_products_firm_tax_profile", "firm_id", "tax_profile_id"),
+        Index("IX_products_firm_tax_group_code", "firm_id", "tax_profile_group_code"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -94,9 +94,7 @@ class Product(BaseEntity):
     brand: Mapped[str | None] = mapped_column(String(120))
     model: Mapped[str | None] = mapped_column(String(120))
     hsn_sac: Mapped[str | None] = mapped_column(String(20))
-    tax_profile_id: Mapped[UUID | None] = mapped_column(
-        UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT"), index=True
-    )
+    tax_profile_group_code: Mapped[str | None] = mapped_column(String(50), index=True)
     base_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
         ForeignKey("uoms.id", name="FK_products_base_uoms", ondelete="RESTRICT"),

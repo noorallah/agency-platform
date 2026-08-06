@@ -143,7 +143,7 @@ class ProductService:
         self._assert_unique_code(firm_id, data.code)
         feature_codes = self._active_feature_codes(firm_id)
         category = self._validate_category_reference(firm_id, data.category_id)
-        self._validate_tax_profile_reference(firm_id, data.tax_profile_id)
+        self._validate_tax_profile_group_code(firm_id, data.tax_profile_group_code)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, feature_codes)
         self._validate_dynamic_attributes(
@@ -214,7 +214,7 @@ class ProductService:
         )
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
         category = self._validate_category_reference(firm_scope, data.category_id)
-        self._validate_tax_profile_reference(firm_scope, data.tax_profile_id)
+        self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
         self._validate_uom_references(data)
         feature_codes = self._active_feature_codes(firm_scope)
         self._validate_feature_gated_fields(data, feature_codes)
@@ -386,6 +386,7 @@ class ProductService:
                 ProductTaxProfileOption(
                     id=item.id,
                     code=item.code,
+                    group_code=item.group_code,
                     label=item.label,
                     tax_system_id=item.tax_system_id,
                 )
@@ -585,7 +586,7 @@ class ProductService:
                     brand=(row.get("Brand") or "").strip() or None,
                     model=None,
                     hsn_sac=(row.get("HSN") or "").strip().upper() or None,
-                    tax_profile_id=None,
+                    tax_profile_group_code=None,
                     purchase_price=None,
                     selling_price=(
                         Decimal(row["SellingPrice"])
@@ -642,7 +643,7 @@ class ProductService:
                     model=None,
                     hsn_sac=str(values[index.get("HSN", -1)] or "").strip().upper()
                     or None,
-                    tax_profile_id=None,
+                    tax_profile_group_code=None,
                     purchase_price=None,
                     selling_price=(
                         Decimal(str(values[index.get("SellingPrice", -1)]).strip())
@@ -689,9 +690,9 @@ class ProductService:
                 Product.sub_category_id == filters.sub_category_id
             )
             count = count.where(Product.sub_category_id == filters.sub_category_id)
-        if filters.tax_profile_id is not None:
-            statement = statement.where(Product.tax_profile_id == filters.tax_profile_id)
-            count = count.where(Product.tax_profile_id == filters.tax_profile_id)
+        if filters.tax_profile_group_code is not None:
+            statement = statement.where(Product.tax_profile_group_code == filters.tax_profile_group_code)
+            count = count.where(Product.tax_profile_group_code == filters.tax_profile_group_code)
         if filters.brand:
             statement = statement.where(
                 Product.brand.ilike(f"%{filters.brand.strip()}%")
@@ -883,20 +884,21 @@ class ProductService:
             raise ValidationError("Selected product category is unavailable.")
         return row
 
-    def _validate_tax_profile_reference(
-        self, firm_id: UUID, tax_profile_id: UUID | None
+    def _validate_tax_profile_group_code(
+        self, firm_id: UUID, tax_profile_group_code: str | None
     ) -> None:
-        if tax_profile_id is None:
+        if tax_profile_group_code is None:
             return
         row = self._session.scalar(
             select(TaxProfile.id).where(
-                TaxProfile.id == tax_profile_id,
                 TaxProfile.firm_id == firm_id,
+                TaxProfile.group_code == tax_profile_group_code,
                 TaxProfile.is_deleted.is_(False),
+                TaxProfile.status == "ACTIVE",
             )
         )
         if row is None:
-            raise ValidationError("Selected tax profile is unavailable.")
+            raise ValidationError("No active tax profile found for the given group code.")
 
     def _validate_uom_references(self, data: ProductCreate | ProductUpdate) -> None:
         references = {
@@ -1049,7 +1051,7 @@ class ProductService:
             "brand": product.brand,
             "model": product.model,
             "hsn_sac": product.hsn_sac,
-            "tax_profile_id": product.tax_profile_id,
+            "tax_profile_group_code": product.tax_profile_group_code,
             "base_uom_id": product.base_uom_id,
             "inventory_uom_id": product.inventory_uom_id,
             "purchase_uom_id": product.purchase_uom_id,

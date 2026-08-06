@@ -65,7 +65,7 @@ class EffectiveDatedSchema(TaxFrameworkSchema):
         return self
 
 
-class TaxSystemWrite(EffectiveDatedSchema):
+class TaxSystemWrite(TaxFrameworkSchema):
     """Create or update one tax system."""
 
     country_id: UUID | None = None
@@ -97,7 +97,7 @@ class TaxSystemWrite(EffectiveDatedSchema):
         return self
 
 
-class TaxComponentWrite(EffectiveDatedSchema):
+class TaxComponentWrite(TaxFrameworkSchema):
     """Create or update one configurable tax component."""
 
     tax_system_id: UUID
@@ -158,6 +158,7 @@ class TaxProfileWrite(EffectiveDatedSchema):
     status: TaxStatus = TaxStatus.ACTIVE
     display_order: int = Field(default=0, ge=0, le=100000)
     is_historical: bool = False
+    group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     components: list[TaxProfileComponentInput] = Field(default_factory=list, max_length=50)
 
     @field_validator("code", mode="before")
@@ -177,6 +178,8 @@ class TaxProfileWrite(EffectiveDatedSchema):
     def default_label(self) -> "TaxProfileWrite":
         if not self.label:
             self.label = self.name
+        if not self.group_code:
+            self.group_code = self.code
         return self
 
 
@@ -350,8 +353,6 @@ class TaxSystemResponse(TaxFrameworkSchema):
     description: str | None
     status: TaxStatus
     display_order: int
-    effective_from: date | None
-    effective_to: date | None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -371,8 +372,6 @@ class TaxComponentResponse(TaxFrameworkSchema):
     included_in_price: bool
     recoverable: bool
     status: TaxStatus
-    effective_from: date | None
-    effective_to: date | None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -401,6 +400,7 @@ class TaxProfileResponse(TaxFrameworkSchema):
     status: TaxStatus
     display_order: int
     is_historical: bool
+    group_code: str | None
     effective_from: date | None
     effective_to: date | None
     is_deleted: bool
@@ -623,8 +623,6 @@ class TaxComponentSetupInput(TaxFrameworkSchema):
     included_in_price: bool = False
     recoverable: bool = False
     status: TaxStatus = TaxStatus.ACTIVE
-    effective_from: date | None = None
-    effective_to: date | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -674,6 +672,7 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
     status: TaxStatus = TaxStatus.ACTIVE
     display_order: int = Field(default=0, ge=0, le=100000)
     is_historical: bool = False
+    group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     effective_from: date | None = None
     effective_to: date | None = None
     business_profile_id: UUID | None = None
@@ -696,10 +695,12 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
     def default_label(self) -> "TaxProfileSetupInput":
         if not self.label:
             self.label = self.name
+        if not self.group_code:
+            self.group_code = self.code
         return self
 
 
-class TaxSetupWrite(EffectiveDatedSchema):
+class TaxSetupWrite(TaxFrameworkSchema):
     """Composite payload: create or update a full tax system with components and profiles in one call."""
     # System fields
     country_id: UUID | None = None
