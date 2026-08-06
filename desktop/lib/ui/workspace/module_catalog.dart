@@ -149,33 +149,8 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'tax-setup',
-          label: 'Tax Setup',
-          requiredPermissions: ['TAX_CREATE'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-systems',
-          label: 'Tax Systems',
-          requiredPermissions: ['TAX_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-components',
-          label: 'Tax Components',
-          requiredPermissions: ['TAX_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-profiles',
-          label: 'Tax Profiles',
-          requiredPermissions: ['TAX_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-country-mapping',
-          label: 'Country Mapping',
-          requiredPermissions: ['TAX_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-migration-mapping',
-          label: 'Migration Mapping',
+          id: 'tax-configuration',
+          label: 'Tax Configuration',
           requiredPermissions: ['TAX_VIEW'],
         ),
         ModuleTabDefinition(
@@ -209,19 +184,9 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['TAX_RULE_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'tax-effective-dates',
-          label: 'Effective Dates',
-          requiredPermissions: ['TAX_VIEW'],
-        ),
-        ModuleTabDefinition(
           id: 'tax-settings',
           label: 'Settings',
           requiredPermissions: ['TAX_MANAGE_SETTINGS'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-history',
-          label: 'History',
-          requiredPermissions: ['TAX_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'uoms',
@@ -939,55 +904,23 @@ abstract final class ModuleCatalog {
               ],
             ),
           if (hasAny([
-            'tax-setup',
-            'tax-systems',
-            'tax-components',
-            'tax-profiles',
-            'tax-country-mapping',
-            'tax-migration-mapping',
+            'tax-configuration',
             'tax-rules',
             'tax-rule-conditions',
             'tax-rule-priorities',
             'tax-rule-simulator',
             'tax-rule-history',
             'tax-execution-log',
-            'tax-effective-dates',
             'tax-settings',
-            'tax-history',
           ]))
             WorkspaceNavigationNode(
               label: 'Tax Configuration',
               icon: Icons.receipt_long_outlined,
               children: [
-                if (visibleTabIds.contains('tax-setup'))
+                if (visibleTabIds.contains('tax-configuration'))
                   const WorkspaceNavigationNode(
-                    label: 'Tax Setup',
-                    path: 'tax-setup',
-                  ),
-                if (visibleTabIds.contains('tax-systems'))
-                  const WorkspaceNavigationNode(
-                    label: 'Tax Systems',
-                    path: 'tax-systems',
-                  ),
-                if (visibleTabIds.contains('tax-components'))
-                  const WorkspaceNavigationNode(
-                    label: 'Tax Components',
-                    path: 'tax-components',
-                  ),
-                if (visibleTabIds.contains('tax-profiles'))
-                  const WorkspaceNavigationNode(
-                    label: 'Tax Profiles',
-                    path: 'tax-profiles',
-                  ),
-                if (visibleTabIds.contains('tax-country-mapping'))
-                  const WorkspaceNavigationNode(
-                    label: 'Country Mapping',
-                    path: 'tax-country-mapping',
-                  ),
-                if (visibleTabIds.contains('tax-migration-mapping'))
-                  const WorkspaceNavigationNode(
-                    label: 'Migration Mapping',
-                    path: 'tax-migration-mapping',
+                    label: 'Systems & Profiles',
+                    path: 'tax-configuration',
                   ),
                 if (visibleTabIds.contains('tax-rules'))
                   const WorkspaceNavigationNode(
@@ -1019,20 +952,10 @@ abstract final class ModuleCatalog {
                     label: 'Execution Log',
                     path: 'tax-execution-log',
                   ),
-                if (visibleTabIds.contains('tax-effective-dates'))
-                  const WorkspaceNavigationNode(
-                    label: 'Effective Dates',
-                    path: 'tax-effective-dates',
-                  ),
                 if (visibleTabIds.contains('tax-settings'))
                   const WorkspaceNavigationNode(
                     label: 'Settings',
                     path: 'tax-settings',
-                  ),
-                if (visibleTabIds.contains('tax-history'))
-                  const WorkspaceNavigationNode(
-                    label: 'History',
-                    path: 'tax-history',
                   ),
               ],
             ),

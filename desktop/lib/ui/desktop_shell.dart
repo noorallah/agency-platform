@@ -25,8 +25,8 @@ import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'sales/sales_order_management_page.dart';
 import 'sales/sales_territory_management_page.dart';
+import 'tax/tax_configuration_page.dart';
 import 'tax/tax_management_page.dart';
-import 'tax/tax_setup_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
@@ -963,21 +963,14 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'module-configuration',
           'attribute-definitions',
           'profile-assignment',
-          'tax-setup',
-          'tax-systems',
-          'tax-components',
-          'tax-profiles',
-          'tax-country-mapping',
-          'tax-migration-mapping',
+          'tax-configuration',
           'tax-rules',
           'tax-rule-conditions',
           'tax-rule-priorities',
           'tax-rule-simulator',
           'tax-rule-history',
           'tax-execution-log',
-          'tax-effective-dates',
           'tax-settings',
-          'tax-history',
           'uoms',
           'uom-groups',
           'packaging-types',
@@ -1059,38 +1052,9 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition:
               _firmProfileAssignmentDefinition(widget.api, widget.permissions),
         ),
-      'tax-setup' => TaxSetupPage(
-          api: widget.api,
-        ),
-      'tax-systems' => TaxManagementPage(
+      'tax-configuration' => TaxConfigurationPage(
           api: widget.api,
           permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.systems,
-        ),
-      'tax-components' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.components,
-        ),
-      'tax-profiles' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.profiles,
-        ),
-      'tax-country-mapping' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.countryMapping,
-        ),
-      'tax-migration-mapping' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.migrationMapping,
         ),
       'tax-rules' => TaxManagementPage(
           api: widget.api,
@@ -1128,23 +1092,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: TaxManagementSection.executionLog,
         ),
-      'tax-effective-dates' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.effectiveDates,
-        ),
       'tax-settings' => TaxManagementPage(
           api: widget.api,
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: TaxManagementSection.settings,
-        ),
-      'tax-history' => TaxManagementPage(
-          api: widget.api,
-          permissions: widget.permissions,
-          hasActiveFirm: widget.api.activeFirmId?.call() != null,
-          section: TaxManagementSection.history,
         ),
       'uoms' => UomManagementPage(
           api: widget.api,
