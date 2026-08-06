@@ -27,12 +27,16 @@ from app.tax.models import (
 )
 from app.tax.schemas import (
     EffectiveDateRecord,
+    TaxComponentSetupInput,
     TaxComponentWrite,
     TaxCountryMappingWrite,
     TaxHistoryRecord,
     TaxMigrationMappingWrite,
+    TaxProfileComponentSetupInput,
+    TaxProfileSetupInput,
     TaxProfileWrite,
     TaxSettingsWrite,
+    TaxSetupWrite,
     TaxStatus,
     TaxSystemWrite,
 )
@@ -1076,6 +1080,368 @@ class TaxFrameworkService:
         if not include_deleted:
             statement = statement.where(model.is_deleted.is_(False))
         return statement
+
+    def create_setup(
+        self,
+        data: TaxSetupWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> tuple[TaxSystem, list[TaxComponent], list[TaxProfile]]:
+        """Create a full tax system with components and profiles in one transaction."""
+        # 1. Create system
+        system = self._create_system_no_commit(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.flush()
+
+        # 2. Create components — build code→component map
+        components: list[TaxComponent] = []
+        code_to_component: dict[str, TaxComponent] = {}
+        for comp_input in data.components:
+            comp = self._create_component_no_commit(
+                system_id=system.id,
+                data=comp_input,
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            components.append(comp)
+            code_to_component[comp_input.code] = comp
+        self._session.flush()
+
+        # 3. Create profiles — resolve component codes to objects
+        profiles: list[TaxProfile] = []
+        for prof_input in data.profiles:
+            prof = self._create_profile_no_commit(
+                system_id=system.id,
+                data=prof_input,
+                code_to_component=code_to_component,
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            profiles.append(prof)
+        self._session.flush()
+
+        record_audit(
+            self._session,
+            action="tax.setup.created",
+            entity_type="tax_system",
+            entity_id=system.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "code": system.code,
+                "component_count": len(components),
+                "profile_count": len(profiles),
+            },
+        )
+        self._commit()
+        self._session.refresh(system)
+        for comp in components:
+            self._session.refresh(comp)
+        for prof in profiles:
+            self._session.refresh(prof)
+        return system, components, profiles
+
+    def update_setup(
+        self,
+        system_id: UUID,
+        data: TaxSetupWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> tuple[TaxSystem, list[TaxComponent], list[TaxProfile]]:
+        """Update a tax system's components and profiles in one transaction.
+
+        - Component/profile with id → update existing
+        - Component/profile without id → create new
+        - Components/profiles not mentioned → left untouched (soft-delete manually if needed)
+        """
+        # 1. Update system
+        system = self.get_system(system_id, firm_scope=firm_scope, include_deleted=False)
+        before = {"code": system.code, "status": system.status}
+        system.country_id = data.country_id
+        system.business_profile_id = data.business_profile_id
+        system.code = data.code
+        system.name = data.name
+        system.display_name = data.display_name or data.name
+        system.description = data.description
+        system.status = data.status.value
+        system.display_order = data.display_order
+        system.effective_from = data.effective_from
+        system.effective_to = data.effective_to
+        system.updated_by = actor_id
+        self._session.flush()
+
+        # 2. Upsert components
+        components: list[TaxComponent] = []
+        code_to_component: dict[str, TaxComponent] = {}
+        for comp_input in data.components:
+            if comp_input.id is not None:
+                comp = self.get_component(comp_input.id, firm_scope=firm_scope, include_deleted=False)
+                comp.code = comp_input.code
+                comp.name = comp_input.name
+                comp.label = comp_input.label or comp_input.name
+                comp.short_label = comp_input.short_label or comp_input.code
+                comp.display_order = comp_input.display_order
+                comp.calculation_order = comp_input.calculation_order
+                comp.percentage = comp_input.percentage
+                comp.included_in_price = comp_input.included_in_price
+                comp.recoverable = comp_input.recoverable
+                comp.status = comp_input.status.value
+                comp.effective_from = comp_input.effective_from
+                comp.effective_to = comp_input.effective_to
+                comp.updated_by = actor_id
+            else:
+                comp = self._create_component_no_commit(
+                    system_id=system_id,
+                    data=comp_input,
+                    firm_id=firm_scope,
+                    actor_id=actor_id,
+                )
+            components.append(comp)
+            code_to_component[comp_input.code] = comp
+        self._session.flush()
+
+        # 3. Upsert profiles
+        profiles: list[TaxProfile] = []
+        for prof_input in data.profiles:
+            if prof_input.id is not None:
+                prof = self.get_profile(prof_input.id, firm_scope=firm_scope, include_deleted=False)
+                prof.code = prof_input.code
+                prof.name = prof_input.name
+                prof.label = prof_input.label or prof_input.name
+                prof.description = prof_input.description
+                prof.status = prof_input.status.value
+                prof.display_order = prof_input.display_order
+                prof.is_historical = prof_input.is_historical
+                prof.effective_from = prof_input.effective_from
+                prof.effective_to = prof_input.effective_to
+                prof.business_profile_id = prof_input.business_profile_id
+                prof.updated_by = actor_id
+                self._reconcile_profile_components_from_setup(
+                    prof, prof_input.components, code_to_component,
+                    actor_id=actor_id, firm_id=firm_scope,
+                )
+            else:
+                prof = self._create_profile_no_commit(
+                    system_id=system_id,
+                    data=prof_input,
+                    code_to_component=code_to_component,
+                    firm_id=firm_scope,
+                    actor_id=actor_id,
+                )
+            profiles.append(prof)
+        self._session.flush()
+
+        record_audit(
+            self._session,
+            action="tax.setup.updated",
+            entity_type="tax_system",
+            entity_id=system.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data=before,
+            after_data={
+                "code": system.code,
+                "component_count": len(components),
+                "profile_count": len(profiles),
+            },
+        )
+        self._commit()
+        self._session.refresh(system)
+        for comp in components:
+            self._session.refresh(comp)
+        for prof in profiles:
+            self._session.refresh(prof)
+        return system, components, profiles
+
+    def get_setup(
+        self,
+        system_id: UUID,
+        *,
+        firm_scope: UUID,
+    ) -> tuple[TaxSystem, list[TaxComponent], list[TaxProfile]]:
+        """Fetch full setup (system + all components + all profiles) for one system."""
+        system = self.get_system(system_id, firm_scope=firm_scope, include_deleted=False)
+        components = list(
+            self._session.scalars(
+                select(TaxComponent)
+                .where(
+                    TaxComponent.firm_id == firm_scope,
+                    TaxComponent.tax_system_id == system_id,
+                    TaxComponent.is_deleted.is_(False),
+                )
+                .order_by(TaxComponent.calculation_order.asc(), TaxComponent.code.asc())
+            ).all()
+        )
+        profiles = list(
+            self._session.scalars(
+                select(TaxProfile)
+                .where(
+                    TaxProfile.firm_id == firm_scope,
+                    TaxProfile.tax_system_id == system_id,
+                    TaxProfile.is_deleted.is_(False),
+                )
+                .options(selectinload(TaxProfile.components))
+                .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
+            ).all()
+        )
+        return system, components, profiles
+
+    def _create_system_no_commit(
+        self, data: TaxSetupWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> TaxSystem:
+        now = utc_now()
+        row = TaxSystem(
+            firm_id=firm_id,
+            country_id=data.country_id,
+            business_profile_id=data.business_profile_id,
+            code=data.code,
+            name=data.name,
+            display_name=data.display_name or data.name,
+            description=data.description,
+            status=data.status.value,
+            display_order=data.display_order,
+            effective_from=data.effective_from,
+            effective_to=data.effective_to,
+            created_by=actor_id,
+            created_at=now,
+            updated_by=actor_id,
+            updated_at=now,
+        )
+        self._session.add(row)
+        self._flush_conflicts("Tax system code already exists in this firm.")
+        return row
+
+    def _create_component_no_commit(
+        self,
+        *,
+        system_id: UUID,
+        data: TaxComponentSetupInput,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> TaxComponent:
+        now = utc_now()
+        row = TaxComponent(
+            firm_id=firm_id,
+            tax_system_id=system_id,
+            code=data.code,
+            name=data.name,
+            label=data.label or data.name,
+            short_label=data.short_label or data.code,
+            display_order=data.display_order,
+            calculation_order=data.calculation_order,
+            percentage=data.percentage,
+            included_in_price=data.included_in_price,
+            recoverable=data.recoverable,
+            status=data.status.value,
+            effective_from=data.effective_from,
+            effective_to=data.effective_to,
+            created_by=actor_id,
+            created_at=now,
+            updated_by=actor_id,
+            updated_at=now,
+        )
+        self._session.add(row)
+        return row
+
+    def _create_profile_no_commit(
+        self,
+        *,
+        system_id: UUID,
+        data: TaxProfileSetupInput,
+        code_to_component: dict[str, TaxComponent],
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> TaxProfile:
+        now = utc_now()
+        row = TaxProfile(
+            firm_id=firm_id,
+            tax_system_id=system_id,
+            business_profile_id=data.business_profile_id,
+            code=data.code,
+            name=data.name,
+            label=data.label or data.name,
+            description=data.description,
+            status=data.status.value,
+            display_order=data.display_order,
+            is_historical=data.is_historical,
+            effective_from=data.effective_from,
+            effective_to=data.effective_to,
+            created_by=actor_id,
+            created_at=now,
+            updated_by=actor_id,
+            updated_at=now,
+        )
+        profile_components = []
+        for pc_input in data.components:
+            comp = code_to_component[pc_input.component_code]
+            pc = TaxProfileComponent(
+                firm_id=firm_id,
+                tax_profile_id=row.id,
+                tax_component_id=comp.id,
+                label=pc_input.label or comp.label,
+                short_label=pc_input.short_label or comp.short_label,
+                calculation_order=pc_input.calculation_order,
+                percentage=pc_input.percentage,
+                included_in_price=pc_input.included_in_price,
+                recoverable=pc_input.recoverable,
+                created_by=actor_id,
+                created_at=now,
+                updated_by=actor_id,
+                updated_at=now,
+            )
+            profile_components.append(pc)
+        row.components = profile_components
+        self._session.add(row)
+        return row
+
+    def _reconcile_profile_components_from_setup(
+        self,
+        profile: TaxProfile,
+        inputs: list[TaxProfileComponentSetupInput],
+        code_to_component: dict[str, TaxComponent],
+        *,
+        actor_id: UUID,
+        firm_id: UUID,
+    ) -> None:
+        now = utc_now()
+        existing = {pc.tax_component_id: pc for pc in profile.components if not pc.is_deleted}
+        wanted = {code_to_component[pc_input.component_code].id: pc_input for pc_input in inputs}
+
+        # Remove components not in the new list
+        for comp_id, pc in existing.items():
+            if comp_id not in wanted:
+                self._soft_delete(pc, actor_id=actor_id)
+
+        # Add or update
+        for comp_id, pc_input in wanted.items():
+            comp = code_to_component[pc_input.component_code]
+            if comp_id in existing:
+                pc = existing[comp_id]
+                pc.label = pc_input.label or comp.label
+                pc.short_label = pc_input.short_label or comp.short_label
+                pc.calculation_order = pc_input.calculation_order
+                pc.percentage = pc_input.percentage
+                pc.included_in_price = pc_input.included_in_price
+                pc.recoverable = pc_input.recoverable
+                pc.updated_by = actor_id
+            else:
+                new_pc = TaxProfileComponent(
+                    firm_id=firm_id,
+                    tax_profile_id=profile.id,
+                    tax_component_id=comp_id,
+                    label=pc_input.label or comp.label,
+                    short_label=pc_input.short_label or comp.short_label,
+                    calculation_order=pc_input.calculation_order,
+                    percentage=pc_input.percentage,
+                    included_in_price=pc_input.included_in_price,
+                    recoverable=pc_input.recoverable,
+                    created_by=actor_id,
+                    created_at=now,
+                    updated_by=actor_id,
+                    updated_at=now,
+                )
+                self._session.add(new_pc)
 
     def _flush_conflicts(self, conflict_message: str) -> None:
         try:

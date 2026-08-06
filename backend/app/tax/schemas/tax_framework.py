@@ -606,3 +606,148 @@ class BulkTaxStatusRequest(BulkUuidRequest):
 
 class TaxImportSystemsRequest(TaxFrameworkSchema):
     systems: list[TaxSystemWrite] = Field(min_length=1, max_length=1000)
+
+
+# ─── Composite Setup Schemas ─────────────────────────────────────────────────
+
+class TaxComponentSetupInput(TaxFrameworkSchema):
+    """Component input inside a composite tax setup — no tax_system_id needed (derived)."""
+    id: UUID | None = None          # None = create new, UUID = update existing
+    code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    label: str | None = Field(default=None, max_length=120)
+    short_label: str | None = Field(default=None, max_length=40)
+    display_order: int = Field(default=0, ge=0, le=100000)
+    calculation_order: int = Field(default=0, ge=0, le=100000)
+    percentage: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    included_in_price: bool = False
+    recoverable: bool = False
+    status: TaxStatus = TaxStatus.ACTIVE
+    effective_from: date | None = None
+    effective_to: date | None = None
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name", "label", "short_label", mode="before")
+    @classmethod
+    def normalize_labels(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def default_labels(self) -> "TaxComponentSetupInput":
+        if not self.label:
+            self.label = self.name
+        if not self.short_label:
+            self.short_label = self.code
+        return self
+
+
+class TaxProfileComponentSetupInput(TaxFrameworkSchema):
+    """Profile component referencing a component by CODE (resolved at save time)."""
+    component_code: str        # references TaxComponentSetupInput.code
+    label: str | None = Field(default=None, max_length=120)
+    short_label: str | None = Field(default=None, max_length=40)
+    calculation_order: int = Field(default=0, ge=0, le=100000)
+    percentage: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    included_in_price: bool = False
+    recoverable: bool = False
+
+    @field_validator("component_code", mode="before")
+    @classmethod
+    def normalize_component_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+
+class TaxProfileSetupInput(TaxFrameworkSchema):
+    """Profile input inside a composite tax setup — no tax_system_id needed (derived)."""
+    id: UUID | None = None          # None = create new, UUID = update existing
+    code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    label: str | None = Field(default=None, max_length=120)
+    description: str | None = None
+    status: TaxStatus = TaxStatus.ACTIVE
+    display_order: int = Field(default=0, ge=0, le=100000)
+    is_historical: bool = False
+    effective_from: date | None = None
+    effective_to: date | None = None
+    business_profile_id: UUID | None = None
+    components: list[TaxProfileComponentSetupInput] = Field(default_factory=list, max_length=50)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name", "label", mode="before")
+    @classmethod
+    def normalize_labels(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def default_label(self) -> "TaxProfileSetupInput":
+        if not self.label:
+            self.label = self.name
+        return self
+
+
+class TaxSetupWrite(EffectiveDatedSchema):
+    """Composite payload: create or update a full tax system with components and profiles in one call."""
+    # System fields
+    country_id: UUID | None = None
+    business_profile_id: UUID | None = None
+    code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    display_name: str | None = Field(default=None, max_length=120)
+    description: str | None = None
+    status: TaxStatus = TaxStatus.ACTIVE
+    display_order: int = Field(default=0, ge=0, le=100000)
+    # Children
+    components: list[TaxComponentSetupInput] = Field(default_factory=list, max_length=50)
+    profiles: list[TaxProfileSetupInput] = Field(default_factory=list, max_length=100)
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name", "display_name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @model_validator(mode="after")
+    def default_display_name(self) -> "TaxSetupWrite":
+        if not self.display_name:
+            self.display_name = self.name
+        return self
+
+    @model_validator(mode="after")
+    def validate_profile_component_codes(self) -> "TaxSetupWrite":
+        component_codes = {c.code for c in self.components}
+        for profile in self.profiles:
+            for pc in profile.components:
+                if pc.component_code not in component_codes:
+                    raise ValueError(
+                        f"Profile '{profile.code}' references unknown component code '{pc.component_code}'. "
+                        f"Available codes: {sorted(component_codes)}"
+                    )
+        return self
+
+
+class TaxSetupResponse(TaxFrameworkSchema):
+    """Full tax setup response including system, components, and profiles."""
+    system: TaxSystemResponse
+    components: list[TaxComponentResponse]
+    profiles: list[TaxProfileResponse]

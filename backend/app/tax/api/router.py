@@ -46,6 +46,8 @@ from app.tax.schemas import (
     TaxProfileWrite,
     TaxSettingsResponse,
     TaxSettingsWrite,
+    TaxSetupResponse,
+    TaxSetupWrite,
     TaxStatus,
     TaxSystemResponse,
     TaxSystemWrite,
@@ -288,6 +290,94 @@ def import_tax_systems(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=[TaxSystemResponse.model_validate(row) for row in rows])
+
+
+# ─── Composite Setup Endpoints ────────────────────────────────────────────────
+
+@router.post(
+    "/setup",
+    response_model=ApiResponse[TaxSetupResponse],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create full tax setup in one call",
+    description=(
+        "Creates a tax system, all its components, and all profiles with their "
+        "component assignments in a single atomic transaction. "
+        "Profile components are referenced by component code (not ID)."
+    ),
+)
+def create_tax_setup(
+    data: TaxSetupWrite,
+    scope: TaxCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TaxSetupResponse]:
+    system, components, profiles = TaxFrameworkService(db).create_setup(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=TaxSetupResponse(
+            system=TaxSystemResponse.model_validate(system),
+            components=[TaxComponentResponse.model_validate(c) for c in components],
+            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+        )
+    )
+
+
+@router.put(
+    "/setup/{system_id}",
+    response_model=ApiResponse[TaxSetupResponse],
+    summary="Update full tax setup in one call",
+    description=(
+        "Updates a tax system, upserts components and profiles. "
+        "Supply 'id' on components/profiles to update existing ones; "
+        "omit 'id' to create new ones. "
+        "Existing items not mentioned are left untouched."
+    ),
+)
+def update_tax_setup(
+    system_id: UUID,
+    data: TaxSetupWrite,
+    scope: TaxUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TaxSetupResponse]:
+    system, components, profiles = TaxFrameworkService(db).update_setup(
+        system_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=TaxSetupResponse(
+            system=TaxSystemResponse.model_validate(system),
+            components=[TaxComponentResponse.model_validate(c) for c in components],
+            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+        )
+    )
+
+
+@router.get(
+    "/setup/{system_id}",
+    response_model=ApiResponse[TaxSetupResponse],
+    summary="Get full tax setup for a system",
+    description="Returns the tax system plus all its components and profiles.",
+)
+def get_tax_setup(
+    system_id: UUID,
+    scope: TaxViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TaxSetupResponse]:
+    system, components, profiles = TaxFrameworkService(db).get_setup(
+        system_id,
+        firm_scope=scope.firm_id,
+    )
+    return ApiResponse(
+        data=TaxSetupResponse(
+            system=TaxSystemResponse.model_validate(system),
+            components=[TaxComponentResponse.model_validate(c) for c in components],
+            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+        )
+    )
 
 
 @router.get("/components", response_model=PaginatedResponse[TaxComponentResponse])

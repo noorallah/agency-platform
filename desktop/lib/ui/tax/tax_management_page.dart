@@ -9,6 +9,7 @@ import '../../models/entities.dart';
 import '../../models/tax_framework.dart';
 import '../workspace/workspace_components.dart';
 import '../workspace/workspace_interactions.dart';
+import 'tax_setup_page.dart';
 
 enum TaxManagementSection {
   systems,
@@ -1037,27 +1038,15 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Future<void> _openSystemEdit(TaxSystemRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title: current == null ? 'Create tax system' : 'Edit tax system',
-      fields: {
-        'code': current?.code ?? '',
-        'name': current?.name ?? '',
-        'display_name': current?.displayName ?? '',
-      },
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TaxSetupPage(
+          api: widget.api,
+          systemId: current?.id,
+        ),
+      ),
     );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxSystem(payload);
-      } else {
-        await widget.api.updateTaxSystem(current.id, payload);
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
-    }
+    if (result == true) await _load();
   }
 
   Future<void> _openComponentEdit(TaxComponentRecord? current) async {
