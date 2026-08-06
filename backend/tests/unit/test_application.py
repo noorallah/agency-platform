@@ -30,6 +30,22 @@ def test_application_factory_registers_foundation_routes() -> None:
         "/api/v1/firms",
         "/api/v1/customers",
         "/api/v1/customers/summary",
+        "/api/v1/business-framework/profiles",
+        "/api/v1/business-framework/active-modules",
+        "/api/v1/products",
+        "/api/v1/products/metadata",
+        "/api/v1/vendors",
+        "/api/v1/vendors/summary",
+        "/api/v1/purchases",
+        "/api/v1/purchases/summary",
+        "/api/v1/goods-receipts",
+        "/api/v1/goods-receipts/summary",
+        "/api/v1/branches",
+        "/api/v1/warehouses",
+        "/api/v1/tax-framework/systems",
+        "/api/v1/tax-framework/rules",
+        "/api/v1/tax-framework/simulate",
+        "/api/v1/search",
     } <= set(application.openapi()["paths"])
 
 

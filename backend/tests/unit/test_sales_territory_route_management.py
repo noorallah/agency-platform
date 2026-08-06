@@ -1,0 +1,300 @@
+"""Sales territory framework service and authorization tests."""
+
+# ruff: noqa: D103
+
+from datetime import date
+from uuid import UUID, uuid4
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.database.base import Base
+from app.core.enums import TokenType
+from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.security.authorization import Principal, require_permission
+from app.core.security.jwt import TokenClaims
+from app.customers.models import Customer
+from app.firms.models import Firm
+from app.identity.models import User, UserFirm
+from app.sales.api.router import list_territories, territory_scope
+from app.sales.schemas import (
+    TerritoryAssignCustomersRequest,
+    TerritoryAssignSalesmenRequest,
+    TerritoryCopyRequest,
+    TerritoryCreate,
+    TerritoryUpdate,
+)
+from app.sales.schemas.territory import HierarchyLevelInput, HierarchyUpdateRequest
+from app.sales.services import SalesTerritoryService
+
+
+def _session_factory() -> sessionmaker[Session]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def _firm(session: Session, code: str) -> Firm:
+    row = Firm(
+        name=f"{code} Firm",
+        code=code,
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def _principal(user_id: UUID, permissions: set[str]) -> Principal:
+    return Principal(
+        subject=user_id,
+        roles=frozenset(),
+        permissions=frozenset(permissions),
+        claims=TokenClaims(
+            sub=str(user_id),
+            type=TokenType.ACCESS,
+            iat=1,
+            exp=4_102_444_800,
+            permissions=sorted(permissions),
+        ),
+    )
+
+
+def test_territory_service_supports_hierarchy_tree_and_assignments() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "TER")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    assert hierarchy.levels[0].display_name == "Region"
+
+    root = service.create_territory(
+        TerritoryCreate(
+            code="KAR",
+            name="Karnataka",
+            hierarchy_level_id=hierarchy.levels[0].id,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    child = service.create_territory(
+        TerritoryCreate(
+            code="BLR",
+            name="Bangalore",
+            hierarchy_level_id=hierarchy.levels[1].id,
+            parent_id=root.id,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    customer = Customer(
+        firm_id=firm.id,
+        code="CUST-1",
+        customer_type="BUSINESS",
+        name="Acme Pharmacy",
+        display_name="Acme Pharmacy",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    salesman = User(
+        email="salesman@example.local",
+        full_name="Salesman",
+        password_hash="hash",
+    )
+    session.add(customer)
+    session.add(salesman)
+    session.flush()
+    session.add(UserFirm(user_id=salesman.id, firm_id=firm.id, is_active=True))
+    session.commit()
+
+    customer_ids = service.set_customers(
+        child.id,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert customer_ids == [customer.id]
+
+    salesmen = service.set_salesmen(
+        child.id,
+        TerritoryAssignSalesmenRequest(
+            assignments=[{"user_id": salesman.id, "include_children": True}]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert salesmen[0]["user_id"] == salesman.id
+    assert salesmen[0]["include_children"] is True
+
+    tree = service.tree(firm_scope=firm.id)
+    assert len(tree) == 1
+    assert tree[0].children[0].id == child.id
+
+
+def test_territory_service_rejects_invalid_level_parent() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "VAL")
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=uuid4())
+    with pytest.raises(ValidationError, match="Only top hierarchy level"):
+        service.create_territory(
+            TerritoryCreate(
+                code="INVALID",
+                name="Invalid",
+                hierarchy_level_id=hierarchy.levels[1].id,
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_territory_api_scope_and_permissions() -> None:
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "API-T")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+
+    permissions = {"TERRITORY_VIEW", "TERRITORY_CREATE"}
+    principal = _principal(user_id, permissions)
+    session = factory()
+    scope = territory_scope(principal, session, firm.id)
+    listed = list_territories(
+        scope=scope,
+        page=1,
+        page_size=20,
+        search=None,
+        sort_by="created_at",
+        sort_direction="desc",
+        hierarchy_level_id=None,
+        parent_id=None,
+        status_value=None,
+        salesman_id=None,
+        include_deleted=False,
+        db=session,
+    )
+    assert listed.pagination.total_records == 0
+    with pytest.raises(AuthorizationError):
+        require_permission("TERRITORY_DELETE")(principal)
+
+
+def test_territory_validation_delete_and_circular_and_copy() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "VAL2")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    root = service.create_territory(
+        TerritoryCreate(
+            code="SOUTH",
+            name="South",
+            hierarchy_level_id=hierarchy.levels[0].id,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    child = service.create_territory(
+        TerritoryCreate(
+            code="CITY",
+            name="City",
+            hierarchy_level_id=hierarchy.levels[1].id,
+            parent_id=root.id,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    with pytest.raises(ValidationError, match="active children"):
+        service.delete_territory(root.id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ValidationError, match="Circular hierarchy"):
+        service.update_territory(
+            root.id,
+            TerritoryUpdate(
+                code=root.code,
+                name=root.name,
+                hierarchy_level_id=root.hierarchy_level_id,
+                parent_id=child.id,
+                status=root.status,
+                sort_order=0,
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    copied = service.copy_hierarchy(
+        root.id,
+        TerritoryCopyRequest(
+            new_root_code="MYS",
+            new_root_name="Mysore",
+            include_assignments=False,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert copied.code == "MYS"
+
+
+def test_territory_hierarchy_update_reuses_existing_levels() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "CFG")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+
+    updated = service.update_hierarchy(
+        firm_scope=firm.id,
+        actor_id=actor,
+        payload=HierarchyUpdateRequest(
+            max_levels=4,
+            allow_multi_route_per_salesman=True,
+            allow_multi_salesman_per_route=True,
+            enforce_customer_leaf_assignment=True,
+            levels=[
+                HierarchyLevelInput(
+                    level_order=1,
+                    level_code="STATE",
+                    display_name="State",
+                    is_mandatory=True,
+                    is_enabled=True,
+                ),
+                HierarchyLevelInput(
+                    level_order=2,
+                    level_code="CITY",
+                    display_name="City",
+                    is_mandatory=True,
+                    is_enabled=True,
+                ),
+                HierarchyLevelInput(
+                    level_order=3,
+                    level_code="CIRCLE",
+                    display_name="Circle",
+                    is_mandatory=True,
+                    is_enabled=True,
+                ),
+                HierarchyLevelInput(
+                    level_order=4,
+                    level_code="ROUTE",
+                    display_name="Route",
+                    is_mandatory=True,
+                    is_enabled=True,
+                ),
+            ],
+        ),
+    )
+
+    assert [level.level_code for level in updated.levels] == [
+        "STATE",
+        "CITY",
+        "CIRCLE",
+        "ROUTE",
+    ]
