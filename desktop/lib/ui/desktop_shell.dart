@@ -26,6 +26,7 @@ import 'purchases/purchase_management_page.dart';
 import 'sales/sales_order_management_page.dart';
 import 'sales/sales_territory_management_page.dart';
 import 'tax/tax_management_page.dart';
+import 'tax/tax_setup_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
