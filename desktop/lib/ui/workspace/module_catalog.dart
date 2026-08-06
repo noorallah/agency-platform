@@ -154,29 +154,14 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['TAX_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'tax-rules',
+          id: 'tax-rules-page',
           label: 'Tax Rules',
-          requiredPermissions: ['TAX_RULE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-rule-conditions',
-          label: 'Rule Conditions',
-          requiredPermissions: ['TAX_RULE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-rule-priorities',
-          label: 'Rule Priorities',
           requiredPermissions: ['TAX_RULE_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'tax-rule-simulator',
           label: 'Rule Simulator',
           requiredPermissions: ['TAX_SIMULATE'],
-        ),
-        ModuleTabDefinition(
-          id: 'tax-rule-history',
-          label: 'Rule History',
-          requiredPermissions: ['TAX_RULE_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'tax-execution-log',
@@ -905,11 +890,8 @@ abstract final class ModuleCatalog {
             ),
           if (hasAny([
             'tax-configuration',
-            'tax-rules',
-            'tax-rule-conditions',
-            'tax-rule-priorities',
+            'tax-rules-page',
             'tax-rule-simulator',
-            'tax-rule-history',
             'tax-execution-log',
             'tax-settings',
           ]))
@@ -922,30 +904,15 @@ abstract final class ModuleCatalog {
                     label: 'Systems & Profiles',
                     path: 'tax-configuration',
                   ),
-                if (visibleTabIds.contains('tax-rules'))
+                if (visibleTabIds.contains('tax-rules-page'))
                   const WorkspaceNavigationNode(
                     label: 'Tax Rules',
-                    path: 'tax-rules',
-                  ),
-                if (visibleTabIds.contains('tax-rule-conditions'))
-                  const WorkspaceNavigationNode(
-                    label: 'Rule Conditions',
-                    path: 'tax-rule-conditions',
-                  ),
-                if (visibleTabIds.contains('tax-rule-priorities'))
-                  const WorkspaceNavigationNode(
-                    label: 'Rule Priorities',
-                    path: 'tax-rule-priorities',
+                    path: 'tax-rules-page',
                   ),
                 if (visibleTabIds.contains('tax-rule-simulator'))
                   const WorkspaceNavigationNode(
                     label: 'Rule Simulator',
                     path: 'tax-rule-simulator',
-                  ),
-                if (visibleTabIds.contains('tax-rule-history'))
-                  const WorkspaceNavigationNode(
-                    label: 'Rule History',
-                    path: 'tax-rule-history',
                   ),
                 if (visibleTabIds.contains('tax-execution-log'))
                   const WorkspaceNavigationNode(
