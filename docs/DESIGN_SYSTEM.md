@@ -9,6 +9,21 @@
 
 ---
 
+## Companion UX-1 Desktop Documents
+
+The UX-1 phase added implementation-ready desktop design references under
+`desktop/docs`. Use these together with this enterprise baseline:
+
+- `desktop/docs/DESIGN_SYSTEM.md`
+- `desktop/docs/DESKTOP_FRAMEWORK.md`
+- `desktop/docs/UX_GUIDELINES.md`
+- `desktop/docs/COMPONENT_LIBRARY.md`
+- `desktop/docs/ICON_GUIDELINES.md`
+- `desktop/docs/COLOR_GUIDELINES.md`
+- `desktop/docs/DESKTOP_STYLE_GUIDE.md`
+
+---
+
 ## Document Purpose
 
 This document is the single source of truth for the visual language, interaction

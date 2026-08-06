@@ -1,0 +1,567 @@
+You are the Chief UX Architect and Enterprise Product Designer for the Business ERP Platform.
+
+=========================================================
+PHASE UX-1
+ENTERPRISE DESIGN SYSTEM &
+REFERENCE SCREEN IMPLEMENTATION
+=========================================================
+
+IMPORTANT
+
+This is NOT a backend task.
+
+Do NOT redesign the database.
+
+Do NOT change APIs.
+
+Do NOT change business logic.
+
+Do NOT remove any existing functionality.
+
+This is a UI/UX standardization phase.
+
+The objective is to build a professional, modern, enterprise desktop application comparable to SAP Fiori, Microsoft Dynamics 365, Oracle Fusion, Odoo Enterprise, or Zoho.
+
+Existing screens should continue working.
+
+=========================================================
+OBJECTIVE
+=========================================================
+
+Create a reusable Enterprise Design System and implement it on selected reference screens.
+
+Future modules (Purchase, Sales, Accounting, CRM, Manufacturing, HR, etc.) must automatically follow this design.
+
+=========================================================
+CREATE
+=========================================================
+
+desktop/docs/DESIGN_SYSTEM.md
+
+desktop/docs/UX_GUIDELINES.md
+
+desktop/docs/COMPONENT_LIBRARY.md
+
+desktop/docs/ICON_GUIDELINES.md
+
+desktop/docs/COLOR_GUIDELINES.md
+
+=========================================================
+VISUAL DESIGN
+=========================================================
+
+Modern enterprise desktop look.
+
+Clean.
+
+Professional.
+
+Minimal.
+
+High information density.
+
+Large workspace.
+
+Excellent readability.
+
+Consistent spacing.
+
+Rounded corners only where appropriate.
+
+Use subtle shadows.
+
+No excessive colors.
+
+=========================================================
+COLOR SYSTEM
+=========================================================
+
+Define
+
+Primary
+
+Secondary
+
+Success
+
+Warning
+
+Danger
+
+Information
+
+Background
+
+Surface
+
+Hover
+
+Selection
+
+Disabled
+
+Dark Theme
+
+Light Theme
+
+High Contrast
+
+=========================================================
+TYPOGRAPHY
+=========================================================
+
+Define
+
+Window Title
+
+Page Title
+
+Section Header
+
+Card Header
+
+Normal Text
+
+Caption
+
+Table Header
+
+Status Badge
+
+Form Labels
+
+Help Text
+
+=========================================================
+ICONOGRAPHY
+=========================================================
+
+Create standard icon mapping.
+
+New
+
+Edit
+
+Delete
+
+Restore
+
+Save
+
+Duplicate
+
+Export
+
+Import
+
+Refresh
+
+Search
+
+Filter
+
+Print
+
+Settings
+
+History
+
+Audit
+
+Attachments
+
+Notes
+
+Approval
+
+Inventory
+
+Warehouse
+
+Customer
+
+Vendor
+
+Product
+
+Tax
+
+Reports
+
+=========================================================
+LAYOUT
+=========================================================
+
+Standardize
+
+Top Toolbar
+
+Left Navigation
+
+Workspace
+
+Footer Status Bar
+
+Breadcrumb
+
+Page Header
+
+Action Bar
+
+Summary Cards
+
+Filter Panel
+
+Split View
+
+Resizable Panels
+
+=========================================================
+TABLE STANDARD
+=========================================================
+
+Every grid must support
+
+Sorting
+
+Filtering
+
+Column chooser
+
+Column resize
+
+Column reorder
+
+Sticky header
+
+Multi-select
+
+Context menu
+
+Double click
+
+Copy
+
+Keyboard navigation
+
+Export
+
+Refresh
+
+Status badges
+
+Pagination
+
+Empty state
+
+Loading state
+
+=========================================================
+FORM STANDARD
+=========================================================
+
+Every editor must support
+
+Tabbed layout
+
+Validation summary
+
+Inline validation
+
+Unsaved change detection
+
+Save
+
+Save & New
+
+Save & Close
+
+Cancel
+
+Attachments
+
+Notes
+
+History
+
+Audit
+
+=========================================================
+DETAIL VIEW
+=========================================================
+
+Every View operation opens a large dialog.
+
+Not inline.
+
+Not cramped.
+
+Minimum 80% width.
+
+Minimum 80% height.
+
+Tabs
+
+General
+
+Related
+
+History
+
+Audit
+
+Attachments
+
+Notes
+
+=========================================================
+SEARCH
+=========================================================
+
+Global Search
+
+Quick Search
+
+Advanced Search
+
+Saved Filters
+
+Recent Searches
+
+=========================================================
+STATUS BADGES
+=========================================================
+
+Standard badges
+
+Active
+
+Inactive
+
+Draft
+
+Pending
+
+Approved
+
+Rejected
+
+Blocked
+
+Deleted
+
+Archived
+
+Expired
+
+Near Expiry
+
+=========================================================
+DASHBOARDS
+=========================================================
+
+Every module should eventually have
+
+Summary cards
+
+Charts placeholder
+
+Recent activity
+
+Quick actions
+
+Alerts
+
+=========================================================
+KEYBOARD
+=========================================================
+
+Support
+
+Ctrl+N
+
+Ctrl+S
+
+Ctrl+F
+
+Ctrl+K
+
+Ctrl+C
+
+Ctrl+V
+
+Delete
+
+F2 Edit
+
+F5 Refresh
+
+ESC Close
+
+=========================================================
+REFERENCE SCREENS
+=========================================================
+
+Apply the complete design system to ONLY these screens.
+
+Login
+
+Dashboard
+
+Product Management
+
+Inventory Management
+
+Customer Management
+
+Vendor Management
+
+These become the reference implementation.
+
+Other modules should NOT be redesigned now.
+
+=========================================================
+REUSABLE COMPONENTS
+=========================================================
+
+Create reusable widgets/components for
+
+Toolbar
+
+Enterprise Grid
+
+Filter Panel
+
+Search Panel
+
+Status Badge
+
+Summary Cards
+
+Dialogs
+
+Confirmation Dialog
+
+Import Wizard
+
+Export Dialog
+
+Tabbed Editor
+
+Entity Detail View
+
+Loading Overlay
+
+Empty State
+
+Error State
+
+=========================================================
+ACCESSIBILITY
+=========================================================
+
+Keyboard-only navigation
+
+Proper focus traversal
+
+Readable fonts
+
+High contrast support
+
+Scalable UI
+
+=========================================================
+RESPONSIVENESS
+=========================================================
+
+Desktop first.
+
+Support
+
+1366x768
+
+1600x900
+
+1920x1080
+
+2560x1440
+
+Avoid fixed sizes.
+
+=========================================================
+DO NOT
+=========================================================
+
+Do not redesign backend.
+
+Do not redesign APIs.
+
+Do not redesign database.
+
+Do not modify business rules.
+
+Do not implement Purchase or Sales.
+
+=========================================================
+TESTS
+=========================================================
+
+Update desktop widget tests.
+
+Verify
+
+Navigation
+
+Dialogs
+
+Keyboard shortcuts
+
+Responsive layouts
+
+Grid interactions
+
+Forms
+
+=========================================================
+DOCUMENTATION
+=========================================================
+
+Produce
+
+DESIGN_SYSTEM.md
+
+UX_GUIDELINES.md
+
+COMPONENT_LIBRARY.md
+
+DESKTOP_STYLE_GUIDE.md
+
+=========================================================
+SUCCESS CRITERIA
+=========================================================
+
+✓ Professional enterprise appearance.
+
+✓ Consistent design language.
+
+✓ Reusable UI components.
+
+✓ Reference screens completed.
+
+✓ Future modules can reuse components.
+
+✓ No backend changes.
+
+✓ Existing functionality preserved.
+
+=========================================================
+OUTPUT
+=========================================================
+
+Deliver
+
+1. Updated reusable desktop components.
+2. Design documentation.
+3. Updated reference screens.
+4. Widget tests.
+5. UX Completion Report.

@@ -54,6 +54,16 @@ example bootstrap password or JWT signing key outside local development.
 | `/api/v1/permissions` | Protected permission CRUD |
 | `/api/v1/firms` | Protected firm CRUD |
 | `/api/v1/customers` | Firm-scoped customer CRUD, search, filters, soft delete, restore, import, and export |
+| `/api/v1/vendors` | Firm-scoped vendor CRUD, nested details, import, and export |
+| `/api/v1/products` | Firm-scoped product CRUD, dynamic attributes, import, and export |
+| `/api/v1/branches` | Branch, warehouse, storage-node masters with enterprise routing |
+| `/api/v1/sales` | Sales territory and route management foundation |
+| `/api/v1/tax-framework` | Tax systems, components, profiles, mappings, and settings |
+| `/api/v1/tax-rules` | Tax rule engine, conditions, actions, and simulation |
+| `/api/v1/business-framework/*` | Business profiles, features, modules, attributes, firm profile assignment, and active-profile runtime resolution |
+| `/api/v1/inventory` | Inventory projections, opening stock, adjustments, ledger, summaries, import/export |
+| `/api/v1/batch-serial` | Batch, lot, serial, and expiry management |
+| `/api/v1/uom` | UOM masters, packaging hierarchy, conversion rules, and product UOM config |
 | `/docs` | Swagger UI |
 | `/openapi.json` | OpenAPI document |
 
@@ -107,6 +117,7 @@ the values in `config/.env`; do not commit that file.
 | Database | `DATABASE_DIALECT`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | Supported dialects: `postgresql` and `mysql` |
 | Database pool | `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_RECYCLE_SECONDS`, `DATABASE_SCHEMA` | Optional connection-pool and default-schema controls |
 | Database URL | `DATABASE_URL` | Overrides individual database fields; its dialect must match `DATABASE_DIALECT` |
+| Tenancy | `TENANCY_SHARED_DATABASE_NAME`, `TENANCY_SHARED_SCHEMA_NAME`, `TENANCY_SCHEMA_PREFIX`, `TENANCY_DEDICATED_SCHEMA_PREFIX`, `TENANCY_DEDICATED_DATABASE_PREFIX`, `TENANCY_CONNECTION_PROFILES` | New firms default to `SHARED`; platform schema defaults to `platform`; shared firms use the primary database and the `firm_shared` schema unless a dedicated schema/database is configured |
 | Security | `JWT_SECRET_KEY`, `JWT_ALGORITHM`, `JWT_ACCESS_TOKEN_MINUTES`, `JWT_REFRESH_TOKEN_DAYS`, `SECURITY_MAX_LOGIN_ATTEMPTS`, `SECURITY_LOCKOUT_MINUTES`, `SECURITY_PASSWORD_HISTORY_COUNT`, `BOOTSTRAP_ADMIN_PASSWORD` | JWT, login lockout, password history, and bootstrap policy |
 | Licensing | `LICENSE_ENABLED`, `LICENSE_VALIDATION_URL` | Reserved configuration for a future licensing module |
 
@@ -119,10 +130,31 @@ AGENCY_DATABASE_DIALECT=postgresql
 AGENCY_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/agency_platform
 ```
 
+## Final shared-schema layout
+
+The final default layout uses two schemas in the primary database:
+
+- `platform` for platform identity, firm registry, memberships, and RBAC
+- `firm_shared` for shared firm-owned modules such as tax, inventory, UOM, and business-profile data
+
+Shared firms resolve to `firm_shared`. Dedicated firms may still use their own
+schema in the primary database or their own database+schema through
+`firm_storage_mappings`.
+
+To destructively rebuild the local database into this final layout:
+
+```powershell
+uv run python scripts\reset_tenancy_layout.py --yes
+```
+
+The rebuild recreates `platform` and `firm_shared`, runs the full migration set
+on both, then removes platform-only tables from `firm_shared` and removes
+firm-owned module tables from `platform` so the final split stays strict.
+
 ## Identity Domain and migrations
 
 The Alembic revisions create UUID-backed identity tables plus:
-`firms`, `user_firms`, and `audit_logs`. Roles carry an immutable system/custom
+`firms`, `firm_storage_mappings`, `user_firms`, and `audit_logs`. Roles carry an immutable system/custom
 classification and optional firm ownership. User-role grants can be firm
 scoped, and users carry an authorization version for immediate session
 invalidation.
@@ -201,6 +233,8 @@ uv run python -m alembic downgrade base
 > the pre-reconciliation bootstrap SQL with
 > `uv run python -m alembic upgrade 20260728_0003 --sql`.
 
+Latest schema head is `20260802_0021` (UOM and packaging framework).
+
 ## Administration workflow
 
 1. Sign in as the bootstrap platform administrator and change its initial
@@ -209,6 +243,12 @@ uv run python -m alembic downgrade base
 3. Create firms with their currency and financial-year start.
 4. Create users and assign their roles and one or more firms.
 5. Choose at most one active primary firm for each user.
+
+For dedicated storage rollouts, you can manually provision any firm after creation:
+
+```powershell
+uv run python -m scripts.provision_firm_storage --firm-code ACME
+```
 
 Assignments replace the submitted set. Re-sending the same set is safe.
 Every create, update, delete, and assignment mutation produces an

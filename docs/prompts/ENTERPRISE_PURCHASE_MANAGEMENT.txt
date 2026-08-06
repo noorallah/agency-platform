@@ -1,0 +1,754 @@
+You are the Chief Enterprise Architect for the Business ERP Platform.
+
+=========================================================
+PHASE 17
+ENTERPRISE PURCHASE MANAGEMENT
+=========================================================
+
+IMPORTANT
+
+This is the first transactional business module.
+
+Do NOT redesign existing frameworks.
+
+Reuse everything already implemented.
+
+Do NOT duplicate functionality already available in
+
+- Authentication
+- RBAC
+- Multi-Firm
+- Business Profiles
+- Dynamic Modules
+- Dynamic Attributes
+- Vendor Management
+- Product Management
+- UOM & Packaging
+- Tax Framework
+- Tax Rule Engine
+- Inventory
+- Warehouses
+- Branches
+- Geo Masters
+- Import / Export
+- Global Search
+- Audit
+- Desktop Framework
+
+=========================================================
+OBJECTIVE
+=========================================================
+
+Implement a complete Enterprise Purchase Management module suitable for
+
+Medical
+
+Food
+
+Retail
+
+Distribution
+
+Manufacturing
+
+Electronics
+
+General Trading
+
+without hardcoded business rules.
+
+Everything should be configurable.
+
+=========================================================
+PURCHASE DOCUMENTS
+=========================================================
+
+Implement
+
+Purchase Requisition (optional future-ready)
+
+Request For Quotation (RFQ)
+
+Vendor Quotation
+
+Purchase Order
+
+Purchase Order Amendment
+
+Purchase Order Cancellation
+
+Purchase Order Closure
+
+Purchase Order History
+
+Purchase Attachments
+
+Purchase Notes
+
+=========================================================
+PURCHASE ORDER HEADER
+=========================================================
+
+Support
+
+Company
+
+Firm
+
+Branch
+
+Warehouse
+
+Vendor
+
+Vendor Contact
+
+Vendor Address
+
+Buyer
+
+Department
+
+Purchase Type
+
+Purchase Category
+
+Purchase Date
+
+Expected Delivery Date
+
+Payment Terms
+
+Delivery Terms
+
+Currency (future ready)
+
+Exchange Rate (future ready)
+
+Reference Number
+
+External Reference
+
+Priority
+
+Remarks
+
+Status
+
+=========================================================
+PURCHASE LINE ITEMS
+=========================================================
+
+Each line should support
+
+Product
+
+Description
+
+Vendor Product Code
+
+Purchase UOM
+
+Inventory UOM
+
+Conversion
+
+Ordered Quantity
+
+Free Quantity
+
+Unit Price
+
+Discount %
+
+Discount Amount
+
+Tax Profile
+
+Tax Components
+
+Tax Amount
+
+Net Amount
+
+Batch Required
+
+Expiry Required
+
+Serial Required
+
+Manufacturing Date
+
+Expiry Date
+
+Warehouse
+
+Storage Area
+
+Remarks
+
+=========================================================
+STATUS FLOW
+=========================================================
+
+Draft
+
+Submitted
+
+Approved (future workflow)
+
+Partially Ordered
+
+Ordered
+
+Partially Received
+
+Received
+
+Cancelled
+
+Closed
+
+=========================================================
+PURCHASE TYPES
+=========================================================
+
+Standard Purchase
+
+Local Purchase
+
+Import Purchase
+
+Consignment
+
+Inter Branch
+
+Inter Company (future)
+
+Capital Goods
+
+Services
+
+=========================================================
+DELIVERY
+=========================================================
+
+Support
+
+Single delivery
+
+Partial delivery
+
+Multiple delivery schedules
+
+Backorders
+
+Expected delivery tracking
+
+=========================================================
+PURCHASE CALCULATIONS
+=========================================================
+
+Automatically calculate
+
+Line Discount
+
+Header Discount
+
+Tax
+
+Additional Charges
+
+Round Off
+
+Grand Total
+
+Use existing Tax Rule Engine.
+
+No tax calculations should be hardcoded.
+
+=========================================================
+UOM SUPPORT
+=========================================================
+
+Reuse UOM framework.
+
+Support
+
+Purchase in Cartons
+
+Inventory in Pieces
+
+Automatic conversion
+
+Packaging hierarchy
+
+=========================================================
+VENDOR SUPPORT
+=========================================================
+
+Reuse Vendor module.
+
+Support
+
+Preferred Vendor
+
+Blocked Vendor
+
+Inactive Vendor
+
+Vendor Category
+
+Vendor Rating (future)
+
+Credit Limit (future)
+
+=========================================================
+PRODUCT VALIDATION
+=========================================================
+
+Validate
+
+Inactive Product
+
+Blocked Product
+
+Expired Product
+
+Purchase Allowed
+
+Business Profile compatibility
+
+=========================================================
+INVENTORY INTEGRATION
+=========================================================
+
+Do NOT update inventory directly.
+
+Prepare extension points for
+
+Goods Receipt (GRN)
+
+Only GRN should affect stock.
+
+=========================================================
+TAX
+=========================================================
+
+Reuse Tax Framework.
+
+Support
+
+Tax Profile
+
+Tax Rule Engine
+
+Effective Dates
+
+Historical Tax
+
+Old Tax Imports
+
+=========================================================
+ATTACHMENTS
+=========================================================
+
+Support
+
+Quotation PDF
+
+Vendor Documents
+
+Purchase Files
+
+Images
+
+Excel
+
+=========================================================
+NOTES
+=========================================================
+
+Internal Notes
+
+Vendor Notes
+
+System Notes
+
+=========================================================
+SEARCH
+=========================================================
+
+Support
+
+PO Number
+
+Vendor
+
+Reference
+
+Product
+
+Status
+
+Date
+
+Branch
+
+Warehouse
+
+=========================================================
+FILTERS
+=========================================================
+
+Vendor
+
+Status
+
+Branch
+
+Warehouse
+
+Buyer
+
+Date Range
+
+Purchase Type
+
+=========================================================
+IMPORT
+=========================================================
+
+Support
+
+CSV
+
+Excel
+
+Preview
+
+Validation
+
+Duplicate Detection
+
+Error Report
+
+Retry
+
+=========================================================
+EXPORT
+=========================================================
+
+Support
+
+CSV
+
+Excel
+
+PDF (future-ready)
+
+=========================================================
+DESKTOP UI
+=========================================================
+
+Create
+
+Purchase Dashboard
+
+Purchase Orders
+
+RFQ
+
+Vendor Quotations
+
+Purchase Drafts
+
+Purchase History
+
+Purchase Analytics
+
+Purchase Settings
+
+=========================================================
+PURCHASE GRID
+=========================================================
+
+Enterprise Grid
+
+Sorting
+
+Filtering
+
+Column Chooser
+
+Grouping
+
+Freeze Columns
+
+Multi Select
+
+Bulk Operations
+
+Context Menu
+
+Keyboard Shortcuts
+
+=========================================================
+PURCHASE EDITOR
+=========================================================
+
+Large enterprise dialog.
+
+Tabbed.
+
+General
+
+Items
+
+Delivery
+
+Taxes
+
+Attachments
+
+Notes
+
+History
+
+Audit
+
+Validation Summary
+
+=========================================================
+DASHBOARD
+=========================================================
+
+Summary Cards
+
+Draft POs
+
+Open POs
+
+Pending Delivery
+
+Overdue Delivery
+
+Today's Orders
+
+Purchase Value
+
+Top Vendors
+
+Recent Purchases
+
+=========================================================
+REPORTS
+=========================================================
+
+Purchase Register
+
+Vendor Purchase Summary
+
+Item Purchase Summary
+
+Pending Purchase Orders
+
+Cancelled Purchase Orders
+
+Purchase by Branch
+
+Purchase by Warehouse
+
+Purchase Tax Summary
+
+=========================================================
+RBAC
+=========================================================
+
+Permissions
+
+Purchase View
+
+Purchase Create
+
+Purchase Update
+
+Purchase Delete
+
+Purchase Restore
+
+Purchase Cancel
+
+Purchase Close
+
+Purchase Import
+
+Purchase Export
+
+Purchase Bulk Update
+
+Purchase Manage Settings
+
+=========================================================
+AUDIT
+=========================================================
+
+Audit
+
+Create
+
+Update
+
+Delete
+
+Restore
+
+Cancel
+
+Close
+
+Import
+
+Export
+
+Bulk Update
+
+Line Changes
+
+Price Changes
+
+Tax Changes
+
+=========================================================
+GLOBAL SEARCH
+=========================================================
+
+Integrate with Global Search.
+
+=========================================================
+TESTS
+=========================================================
+
+Backend
+
+Desktop
+
+CRUD
+
+Validation
+
+Tax
+
+UOM
+
+Vendor
+
+Product
+
+RBAC
+
+Import
+
+Export
+
+Search
+
+=========================================================
+DOCUMENTATION
+=========================================================
+
+Create
+
+PURCHASE_MANAGEMENT_ARCHITECTURE.md
+
+Include
+
+Architecture
+
+Database Design
+
+REST APIs
+
+Desktop Design
+
+Business Rules
+
+Tax Integration
+
+Inventory Integration
+
+Vendor Integration
+
+UOM Integration
+
+Future GRN Integration
+
+Future Workflow Integration
+
+=========================================================
+DO NOT IMPLEMENT
+=========================================================
+
+Goods Receipt
+
+Purchase Returns
+
+Accounts Payable
+
+Workflow
+
+Payments
+
+Accounting Entries
+
+These will be implemented in later phases.
+
+Only prepare extension points.
+
+=========================================================
+SUCCESS CRITERIA
+=========================================================
+
+✓ Enterprise-grade Purchase Management.
+
+✓ No redesign of existing modules.
+
+✓ Fully integrated with Vendor, Product, Tax, Inventory, UOM and Warehouse frameworks.
+
+✓ Ready for Goods Receipt implementation.
+
+✓ Ready for future Workflow integration.
+
+✓ Enterprise Desktop UI completed.
+
+✓ Backend tests passing.
+
+✓ Desktop tests passing.
+
+=========================================================
+OUTPUT
+=========================================================
+
+Deliver
+
+1. Backend implementation.
+
+2. Database migration.
+
+3. Desktop implementation.
+
+4. Tests.
+
+5. PURCHASE_MANAGEMENT_ARCHITECTURE.md.
+
+6. Phase Completion Report including
+
+- Database tables
+- REST APIs
+- Desktop screens
+- Existing frameworks reused
+- Integration points
+- Test summary
+- Known issues
+- Technical debt
+- Future enhancements.
