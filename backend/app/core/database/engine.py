@@ -52,9 +52,7 @@ class DatabaseManager:
 
     def sessions(self, schema: str | None = None) -> SessionManager:
         """Create a session manager, optionally scoped to a future tenant schema."""
-        return SessionManager(
-            self.session_factory, schema=schema or self.config.default_schema
-        )
+        return SessionManager(self.session_factory, schema=schema)
 
     def dispose(self) -> None:
         """Release all pooled connections during application shutdown."""

@@ -98,7 +98,35 @@ class UserCreate(ApiSchema):
     expires_at: datetime | None = None
 
 
-class UserUpdate(ApiSchema):
+class UserProfileFields(ApiSchema):
+    """Optional HR/profile enrichment shared by user create and update payloads.
+
+    These fields are purely informational. They are never read by the
+    authentication or authorization pipeline, which continues to rely solely
+    on ``email``/``password_hash``/role assignments.
+    """
+
+    personal_mobile: str | None = Field(default=None, max_length=32)
+    alternate_mobile: str | None = Field(default=None, max_length=32)
+    personal_email: str | None = Field(default=None, max_length=320)
+    office_email: str | None = Field(default=None, max_length=320)
+    emergency_contact_name: str | None = Field(default=None, max_length=200)
+    emergency_mobile: str | None = Field(default=None, max_length=32)
+    emergency_relationship: str | None = Field(default=None, max_length=100)
+    employee_code: str | None = Field(default=None, max_length=64)
+    joining_date: datetime | None = None
+    leaving_date: datetime | None = None
+    department: str | None = Field(default=None, max_length=200)
+    designation: str | None = Field(default=None, max_length=200)
+    reporting_manager: str | None = Field(default=None, max_length=200)
+    employment_type: str | None = Field(default=None, max_length=100)
+    cost_center: str | None = Field(default=None, max_length=100)
+    profile_photo_url: str | None = Field(default=None, max_length=1000)
+    profile_addresses: list[dict[str, Any]] | None = None
+    profile_documents: list[dict[str, Any]] | None = None
+
+
+class UserUpdate(UserProfileFields):
     """Mutable administrator-controlled user details."""
 
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
@@ -107,7 +135,7 @@ class UserUpdate(ApiSchema):
     unlock: bool = False
 
 
-class UserResponse(ApiSchema):
+class UserResponse(UserProfileFields):
     """Safe user representation that never exposes password hashes."""
 
     id: UUID

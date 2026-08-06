@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
@@ -56,11 +56,17 @@ def list_firms(
 def create_firm(
     data: FirmCreate,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-    _: Settings = Depends(get_request_settings),
+    settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[FirmResponse]:
     """Create a platform firm."""
-    firm = FirmService(db).create(data, _actor_id(principal))
+    lifecycle = request.app.state.tenant_storage_lifecycle
+    firm = FirmService(
+        db, storage_lifecycle=lifecycle, tenancy_settings=settings.tenancy
+    ).create(
+        data, _actor_id(principal)
+    )
     return ApiResponse(data=FirmResponse.model_validate(firm))
 
 
@@ -78,9 +84,12 @@ def update_firm(
     data: FirmUpdate,
     principal: PlatformPrincipal,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[FirmResponse]:
     """Replace one firm."""
-    firm = FirmService(db).update(firm_id, data, _actor_id(principal))
+    firm = FirmService(db, tenancy_settings=settings.tenancy).update(
+        firm_id, data, _actor_id(principal)
+    )
     return ApiResponse(data=FirmResponse.model_validate(firm))
 
 

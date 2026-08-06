@@ -22,6 +22,8 @@ def record_audit(
 ) -> None:
     """Stage one immutable audit event in the current transaction."""
     context = get_request_context()
+    before_payload = _with_context_metadata(before_data, context)
+    after_payload = _with_context_metadata(after_data, context)
     session.add(
         AuditLog(
             action=action,
@@ -29,9 +31,31 @@ def record_audit(
             entity_id=entity_id,
             actor_id=actor_id,
             firm_id=firm_id,
-            before_data=before_data,
-            after_data=after_data,
+            before_data=before_payload,
+            after_data=after_payload,
             ip_address=context.client_ip if context is not None else None,
             application_version=application_version,
         )
     )
+
+
+def _with_context_metadata(
+    payload: dict[str, object] | None,
+    context: object,
+) -> dict[str, object] | None:
+    if context is None:
+        return payload
+    metadata: dict[str, object] = {
+        "correlation_id": getattr(context, "correlation_id", ""),
+        "request_id": getattr(context, "request_id", ""),
+        "requested_at": _timestamp_value(getattr(context, "requested_at", None)),
+    }
+    data = dict(payload) if payload is not None else {}
+    data["_meta"] = metadata
+    return data
+
+
+def _timestamp_value(value: object) -> object:
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value

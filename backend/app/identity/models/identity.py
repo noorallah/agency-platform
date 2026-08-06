@@ -44,6 +44,31 @@ class User(BaseEntity):
         Integer, nullable=False, default=0, server_default="0"
     )
 
+    # Optional HR/profile enrichment fields (Phase 9). These are purely
+    # informational and are never consulted by authentication/authorization —
+    # login continues to rely solely on email/password_hash/roles above.
+    personal_mobile: Mapped[str | None] = mapped_column(String(32))
+    alternate_mobile: Mapped[str | None] = mapped_column(String(32))
+    personal_email: Mapped[str | None] = mapped_column(String(320))
+    office_email: Mapped[str | None] = mapped_column(String(320))
+    emergency_contact_name: Mapped[str | None] = mapped_column(String(200))
+    emergency_mobile: Mapped[str | None] = mapped_column(String(32))
+    emergency_relationship: Mapped[str | None] = mapped_column(String(100))
+    employee_code: Mapped[str | None] = mapped_column(String(64))
+    joining_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    leaving_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    department: Mapped[str | None] = mapped_column(String(200))
+    designation: Mapped[str | None] = mapped_column(String(200))
+    reporting_manager: Mapped[str | None] = mapped_column(String(200))
+    employment_type: Mapped[str | None] = mapped_column(String(100))
+    cost_center: Mapped[str | None] = mapped_column(String(100))
+    profile_photo_url: Mapped[str | None] = mapped_column(String(1000))
+    # Structured, optional profile sub-records. Modeled as JSON for now since
+    # no shared cross-module address/attachment framework exists yet; this is
+    # the reference shape future modules should normalize toward.
+    profile_addresses: Mapped[list | None] = mapped_column(JSON)
+    profile_documents: Mapped[list | None] = mapped_column(JSON)
+
     platform_admin: Mapped["PlatformAdmin | None"] = relationship(
         back_populates="user", uselist=False
     )

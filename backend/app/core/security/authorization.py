@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import get_platform_db
 from app.core.enums import TokenType
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.security.jwt import JwtService, TokenClaims
@@ -52,7 +52,7 @@ class Principal:
 def get_current_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_platform_db),
 ) -> Principal:
     """Validate a bearer access token and expose its generic authorization data."""
     if credentials is None:

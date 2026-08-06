@@ -20,6 +20,84 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "Customers",
         "description": "Firm-scoped customer master management.",
     },
+    {
+        "name": "Products",
+        "description": "Firm-scoped enterprise product master management.",
+    },
+    {
+        "name": "Vendors",
+        "description": "Firm-scoped enterprise vendor master management.",
+    },
+    {
+        "name": "Purchases",
+        "description": "Firm-scoped enterprise purchase order management.",
+    },
+    {
+        "name": "Purchase Invoices",
+        "description": "Firm-scoped supplier invoice management.",
+    },
+    {
+        "name": "Purchase Returns",
+        "description": "Firm-scoped supplier return management.",
+    },
+    {
+        "name": "Sales Orders",
+        "description": "Firm-scoped enterprise sales order management.",
+    },
+    {
+        "name": "Sales Invoices",
+        "description": "Firm-scoped customer invoice management.",
+    },
+    {
+        "name": "Delivery Notes",
+        "description": "Firm-scoped enterprise delivery note dispatch management.",
+    },
+    {
+        "name": "Goods Receipts",
+        "description": "Firm-scoped enterprise goods receipt note management.",
+    },
+    {
+        "name": "Branches & Warehouses",
+        "description": "Firm-scoped enterprise branch and warehouse management.",
+    },
+    {
+        "name": "Sales Territories",
+        "description": "Configurable firm-scoped territory hierarchy and assignments.",
+    },
+    {
+        "name": "Business framework",
+        "description": (
+            "Business profile, feature, module, and attribute configuration."
+        ),
+    },
+    {
+        "name": "Document framework",
+        "description": (
+            "Reusable document lifecycle, numbering, state, and timeline configuration."
+        ),
+    },
+    {
+        "name": "Enterprise Tax Framework",
+        "description": "Country-independent configurable enterprise tax systems.",
+    },
+    {
+        "name": "Inventory",
+        "description": "Immutable transaction-based enterprise inventory foundation.",
+    },
+    {
+        "name": "Batch & Serial",
+        "description": "Enterprise batch, lot, serial number, and expiry management.",
+    },
+    {
+        "name": "UOM & Packaging",
+        "description": (
+            "Enterprise units of measure, conversions, and packaging hierarchy."
+        ),
+    },
+    {
+        "name": "Global Search",
+        "description": "Permission-aware, firm-aware enterprise cross-module search.",
+    },
     {"name": "Dashboard", "description": "Platform administration summary."},
 ]
 STANDARD_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {

@@ -29,3 +29,5 @@ Business ─┘          │
                       ├── validation and query contracts
                       └── constants and utilities
 ```
+
+For end-to-end backend setup and module coverage, see `..\..\README.md`.

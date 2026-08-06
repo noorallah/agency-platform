@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.tenancy.models import DeploymentMode
 from app.core.validation import validate_email, validate_phone
 
 
@@ -32,6 +33,11 @@ class FirmCreate(FirmSchema):
     contact_phone: str | None = Field(default=None, max_length=20)
     currency_code: str = Field(min_length=3, max_length=3)
     financial_year_start: date
+    deployment_mode: DeploymentMode | None = None
+    database_name: str | None = Field(default=None, max_length=128)
+    schema_name: str | None = Field(default=None, max_length=128)
+    database_type: str | None = Field(default="postgresql", max_length=32)
+    status: str = Field(default="ACTIVE", max_length=32)
     is_active: bool = True
     notes: str | None = None
 
@@ -40,6 +46,45 @@ class FirmCreate(FirmSchema):
     def normalize_code(cls, value: str) -> str:
         """Normalize identifiers consistently before persistence."""
         return value.strip().upper()
+
+    @field_validator("deployment_mode", mode="before")
+    @classmethod
+    def normalize_deployment_mode(
+        cls, value: str | DeploymentMode | None
+    ) -> DeploymentMode | None:
+        """Normalize deployment mode case consistently."""
+        if value is None:
+            return None
+        if isinstance(value, DeploymentMode):
+            return value
+        return DeploymentMode(value.strip().upper())
+
+    @field_validator(
+        "database_name",
+        "schema_name",
+        "database_type",
+        "status",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        """Normalize optional textual tenancy metadata."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("status", mode="after")
+    @classmethod
+    def normalize_status(cls, value: str) -> str:
+        """Keep registry status values uppercase."""
+        return value.upper()
+
+    @field_validator("database_type", mode="after")
+    @classmethod
+    def normalize_database_type(cls, value: str | None) -> str | None:
+        """Keep database type canonicalized for resolver matching."""
+        return value.lower() if value is not None else None
 
     @field_validator("contact_email")
     @classmethod
@@ -77,6 +122,13 @@ class FirmResponse(FirmSchema):
     contact_phone: str | None
     currency_code: str
     financial_year_start: date
+    deployment_mode: DeploymentMode
+    database_name: str | None
+    schema_name: str | None
+    database_type: str
+    status: str
+    created_date: datetime | None
+    updated_date: datetime | None
     is_active: bool
     notes: str | None
     created_at: datetime

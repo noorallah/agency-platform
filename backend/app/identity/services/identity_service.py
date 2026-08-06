@@ -419,6 +419,28 @@ class IdentityService:
             user.expires_at = data.expires_at
         if data.unlock:
             user.locked_until, user.failed_login_attempts = None, 0
+        for field in (
+            "personal_mobile",
+            "alternate_mobile",
+            "personal_email",
+            "office_email",
+            "emergency_contact_name",
+            "emergency_mobile",
+            "emergency_relationship",
+            "employee_code",
+            "joining_date",
+            "leaving_date",
+            "department",
+            "designation",
+            "reporting_manager",
+            "employment_type",
+            "cost_center",
+            "profile_photo_url",
+            "profile_addresses",
+            "profile_documents",
+        ):
+            if field in data.model_fields_set:
+                setattr(user, field, getattr(data, field))
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
         record_audit(

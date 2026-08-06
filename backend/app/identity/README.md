@@ -49,3 +49,6 @@ schema.
 Audit events for administration mutations are stored by `app.common.audit`.
 For startup, bootstrap, and environment configuration, use the backend
 [`README.md`](../../README.md).
+
+For enterprise module APIs added after the identity foundation, see the backend
+[`README.md`](../../README.md) API surface section.
