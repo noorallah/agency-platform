@@ -962,6 +962,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'module-configuration',
           'attribute-definitions',
           'profile-assignment',
+          'tax-setup',
           'tax-systems',
           'tax-components',
           'tax-profiles',
@@ -1056,6 +1057,9 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           api: widget.api,
           definition:
               _firmProfileAssignmentDefinition(widget.api, widget.permissions),
+        ),
+      'tax-setup' => TaxSetupPage(
+          api: widget.api,
         ),
       'tax-systems' => TaxManagementPage(
           api: widget.api,

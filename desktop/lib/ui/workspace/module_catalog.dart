@@ -149,6 +149,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'tax-setup',
+          label: 'Tax Setup',
+          requiredPermissions: ['TAX_CREATE'],
+        ),
+        ModuleTabDefinition(
           id: 'tax-systems',
           label: 'Tax Systems',
           requiredPermissions: ['TAX_VIEW'],
@@ -934,6 +939,7 @@ abstract final class ModuleCatalog {
               ],
             ),
           if (hasAny([
+            'tax-setup',
             'tax-systems',
             'tax-components',
             'tax-profiles',
@@ -953,6 +959,11 @@ abstract final class ModuleCatalog {
               label: 'Tax Configuration',
               icon: Icons.receipt_long_outlined,
               children: [
+                if (visibleTabIds.contains('tax-setup'))
+                  const WorkspaceNavigationNode(
+                    label: 'Tax Setup',
+                    path: 'tax-setup',
+                  ),
                 if (visibleTabIds.contains('tax-systems'))
                   const WorkspaceNavigationNode(
                     label: 'Tax Systems',
