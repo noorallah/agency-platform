@@ -33,7 +33,7 @@ from app.business.schemas import (
     IdentifierList,
 )
 from app.business.services import BusinessProfileFrameworkService
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import get_db, get_platform_db
 from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -447,10 +447,13 @@ def get_firm_profile_assignment(
 def get_active_features(
     principal: Annotated[Principal, Depends(require_authenticated())],
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveFeatureResponse]]:
-    resolved_firm = _resolve_firm_scope(principal, db, x_firm_id, firm_id)
+    resolved_firm = _resolve_firm_scope(
+        principal, platform_db, x_firm_id, firm_id
+    )
     rows = _service(db).active_features(resolved_firm)
     return ApiResponse(
         data=[
@@ -470,10 +473,13 @@ def get_active_features(
 def get_active_modules(
     principal: Annotated[Principal, Depends(require_authenticated())],
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
-    resolved_firm = _resolve_firm_scope(principal, db, x_firm_id, firm_id)
+    resolved_firm = _resolve_firm_scope(
+        principal, platform_db, x_firm_id, firm_id
+    )
     rows = _service(db).active_modules(resolved_firm)
     return ApiResponse(
         data=[
