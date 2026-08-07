@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import get_db, get_platform_db
 from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -72,7 +72,7 @@ class UomScope:
 
 def uom_scope(
     principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_platform_db)],
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
 ) -> UomScope:
     if "platform_admin" in principal.roles:
