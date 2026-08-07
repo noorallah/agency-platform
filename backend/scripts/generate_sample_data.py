@@ -74,7 +74,7 @@ from app.document_framework.models import (
     DocumentTotal,
     DocumentTypeDefinition,
 )
-from app.firms.models import Firm
+from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
 from app.firms.services.firm_service import FirmService
 from app.goods_receipt.models import (
@@ -617,9 +617,9 @@ def main() -> None:
     parser.add_argument(
         "mode",
         nargs="?",
-        choices=("reseed", "reset"),
+        choices=("reseed", "reset", "products"),
         default="reseed",
-        help="Use 'reset' to delete generated development data only.",
+        help="Use 'reset' to delete generated data only, or 'products' for product-focused seed data.",
     )
     parser.add_argument(
         "--yes",
@@ -636,6 +636,7 @@ def main() -> None:
     database = DatabaseManager.from_settings(settings)
     try:
         with database.sessions().session() as session:
+            _configure_seed_search_path(session, settings)
             _reset_development_data(session)
             seed_system_rbac(session)
             seed_business_profiles(session)
@@ -652,7 +653,11 @@ def main() -> None:
                 )
                 print("Development data reset completed.")
                 return
-            artifacts = _seed_enterprise_dataset(session, settings)
+            artifacts = _seed_enterprise_dataset(
+                session,
+                settings,
+                products_only=args.mode == "products",
+            )
             USERS_DOC_PATH.write_text(
                 _render_users_doc(artifacts.logins), encoding="utf-8"
             )
@@ -663,6 +668,22 @@ def main() -> None:
             _print_summary(artifacts.counts)
     finally:
         database.dispose()
+
+
+def _configure_seed_search_path(session: Session, settings: Settings) -> None:
+    """Ensure seed queries can resolve platform + shared-firm tables."""
+    if session.bind is None or session.bind.dialect.name != "postgresql":
+        return
+    platform_schema = settings.database_schema or "platform"
+    shared_schema = settings.tenancy_shared_schema_name or "firm_shared"
+    if platform_schema == shared_schema:
+        session.execute(text(f'SET search_path TO "{platform_schema}", public'))
+        return
+    session.execute(
+        text(
+            f'SET search_path TO "{platform_schema}", "{shared_schema}", public'
+        )
+    )
 
 
 def _assert_allowed_environment(settings: Settings) -> None:
@@ -687,7 +708,17 @@ def _safe_delete(session: Session, model: Any) -> None:
     bind = session.get_bind()
     if bind is None:
         return
-    if inspect(bind).has_table(model.__table__.name):
+    table_name = model.__table__.name
+    if bind.dialect.name == "postgresql":
+        exists = session.scalar(
+            text("SELECT to_regclass(:table_name) IS NOT NULL"),
+            {"table_name": table_name},
+        )
+        if not exists:
+            return
+        session.execute(delete(model))
+        return
+    if inspect(bind).has_table(table_name):
         session.execute(delete(model))
 
 
@@ -830,6 +861,7 @@ def _reset_development_data(session: Session) -> None:
         session.execute(delete(User))
         session.execute(delete(PlatformAdmin))
 
+    _safe_delete(session, FirmStorageMapping)
     session.execute(delete(Firm))
     _purge_audit_logs(session)
     session.commit()
@@ -844,7 +876,7 @@ def _purge_audit_logs(session: Session) -> None:
 
 
 def _seed_enterprise_dataset(
-    session: Session, settings: Settings
+    session: Session, settings: Settings, *, products_only: bool = False
 ) -> GenerationArtifacts:
     counts: Counter[str] = Counter()
     logins: list[LoginRecord] = []
@@ -989,6 +1021,13 @@ def _seed_enterprise_dataset(
         )
         counts["products"] = sum(len(items) for items in products_by_firm.values())
         counts["categories"] = _count_active(session, ProductCategory)
+        if products_only:
+            counts["tax_systems"] = _count_active(session, TaxSystem)
+            counts["tax_components"] = _count_active(session, TaxComponent)
+            notes.append(
+                "Product-only mode seeded firms, users, tax, vendors, categories, and products."
+            )
+            return GenerationArtifacts(counts=counts, logins=logins, notes=notes)
 
         customers_by_firm = _seed_customers(
             customer_service=customer_service,
@@ -1709,8 +1748,6 @@ def _seed_tax_framework(
             description="Development GST configuration.",
             status=TaxStatus.ACTIVE,
             display_order=10,
-            effective_from=date(2017, 7, 1),
-            effective_to=None,
         ),
         firm_id=firm.id,
         actor_id=actor_id,
@@ -1725,8 +1762,6 @@ def _seed_tax_framework(
             description="Historical tax configuration retained for migration scenarios.",
             status=TaxStatus.ACTIVE,
             display_order=20,
-            effective_from=date(2013, 4, 1),
-            effective_to=None,
         ),
         firm_id=firm.id,
         actor_id=actor_id,
@@ -1745,8 +1780,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=True,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2017, 7, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1764,8 +1797,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=True,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2017, 7, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1783,8 +1814,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=True,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2017, 7, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1802,8 +1831,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=False,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2017, 7, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1823,8 +1850,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=False,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2013, 4, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1842,8 +1867,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=False,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2013, 4, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1861,8 +1884,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=False,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2013, 4, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -1880,8 +1901,6 @@ def _seed_tax_framework(
                 included_in_price=False,
                 recoverable=False,
                 status=TaxStatus.ACTIVE,
-                effective_from=date(2013, 4, 1),
-                effective_to=None,
             ),
             firm_id=firm.id,
             actor_id=actor_id,
@@ -2851,7 +2870,8 @@ def _seed_products(
                             brand=BRANDS[(index + context_index) % len(BRANDS)],
                             model=f"M{context_index}{product_counter:03d}",
                             hsn_sac=hsn,
-                            tax_profile_id=tax_profile.id,
+                            tax_profile_group_code=tax_profile.group_code
+                            or tax_profile.code,
                             purchase_price=Decimal("50")
                             + Decimal(product_counter % 15) * Decimal("12.5"),
                             selling_price=Decimal("80")
@@ -3045,7 +3065,7 @@ def _run_tax_simulations(
                 transaction_date=date(2025, 4, 5),
                 country_id=geography["country"].id,
                 business_profile_id=context.profile.id,
-                tax_profile_id=export_product.tax_profile_id,
+                tax_profile_id=None,
                 branch_id=context.branches[0].id,
                 warehouse_id=context.warehouses[0].id,
                 customer_id=customer.id,
@@ -3068,7 +3088,7 @@ def _run_tax_simulations(
                 transaction_date=date(2025, 4, 10),
                 country_id=geography["country"].id,
                 business_profile_id=context.profile.id,
-                tax_profile_id=high_value_product.tax_profile_id,
+                tax_profile_id=None,
                 branch_id=context.branches[0].id,
                 warehouse_id=context.warehouses[0].id,
                 customer_id=customer.id,
@@ -3091,7 +3111,7 @@ def _run_tax_simulations(
                 transaction_date=date(2025, 4, 12),
                 country_id=geography["country"].id,
                 business_profile_id=context.profile.id,
-                tax_profile_id=purchase_product.tax_profile_id,
+                tax_profile_id=None,
                 branch_id=context.branches[0].id,
                 warehouse_id=context.warehouses[0].id,
                 customer_id=None,
@@ -3289,119 +3309,185 @@ def _seed_uom_inventory_and_documents(
     buyer = created_users.get("purchase_users", [None])[0]
     receiver = created_users.get("warehouse_managers", [None])[0]
 
-    uom_unit = Uom(
-        code="PCS",
-        name="Pieces",
-        symbol="pcs",
-        dimension="COUNT",
-        status="ACTIVE",
-        is_decimal_allowed=True,
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    uom_box = Uom(
-        code="BOX",
-        name="Box",
-        symbol="box",
-        dimension="COUNT",
-        status="ACTIVE",
-        is_decimal_allowed=False,
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    uom_carton = Uom(
-        code="CTN",
-        name="Carton",
-        symbol="ctn",
-        dimension="COUNT",
-        status="ACTIVE",
-        is_decimal_allowed=False,
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add_all([uom_unit, uom_box, uom_carton])
-    session.flush()
-
-    uom_group = UomGroup(
-        code="NVK_PACK_COUNT",
-        name="Navkar Pack Count",
-        description="Default count group for sample ERP dataset.",
-        status="ACTIVE",
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add(uom_group)
-    session.flush()
-    session.add_all(
-        [
-            UomGroupUnit(
-                uom_group_id=uom_group.id,
-                uom_id=uom_unit.id,
-                is_base=True,
-                display_order=1,
-                created_by=actor_id,
-                updated_by=actor_id,
-            ),
-            UomGroupUnit(
-                uom_group_id=uom_group.id,
-                uom_id=uom_box.id,
-                is_base=False,
-                display_order=2,
-                created_by=actor_id,
-                updated_by=actor_id,
-            ),
-            UomGroupUnit(
-                uom_group_id=uom_group.id,
-                uom_id=uom_carton.id,
-                is_base=False,
-                display_order=3,
-                created_by=actor_id,
-                updated_by=actor_id,
-            ),
-        ]
-    )
-
-    pkg_unit = PackagingType(
-        code="UNIT",
-        name="Unit",
-        description="Single unit packaging.",
-        status="ACTIVE",
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    pkg_box = PackagingType(
-        code="BOX",
-        name="Box",
-        description="Inner retail box.",
-        status="ACTIVE",
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    pkg_carton = PackagingType(
-        code="CARTON",
-        name="Carton",
-        description="Outer shipping carton.",
-        status="ACTIVE",
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add_all([pkg_unit, pkg_box, pkg_carton])
-    session.flush()
-
-    session.add(
-        BusinessProfileUomDefault(
-            firm_id=firm_id,
-            business_profile_id=context.profile.id,
-            base_uom_id=uom_unit.id,
-            inventory_uom_id=uom_unit.id,
-            purchase_uom_id=uom_box.id,
-            sales_uom_id=uom_unit.id,
-            allow_fraction=False,
-            allow_decimal=True,
+    uom_by_code = {
+        row.code: row
+        for row in session.scalars(
+            select(Uom).where(
+                Uom.code.in_(("PCS", "BOX", "CTN")),
+                Uom.is_deleted.is_(False),
+            )
+        ).all()
+    }
+    if "PCS" not in uom_by_code:
+        uom = Uom(
+            code="PCS",
+            name="Pieces",
+            symbol="pcs",
+            dimension="COUNT",
+            status="ACTIVE",
+            is_decimal_allowed=True,
             created_by=actor_id,
             updated_by=actor_id,
         )
+        session.add(uom)
+        session.flush()
+        uom_by_code["PCS"] = uom
+    if "BOX" not in uom_by_code:
+        uom = Uom(
+            code="BOX",
+            name="Box",
+            symbol="box",
+            dimension="COUNT",
+            status="ACTIVE",
+            is_decimal_allowed=False,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(uom)
+        session.flush()
+        uom_by_code["BOX"] = uom
+    if "CTN" not in uom_by_code:
+        uom = Uom(
+            code="CTN",
+            name="Carton",
+            symbol="ctn",
+            dimension="COUNT",
+            status="ACTIVE",
+            is_decimal_allowed=False,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(uom)
+        session.flush()
+        uom_by_code["CTN"] = uom
+
+    uom_unit = uom_by_code["PCS"]
+    uom_box = uom_by_code["BOX"]
+    uom_carton = uom_by_code["CTN"]
+
+    uom_group = session.scalar(
+        select(UomGroup).where(
+            UomGroup.code == "NVK_PACK_COUNT",
+            UomGroup.is_deleted.is_(False),
+        )
     )
+    if uom_group is None:
+        uom_group = UomGroup(
+            code="NVK_PACK_COUNT",
+            name="Navkar Pack Count",
+            description="Default count group for sample ERP dataset.",
+            status="ACTIVE",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(uom_group)
+        session.flush()
+
+    existing_group_uom_ids = {
+        row.uom_id
+        for row in session.scalars(
+            select(UomGroupUnit).where(
+                UomGroupUnit.uom_group_id == uom_group.id,
+                UomGroupUnit.is_deleted.is_(False),
+            )
+        ).all()
+    }
+    for display_order, uom_id, is_base in (
+        (1, uom_unit.id, True),
+        (2, uom_box.id, False),
+        (3, uom_carton.id, False),
+    ):
+        if uom_id in existing_group_uom_ids:
+            continue
+        session.add(
+            UomGroupUnit(
+                uom_group_id=uom_group.id,
+                uom_id=uom_id,
+                is_base=is_base,
+                display_order=display_order,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+
+    packaging_by_code = {
+        row.code: row
+        for row in session.scalars(
+            select(PackagingType).where(
+                PackagingType.code.in_(("UNIT", "BOX", "CARTON")),
+                PackagingType.is_deleted.is_(False),
+            )
+        ).all()
+    }
+    if "UNIT" not in packaging_by_code:
+        session.add(
+            PackagingType(
+                code="UNIT",
+                name="Unit",
+                description="Single unit packaging.",
+                status="ACTIVE",
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+    if "BOX" not in packaging_by_code:
+        session.add(
+            PackagingType(
+                code="BOX",
+                name="Box",
+                description="Inner retail box.",
+                status="ACTIVE",
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+    if "CARTON" not in packaging_by_code:
+        session.add(
+            PackagingType(
+                code="CARTON",
+                name="Carton",
+                description="Outer shipping carton.",
+                status="ACTIVE",
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+    session.flush()
+    packaging_by_code = {
+        row.code: row
+        for row in session.scalars(
+            select(PackagingType).where(
+                PackagingType.code.in_(("UNIT", "BOX", "CARTON")),
+                PackagingType.is_deleted.is_(False),
+            )
+        ).all()
+    }
+    pkg_unit = packaging_by_code["UNIT"]
+    pkg_box = packaging_by_code["BOX"]
+    pkg_carton = packaging_by_code["CARTON"]
+
+    profile_defaults = session.scalar(
+        select(BusinessProfileUomDefault).where(
+            BusinessProfileUomDefault.firm_id == firm_id,
+            BusinessProfileUomDefault.business_profile_id == context.profile.id,
+            BusinessProfileUomDefault.is_deleted.is_(False),
+        )
+    )
+    if profile_defaults is None:
+        session.add(
+            BusinessProfileUomDefault(
+                firm_id=firm_id,
+                business_profile_id=context.profile.id,
+                base_uom_id=uom_unit.id,
+                inventory_uom_id=uom_unit.id,
+                purchase_uom_id=uom_box.id,
+                sales_uom_id=uom_unit.id,
+                allow_fraction=False,
+                allow_decimal=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
 
     for index, product in enumerate(products[:6], start=1):
         product.base_uom_id = uom_unit.id
