@@ -268,7 +268,7 @@ class _DesktopShellState extends State<DesktopShell> {
         child: SizedBox(
           height: 68,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.only(left: 12, right: 4),
             child: Row(children: [
               Row(
                 children: [
@@ -313,76 +313,16 @@ class _DesktopShellState extends State<DesktopShell> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
               ),
-              const SizedBox(width: 16),
-              _firmControl(),
-              const SizedBox(width: 12),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 340, minWidth: 220),
-                child: OutlinedButton.icon(
-                  onPressed: _openGlobalSearch,
-                  icon: const Icon(Icons.search_outlined),
-                  label: const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Search modules and records (Ctrl/Cmd+K)'),
-                  ),
-                ),
-              ),
               const Spacer(),
-              PopupMenuButton<String>(
-                tooltip: 'Quick actions',
-                icon: const Icon(Icons.add_circle_outline),
-                onSelected: _handleQuickAction,
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'new',
-                    child: ListTile(
-                      dense: true,
-                      leading: Icon(Icons.add),
-                      title: Text('New'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'import',
-                    child: ListTile(
-                      dense: true,
-                      leading: Icon(Icons.file_upload_outlined),
-                      title: Text('Import'),
-                    ),
-                  ),
-                ],
+              _firmControl(),
+              const SizedBox(width: 8),
+              ThemeSelector(
+                manager: widget.themes,
+                buttonPadding: EdgeInsets.zero,
               ),
-              IconButton(
-                tooltip: 'Import',
-                onPressed: _openImportForModule,
-                icon: const Icon(Icons.file_upload_outlined),
-              ),
-              if (widget.session.notice != null)
-                IconButton(
-                  tooltip: widget.session.notice,
-                  onPressed: () => NotificationService.show(
-                    context,
-                    widget.session.notice!,
-                    kind: AppNotificationKind.warning,
-                  ),
-                  icon: const Icon(Icons.notifications_active_outlined),
-                )
-              else
-                const Tooltip(
-                  message: 'Notifications',
-                  child: Icon(Icons.notifications_none_outlined),
-                ),
-              IconButton(
-                tooltip: 'Help',
-                onPressed: () => NotificationService.show(
-                  context,
-                  'Use Ctrl+K (or Cmd+K on macOS) for global search.',
-                  kind: AppNotificationKind.information,
-                ),
-                icon: const Icon(Icons.help_outline),
-              ),
-              ThemeSelector(manager: widget.themes),
               PopupMenuButton<String>(
                 tooltip: 'Profile',
+                padding: EdgeInsets.zero,
                 icon: const Icon(Icons.account_circle_outlined),
                 onSelected: (value) {
                   if (value == 'logout') {
@@ -416,25 +356,55 @@ class _DesktopShellState extends State<DesktopShell> {
     if (firms.length <= 1) {
       return compact
           ? const SizedBox.shrink()
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(children: [
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                border: Border.all(
+                  color: Theme.of(context).dividerColor.withValues(alpha: .7),
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
                 const Icon(Icons.business_outlined, size: 18),
                 const SizedBox(width: 8),
-                Text(current?.name ?? 'No firm assigned'),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 190),
+                  child: Text(
+                    current?.name ?? 'No firm assigned',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ]),
             );
     }
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: _openFirmPicker,
-      child: Padding(
+      child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          border: Border.all(
+            color: Theme.of(context).dividerColor.withValues(alpha: .7),
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.business_outlined, size: 18),
             const SizedBox(width: 8),
+            if (!compact)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Text(
+                  'Agency',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
             ConstrainedBox(
               constraints: BoxConstraints(maxWidth: compact ? 90 : 210),
               child: Text(
@@ -985,34 +955,6 @@ class _DesktopShellState extends State<DesktopShell> {
       ),
     ];
     return sections.where((section) => section.moduleIds.isNotEmpty).toList();
-  }
-
-  void _handleQuickAction(String action) {
-    switch (action) {
-      case 'new':
-        NotificationService.show(
-          context,
-          'Use the active module toolbar to create a new record.',
-          kind: AppNotificationKind.information,
-        );
-        break;
-      case 'import':
-        _openImportForModule();
-        break;
-    }
-  }
-
-  void _openImportForModule() {
-    final AppModule module = _routeModule();
-    if (module == AppModule.inventory) {
-      _router.navigate(AppModule.inventory.name, tab: 'inventory-import');
-      return;
-    }
-    NotificationService.show(
-      context,
-      'Import is available in module-specific pages.',
-      kind: AppNotificationKind.information,
-    );
   }
 
   Future<void> _toggleSidebar() async {
