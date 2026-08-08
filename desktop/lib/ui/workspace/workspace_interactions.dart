@@ -72,6 +72,9 @@ class WorkspaceShortcutBindings {
         if (globalSearch != null)
           const SingleActivator(LogicalKeyboardKey.keyK, control: true):
               globalSearch!,
+        if (globalSearch != null)
+          const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+              globalSearch!,
       };
 }
 

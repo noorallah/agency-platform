@@ -264,11 +264,36 @@ class _DesktopShellState extends State<DesktopShell> {
 
   Widget _applicationHeader(AppModule section) => Material(
         color: Theme.of(context).colorScheme.surface,
+        elevation: 1,
         child: SizedBox(
-          height: 64,
+          height: 68,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.account_balance,
+                    size: 20,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.branding.appName,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ],
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: _sidebarCollapsed
+                    ? 'Expand navigation'
+                    : 'Collapse navigation',
+                onPressed: _toggleSidebar,
+                icon: Icon(
+                  _sidebarCollapsed ? Icons.chevron_right : Icons.chevron_left,
+                ),
+              ),
               IconButton(
                 tooltip: 'Back',
                 onPressed: _router.canGoBack ? _router.back : null,
@@ -280,12 +305,57 @@ class _DesktopShellState extends State<DesktopShell> {
                 icon: const Icon(Icons.arrow_forward),
               ),
               const SizedBox(width: 8),
-              Text(
-                ModuleCatalog.byId(section).label,
-                style: Theme.of(context).textTheme.titleLarge,
+              Flexible(
+                child: Text(
+                  ModuleCatalog.byId(section).label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              const SizedBox(width: 16),
+              _firmControl(),
+              const SizedBox(width: 12),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 340, minWidth: 220),
+                child: OutlinedButton.icon(
+                  onPressed: _openGlobalSearch,
+                  icon: const Icon(Icons.search_outlined),
+                  label: const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Search modules and records (Ctrl/Cmd+K)'),
+                  ),
+                ),
               ),
               const Spacer(),
-              _firmControl(),
+              PopupMenuButton<String>(
+                tooltip: 'Quick actions',
+                icon: const Icon(Icons.add_circle_outline),
+                onSelected: _handleQuickAction,
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'new',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.add),
+                      title: Text('New'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'import',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.file_upload_outlined),
+                      title: Text('Import'),
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                tooltip: 'Import',
+                onPressed: _openImportForModule,
+                icon: const Icon(Icons.file_upload_outlined),
+              ),
               if (widget.session.notice != null)
                 IconButton(
                   tooltip: widget.session.notice,
@@ -297,9 +367,44 @@ class _DesktopShellState extends State<DesktopShell> {
                   icon: const Icon(Icons.notifications_active_outlined),
                 )
               else
-                const Icon(Icons.notifications_none_outlined),
-              const SizedBox(width: 8),
+                const Tooltip(
+                  message: 'Notifications',
+                  child: Icon(Icons.notifications_none_outlined),
+                ),
+              IconButton(
+                tooltip: 'Help',
+                onPressed: () => NotificationService.show(
+                  context,
+                  'Use Ctrl+K (or Cmd+K on macOS) for global search.',
+                  kind: AppNotificationKind.information,
+                ),
+                icon: const Icon(Icons.help_outline),
+              ),
               ThemeSelector(manager: widget.themes),
+              PopupMenuButton<String>(
+                tooltip: 'Profile',
+                icon: const Icon(Icons.account_circle_outlined),
+                onSelected: (value) {
+                  if (value == 'logout') {
+                    widget.session.logout();
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    enabled: false,
+                    child: Text(widget.session.attemptedUsername ?? 'User'),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    value: 'logout',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.logout),
+                      title: Text('Sign out'),
+                    ),
+                  ),
+                ],
+              ),
             ]),
           ),
         ),
@@ -320,24 +425,44 @@ class _DesktopShellState extends State<DesktopShell> {
               ]),
             );
     }
-    return DropdownButtonHideUnderline(
-      child: DropdownButton<String>(
-        value: current?.id,
-        hint: const Text('Select firm'),
-        icon: const Icon(Icons.swap_horiz),
-        items: firms
-            .map(
-              (firm) => DropdownMenuItem(
-                value: firm.id,
-                child: Text(compact ? firm.code : firm.name),
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: _openFirmPicker,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.business_outlined, size: 18),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: compact ? 90 : 210),
+              child: Text(
+                compact
+                    ? (current?.code ?? 'No firm')
+                    : (current?.name ?? 'No firm'),
+                overflow: TextOverflow.ellipsis,
               ),
-            )
-            .toList(),
-        onChanged: (firmId) {
-          if (firmId != null) _switchFirm(firmId);
-        },
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _openFirmPicker() async {
+    final String? selected = await showDialog<String>(
+      context: context,
+      builder: (context) => _FirmSwitcherDialog(
+        firms: widget.session.firms,
+        activeFirmId: widget.session.currentFirm?.id,
+      ),
+    );
+    if (selected != null) {
+      await _switchFirm(selected);
+    }
   }
 
   Future<void> _switchFirm(String firmId) async {
@@ -452,6 +577,12 @@ class _DesktopShellState extends State<DesktopShell> {
           addRecords(_searchInventoryByBranch(request.query)),
         ]);
         break;
+      case GlobalSearchCategory.modules:
+      case GlobalSearchCategory.documents:
+      case GlobalSearchCategory.transactions:
+      case GlobalSearchCategory.reports:
+      case GlobalSearchCategory.customers:
+      case GlobalSearchCategory.vendors:
       case GlobalSearchCategory.inventory:
         await Future.wait([
           addRecords(_searchInventoryDirect(request.query)),
@@ -501,6 +632,12 @@ class _DesktopShellState extends State<DesktopShell> {
   String _searchCategoryWire(GlobalSearchCategory category) =>
       switch (category) {
         GlobalSearchCategory.all => 'all',
+        GlobalSearchCategory.modules => 'modules',
+        GlobalSearchCategory.customers => 'customers',
+        GlobalSearchCategory.vendors => 'vendors',
+        GlobalSearchCategory.documents => 'documents',
+        GlobalSearchCategory.transactions => 'transactions',
+        GlobalSearchCategory.reports => 'reports',
         GlobalSearchCategory.masters => 'masters',
         GlobalSearchCategory.inventory => 'inventory',
         GlobalSearchCategory.tax => 'tax',
@@ -731,6 +868,7 @@ class _DesktopShellState extends State<DesktopShell> {
       ).hasMatch(value.trim());
 
   Widget _applicationStatusBar() => ApplicationStatusBar(
+        stateText: 'Online',
         currentUser: widget.session.attemptedUsername,
         currentFirm: widget.session.currentFirm?.name ?? 'No active firm',
         backend: ConnectionStateIndicator.checking,
@@ -782,6 +920,7 @@ class _DesktopShellState extends State<DesktopShell> {
         },
         collapsed: _sidebarCollapsed,
         onToggleCollapsed: _toggleSidebar,
+        sections: _navigationSections(modules),
         footer: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: _sidebarCollapsed
@@ -800,6 +939,81 @@ class _DesktopShellState extends State<DesktopShell> {
                 ]),
         ),
       );
+
+  List<EnterpriseSidebarSection> _navigationSections(
+      List<ModuleDefinition> modules) {
+    final Set<AppModule> available = modules.map((module) => module.id).toSet();
+    List<AppModule> pick(List<AppModule> values) =>
+        values.where(available.contains).toList();
+    final List<EnterpriseSidebarSection> sections = [
+      EnterpriseSidebarSection(
+        label: 'CORE',
+        moduleIds: pick([AppModule.dashboard, AppModule.administration]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'MASTERS',
+        moduleIds: pick([AppModule.masters]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'TRANSACTIONS',
+        moduleIds: pick([
+          AppModule.purchases,
+          AppModule.purchaseInvoices,
+          AppModule.purchaseReturns,
+          AppModule.goodsReceipts,
+          AppModule.sales,
+          AppModule.salesOrders,
+          AppModule.deliveryNotes,
+          AppModule.salesInvoices,
+        ]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'INVENTORY',
+        moduleIds: pick([AppModule.inventory]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'FINANCE',
+        moduleIds: pick([AppModule.accounting]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'REPORTS',
+        moduleIds: pick([AppModule.reports]),
+      ),
+      EnterpriseSidebarSection(
+        label: 'SETUP',
+        moduleIds: pick([AppModule.licensing, AppModule.settings]),
+      ),
+    ];
+    return sections.where((section) => section.moduleIds.isNotEmpty).toList();
+  }
+
+  void _handleQuickAction(String action) {
+    switch (action) {
+      case 'new':
+        NotificationService.show(
+          context,
+          'Use the active module toolbar to create a new record.',
+          kind: AppNotificationKind.information,
+        );
+        break;
+      case 'import':
+        _openImportForModule();
+        break;
+    }
+  }
+
+  void _openImportForModule() {
+    final AppModule module = _routeModule();
+    if (module == AppModule.inventory) {
+      _router.navigate(AppModule.inventory.name, tab: 'inventory-import');
+      return;
+    }
+    NotificationService.show(
+      context,
+      'Import is available in module-specific pages.',
+      kind: AppNotificationKind.information,
+    );
+  }
 
   Future<void> _toggleSidebar() async {
     setState(() => _sidebarCollapsed = !_sidebarCollapsed);
@@ -913,6 +1127,85 @@ class _DesktopShellState extends State<DesktopShell> {
             permissions: widget.permissions,
           ),
       };
+}
+
+class _FirmSwitcherDialog extends StatefulWidget {
+  const _FirmSwitcherDialog({
+    required this.firms,
+    required this.activeFirmId,
+  });
+
+  final List<AssignedFirm> firms;
+  final String? activeFirmId;
+
+  @override
+  State<_FirmSwitcherDialog> createState() => _FirmSwitcherDialogState();
+}
+
+class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Switch firm'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'Search firms',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 320,
+                child: ListView(
+                  children: _filteredFirms()
+                      .map(
+                        (firm) => ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.business_outlined),
+                          title: Text(firm.name),
+                          subtitle: Text(firm.code),
+                          trailing: firm.id == widget.activeFirmId
+                              ? const Icon(Icons.check, size: 18)
+                              : null,
+                          onTap: () => Navigator.of(context).pop(firm.id),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  List<AssignedFirm> _filteredFirms() {
+    final String query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return widget.firms;
+    }
+    return widget.firms
+        .where(
+          (firm) =>
+              firm.name.toLowerCase().contains(query) ||
+              firm.code.toLowerCase().contains(query),
+        )
+        .toList();
+  }
 }
 
 class _AdministrationWorkspace extends StatefulWidget {
@@ -2140,7 +2433,8 @@ ResourceDefinition<Firm> _firmDefinition(
               'notes': firm.notes,
             },
       payload: (values, _) {
-        final String mode = stringValue(values['deployment_mode']).toUpperCase();
+        final String mode =
+            stringValue(values['deployment_mode']).toUpperCase();
         final String normalizedMode = mode.isEmpty ? 'SHARED' : mode;
         final bool shared = normalizedMode == 'SHARED';
         return {

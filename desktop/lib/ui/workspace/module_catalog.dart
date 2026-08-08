@@ -689,7 +689,7 @@ abstract final class ModuleCatalog {
     ),
     ModuleDefinition(
       id: AppModule.accounting,
-      label: 'Accounting',
+      label: 'Finance',
       icon: Icons.account_balance_outlined,
       description: 'Accounting operations workspace.',
       workspaceTemplate: WorkspaceTemplateType.configuration,

@@ -24,6 +24,7 @@ class EnterpriseSidebar extends StatefulWidget {
     required this.onSelectLeaf,
     required this.collapsed,
     required this.onToggleCollapsed,
+    this.sections = const [],
     this.footer,
   });
 
@@ -37,6 +38,7 @@ class EnterpriseSidebar extends StatefulWidget {
   final void Function(AppModule module, String path) onSelectLeaf;
   final bool collapsed;
   final VoidCallback onToggleCollapsed;
+  final List<EnterpriseSidebarSection> sections;
   final Widget? footer;
 
   @override
@@ -149,30 +151,91 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
 
   /// Full hierarchical tree used when the sidebar is expanded. Only one
   /// navigation surface exists: module groups collapse/expand in place.
-  Widget _expandedTree() => ListView(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        children: widget.modules.map((module) {
-          final List<WorkspaceNavigationNode> children =
-              widget.navigationChildren(module);
-          final bool selectedModule = module.id == widget.selectedModule;
-          if (children.isEmpty) {
-            return ListTile(
-              selected: selectedModule,
-              leading: Icon(module.icon),
-              title: Text(module.label),
-              onTap: () => widget.onSelectModule(module.id),
-            );
-          }
-          return _ModuleGroup(
-            key: ValueKey(module.id),
-            module: module,
-            children: children,
-            initiallyExpanded: selectedModule,
-            selectedPath: selectedModule ? widget.selectedPath : null,
-            onSelectedPath: (path) => widget.onSelectLeaf(module.id, path),
-          );
-        }).toList(),
+  Widget _expandedTree() {
+    final List<EnterpriseSidebarSection> sections = widget.sections.isNotEmpty
+        ? widget.sections
+        : [
+            EnterpriseSidebarSection(
+              label: 'WORKSPACE',
+              moduleIds: widget.modules.map((module) => module.id).toList(),
+            ),
+          ];
+    final Map<AppModule, ModuleDefinition> moduleById = {
+      for (final ModuleDefinition module in widget.modules) module.id: module,
+    };
+    final List<Widget> tiles = [];
+    for (final EnterpriseSidebarSection section in sections) {
+      final List<ModuleDefinition> sectionModules = section.moduleIds
+          .map((id) => moduleById[id])
+          .whereType<ModuleDefinition>()
+          .toList();
+      if (sectionModules.isEmpty) {
+        continue;
+      }
+      tiles.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Text(
+            section.label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: .7,
+                ),
+          ),
+        ),
       );
+      for (final ModuleDefinition module in sectionModules) {
+        final bool hasChildren = _addExpandedModuleTile(tiles, module);
+        if (!hasChildren) {
+          continue;
+        }
+      }
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      children: tiles,
+    );
+  }
+
+  bool _addExpandedModuleTile(List<Widget> tiles, ModuleDefinition module) {
+    final List<WorkspaceNavigationNode> children = widget.navigationChildren(
+      module,
+    );
+    final bool selectedModule = module.id == widget.selectedModule;
+    if (children.isEmpty) {
+      tiles.add(
+        ListTile(
+          selected: selectedModule,
+          leading: Icon(module.icon),
+          title: Text(module.label),
+          onTap: () => widget.onSelectModule(module.id),
+        ),
+      );
+      return true;
+    }
+    tiles.add(
+      _ModuleGroup(
+        key: ValueKey(module.id),
+        module: module,
+        children: children,
+        initiallyExpanded: selectedModule,
+        selectedPath: selectedModule ? widget.selectedPath : null,
+        onSelectedPath: (path) => widget.onSelectLeaf(module.id, path),
+      ),
+    );
+    return true;
+  }
+}
+
+class EnterpriseSidebarSection {
+  const EnterpriseSidebarSection({
+    required this.label,
+    required this.moduleIds,
+  });
+
+  final String label;
+  final List<AppModule> moduleIds;
 }
 
 /// Top-level "CollapsibleGroup": one module entry that expands in place to

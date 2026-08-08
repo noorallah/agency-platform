@@ -4,6 +4,12 @@ import '../workspace/workspace_interactions.dart';
 
 enum GlobalSearchCategory {
   all,
+  modules,
+  customers,
+  vendors,
+  documents,
+  transactions,
+  reports,
   masters,
   inventory,
   tax,
@@ -16,6 +22,12 @@ enum GlobalSearchCategory {
 extension GlobalSearchCategoryDetails on GlobalSearchCategory {
   String get label => switch (this) {
         GlobalSearchCategory.all => 'All',
+        GlobalSearchCategory.modules => 'Modules',
+        GlobalSearchCategory.customers => 'Customers',
+        GlobalSearchCategory.vendors => 'Vendors',
+        GlobalSearchCategory.documents => 'Documents',
+        GlobalSearchCategory.transactions => 'Transactions',
+        GlobalSearchCategory.reports => 'Reports',
         GlobalSearchCategory.masters => 'Masters',
         GlobalSearchCategory.inventory => 'Inventory',
         GlobalSearchCategory.tax => 'Tax',
@@ -27,6 +39,12 @@ extension GlobalSearchCategoryDetails on GlobalSearchCategory {
 
   IconData get icon => switch (this) {
         GlobalSearchCategory.all => Icons.apps_outlined,
+        GlobalSearchCategory.modules => Icons.grid_view_outlined,
+        GlobalSearchCategory.customers => Icons.groups_outlined,
+        GlobalSearchCategory.vendors => Icons.local_shipping_outlined,
+        GlobalSearchCategory.documents => Icons.description_outlined,
+        GlobalSearchCategory.transactions => Icons.swap_horiz_outlined,
+        GlobalSearchCategory.reports => Icons.bar_chart_outlined,
         GlobalSearchCategory.masters => Icons.folder_copy_outlined,
         GlobalSearchCategory.inventory => Icons.inventory_2_outlined,
         GlobalSearchCategory.tax => Icons.receipt_long_outlined,
@@ -184,7 +202,8 @@ class _GlobalSearchDialog extends StatefulWidget {
 class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
-  final TextEditingController _advancedTypesController = TextEditingController();
+  final TextEditingController _advancedTypesController =
+      TextEditingController();
   GlobalSearchCategory _category = GlobalSearchCategory.all;
   bool _searching = false;
   bool _showAdvanced = false;
@@ -283,7 +302,8 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
         await copyTextToClipboard(item.productCode);
         break;
       case GlobalSearchAction.copyInventoryId:
-        await copyTextToClipboard(item.inventoryId.isEmpty ? item.id : item.inventoryId);
+        await copyTextToClipboard(
+            item.inventoryId.isEmpty ? item.id : item.inventoryId);
         break;
       default:
         if (item.onAction != null) {
@@ -315,7 +335,8 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
             bindings: WorkspaceShortcutBindings(
               focusSearch: _searchFocus.requestFocus,
               globalSearch: _searchFocus.requestFocus,
-              advancedSearch: () => setState(() => _showAdvanced = !_showAdvanced),
+              advancedSearch: () =>
+                  setState(() => _showAdvanced = !_showAdvanced),
               copy: _selectedIndex < 0 || _selectedIndex >= _results.length
                   ? null
                   : () => copyTextToClipboard(_results[_selectedIndex].title),
@@ -402,12 +423,14 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                         )
                       : ListView.separated(
                           itemCount: _results.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
                           itemBuilder: (context, index) {
                             final GlobalSearchResultItem item = _results[index];
                             final bool selected = index == _selectedIndex;
                             return InkWell(
-                              onTap: () => setState(() => _selectedIndex = index),
+                              onTap: () =>
+                                  setState(() => _selectedIndex = index),
                               onDoubleTap: item.onOpen == null
                                   ? null
                                   : () async => item.onOpen!(),
@@ -421,7 +444,8 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                                 child: Padding(
                                   padding: const EdgeInsets.all(14),
                                   child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       CircleAvatar(
                                         child: Icon(item.icon),
@@ -429,13 +453,16 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             _highlightedText(
                                               context,
                                               item.title,
                                               _lastQuery,
-                                              Theme.of(context).textTheme.titleMedium,
+                                              Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium,
                                             ),
                                             if (item.subtitle.isNotEmpty) ...[
                                               const SizedBox(height: 4),
@@ -452,23 +479,34 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                                               runSpacing: 8,
                                               children: [
                                                 if (item.entityType.isNotEmpty)
-                                                  _metaChip('Type', item.entityType),
+                                                  _metaChip(
+                                                      'Type', item.entityType),
                                                 if (item.status.isNotEmpty)
-                                                  _metaChip('Status', item.status),
+                                                  _metaChip(
+                                                      'Status', item.status),
                                                 if (item.branch.isNotEmpty)
-                                                  _metaChip('Branch', item.branch),
+                                                  _metaChip(
+                                                      'Branch', item.branch),
                                                 if (item.warehouse.isNotEmpty)
-                                                  _metaChip('Warehouse', item.warehouse),
-                                                if (item.currentStock.isNotEmpty)
-                                                  _metaChip('Current', item.currentStock),
-                                                if (item.availableStock.isNotEmpty)
-                                                  _metaChip('Available', item.availableStock),
-                                                for (final String badge in item.badges)
+                                                  _metaChip('Warehouse',
+                                                      item.warehouse),
+                                                if (item
+                                                    .currentStock.isNotEmpty)
+                                                  _metaChip('Current',
+                                                      item.currentStock),
+                                                if (item
+                                                    .availableStock.isNotEmpty)
+                                                  _metaChip('Available',
+                                                      item.availableStock),
+                                                for (final String badge
+                                                    in item.badges)
                                                   _metaChip('Badge', badge),
-                                                if (item.matchedFields.isNotEmpty)
+                                                if (item
+                                                    .matchedFields.isNotEmpty)
                                                   _metaChip(
                                                     'Match',
-                                                    item.matchedFields.join(', '),
+                                                    item.matchedFields
+                                                        .join(', '),
                                                   ),
                                               ],
                                             ),
@@ -478,7 +516,8 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                                       const SizedBox(width: 12),
                                       PopupMenuButton<GlobalSearchAction>(
                                         tooltip: 'Search actions',
-                                        onSelected: (action) => _runAction(item, action),
+                                        onSelected: (action) =>
+                                            _runAction(item, action),
                                         itemBuilder: (context) => [
                                           for (final GlobalSearchAction action
                                               in GlobalSearchAction.values)
@@ -554,7 +593,9 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
             ),
           if (_results.isNotEmpty)
             FilledButton.tonalIcon(
-              onPressed: _page * _pageSize < _total ? () => _submit(page: _page + 1) : null,
+              onPressed: _page * _pageSize < _total
+                  ? () => _submit(page: _page + 1)
+                  : null,
               icon: const Icon(Icons.chevron_right),
               label: const Text('Next'),
             ),
@@ -565,7 +606,9 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
         label: Text('$label: $value'),
       );
 
-  Widget _queryChipRow(BuildContext context, String label, List<String> values) => Padding(
+  Widget _queryChipRow(
+          BuildContext context, String label, List<String> values) =>
+      Padding(
         padding: const EdgeInsets.only(top: 6),
         child: Wrap(
           spacing: 6,
@@ -624,4 +667,3 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
     );
   }
 }
-

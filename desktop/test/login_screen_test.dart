@@ -43,11 +43,20 @@ class _FakePreferencesService extends DesktopPreferencesService {
     required bool rememberMe,
     required String username,
   }) async {
+    final String normalized = username.trim();
+    final List<String> recentUsernames = rememberUsername &&
+            normalized.isNotEmpty
+        ? <String>[
+            normalized,
+            ..._current.recentUsernames.where((entry) => entry != normalized),
+          ].take(8).toList()
+        : _current.recentUsernames;
     _current = _current.copyWith(
       rememberUsername: rememberUsername,
       rememberMe: rememberMe,
-      cachedUsername: username,
+      cachedUsername: normalized,
       clearCachedUsername: !rememberUsername,
+      recentUsernames: recentUsernames,
     );
   }
 
@@ -164,7 +173,8 @@ class _TestHarness extends StatelessWidget {
               preferences: preferences,
               branding: BrandingConfig.defaults,
               themes: themes,
-              error: session.status == SessionStatus.error ? session.error : null,
+              error:
+                  session.status == SessionStatus.error ? session.error : null,
               notice: session.notice,
               capsLockEnabled: capsLockEnabled,
             ),
@@ -188,7 +198,8 @@ Future<_FakePreferencesService> _preferences() async {
   return _FakePreferencesService(directory);
 }
 
-Future<_FakeSessionController> _session(_FakePreferencesService preferences) async =>
+Future<_FakeSessionController> _session(
+        _FakePreferencesService preferences) async =>
     _FakeSessionController(preferences: preferences);
 
 Future<ThemeManager> _themes(_FakePreferencesService preferences) async =>
@@ -204,8 +215,7 @@ Future<void> _useDesktopViewport(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('renders the enterprise login layout and quick login panel',
-      (tester) async {
+  testWidgets('renders the enterprise login layout', (tester) async {
     await _useDesktopViewport(tester);
     final prefs = await _preferences();
     final themes = await _themes(prefs);
@@ -215,11 +225,13 @@ void main() {
       _TestHarness(session: session, preferences: prefs, themes: themes),
     );
 
-    expect(find.text('Welcome Back'), findsOneWidget);
-    expect(find.text('Sign in to continue.'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(
+      find.text('Sign in to continue to ${BrandingConfig.defaults.appName}.'),
+      findsOneWidget,
+    );
     expect(find.text('Username / Email'), findsOneWidget);
-    expect(find.text('Sign-in Options'), findsOneWidget);
-    expect(find.text('Quick Login'), findsOneWidget);
+    expect(find.text('Sign-in options'), findsOneWidget);
     expect(find.text('Forgot password?'), findsOneWidget);
   });
 
@@ -237,14 +249,14 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).at(0), 'alice');
     await tester.enterText(find.byType(TextFormField).at(1), 'Password@123');
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.text('Sign in'));
     await tester.pump();
 
     expect(find.text('Signing in...'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(session.loginCalls, 1);
 
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.text('Signing in...'));
     await tester.pump();
     expect(session.loginCalls, 1);
 
@@ -266,7 +278,7 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).at(0), 'alice');
     await tester.enterText(find.byType(TextFormField).at(1), 'Password@123');
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Unable to sign in.'), findsOneWidget);
@@ -291,7 +303,8 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextFormField).at(0), '  alice  ');
-    await tester.enterText(find.byType(TextFormField).at(1), '  Password@123  ');
+    await tester.enterText(
+        find.byType(TextFormField).at(1), '  Password@123  ');
     await tester.ensureVisible(find.text('Sign in'));
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
@@ -301,7 +314,7 @@ void main() {
 
     await tester.enterText(find.byType(TextFormField).at(0), '   ');
     await tester.enterText(find.byType(TextFormField).at(1), '   ');
-    await tester.tap(find.byType(FilledButton).first);
+    await tester.tap(find.text('Sign in'));
     await tester.pump();
 
     expect(find.text('Enter your username or email.'), findsOneWidget);
@@ -332,9 +345,15 @@ void main() {
     expect(find.text('Remember me on this device'), findsOneWidget);
   });
 
-  testWidgets('autofills credentials from quick login', (tester) async {
+  testWidgets('selects remembered username suggestions in username field',
+      (tester) async {
     await _useDesktopViewport(tester);
     final prefs = await _preferences();
+    await prefs.saveLoginOptions(
+      rememberUsername: true,
+      rememberMe: false,
+      username: 'superadmin@agency.local',
+    );
     final themes = await _themes(prefs);
     final session = await _session(prefs);
 
@@ -342,16 +361,18 @@ void main() {
       _TestHarness(session: session, preferences: prefs, themes: themes),
     );
 
-    await tester.ensureVisible(find.widgetWithText(OutlinedButton, 'Administrator'));
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Administrator'));
-    await tester.pump();
+    await tester.tap(find.byType(TextFormField).at(0));
+    await tester.enterText(
+      find.byType(TextFormField).at(0),
+      'super',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('superadmin@agency.local').last);
+    await tester.pumpAndSettle();
 
     final TextFormField usernameField =
         tester.widget(find.byType(TextFormField).at(0));
-    final TextFormField passwordField =
-        tester.widget(find.byType(TextFormField).at(1));
     expect(usernameField.controller!.text, 'superadmin@agency.local');
-    expect(passwordField.controller!.text, 'Password@123');
   });
 
   testWidgets('opens application settings and toggles theme', (tester) async {
@@ -366,7 +387,8 @@ void main() {
 
     await tester.tap(find.byTooltip('Choose theme'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Dark').last);
+    await tester
+        .tap(find.widgetWithText(CheckedPopupMenuItem<AppTheme>, 'Dark'));
     await tester.pumpAndSettle();
 
     expect(themes.current, AppTheme.dark);

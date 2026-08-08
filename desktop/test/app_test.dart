@@ -132,12 +132,13 @@ void main() {
         'Sales',
         'Sales Orders',
         'Delivery Notes',
+        'Sales Invoices',
         'Purchases',
         'Purchase Invoices',
         'Purchase Returns',
         'Goods Receipts',
         'Inventory',
-        'Accounting',
+        'Finance',
         'Reports',
         'Licensing',
         'Settings',
@@ -191,7 +192,7 @@ void main() {
       globalSearch: () {},
     );
 
-    expect(bindings.toCallbacks(), hasLength(9));
+    expect(bindings.toCallbacks(), hasLength(10));
   });
 
   testWidgets('standard empty states provide distinct reusable messages',
@@ -316,7 +317,8 @@ void main() {
     expect(find.byKey(const ValueKey(20)), findsNothing);
   });
 
-  testWidgets('CRUD workspace dialog is single-column with collapsible sections',
+  testWidgets(
+      'CRUD workspace dialog is single-column with collapsible sections',
       (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(1366, 768);
@@ -503,7 +505,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Sign in'), findsOneWidget);
-    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
   });
 
   testWidgets('customer workspace composes the shared management framework',

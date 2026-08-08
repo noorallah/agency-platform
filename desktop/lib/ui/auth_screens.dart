@@ -58,7 +58,9 @@ class _LoginScreenState extends State<LoginScreen> {
     _rememberMe = stored.rememberMe;
     _username.text = _rememberUsername
         ? stored.cachedUsername ??
-            (stored.recentUsernames.isNotEmpty ? stored.recentUsernames.first : '')
+            (stored.recentUsernames.isNotEmpty
+                ? stored.recentUsernames.first
+                : '')
         : widget.session.attemptedUsername ?? '';
     _errorVisible = widget.error != null;
     _usernameFocus.addListener(_handleFocusChanged);
@@ -92,7 +94,8 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  bool get _isSubmitting => widget.session.status == SessionStatus.authenticating;
+  bool get _isSubmitting =>
+      widget.session.status == SessionStatus.authenticating;
   bool get _showEnvironment => !kReleaseMode;
 
   void _handleFocusChanged() {
@@ -132,95 +135,132 @@ class _LoginScreenState extends State<LoginScreen> {
     _focusPassword();
   }
 
+  Future<void> _selectTheme(AppTheme theme) => widget.themes.select(theme);
+
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     return Scaffold(
       backgroundColor: widget.branding.loginBackgroundColor,
       body: SafeArea(
         child: Stack(
           children: [
             const Positioned.fill(child: _LoginBackdrop()),
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final bool wide = constraints.maxWidth >= 980;
-                    final Widget intro = ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: _LoginIntroPanel(branding: widget.branding),
-                    );
-                    final Widget form = ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 540),
-                      child: _LoginCard(
-                        formKey: _formKey,
-                        branding: widget.branding,
-                        preferences: widget.preferences,
-                        errorVisible: _errorVisible,
-                        error: widget.error,
-                        notice: widget.notice,
-                        usernameController: _username,
-                        usernameFocus: _usernameFocus,
-                        passwordController: _password,
-                        passwordFocus: _passwordFocus,
-                        obscurePassword: _obscure,
-                        capsLockOn: _capsLockOn,
-                        rememberUsername: _rememberUsername,
-                        rememberMe: _rememberMe,
-                        isSubmitting: _isSubmitting,
-                        showEnvironment: _showEnvironment,
-                        onDismissError: _dismissError,
-                        onUsernameSelected: _applySavedUsername,
-                        onUsernameRememberChanged: (value) =>
-                            setState(() => _rememberUsername = value),
-                        onRememberMeChanged: (value) =>
-                            setState(() => _rememberMe = value),
-                        onTogglePasswordVisibility: () =>
-                            setState(() => _obscure = !_obscure),
-                        onSubmit: _submit,
-                        onShowPasswordHelp: _showForgotPassword,
-                        onPasswordCapsLockChanged: _syncCapsLockState,
+            Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_outlined,
+                        color: theme.colorScheme.primary,
+                        size: 28,
                       ),
-                    );
-                    if (wide) {
-                      return Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
+                      const SizedBox(width: 10),
+                      Text(
+                        widget.branding.appName,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const Spacer(),
+                      _Toolbar(
                         children: [
-                          intro,
-                          const SizedBox(width: 28),
-                          form,
+                          _ThemeShortcutButton(
+                            tooltip: 'Light Theme',
+                            icon: Icons.light_mode_outlined,
+                            onPressed: () =>
+                                unawaited(_selectTheme(AppTheme.light)),
+                          ),
+                          _ThemeShortcutButton(
+                            tooltip: 'Dark Theme',
+                            icon: Icons.dark_mode_outlined,
+                            onPressed: () =>
+                                unawaited(_selectTheme(AppTheme.dark)),
+                          ),
+                          ThemeSelector(manager: widget.themes),
+                          _ThemeShortcutButton(
+                            tooltip: 'Application Settings',
+                            icon: Icons.settings_outlined,
+                            onPressed: _showApplicationSettings,
+                          ),
                         ],
-                      );
-                    }
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        intro,
-                        const SizedBox(height: 20),
-                        form,
-                      ],
-                    );
-                  },
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-            Positioned(
-              top: 12,
-              right: 12,
-              child: Material(
-                color: Colors.transparent,
-                child: _Toolbar(
-                  children: [
-                    ThemeSelector(manager: widget.themes),
-                    IconButton(
-                      icon: const Icon(Icons.settings_outlined),
-                      tooltip: 'Application Settings',
-                      onPressed: _showApplicationSettings,
+                Expanded(
+                  child: Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final bool wide = constraints.maxWidth >= 980;
+                          final Widget intro = ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 520),
+                            child: _LoginIntroPanel(branding: widget.branding),
+                          );
+                          final Widget form = ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 620),
+                            child: _LoginCard(
+                              formKey: _formKey,
+                              branding: widget.branding,
+                              preferences: widget.preferences,
+                              errorVisible: _errorVisible,
+                              error: widget.error,
+                              notice: widget.notice,
+                              usernameController: _username,
+                              usernameFocus: _usernameFocus,
+                              passwordController: _password,
+                              passwordFocus: _passwordFocus,
+                              obscurePassword: _obscure,
+                              capsLockOn: _capsLockOn,
+                              rememberUsername: _rememberUsername,
+                              rememberMe: _rememberMe,
+                              isSubmitting: _isSubmitting,
+                              onDismissError: _dismissError,
+                              onUsernameSelected: _applySavedUsername,
+                              onUsernameRememberChanged: (value) =>
+                                  setState(() => _rememberUsername = value),
+                              onRememberMeChanged: (value) =>
+                                  setState(() => _rememberMe = value),
+                              onTogglePasswordVisibility: () =>
+                                  setState(() => _obscure = !_obscure),
+                              onSubmit: _submit,
+                              onShowPasswordHelp: _showForgotPassword,
+                              onPasswordCapsLockChanged: _syncCapsLockState,
+                            ),
+                          );
+                          if (wide) {
+                            return Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                intro,
+                                const SizedBox(width: 24),
+                                form,
+                              ],
+                            );
+                          }
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              intro,
+                              const SizedBox(height: 16),
+                              form,
+                            ],
+                          );
+                        },
+                      ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                _BottomStatusBar(
+                  branding: widget.branding,
+                  showEnvironment: _showEnvironment,
+                ),
+              ],
             ),
           ],
         ),
@@ -391,8 +431,8 @@ class _LoginBackdrop extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             theme.colorScheme.surface,
-            theme.colorScheme.surfaceVariant.withOpacity(.25),
-            theme.colorScheme.background,
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+            theme.colorScheme.surface,
           ],
         ),
       ),
@@ -435,13 +475,33 @@ class _Toolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-        color: Theme.of(context).colorScheme.surface.withOpacity(.92),
-        elevation: 2,
-        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
+        elevation: 4,
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           child: Row(mainAxisSize: MainAxisSize.min, children: children),
         ),
+      );
+}
+
+class _ThemeShortcutButton extends StatelessWidget {
+  const _ThemeShortcutButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        tooltip: tooltip,
+        visualDensity: VisualDensity.compact,
+        onPressed: onPressed,
+        icon: Icon(icon),
       );
 }
 
@@ -452,152 +512,240 @@ class _LoginIntroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-      final ThemeData theme = Theme.of(context);
-      return Container(
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          color: theme.colorScheme.surface.withValues(alpha: 0.74),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _BrandMark(branding: branding),
-            const SizedBox(height: 18),
-            Text(
-              branding.appName,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: theme.colorScheme.surface.withValues(alpha: 0.9),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _BrandMark(branding: branding),
+          const SizedBox(height: 14),
+          Text(
+            branding.appName,
+            style: theme.textTheme.displaySmall?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Fast sign-in, remembered usernames, and a cleaner desktop workflow.',
-              style: theme.textTheme.bodyLarge,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Modern. Secure. Built for agencies.',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: const [
-                _FeatureChip(icon: Icons.speed_rounded, label: 'Fast access'),
-                _FeatureChip(icon: Icons.group_work_outlined, label: 'Multi-firm'),
-                _FeatureChip(icon: Icons.shield_outlined, label: 'Secure login'),
-                _FeatureChip(icon: Icons.touch_app_outlined, label: 'Easy to use'),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            width: 74,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          const SizedBox(height: 22),
+          const _IntroFeatureTile(
+            icon: Icons.bolt_rounded,
+            title: 'Fast access',
+            body:
+                'Quick sign-in with remembered usernames and smart session handling.',
+          ),
+          const SizedBox(height: 10),
+          const _IntroFeatureTile(
+            icon: Icons.shield_outlined,
+            title: 'Secure by design',
+            body:
+                'Enterprise-grade security with role-based access and data protection.',
+          ),
+          const SizedBox(height: 10),
+          const _IntroFeatureTile(
+            icon: Icons.groups_2_outlined,
+            title: 'Multi-firm ready',
+            body: 'Seamlessly switch between firms without logging in again.',
+          ),
+          const SizedBox(height: 10),
+          const _IntroFeatureTile(
+            icon: Icons.corporate_fare_outlined,
+            title: 'Designed for productivity',
+            body: 'Clean interface, powerful workflows, better results.',
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.verified_user_outlined,
+                    color: theme.colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Your data is protected. Your work stays yours.',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 20),
-            _InfoCard(
-              title: 'Remembered usernames',
-              body: 'Pick a saved username directly from the username field.',
-              icon: Icons.badge_outlined,
-            ),
-            const SizedBox(height: 12),
-            _InfoCard(
-              title: 'Smarter session handling',
-              body: 'Keep your session active without storing your password.',
-              icon: Icons.lock_clock_outlined,
-            ),
-            const SizedBox(height: 12),
-            _InfoCard(
-              title: 'Enterprise ready',
-              body: 'Designed for firm-scoped work, role-based access, and desktop use.',
-              icon: Icons.apartment_outlined,
-            ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
   }
 }
 
-class _FeatureChip extends StatelessWidget {
-  const _FeatureChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-      final ThemeData theme = Theme.of(context);
-      return Chip(
-        avatar: Icon(icon, size: 18, color: theme.colorScheme.primary),
-        label: Text(label),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.4)),
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-      );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({
-      required this.title,
-      required this.body,
-      required this.icon,
+class _IntroFeatureTile extends StatelessWidget {
+  const _IntroFeatureTile({
+    required this.icon,
+    required this.title,
+    required this.body,
   });
 
+  final IconData icon;
   final String title;
   final String body;
-  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-      final ThemeData theme = Theme.of(context);
-      return Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: theme.colorScheme.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 4),
-                  Text(body, style: theme.textTheme.bodySmall),
-                ],
-              ),
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 48,
+            width: 48,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(12),
+              border:
+                  Border.all(color: theme.dividerColor.withValues(alpha: 0.45)),
             ),
-          ],
-        ),
-      );
+            child: Icon(icon, color: theme.colorScheme.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text(body, style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BottomStatusBar extends StatelessWidget {
+  const _BottomStatusBar({
+    required this.branding,
+    required this.showEnvironment,
+  });
+
+  final BrandingConfig branding;
+  final bool showEnvironment;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle? style = theme.textTheme.titleMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w500,
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(22, 10, 22, 14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.65),
+        border: Border(
+            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.3))),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text('Version ${branding.version}', style: style),
+              Text('|', style: style),
+              Text('Build $_buildNumber', style: style),
+              if (showEnvironment) ...[
+                Text('|', style: style),
+                Text('Environment: Development', style: style),
+              ],
+            ],
+          ),
+          Wrap(
+            spacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(Icons.language,
+                  size: 20, color: theme.colorScheme.onSurfaceVariant),
+              Text('English (India)', style: style),
+              Icon(Icons.expand_more,
+                  size: 18, color: theme.colorScheme.onSurfaceVariant),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
 class _LoginCard extends StatelessWidget {
   const _LoginCard({
-      required this.formKey,
-      required this.branding,
-      required this.preferences,
-      required this.errorVisible,
-      required this.error,
-      required this.notice,
-      required this.usernameController,
-      required this.usernameFocus,
-      required this.passwordController,
-      required this.passwordFocus,
-      required this.obscurePassword,
-      required this.capsLockOn,
-      required this.rememberUsername,
-      required this.rememberMe,
-      required this.isSubmitting,
-      required this.showEnvironment,
-      required this.onDismissError,
-      required this.onUsernameSelected,
-      required this.onUsernameRememberChanged,
-      required this.onRememberMeChanged,
-      required this.onTogglePasswordVisibility,
-      required this.onSubmit,
-      required this.onShowPasswordHelp,
-      required this.onPasswordCapsLockChanged,
+    required this.formKey,
+    required this.branding,
+    required this.preferences,
+    required this.errorVisible,
+    required this.error,
+    required this.notice,
+    required this.usernameController,
+    required this.usernameFocus,
+    required this.passwordController,
+    required this.passwordFocus,
+    required this.obscurePassword,
+    required this.capsLockOn,
+    required this.rememberUsername,
+    required this.rememberMe,
+    required this.isSubmitting,
+    required this.onDismissError,
+    required this.onUsernameSelected,
+    required this.onUsernameRememberChanged,
+    required this.onRememberMeChanged,
+    required this.onTogglePasswordVisibility,
+    required this.onSubmit,
+    required this.onShowPasswordHelp,
+    required this.onPasswordCapsLockChanged,
   });
 
   final GlobalKey<FormState> formKey;
@@ -615,7 +763,6 @@ class _LoginCard extends StatelessWidget {
   final bool rememberUsername;
   final bool rememberMe;
   final bool isSubmitting;
-  final bool showEnvironment;
   final VoidCallback onDismissError;
   final ValueChanged<String> onUsernameSelected;
   final ValueChanged<bool> onUsernameRememberChanged;
@@ -627,11 +774,17 @@ class _LoginCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-      final ThemeData theme = Theme.of(context);
-      return Card(
-        elevation: 8,
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      elevation: 10,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.25)),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(34),
+          padding: const EdgeInsets.all(36),
           child: Shortcuts(
             shortcuts: const {
               SingleActivator(LogicalKeyboardKey.escape): _DismissErrorIntent(),
@@ -652,23 +805,19 @@ class _LoginCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        branding.appName,
+                        'Welcome back',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineMedium?.copyWith(
+                        style: theme.textTheme.displaySmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Text(
-                        'Welcome back',
+                        'Sign in to continue to ${branding.appName}.',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Sign in with a remembered username or enter a new one.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       if (error != null && errorVisible) ...[
                         const SizedBox(height: 20),
@@ -718,11 +867,15 @@ class _LoginCard extends StatelessWidget {
                               AutofillHints.username,
                               AutofillHints.email,
                             ],
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               labelText: 'Username / Email',
                               helperText:
                                   'Supports username, email, and employee ID (future).',
-                              prefixIcon: Icon(Icons.badge_outlined),
+                              prefixIcon: const Icon(Icons.person_outline),
+                              suffixIcon:
+                                  preferences.current.recentUsernames.isNotEmpty
+                                      ? const Icon(Icons.expand_more)
+                                      : null,
                             ),
                             onFieldSubmitted: (_) => onFieldSubmitted(),
                             validator: (value) {
@@ -740,7 +893,8 @@ class _LoginCard extends StatelessWidget {
                             child: Material(
                               elevation: 10,
                               borderRadius: BorderRadius.circular(12),
-                              color: optionTheme.colorScheme.surfaceContainerHighest,
+                              color: optionTheme
+                                  .colorScheme.surfaceContainerHighest,
                               child: ConstrainedBox(
                                 constraints: const BoxConstraints(
                                   maxWidth: 540,
@@ -830,41 +984,55 @@ class _LoginCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 24),
                       SizedBox(
-                        height: 52,
-                        child: FilledButton(
-                          onPressed: isSubmitting ? null : onSubmit,
-                          child: isSubmitting
-                              ? const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      height: 18,
-                                      width: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                    SizedBox(width: 12),
-                                    Text('Signing in...'),
-                                  ],
-                                )
-                              : const Text('Sign in'),
+                        height: 54,
+                        child: _PrimarySignInButton(
+                          isSubmitting: isSubmitting,
+                          onPressed: onSubmit,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: _SecondaryActionLink(
-                          label: 'Forgot password?',
-                          onTap: onShowPasswordHelp,
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(child: Divider(color: theme.dividerColor)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'or',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          Expanded(child: Divider(color: theme.dividerColor)),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          onPressed: onShowPasswordHelp,
+                          icon: const Icon(Icons.lock_outline),
+                          label: const Text('Forgot password?'),
                         ),
                       ),
                       const SizedBox(height: 24),
-                      const Divider(),
-                      const SizedBox(height: 16),
-                      _LoginFooter(
-                        branding: branding,
-                        showEnvironment: showEnvironment,
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Need help? Contact your system administrator.',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -873,7 +1041,8 @@ class _LoginCard extends StatelessWidget {
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 }
 
@@ -918,23 +1087,29 @@ class _SignInOptions extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(.28),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor.withOpacity(.5)),
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       child: Material(
         color: Colors.transparent,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sign-in Options', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
+            Text(
+              'Sign-in options',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 10),
             CheckboxListTile(
               value: rememberUsername,
               onChanged: (value) => onRememberUsernameChanged(value ?? false),
               title: const Text('Remember username'),
-              subtitle: const Text('Keeps the username on this device.'),
+              subtitle: const Text('Prefill the username next time.'),
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               dense: true,
@@ -945,7 +1120,7 @@ class _SignInOptions extends StatelessWidget {
               onChanged: (value) => onRememberMeChanged(value ?? false),
               title: const Text('Remember me on this device'),
               subtitle: const Text(
-                'Keeps a secure refresh token; never stores your password.',
+                'Keep me signed in securely on this device.',
               ),
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
@@ -953,6 +1128,82 @@ class _SignInOptions extends StatelessWidget {
               visualDensity: VisualDensity.compact,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrimarySignInButton extends StatelessWidget {
+  const _PrimarySignInButton({
+    required this.isSubmitting,
+    required this.onPressed,
+  });
+
+  final bool isSubmitting;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final BorderRadius borderRadius = BorderRadius.circular(14);
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          borderRadius: borderRadius,
+          gradient: LinearGradient(
+            colors: [
+              theme.colorScheme.primary,
+              theme.colorScheme.primary.withValues(alpha: 0.86),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.colorScheme.primary.withValues(alpha: 0.28),
+              blurRadius: 14,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: InkWell(
+          borderRadius: borderRadius,
+          onTap: isSubmitting ? null : onPressed,
+          child: Center(
+            child: isSubmitting
+                ? const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text(
+                        'Signing in...',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  )
+                : const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Sign in',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Icon(Icons.arrow_forward, color: Colors.white),
+                    ],
+                  ),
+          ),
         ),
       ),
     );
@@ -967,7 +1218,8 @@ class _CapsLockNotice extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.warning_amber_rounded, size: 18, color: theme.colorScheme.error),
+        Icon(Icons.warning_amber_rounded,
+            size: 18, color: theme.colorScheme.error),
         const SizedBox(width: 8),
         Text(
           'Caps Lock is ON',
@@ -976,73 +1228,6 @@ class _CapsLockNotice extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _SecondaryActionLink extends StatefulWidget {
-  const _SecondaryActionLink({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  State<_SecondaryActionLink> createState() => _SecondaryActionLinkState();
-}
-
-class _SecondaryActionLinkState extends State<_SecondaryActionLink> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Text(
-          widget.label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: theme.colorScheme.primary,
-            decoration:
-                _hovered ? TextDecoration.underline : TextDecoration.none,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LoginFooter extends StatelessWidget {
-  const _LoginFooter({
-    required this.branding,
-    required this.showEnvironment,
-  });
-
-  final BrandingConfig branding;
-  final bool showEnvironment;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final TextStyle? style = theme.textTheme.bodySmall;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(branding.appName, style: style),
-        const SizedBox(height: 2),
-        Text('Version ${branding.version}', style: style),
-        const SizedBox(height: 2),
-        Text('Build $_buildNumber', style: style),
-        if (showEnvironment) ...[
-          const SizedBox(height: 2),
-          Text('Environment', style: style),
-          const SizedBox(height: 2),
-          Text('Development', style: style),
-        ],
       ],
     );
   }
@@ -1062,7 +1247,8 @@ class _AboutBlock extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(.24),
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
         borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.all(16),
@@ -1084,7 +1270,8 @@ class _AboutBlock extends StatelessWidget {
 class _ErrorBanner extends StatelessWidget {
   const _ErrorBanner({
     required this.onDismiss,
-    this.message = 'Unable to sign in.\nCheck your username or password and try again.',
+    this.message =
+        'Unable to sign in.\nCheck your username or password and try again.',
   });
 
   final VoidCallback onDismiss;
@@ -1100,7 +1287,8 @@ class _ErrorBanner extends StatelessWidget {
         decoration: BoxDecoration(
           color: theme.colorScheme.errorContainer,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: theme.colorScheme.error.withOpacity(.25)),
+          border: Border.all(
+              color: theme.colorScheme.error.withValues(alpha: 0.25)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1199,7 +1387,8 @@ class _ChangeInitialPasswordScreenState
                       ),
                       const SizedBox(height: 20),
                       if (widget.session.error != null) ...[
-                        _ErrorBanner(message: widget.session.error!, onDismiss: () {}),
+                        _ErrorBanner(
+                            message: widget.session.error!, onDismiss: () {}),
                         const SizedBox(height: 16),
                       ],
                       _passwordField(_current, 'Current password'),
