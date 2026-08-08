@@ -626,9 +626,9 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'opening-stock',
-          label: 'Opening Stock',
-          requiredPermissions: ['INVENTORY_VIEW'],
+          id: 'transactions',
+          label: 'Transactions',
+          requiredPermissions: ['INVENTORY_TRANSACTION_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'stock-ledger',
@@ -636,9 +636,9 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_LEDGER_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'transactions',
-          label: 'Transactions',
-          requiredPermissions: ['INVENTORY_TRANSACTION_VIEW'],
+          id: 'opening-stock',
+          label: 'Opening Stock',
+          requiredPermissions: ['INVENTORY_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'stock-summary',

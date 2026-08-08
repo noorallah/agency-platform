@@ -20,6 +20,18 @@ uv run python -m alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
+For a reusable Windows launcher that syncs dependencies, applies migrations, starts the API, and writes a log file:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_backend.ps1
+```
+
+To monitor the latest log file:
+
+```powershell
+Get-Content .\logs\backend-*.log -Wait -Tail 50
+```
+
 Open `http://localhost:8000/docs` for the interactive API. Use
 `GET /health` to confirm the application and `GET /health/database` to confirm
 database connectivity.

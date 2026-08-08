@@ -78,12 +78,51 @@ class ThemeRegistry {
       brightness: brightness,
       contrastLevel: theme == AppTheme.highContrast ? 1 : 0,
     );
+    final BorderSide borderSide = BorderSide(color: scheme.outlineVariant, width: 1);
+    final BorderSide focusedBorderSide = BorderSide(color: scheme.primary, width: 1.6);
+    final BorderSide errorBorderSide = BorderSide(color: scheme.error, width: 1.4);
+
     return ThemeData(
       colorScheme: scheme,
       useMaterial3: true,
       extensions: [AppSemanticColors.forScheme(scheme)],
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
+      textTheme: brightness == Brightness.dark
+          ? Typography.material2021().white.copyWith(
+              bodyMedium:
+                  Typography.material2021().white.bodyMedium?.copyWith(fontSize: 14),
+            )
+          : Typography.material2021().black.copyWith(
+              bodyMedium:
+                  Typography.material2021().black.bodyMedium?.copyWith(fontSize: 14),
+            ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.38),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        hintStyle: TextStyle(
+          fontSize: 14,
+          color: scheme.onSurfaceVariant,
+        ),
+        labelStyle: TextStyle(
+          fontSize: 14,
+          color: scheme.onSurfaceVariant,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: borderSide,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: focusedBorderSide,
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: errorBorderSide,
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: scheme.error, width: 1.8),
+        ),
       ),
     );
   }

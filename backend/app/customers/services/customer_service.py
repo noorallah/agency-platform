@@ -1,19 +1,28 @@
 """Transactional application service for customer management."""
 
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.customers.models import Customer, CustomerAddress, CustomerContact
+from app.customers.models import (
+    Customer,
+    CustomerAddress,
+    CustomerContact,
+    CustomerReceivableTransaction,
+)
 from app.customers.repositories import CustomerRepository
 from app.customers.schemas import (
     CustomerAddressInput,
     CustomerContactInput,
     CustomerCreate,
+    CustomerReceivableSummary,
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
     CustomerSummary,
     CustomerUpdate,
 )
@@ -67,6 +76,10 @@ class CustomerService:
         """Stage one customer and audit event without committing."""
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
+        (
+            values["current_outstanding"],
+            values["unapplied_advance_balance"],
+        ) = self._normalize_customer_balances(data.opening_balance)
         customer = Customer(
             firm_id=firm_id,
             **values,
@@ -81,6 +94,11 @@ class CustomerService:
         ]
         self._repository.add(customer)
         self._repository.flush()
+        self._record_opening_balance_transaction(
+            customer=customer,
+            amount=data.opening_balance,
+            actor_id=actor_id,
+        )
         record_audit(
             self._session,
             action="customer.created",
@@ -118,10 +136,26 @@ class CustomerService:
         """Replace customer fields and reconcile addresses and contacts."""
         customer = self.get(customer_id, firm_scope=firm_scope)
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
+        if (
+            customer.opening_balance != data.opening_balance
+            and self._repository.has_receivable_transactions(customer.id)
+        ):
+            raise ValidationError(
+                "Opening balance cannot be changed after receivable activity exists."
+            )
         before = self._audit_snapshot(customer)
         for field, value in self._customer_values(data).items():
             setattr(customer, field, value)
         customer.display_name = data.display_name or data.name
+        (
+            customer.current_outstanding,
+            customer.unapplied_advance_balance,
+        ) = self._normalize_customer_balances(data.opening_balance)
+        self._reset_opening_balance_transaction(
+            customer=customer,
+            amount=data.opening_balance,
+            actor_id=actor_id,
+        )
         customer.updated_by = actor_id
         self._reconcile_addresses(customer, data.addresses, actor_id)
         self._reconcile_contacts(customer, data.contacts, actor_id)
@@ -217,6 +251,8 @@ class CustomerService:
             deleted,
             credit_limit,
             opening_balance,
+            current_outstanding,
+            unapplied_advance,
         ) = self._repository.summary(firm_scope, filters)
         return CustomerSummary(
             total=total,
@@ -226,7 +262,127 @@ class CustomerService:
             deleted=deleted,
             total_credit_limit=credit_limit,
             total_opening_balance=opening_balance,
+            total_current_outstanding=current_outstanding,
+            total_unapplied_advance=unapplied_advance,
         )
+
+    def receivable_summary(
+        self,
+        customer_id: UUID,
+        *,
+        firm_scope: UUID | None,
+    ) -> CustomerReceivableSummary:
+        """Return one customer's receivable and advance balances."""
+        customer = self.get(customer_id, firm_scope=firm_scope)
+        return CustomerReceivableSummary(
+            customer_id=customer.id,
+            customer_name=customer.display_name,
+            outstanding=customer.current_outstanding,
+            unapplied_advance=customer.unapplied_advance_balance,
+            net_position=customer.current_outstanding - customer.unapplied_advance_balance,
+        )
+
+    def receivable_transactions(
+        self,
+        customer_id: UUID,
+        *,
+        firm_scope: UUID | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[CustomerReceivableTransaction], int]:
+        """Return paged receivable transactions after firm-scope validation."""
+        customer = self.get(customer_id, firm_scope=firm_scope)
+        return self._repository.list_receivable_transactions(
+            customer.id,
+            offset=(page - 1) * page_size,
+            limit=page_size,
+        )
+
+    def post_receivable_transaction(
+        self,
+        customer_id: UUID,
+        payload: CustomerReceivableTransactionCreate,
+        *,
+        firm_scope: UUID | None,
+        actor_id: UUID,
+        commit: bool = True,
+    ) -> CustomerReceivableTransaction:
+        """Post one immutable receivable transaction and update customer balances."""
+        customer = self.get(customer_id, firm_scope=firm_scope)
+        amount = payload.amount
+        current = customer.current_outstanding
+        advance = customer.unapplied_advance_balance
+        outstanding_delta = Decimal("0")
+        advance_delta = Decimal("0")
+        tx_type = payload.transaction_type
+
+        if tx_type == CustomerReceivableTransactionType.OPENING_BALANCE:
+            raise ValidationError("Opening balance transactions are system-managed.")
+        if tx_type == CustomerReceivableTransactionType.INVOICE:
+            outstanding_delta = amount
+        elif tx_type in {
+            CustomerReceivableTransactionType.RECEIPT,
+            CustomerReceivableTransactionType.CREDIT_NOTE,
+        }:
+            applied = amount if amount <= current else current
+            excess = amount - applied
+            outstanding_delta = -applied
+            advance_delta = excess
+        elif tx_type == CustomerReceivableTransactionType.ADVANCE_RECEIPT:
+            advance_delta = amount
+        elif tx_type == CustomerReceivableTransactionType.ADVANCE_APPLY:
+            applicable = amount
+            if applicable > advance:
+                raise ValidationError("Advance apply amount exceeds unapplied advance.")
+            if applicable > current:
+                raise ValidationError("Advance apply amount exceeds outstanding balance.")
+            outstanding_delta = -applicable
+            advance_delta = -applicable
+        elif tx_type == CustomerReceivableTransactionType.REFUND:
+            if amount > advance:
+                raise ValidationError("Refund amount exceeds unapplied advance.")
+            advance_delta = -amount
+        else:
+            raise ValidationError("Unsupported receivable transaction type.")
+
+        outstanding_after = current + outstanding_delta
+        advance_after = advance + advance_delta
+        if outstanding_after < 0 or advance_after < 0:
+            raise ValidationError("Receivable balances cannot become negative.")
+
+        customer.current_outstanding = outstanding_after
+        customer.unapplied_advance_balance = advance_after
+        customer.updated_by = actor_id
+        row = self._record_receivable_transaction(
+            customer=customer,
+            tx_type=tx_type.value,
+            amount=amount,
+            outstanding_delta=outstanding_delta,
+            advance_delta=advance_delta,
+            transaction_date=payload.transaction_date,
+            reference_type=payload.reference_type,
+            reference_id=payload.reference_id,
+            reference_number=payload.reference_number,
+            remarks=payload.remarks,
+            actor_id=actor_id,
+        )
+        record_audit(
+            self._session,
+            action="customer.receivable_transaction_posted",
+            entity_type="customer",
+            entity_id=customer.id,
+            actor_id=actor_id,
+            firm_id=customer.firm_id,
+            after_data={
+                "transaction_type": tx_type.value,
+                "amount": str(amount),
+                "outstanding_after": str(customer.current_outstanding),
+                "unapplied_advance_after": str(customer.unapplied_advance_balance),
+            },
+        )
+        if commit:
+            self._session.commit()
+        return row
 
     def addresses(
         self, customer_id: UUID, *, firm_scope: UUID | None
@@ -367,7 +523,96 @@ class CustomerService:
             "status": customer.status,
             "credit_limit": str(customer.credit_limit),
             "opening_balance": str(customer.opening_balance),
+            "current_outstanding": str(customer.current_outstanding),
+            "unapplied_advance_balance": str(customer.unapplied_advance_balance),
             "address_count": sum(not item.is_deleted for item in customer.addresses),
             "contact_count": sum(not item.is_deleted for item in customer.contacts),
             "is_deleted": customer.is_deleted,
         }
+
+    @staticmethod
+    def _normalize_customer_balances(opening_balance):
+        zero = Decimal("0")
+        outstanding = opening_balance if opening_balance > 0 else zero
+        advance = -opening_balance if opening_balance < 0 else zero
+        return outstanding, advance
+
+    def _record_opening_balance_transaction(
+        self,
+        *,
+        customer: Customer,
+        amount,
+        actor_id: UUID,
+    ) -> None:
+        if amount == 0:
+            return
+        zero = Decimal("0")
+        outstanding_delta = amount if amount > 0 else zero
+        advance_delta = -amount if amount < 0 else zero
+        self._record_receivable_transaction(
+            customer=customer,
+            tx_type=CustomerReceivableTransactionType.OPENING_BALANCE.value,
+            amount=abs(amount),
+            outstanding_delta=outstanding_delta,
+            advance_delta=advance_delta,
+            transaction_date=utc_now().date(),
+            reference_type="CUSTOMER_MASTER",
+            reference_id=customer.id,
+            reference_number=customer.code,
+            remarks="Opening balance seeded from customer financial profile.",
+            actor_id=actor_id,
+        )
+
+    def _record_receivable_transaction(
+        self,
+        *,
+        customer: Customer,
+        tx_type: str,
+        amount,
+        outstanding_delta,
+        advance_delta,
+        transaction_date,
+        reference_type,
+        reference_id,
+        reference_number,
+        remarks,
+        actor_id: UUID,
+    ) -> CustomerReceivableTransaction:
+        row = CustomerReceivableTransaction(
+            firm_id=customer.firm_id,
+            customer_id=customer.id,
+            transaction_type=tx_type,
+            transaction_date=transaction_date,
+            amount=amount,
+            outstanding_delta=outstanding_delta,
+            advance_delta=advance_delta,
+            outstanding_after=customer.current_outstanding,
+            advance_after=customer.unapplied_advance_balance,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            reference_number=reference_number,
+            remarks=remarks,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(row)
+        self._session.flush()
+        return row
+
+    def _reset_opening_balance_transaction(
+        self,
+        *,
+        customer: Customer,
+        amount,
+        actor_id: UUID,
+    ) -> None:
+        self._session.query(CustomerReceivableTransaction).filter(
+            CustomerReceivableTransaction.customer_id == customer.id,
+            CustomerReceivableTransaction.transaction_type
+            == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+        ).delete(synchronize_session=False)
+        self._record_opening_balance_transaction(
+            customer=customer,
+            amount=amount,
+            actor_id=actor_id,
+        )

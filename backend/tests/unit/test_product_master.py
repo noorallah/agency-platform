@@ -187,7 +187,8 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     ]
     created = service.create_product(valid, firm_id=firm.id, actor_id=actor_id)
     assert created.code == "PROD-002"
-    assert created.attributes[0].value_date is not None
+    assert created.category_attribute_values[0]["value_type"] == "date"
+    assert created.category_attribute_values[0]["value"] == "2028-12-31"
 
 
 def test_product_service_enforces_feature_gated_fields() -> None:

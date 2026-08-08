@@ -39,7 +39,7 @@ from app.branches.schemas import (
     WarehouseStatus,
 )
 from app.branches.services import BranchWarehouseService
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import get_db, get_platform_db
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -76,13 +76,14 @@ class BranchWarehouseScope:
 def branch_warehouse_scope(
     principal: Annotated[Principal, Depends(get_current_principal)],
     db: Annotated[Session, Depends(get_db)],
+    platform_db: Annotated[Session, Depends(get_platform_db)],
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
 ) -> BranchWarehouseScope:
     """Validate active firm access for branch and warehouse operations."""
     if "platform_admin" in principal.roles:
         if x_firm_id is None:
             raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
+        firm = platform_db.scalar(
             select(Firm.id).where(
                 Firm.id == x_firm_id,
                 Firm.is_active.is_(True),
@@ -94,7 +95,7 @@ def branch_warehouse_scope(
         return BranchWarehouseScope(principal, x_firm_id)
     if not isinstance(principal.subject, UUID) or x_firm_id is None:
         raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
+    membership = platform_db.scalar(
         select(UserFirm.id)
         .join(Firm, Firm.id == UserFirm.firm_id)
         .where(

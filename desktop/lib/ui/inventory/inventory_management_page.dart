@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -44,11 +47,13 @@ class InventoryManagementPage extends StatefulWidget {
   final ValueChanged<InventorySection>? onNavigateToSection;
 
   @override
-  State<InventoryManagementPage> createState() => _InventoryManagementPageState();
+  State<InventoryManagementPage> createState() =>
+      _InventoryManagementPageState();
 }
 
 class _InventoryManagementPageState extends State<InventoryManagementPage> {
   static const int _rowsPerPage = 20;
+  static const String _preferencesKey = 'inventory_management';
 
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -67,6 +72,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   bool _lowStockOnly = false;
   bool _outOfStockOnly = false;
   bool _negativeOnly = false;
+  bool _defaultPostAfterSave = false;
+  String _defaultExportFormat = 'csv';
   List<BranchRecord> _branches = const [];
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
@@ -88,22 +95,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   List<InventoryLocationSummaryRecord> _branchSummary = const [];
   List<InventoryLocationSummaryRecord> _warehouseSummary = const [];
 
-  bool get _canViewInventory =>
-      widget.permissions.hasPermission('INVENTORY_VIEW');
   bool get _canCreateOpeningStock =>
       widget.permissions.hasPermission('OPENING_STOCK_CREATE');
   bool get _canUpdateOpeningStock =>
       widget.permissions.hasPermission('OPENING_STOCK_UPDATE');
-  bool get _canViewLedger =>
-      widget.permissions.hasPermission('INVENTORY_LEDGER_VIEW');
-  bool get _canExport =>
-      widget.permissions.hasPermission('INVENTORY_EXPORT');
-  bool get _canImport =>
-      widget.permissions.hasPermission('INVENTORY_IMPORT');
-  bool get _canViewTransactions =>
-      widget.permissions.hasPermission('INVENTORY_TRANSACTION_VIEW');
-  bool get _canAdjust =>
-      widget.permissions.hasPermission('INVENTORY_ADJUST');
+  bool get _canExport => widget.permissions.hasPermission('INVENTORY_EXPORT');
+  bool get _canAdjust => widget.permissions.hasPermission('INVENTORY_ADJUST');
 
   @override
   void initState() {
@@ -122,9 +119,61 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     if (!widget.hasActiveFirm) {
       return;
     }
+    _loadPreferences();
     await _loadLookups();
     await _load();
   }
+
+  void _loadPreferences() {
+    final Map<String, dynamic> raw =
+        widget.preferences.current.serverPreferences[_preferencesKey] is Map
+            ? Map<String, dynamic>.from(
+                widget.preferences.current.serverPreferences[_preferencesKey]
+                    as Map,
+              )
+            : const {};
+    _status =
+        stringValue(raw['status']).isEmpty ? null : stringValue(raw['status']);
+    _transactionType = stringValue(raw['transaction_type']).isEmpty
+        ? null
+        : stringValue(raw['transaction_type']);
+    _branchId = stringValue(raw['branch_id']).isEmpty
+        ? null
+        : stringValue(raw['branch_id']);
+    _warehouseId = stringValue(raw['warehouse_id']).isEmpty
+        ? null
+        : stringValue(raw['warehouse_id']);
+    _productId = stringValue(raw['product_id']).isEmpty
+        ? null
+        : stringValue(raw['product_id']);
+    _includeDeleted = boolValue(raw['include_deleted']);
+    _lowStockOnly = boolValue(raw['low_stock_only']);
+    _outOfStockOnly = boolValue(raw['out_of_stock_only']);
+    _negativeOnly = boolValue(raw['negative_only']);
+    _defaultPostAfterSave = boolValue(raw['default_post_after_save']);
+    _defaultExportFormat =
+        stringValue(raw['default_export_format']).toLowerCase() == 'xlsx'
+            ? 'xlsx'
+            : 'csv';
+  }
+
+  Future<void> _persistPreferences() =>
+      widget.preferences.cacheServerPreferences({
+        ...widget.preferences.current.serverPreferences,
+        _preferencesKey: {
+          'status': _status,
+          'transaction_type': _transactionType,
+          'branch_id': _branchId,
+          'warehouse_id': _warehouseId,
+          'product_id': _productId,
+          'include_deleted': _includeDeleted,
+          'low_stock_only': _lowStockOnly,
+          'out_of_stock_only': _outOfStockOnly,
+          'negative_only': _negativeOnly,
+          'default_post_after_save': _defaultPostAfterSave,
+          'default_export_format': _defaultExportFormat,
+        },
+      });
 
   Future<void> _loadLookups() async {
     try {
@@ -157,7 +206,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       switch (widget.section) {
         case InventorySection.inventory:
         case InventorySection.stockSearch:
-          final PagedResult<InventoryRecord> result = await widget.api.inventory(
+          final PagedResult<InventoryRecord> result =
+              await widget.api.inventory(
             page: _page,
             pageSize: _rowsPerPage,
             search: _search.text.trim(),
@@ -256,7 +306,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           _summary = results[0] as InventorySummaryRecord;
           _firmSummary = results[1] as List<InventoryLocationSummaryRecord>;
           _branchSummary = results[2] as List<InventoryLocationSummaryRecord>;
-          _warehouseSummary = results[3] as List<InventoryLocationSummaryRecord>;
+          _warehouseSummary =
+              results[3] as List<InventoryLocationSummaryRecord>;
           _total = _summary?.totalRecords ?? 0;
           break;
         case InventorySection.inventoryImport:
@@ -364,9 +415,16 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           ),
           if (_canExport)
             FilledButton.tonalIcon(
-              onPressed: () => _exportDataset('inventory'),
+              onPressed: () => _saveExportFile(
+                dataset: 'inventory',
+                format: _defaultExportFormat,
+              ),
               icon: const Icon(Icons.file_download_outlined),
-              label: const Text('Copy Inventory CSV'),
+              label: Text(
+                _defaultExportFormat == 'xlsx'
+                    ? 'Export Inventory XLSX'
+                    : 'Export Inventory CSV',
+              ),
             ),
         ],
       ),
@@ -393,11 +451,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               ],
             ),
             const SizedBox(height: 24),
-            _summaryTable('Firm stock', _firmSummary),
+            _summaryTable('Firm stock', _firmSummary, scope: 'firm'),
             const SizedBox(height: 16),
-            _summaryTable('Branch stock', _branchSummary),
+            _summaryTable('Branch stock', _branchSummary, scope: 'branch'),
             const SizedBox(height: 16),
-            _summaryTable('Warehouse stock', _warehouseSummary),
+            _summaryTable('Warehouse stock', _warehouseSummary,
+                scope: 'warehouse'),
           ],
         ),
       ),
@@ -427,8 +486,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             products: _products,
             onViewImportedRecords: (type) async {
               final InventorySection target = switch (type) {
-                InventoryImportType.openingStock => InventorySection.openingStock,
-                InventoryImportType.inventoryUpdate => InventorySection.inventory,
+                InventoryImportType.openingStock =>
+                  InventorySection.openingStock,
+                InventoryImportType.inventoryUpdate =>
+                  InventorySection.inventory,
                 InventoryImportType.inventoryAdjustment =>
                   InventorySection.transactions,
               };
@@ -452,18 +513,29 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   title: 'Inventory CSV',
                   description:
                       'Export the current inventory projection with balances and reorder thresholds.',
-                  actionLabel: 'Copy inventory CSV',
-                  onPressed: _canExport ? () => _exportDataset('inventory') : null,
+                  actionLabel: 'Save inventory CSV',
+                  onPressed: _canExport
+                      ? () =>
+                          _saveExportFile(dataset: 'inventory', format: 'csv')
+                      : null,
+                  secondaryActionLabel: 'Copy CSV',
+                  onSecondaryPressed:
+                      _canExport ? () => _copyExportCsv('inventory') : null,
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: _actionCard(
-                  title: 'Stock ledger CSV',
+                  title: 'Stock ledger',
                   description:
-                      'Export the immutable stock ledger with movement references and balances.',
-                  actionLabel: 'Copy ledger CSV',
-                  onPressed: _canExport ? () => _exportDataset('ledger') : null,
+                      'Export the immutable stock ledger with movement references and balances as CSV or XLSX.',
+                  actionLabel: 'Save ledger XLSX',
+                  onPressed: _canExport
+                      ? () => _saveExportFile(dataset: 'ledger', format: 'xlsx')
+                      : null,
+                  secondaryActionLabel: 'Copy ledger CSV',
+                  onSecondaryPressed:
+                      _canExport ? () => _copyExportCsv('ledger') : null,
                 ),
               ),
             ],
@@ -479,7 +551,47 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         content: Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: ListView(
-            children: const [
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.task_alt_outlined),
+                  title: const Text('Default opening-stock behavior'),
+                  subtitle: const Text('Auto-post after save when enabled.'),
+                  trailing: Switch(
+                    value: _defaultPostAfterSave,
+                    onChanged: (value) {
+                      setState(() => _defaultPostAfterSave = value);
+                      _persistPreferences();
+                    },
+                  ),
+                ),
+              ),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.file_present_outlined),
+                  title: const Text('Default export format'),
+                  subtitle: const Text(
+                      'Used by quick export actions in summary/grids.'),
+                  trailing: DropdownButton<String>(
+                    value: _defaultExportFormat,
+                    items: const [
+                      DropdownMenuItem(value: 'csv', child: Text('CSV')),
+                      DropdownMenuItem(value: 'xlsx', child: Text('XLSX')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _defaultExportFormat = value);
+                      _persistPreferences();
+                    },
+                  ),
+                ),
+              ),
+              const _InfoTile(
+                icon: Icons.receipt_long_outlined,
+                title: 'Opening stock is first-time load',
+                message:
+                    'Use opening stock for first entry only, then continue stock changes through purchase receipts and adjustments.',
+              ),
               _InfoTile(
                 icon: Icons.receipt_long_outlined,
                 title: 'Transactions are the source of truth',
@@ -540,7 +652,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               _selectedOpeningStock != null &&
               !_selectedOpeningStock!.isPosted)
             FilledButton.tonalIcon(
-              onPressed: () => _openOpeningStockDialog(existing: _selectedOpeningStock),
+              onPressed: () =>
+                  _openOpeningStockDialog(existing: _selectedOpeningStock),
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit draft'),
             ),
@@ -559,13 +672,16 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   widget.section == InventorySection.openingStock) &&
               _canExport)
             OutlinedButton.icon(
-              onPressed: () => _exportDataset(
-                widget.section == InventorySection.stockLedger
+              onPressed: () => _saveExportFile(
+                dataset: widget.section == InventorySection.stockLedger
                     ? 'ledger'
                     : 'inventory',
+                format: _defaultExportFormat,
               ),
               icon: const Icon(Icons.file_download_outlined),
-              label: const Text('Copy CSV'),
+              label: Text(_defaultExportFormat == 'xlsx'
+                  ? 'Export XLSX'
+                  : 'Export CSV'),
             ),
           OutlinedButton.icon(
             onPressed: _load,
@@ -576,25 +692,30 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       );
 
   Widget _buildFilterPanel() {
-    final bool inventoryFilters = widget.section == InventorySection.inventory ||
-        widget.section == InventorySection.stockSearch;
-    final bool movementFilters = widget.section == InventorySection.transactions ||
-        widget.section == InventorySection.stockLedger;
+    final bool inventoryFilters =
+        widget.section == InventorySection.inventory ||
+            widget.section == InventorySection.stockSearch;
+    final bool movementFilters =
+        widget.section == InventorySection.transactions ||
+            widget.section == InventorySection.stockLedger;
     final bool openingFilters = widget.section == InventorySection.openingStock;
     final int activeCount = [
-      _status,
-      _transactionType,
-      _branchId,
-      _warehouseId,
-      _productId,
-    ].where((value) => value?.isNotEmpty == true).length +
+          _status,
+          _transactionType,
+          _branchId,
+          _warehouseId,
+          _productId,
+        ].where((value) => value?.isNotEmpty == true).length +
         (_includeDeleted ? 1 : 0) +
         (_lowStockOnly ? 1 : 0) +
         (_outOfStockOnly ? 1 : 0) +
         (_negativeOnly ? 1 : 0);
     return FilterPanel(
       activeFilterCount: activeCount,
-      onApply: () => _load(requestedPage: 1),
+      onApply: () {
+        _persistPreferences();
+        _load(requestedPage: 1);
+      },
       onClear: () {
         setState(() {
           _status = null;
@@ -607,16 +728,46 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           _outOfStockOnly = false;
           _negativeOnly = false;
         });
+        _persistPreferences();
         _load(requestedPage: 1);
       },
       children: [
+        if (inventoryFilters)
+          Wrap(
+            spacing: 8,
+            children: [
+              ActionChip(
+                label: const Text('Preset: All stock'),
+                onPressed: () => _applyInventoryPreset('all'),
+              ),
+              ActionChip(
+                label: const Text('Preset: Low stock'),
+                onPressed: () => _applyInventoryPreset('low'),
+              ),
+              ActionChip(
+                label: const Text('Preset: Out of stock'),
+                onPressed: () => _applyInventoryPreset('out'),
+              ),
+              ActionChip(
+                label: const Text('Preset: Negative'),
+                onPressed: () => _applyInventoryPreset('negative'),
+              ),
+            ],
+          ),
         if (inventoryFilters || openingFilters)
           SizedBox(
             width: 180,
             child: DropdownButtonFormField<String>(
               initialValue: _status,
               decoration: const InputDecoration(labelText: 'Status'),
-              items: const ['', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'DRAFT', 'POSTED']
+              items: const [
+                '',
+                'ACTIVE',
+                'INACTIVE',
+                'ARCHIVED',
+                'DRAFT',
+                'POSTED'
+              ]
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
@@ -666,7 +817,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           items: _branches,
           itemId: (item) => item.id,
           itemLabel: (item) => '${item.code} - ${item.name}',
-          onChanged: (value) => setState(() => _branchId = value),
+          onChanged: (value) => setState(() {
+            _branchId = value;
+            if (_warehouseId != null &&
+                !_filteredWarehouses.any((item) => item.id == _warehouseId)) {
+              _warehouseId = null;
+            }
+          }),
         ),
         _lookupField<WarehouseRecord>(
           label: 'Warehouse',
@@ -721,7 +878,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       );
     }
     return switch (widget.section) {
-      InventorySection.inventory || InventorySection.stockSearch =>
+      InventorySection.inventory ||
+      InventorySection.stockSearch =>
         _buildInventoryGrid(),
       InventorySection.transactions => _buildTransactionGrid(),
       InventorySection.stockLedger => _buildLedgerGrid(),
@@ -892,10 +1050,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         record: record,
         onOpenInventory: widget.onNavigateToSection == null
             ? null
-            : () async => widget.onNavigateToSection!(InventorySection.inventory),
+            : () async =>
+                widget.onNavigateToSection!(InventorySection.inventory),
         onViewLedger: widget.onNavigateToSection == null
             ? null
-            : () async => widget.onNavigateToSection!(InventorySection.stockLedger),
+            : () async =>
+                widget.onNavigateToSection!(InventorySection.stockLedger),
         onViewTransactions: widget.onNavigateToSection == null
             ? null
             : () async =>
@@ -903,7 +1063,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       );
 
   String get _detailsTitle => switch (widget.section) {
-        InventorySection.inventory || InventorySection.stockSearch =>
+        InventorySection.inventory ||
+        InventorySection.stockSearch =>
           'Inventory details',
         InventorySection.transactions => 'Transaction details',
         InventorySection.stockLedger => 'Ledger details',
@@ -912,7 +1073,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       };
 
   List<DetailLine> get _detailLines => switch (widget.section) {
-        InventorySection.inventory || InventorySection.stockSearch =>
+        InventorySection.inventory ||
+        InventorySection.stockSearch =>
           _selectedInventory == null
               ? const []
               : [
@@ -926,20 +1088,28 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                         ? '-'
                         : _selectedInventory!.storageNodeName,
                   ),
-                  DetailLine('Current quantity', _selectedInventory!.currentQuantity),
                   DetailLine(
-                      'Available quantity', _selectedInventory!.availableQuantity),
+                      'Current quantity', _selectedInventory!.currentQuantity),
+                  DetailLine('Available quantity',
+                      _selectedInventory!.availableQuantity),
+                  DetailLine('Reserved quantity',
+                      _selectedInventory!.reservedQuantity),
                   DetailLine(
-                      'Reserved quantity', _selectedInventory!.reservedQuantity),
-                  DetailLine('Blocked quantity', _selectedInventory!.blockedQuantity),
-                  DetailLine('Damaged quantity', _selectedInventory!.damagedQuantity),
+                      'Blocked quantity', _selectedInventory!.blockedQuantity),
                   DetailLine(
-                      'Quarantine quantity', _selectedInventory!.quarantineQuantity),
-                  DetailLine('In transit', _selectedInventory!.inTransitQuantity),
-                  DetailLine('Minimum level', _blankable(_selectedInventory!.minimumLevel)),
-                  DetailLine('Maximum level', _blankable(_selectedInventory!.maximumLevel)),
-                  DetailLine('Reorder level', _blankable(_selectedInventory!.reorderLevel)),
-                  DetailLine('Safety stock', _blankable(_selectedInventory!.safetyStock)),
+                      'Damaged quantity', _selectedInventory!.damagedQuantity),
+                  DetailLine('Quarantine quantity',
+                      _selectedInventory!.quarantineQuantity),
+                  DetailLine(
+                      'In transit', _selectedInventory!.inTransitQuantity),
+                  DetailLine('Minimum level',
+                      _blankable(_selectedInventory!.minimumLevel)),
+                  DetailLine('Maximum level',
+                      _blankable(_selectedInventory!.maximumLevel)),
+                  DetailLine('Reorder level',
+                      _blankable(_selectedInventory!.reorderLevel)),
+                  DetailLine('Safety stock',
+                      _blankable(_selectedInventory!.safetyStock)),
                   DetailLine(
                     'Last transaction',
                     _blankable(_selectedInventory!.lastTransactionAt),
@@ -951,21 +1121,28 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             : [
                 DetailLine('Type', _selectedTransaction!.transactionType),
                 DetailLine('Reference', _selectedTransaction!.referenceNumber),
-                DetailLine('Reference type', _selectedTransaction!.referenceType),
+                DetailLine(
+                    'Reference type', _selectedTransaction!.referenceType),
                 DetailLine('Date', _selectedTransaction!.transactionDate),
                 DetailLine('Product', _selectedTransaction!.productName),
                 DetailLine('Warehouse', _selectedTransaction!.warehouseName),
                 DetailLine('Quantity', _selectedTransaction!.quantity),
-                DetailLine('Previous current', _selectedTransaction!.previousCurrentQuantity),
-                DetailLine('New current', _selectedTransaction!.newCurrentQuantity),
-                DetailLine('Previous available', _selectedTransaction!.previousAvailableQuantity),
-                DetailLine('New available', _selectedTransaction!.newAvailableQuantity),
-                DetailLine('Remarks', _blankable(_selectedTransaction!.remarks)),
+                DetailLine('Previous current',
+                    _selectedTransaction!.previousCurrentQuantity),
+                DetailLine(
+                    'New current', _selectedTransaction!.newCurrentQuantity),
+                DetailLine('Previous available',
+                    _selectedTransaction!.previousAvailableQuantity),
+                DetailLine('New available',
+                    _selectedTransaction!.newAvailableQuantity),
+                DetailLine(
+                    'Remarks', _blankable(_selectedTransaction!.remarks)),
               ],
         InventorySection.stockLedger => _selectedLedger == null
             ? const []
             : [
-                DetailLine('Ledger transaction', _selectedLedger!.transactionId),
+                DetailLine(
+                    'Ledger transaction', _selectedLedger!.transactionId),
                 DetailLine('Type', _selectedLedger!.transactionType),
                 DetailLine('Reference', _selectedLedger!.referenceNumber),
                 DetailLine('Date', _selectedLedger!.transactionDate),
@@ -981,11 +1158,15 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                 DetailLine('Posting date', _selectedOpeningStock!.postingDate),
                 DetailLine('Branch', _selectedOpeningStock!.branchName),
                 DetailLine('Warehouse', _selectedOpeningStock!.warehouseName),
-                DetailLine('Source format', _selectedOpeningStock!.sourceFormat),
+                DetailLine(
+                    'Source format', _selectedOpeningStock!.sourceFormat),
                 DetailLine('Status', _selectedOpeningStock!.status),
-                DetailLine('Posted at', _blankable(_selectedOpeningStock!.postedAt)),
-                DetailLine('Line count', '${_selectedOpeningStock!.lines.length}'),
-                DetailLine('Remarks', _blankable(_selectedOpeningStock!.remarks)),
+                DetailLine(
+                    'Posted at', _blankable(_selectedOpeningStock!.postedAt)),
+                DetailLine(
+                    'Line count', '${_selectedOpeningStock!.lines.length}'),
+                DetailLine(
+                    'Remarks', _blankable(_selectedOpeningStock!.remarks)),
               ],
         _ => const [],
       };
@@ -1063,7 +1244,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                         ),
                       )
                       .toList(),
-                  onChanged: (value) => setState(() => status = value ?? status),
+                  onChanged: (value) =>
+                      setState(() => status = value ?? status),
                 ),
               ],
             ),
@@ -1086,7 +1268,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       await widget.api.updateInventoryRecord(record.id, {
         'branch_id': record.branchId,
         'warehouse_id': record.warehouseId,
-        'storage_node_id': record.storageNodeId.isEmpty ? null : record.storageNodeId,
+        'storage_node_id':
+            record.storageNodeId.isEmpty ? null : record.storageNodeId,
         'product_id': record.productId,
         'minimum_level': _nullableNumber(minimum.text),
         'maximum_level': _nullableNumber(maximum.text),
@@ -1149,6 +1332,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         warehouses: _warehouses,
         products: _products,
         api: widget.api,
+        initialBranchId: _branchId,
+        initialWarehouseId: _warehouseId,
+        initialProductId: _productId,
       ),
     );
     if (draft == null) return;
@@ -1182,6 +1368,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         warehouses: _warehouses,
         products: _products,
         existing: existing,
+        initialBranchId: _branchId,
+        initialWarehouseId: _warehouseId,
+        defaultAutoPost: _defaultPostAfterSave,
       ),
     );
     if (draft == null) return;
@@ -1190,7 +1379,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       if (existing == null) {
         batch = await widget.api.createOpeningStock(draft.toJson());
       } else {
-        batch = await widget.api.updateOpeningStock(existing.id, draft.toJson());
+        batch =
+            await widget.api.updateOpeningStock(existing.id, draft.toJson());
       }
       if (draft.autoPost) {
         batch = await widget.api.postOpeningStock(batch.id);
@@ -1237,17 +1427,59 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     }
   }
 
-  Future<void> _exportDataset(String dataset) async {
+  Future<void> _saveExportFile({
+    required String dataset,
+    required String format,
+  }) async {
+    try {
+      final String extension = format == 'xlsx' ? 'xlsx' : 'csv';
+      final FileSaveLocation? location = await getSaveLocation(
+        suggestedName: '${dataset}_export.$extension',
+      );
+      if (location == null) return;
+      if (format == 'xlsx') {
+        final List<int> bytes = await widget.api.exportInventoryBytes(
+          search: _search.text.trim(),
+          dataset: dataset,
+          format: 'xlsx',
+        );
+        await File(location.path).writeAsBytes(bytes, flush: true);
+      } else {
+        final String csv = await widget.api.exportInventory(
+          search: _search.text.trim(),
+          dataset: dataset,
+          format: 'csv',
+        );
+        await File(location.path).writeAsString(csv, flush: true);
+      }
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${dataset == 'ledger' ? 'Ledger' : 'Inventory'} export saved.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<void> _copyExportCsv(String dataset) async {
     try {
       final String csv = await widget.api.exportInventory(
         search: _search.text.trim(),
         dataset: dataset,
+        format: 'csv',
       );
       await copyTextToClipboard(csv);
       if (!mounted) return;
       NotificationService.show(
         context,
-        '${dataset == 'ledger' ? 'Ledger' : 'Inventory'} CSV copied to the clipboard.',
+        '${dataset == 'ledger' ? 'Ledger' : 'Inventory'} CSV copied.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
@@ -1272,13 +1504,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       : _warehouses.where((item) => item.branchId == _branchId).toList();
 
   int get _selectedCount => switch (widget.section) {
-        InventorySection.inventory || InventorySection.stockSearch =>
+        InventorySection.inventory ||
+        InventorySection.stockSearch =>
           _selectedInventory == null ? 0 : 1,
-        InventorySection.transactions =>
-          _selectedTransaction == null ? 0 : 1,
+        InventorySection.transactions => _selectedTransaction == null ? 0 : 1,
         InventorySection.stockLedger => _selectedLedger == null ? 0 : 1,
-        InventorySection.openingStock =>
-          _selectedOpeningStock == null ? 0 : 1,
+        InventorySection.openingStock => _selectedOpeningStock == null ? 0 : 1,
         _ => 0,
       };
 
@@ -1289,8 +1520,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           'Search current stock levels across branches and warehouses',
         InventorySection.transactions =>
           'Search by reference, product, or transaction type',
-        InventorySection.stockLedger =>
-          'Search immutable ledger movements',
+        InventorySection.stockLedger => 'Search immutable ledger movements',
         InventorySection.openingStock =>
           'Search by reference number or warehouse',
         _ => 'Search',
@@ -1313,10 +1543,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         ),
       );
 
-  Widget _summaryTable(
-    String title,
-    List<InventoryLocationSummaryRecord> rows,
-  ) =>
+  Widget _summaryTable(String title, List<InventoryLocationSummaryRecord> rows,
+          {required String scope}) =>
       Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -1339,6 +1567,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   rows: rows
                       .map(
                         (row) => DataRow(
+                          onSelectChanged: (_) => _applySummaryDrillDown(
+                            scope: scope,
+                            row: row,
+                          ),
                           cells: [
                             DataCell(Text(row.scopeCode)),
                             DataCell(Text(row.scopeName)),
@@ -1355,11 +1587,48 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         ),
       );
 
+  Future<void> _applySummaryDrillDown({
+    required String scope,
+    required InventoryLocationSummaryRecord row,
+  }) async {
+    setState(() {
+      if (scope == 'branch') {
+        _branchId = row.scopeId;
+        _warehouseId = null;
+      } else if (scope == 'warehouse') {
+        _warehouseId = row.scopeId;
+      }
+      _status = 'ACTIVE';
+      _includeDeleted = false;
+      _lowStockOnly = false;
+      _outOfStockOnly = false;
+      _negativeOnly = false;
+    });
+    await _persistPreferences();
+    widget.onNavigateToSection?.call(InventorySection.inventory);
+  }
+
+  void _applyInventoryPreset(String id) {
+    setState(() {
+      _lowStockOnly = id == 'low';
+      _outOfStockOnly = id == 'out';
+      _negativeOnly = id == 'negative';
+      _includeDeleted = false;
+      if (id == 'all') {
+        _status = 'ACTIVE';
+      }
+    });
+    _persistPreferences();
+    _load(requestedPage: 1);
+  }
+
   Widget _actionCard({
     required String title,
     required String description,
     required String actionLabel,
     required VoidCallback? onPressed,
+    String? secondaryActionLabel,
+    VoidCallback? onSecondaryPressed,
   }) =>
       Card(
         child: Padding(
@@ -1371,10 +1640,21 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               const SizedBox(height: 8),
               Text(description),
               const Spacer(),
-              FilledButton.icon(
-                onPressed: onPressed,
-                icon: const Icon(Icons.copy_all_outlined),
-                label: Text(actionLabel),
+              Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: onPressed,
+                    icon: const Icon(Icons.file_download_outlined),
+                    label: Text(actionLabel),
+                  ),
+                  if (secondaryActionLabel != null) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton(
+                      onPressed: onSecondaryPressed,
+                      child: Text(secondaryActionLabel),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -1479,27 +1759,39 @@ class _AdjustmentDialog extends StatefulWidget {
     required this.warehouses,
     required this.products,
     required this.api,
+    this.initialBranchId,
+    this.initialWarehouseId,
+    this.initialProductId,
   });
 
   final List<BranchRecord> branches;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
   final ApiClient api;
+  final String? initialBranchId;
+  final String? initialWarehouseId;
+  final String? initialProductId;
 
   @override
   State<_AdjustmentDialog> createState() => _AdjustmentDialogState();
 }
 
 class _AdjustmentDialogState extends State<_AdjustmentDialog> {
-  late String? _branchId = widget.branches.isEmpty ? null : widget.branches.first.id;
-  late String? _warehouseId = _filteredWarehouses.isEmpty ? null : _filteredWarehouses.first.id;
+  late String? _branchId = widget.initialBranchId ??
+      (widget.branches.isEmpty ? null : widget.branches.first.id);
+  late String? _warehouseId = widget.initialWarehouseId ??
+      (_filteredWarehouses.isEmpty ? null : _filteredWarehouses.first.id);
   String? _storageNodeId;
-  late String? _productId = widget.products.isEmpty ? null : widget.products.first.id;
+  late String? _productId = widget.initialProductId ??
+      (widget.products.isEmpty ? null : widget.products.first.id);
   final TextEditingController _quantity = TextEditingController();
-  final TextEditingController _reference = TextEditingController(text: 'ADJ-001');
-  final TextEditingController _date = TextEditingController(text: DateTime.now().toIso8601String().split('T').first);
+  final TextEditingController _reference =
+      TextEditingController(text: 'ADJ-001');
+  final TextEditingController _date = TextEditingController(
+      text: DateTime.now().toIso8601String().split('T').first);
   final TextEditingController _remarks = TextEditingController();
   List<StorageNodeRecord> _storageNodes = const [];
+  String? _validationError;
 
   List<WarehouseRecord> get _filteredWarehouses => _branchId == null
       ? widget.warehouses
@@ -1524,7 +1816,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
     final String? warehouseId = _warehouseId;
     if (warehouseId == null) return;
     try {
-      final List<StorageNodeRecord> rows = await widget.api.storageNodes(warehouseId);
+      final List<StorageNodeRecord> rows =
+          await widget.api.storageNodes(warehouseId);
       if (!mounted) return;
       setState(() {
         _storageNodes = rows;
@@ -1565,6 +1858,13 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                     });
                     _loadStorageNodes();
                   },
+                ),
+                const SizedBox(height: 12),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Use adjustments only for corrections. Use Goods Receipt for purchase-based stock increases.',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
@@ -1618,9 +1918,17 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _quantity,
-                  decoration:
-                      const InputDecoration(labelText: 'Quantity (+ or - value)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Quantity (+ or - value)'),
                 ),
+                if (_validationError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _validationError!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: _reference,
@@ -1629,7 +1937,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _date,
-                  decoration: const InputDecoration(labelText: 'Transaction date'),
+                  decoration:
+                      const InputDecoration(labelText: 'Transaction date'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -1648,6 +1957,11 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
           ),
           FilledButton(
             onPressed: () {
+              final num? quantity = num.tryParse(_quantity.text.trim());
+              if (quantity == null || quantity == 0) {
+                setState(() => _validationError = 'Enter a non-zero quantity.');
+                return;
+              }
               if (_branchId == null ||
                   _warehouseId == null ||
                   _productId == null ||
@@ -1729,7 +2043,8 @@ class _OpeningStockLineDraft {
   factory _OpeningStockLineDraft.fromRecord(OpeningStockLineRecord record) =>
       _OpeningStockLineDraft(
         productId: record.productId,
-        storageNodeId: record.storageNodeId.isEmpty ? null : record.storageNodeId,
+        storageNodeId:
+            record.storageNodeId.isEmpty ? null : record.storageNodeId,
         quantity: record.quantity,
         minimumLevel: record.minimumLevel,
         maximumLevel: record.maximumLevel,
@@ -1761,6 +2076,9 @@ class _OpeningStockDialog extends StatefulWidget {
     required this.warehouses,
     required this.products,
     this.existing,
+    this.initialBranchId,
+    this.initialWarehouseId,
+    this.defaultAutoPost = false,
   });
 
   final ApiClient api;
@@ -1768,15 +2086,20 @@ class _OpeningStockDialog extends StatefulWidget {
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
   final OpeningStockBatchRecord? existing;
+  final String? initialBranchId;
+  final String? initialWarehouseId;
+  final bool defaultAutoPost;
 
   @override
   State<_OpeningStockDialog> createState() => _OpeningStockDialogState();
 }
 
 class _OpeningStockDialogState extends State<_OpeningStockDialog> {
-  late String? _branchId =
-      widget.existing?.branchId ?? (widget.branches.isEmpty ? null : widget.branches.first.id);
+  late String? _branchId = widget.existing?.branchId ??
+      widget.initialBranchId ??
+      (widget.branches.isEmpty ? null : widget.branches.first.id);
   late String? _warehouseId = widget.existing?.warehouseId ??
+      widget.initialWarehouseId ??
       (_filteredWarehouses.isEmpty ? null : _filteredWarehouses.first.id);
   late final TextEditingController _reference = TextEditingController(
     text: widget.existing?.referenceNumber ?? 'OPEN-001',
@@ -1788,11 +2111,12 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
   late final TextEditingController _remarks = TextEditingController(
     text: widget.existing?.remarks ?? '',
   );
-  late bool _autoPost = widget.existing?.isPosted ?? false;
+  late bool _autoPost = widget.existing?.isPosted ?? widget.defaultAutoPost;
   late final List<_OpeningStockLineDraft> _lines =
       widget.existing?.lines.map(_OpeningStockLineDraft.fromRecord).toList() ??
           <_OpeningStockLineDraft>[_OpeningStockLineDraft()];
   List<StorageNodeRecord> _storageNodes = const [];
+  String? _validationError;
 
   List<WarehouseRecord> get _filteredWarehouses => _branchId == null
       ? widget.warehouses
@@ -1912,6 +2236,13 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                   maxLines: 2,
                 ),
                 const SizedBox(height: 12),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Opening stock is for initial load only. Use purchases/receipts and adjustments after go-live.',
+                  ),
+                ),
+                const SizedBox(height: 12),
                 FilterChip(
                   label: const Text('Post after save'),
                   selected: _autoPost,
@@ -1940,6 +2271,14 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                     label: const Text('Add line'),
                   ),
                 ),
+                if (_validationError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _validationError!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1951,6 +2290,26 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
           ),
           FilledButton(
             onPressed: () {
+              final Set<String> keys = <String>{};
+              for (final _OpeningStockLineDraft line in _lines) {
+                final String? productId = line.productId;
+                final num? quantity = num.tryParse(line.quantity.trim());
+                if (productId == null || quantity == null || quantity <= 0) {
+                  setState(() {
+                    _validationError =
+                        'Each line needs product and quantity greater than zero.';
+                  });
+                  return;
+                }
+                final String key = '$productId::${line.storageNodeId ?? ''}';
+                if (!keys.add(key)) {
+                  setState(() {
+                    _validationError =
+                        'Duplicate product/storage combination found. Merge duplicate lines.';
+                  });
+                  return;
+                }
+              }
               if (_branchId == null ||
                   _warehouseId == null ||
                   _reference.text.trim().isEmpty ||
@@ -1994,7 +2353,8 @@ class _OpeningStockLineEditor extends StatefulWidget {
   final VoidCallback? onRemove;
 
   @override
-  State<_OpeningStockLineEditor> createState() => _OpeningStockLineEditorState();
+  State<_OpeningStockLineEditor> createState() =>
+      _OpeningStockLineEditorState();
 }
 
 class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {

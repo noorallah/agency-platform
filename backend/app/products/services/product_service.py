@@ -3,11 +3,11 @@
 # ruff: noqa: D102, D107
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -27,12 +27,12 @@ from app.core.utils.dates import utc_now
 from app.firms.models import Firm
 from app.products.models import (
     Product,
-    ProductAttributeValue,
     ProductCategory,
     ProductMedia,
 )
 from app.products.schemas import (
     ProductAttributeInput,
+    ProductAttributeResponse,
     ProductCategoryCreate,
     ProductCategoryFilter,
     ProductCategoryUpdate,
@@ -76,10 +76,7 @@ class ProductService:
         statement = (
             select(Product)
             .where(Product.firm_id == firm_scope)
-            .options(
-                selectinload(Product.attributes),
-                selectinload(Product.media),
-            )
+            .options(selectinload(Product.media))
         )
         count = (
             select(func.count())
@@ -87,30 +84,21 @@ class ProductService:
             .where(Product.firm_id == firm_scope)
         )
         statement, count = self._apply_filters(statement, count, filters=filters)
-        if search:
-            term = f"%{search.strip()}%"
-            attr_exists = select(ProductAttributeValue.id).where(
-                ProductAttributeValue.product_id == Product.id,
-                ProductAttributeValue.is_deleted.is_(False),
-                ProductAttributeValue.value_text.ilike(term),
-            )
-            condition = or_(
-                Product.code.ilike(term),
-                Product.barcode.ilike(term),
-                Product.qr_code.ilike(term),
-                Product.name.ilike(term),
-                Product.short_name.ilike(term),
-                Product.brand.ilike(term),
-                Product.hsn_sac.ilike(term),
-                attr_exists.exists(),
-            )
-            statement = statement.where(condition)
-            count = count.where(condition)
         ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()
-        rows = self._session.scalars(
-            statement.order_by(ordering).offset((page - 1) * page_size).limit(page_size)
-        ).all()
-        return list(rows), int(self._session.scalar(count) or 0)
+        rows = list(self._session.scalars(statement.order_by(ordering)).all())
+        if search or filters.attribute_query:
+            term = f"%{search.strip()}%" if search else None
+            attr_term = f"%{filters.attribute_query.strip()}%" if filters.attribute_query else None
+            filtered = [
+                row
+                for row in rows
+                if self._matches_search(row=row, search_term=term, attribute_term=attr_term)
+            ]
+            total = len(filtered)
+            start = (page - 1) * page_size
+            return filtered[start : start + page_size], total
+        start = (page - 1) * page_size
+        return rows[start : start + page_size], int(self._session.scalar(count) or 0)
 
     def summary(
         self, *, firm_scope: UUID, filters: ProductListFilters
@@ -141,8 +129,14 @@ class ProductService:
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Product:
         self._assert_unique_code(firm_id, data.code)
+        self._assert_unique_barcode(firm_id, data.barcode)
         feature_codes = self._active_feature_codes(firm_id)
         category = self._validate_category_reference(firm_id, data.category_id)
+        self._validate_sub_category_reference(
+            firm_id=firm_id,
+            category_id=data.category_id,
+            sub_category_id=data.sub_category_id,
+        )
         self._validate_tax_profile_group_code(firm_id, data.tax_profile_group_code)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, feature_codes)
@@ -157,10 +151,7 @@ class ProductService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        product.attributes = [
-            self._build_attribute_value(firm_id, item, actor_id)
-            for item in data.attributes
-        ]
+        product.category_attribute_values = self._serialize_attributes(data.attributes)
         product.media = [
             self._build_media(firm_id, item, actor_id) for item in data.media
         ]
@@ -189,10 +180,7 @@ class ProductService:
         statement = (
             select(Product)
             .where(Product.id == product_id, Product.firm_id == firm_scope)
-            .options(
-                selectinload(Product.attributes),
-                selectinload(Product.media),
-            )
+            .options(selectinload(Product.media))
         )
         if not include_deleted:
             statement = statement.where(Product.is_deleted.is_(False))
@@ -213,7 +201,15 @@ class ProductService:
             product_id, firm_scope=firm_scope, include_deleted=True
         )
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
+        self._assert_unique_barcode(
+            firm_scope, data.barcode, current_id=product.id
+        )
         category = self._validate_category_reference(firm_scope, data.category_id)
+        self._validate_sub_category_reference(
+            firm_id=firm_scope,
+            category_id=data.category_id,
+            sub_category_id=data.sub_category_id,
+        )
         self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
         self._validate_uom_references(data)
         feature_codes = self._active_feature_codes(firm_scope)
@@ -230,7 +226,7 @@ class ProductService:
         for field, value in self._product_values(data).items():
             setattr(product, field, value)
         product.updated_by = actor_id
-        self._reconcile_attributes(product, data.attributes, actor_id)
+        product.category_attribute_values = self._serialize_attributes(data.attributes)
         self._reconcile_media(product, data.media, actor_id)
         record_audit(
             self._session,
@@ -296,11 +292,7 @@ class ProductService:
             {
                 **self._product_values_from_model(source),
                 "code": self._next_duplicate_code(firm_scope, source.code),
-                "attributes": [
-                    self._attribute_input_from_model(attribute)
-                    for attribute in source.attributes
-                    if not attribute.is_deleted
-                ],
+                "attributes": self._attribute_inputs_from_product(source),
                 "media": [
                     self._media_input_from_model(media)
                     for media in source.media
@@ -703,15 +695,6 @@ class ProductService:
                 Product.hsn_sac == filters.hsn_sac.strip().upper()
             )
             count = count.where(Product.hsn_sac == filters.hsn_sac.strip().upper())
-        if filters.attribute_query:
-            term = f"%{filters.attribute_query.strip()}%"
-            attr_exists = select(ProductAttributeValue.id).where(
-                ProductAttributeValue.product_id == Product.id,
-                ProductAttributeValue.is_deleted.is_(False),
-                ProductAttributeValue.value_text.ilike(term),
-            )
-            statement = statement.where(attr_exists.exists())
-            count = count.where(attr_exists.exists())
         return statement, count
 
     def _active_feature_codes(self, firm_id: UUID) -> set[str]:
@@ -868,6 +851,22 @@ class ProductService:
         if self._session.scalar(statement) is not None:
             raise ConflictError("Product code already exists in this firm.")
 
+    def _assert_unique_barcode(
+        self, firm_id: UUID, barcode: str | None, current_id: UUID | None = None
+    ) -> None:
+        normalized = (barcode or "").strip()
+        if not normalized:
+            return
+        statement = select(Product.id).where(
+            Product.firm_id == firm_id,
+            Product.barcode == normalized,
+            Product.is_deleted.is_(False),
+        )
+        if current_id is not None:
+            statement = statement.where(Product.id != current_id)
+        if self._session.scalar(statement) is not None:
+            raise ConflictError("Barcode already exists in this firm.")
+
     def _validate_category_reference(
         self, firm_id: UUID, category_id: UUID | None
     ) -> ProductCategory | None:
@@ -883,6 +882,31 @@ class ProductService:
         if row is None:
             raise ValidationError("Selected product category is unavailable.")
         return row
+
+    def _validate_sub_category_reference(
+        self,
+        *,
+        firm_id: UUID,
+        category_id: UUID | None,
+        sub_category_id: UUID | None,
+    ) -> None:
+        if sub_category_id is None:
+            return
+        if category_id is None:
+            raise ValidationError("Category is required when sub category is selected.")
+        sub_category = self._session.scalar(
+            select(ProductCategory).where(
+                ProductCategory.id == sub_category_id,
+                ProductCategory.firm_id == firm_id,
+                ProductCategory.is_deleted.is_(False),
+            )
+        )
+        if sub_category is None:
+            raise ValidationError("Selected sub category is unavailable.")
+        if sub_category.parent_id != category_id:
+            raise ValidationError(
+                "Selected sub category does not belong to the selected category."
+            )
 
     def _validate_tax_profile_group_code(
         self, firm_id: UUID, tax_profile_group_code: str | None
@@ -933,32 +957,119 @@ class ProductService:
         return payload
 
     @staticmethod
-    def _build_attribute_value(
-        firm_id: UUID, data: ProductAttributeInput, actor_id: UUID
-    ) -> ProductAttributeValue:
-        value_text: str | None = None
-        value_number: Decimal | None = None
-        value_date: date | None = None
-        value_boolean: bool | None = None
-        raw = data.value
-        if isinstance(raw, bool):
-            value_boolean = raw
-        elif isinstance(raw, date):
-            value_date = raw
-        elif isinstance(raw, int | float | Decimal):
-            value_number = Decimal(str(raw))
+    def _serialize_attributes(inputs: list[ProductAttributeInput]) -> list[dict[str, Any]]:
+        return [
+            ProductService._serialize_attribute(item.attribute_definition_id, item.value)
+            for item in inputs
+        ]
+
+    @staticmethod
+    def _serialize_attribute(attribute_definition_id: UUID, value: object) -> dict[str, Any]:
+        if isinstance(value, bool):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": value,
+                "value_type": "boolean",
+            }
+        if isinstance(value, datetime):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": value.date().isoformat(),
+                "value_type": "date",
+            }
+        if isinstance(value, date):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": value.isoformat(),
+                "value_type": "date",
+            }
+        if isinstance(value, int):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": value,
+                "value_type": "number",
+            }
+        if isinstance(value, float):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": value,
+                "value_type": "number",
+            }
+        if isinstance(value, Decimal):
+            return {
+                "attribute_definition_id": str(attribute_definition_id),
+                "value": str(value),
+                "value_type": "number",
+            }
+        return {
+            "attribute_definition_id": str(attribute_definition_id),
+            "value": str(value),
+            "value_type": "text",
+        }
+
+    @staticmethod
+    def _attribute_input_from_payload(payload: dict[str, Any]) -> ProductAttributeInput:
+        value_type = payload.get("value_type", "text")
+        value = payload.get("value")
+        if value_type == "boolean":
+            normalized = bool(value)
+        elif value_type == "date":
+            normalized = date.fromisoformat(str(value)) if value is not None else None
+        elif value_type == "number":
+            if isinstance(value, str):
+                normalized = float(value) if "." in value else int(value)
+            else:
+                normalized = value
         else:
-            value_text = str(raw)
-        return ProductAttributeValue(
-            firm_id=firm_id,
-            attribute_definition_id=data.attribute_definition_id,
-            value_text=value_text,
-            value_number=value_number,
-            value_date=value_date,
-            value_boolean=value_boolean,
-            created_by=actor_id,
-            updated_by=actor_id,
+            normalized = str(value)
+        return ProductAttributeInput(
+            attribute_definition_id=UUID(str(payload["attribute_definition_id"])),
+            value=normalized,
         )
+
+    @staticmethod
+    def _attribute_inputs_from_product(product: Product) -> list[ProductAttributeInput]:
+        values = getattr(product, "category_attribute_values", None) or []
+        return [
+            ProductService._attribute_input_from_payload(item)
+            for item in values
+        ]
+
+    @staticmethod
+    def build_attribute_responses(product: Product) -> list[ProductAttributeResponse]:
+        responses: list[ProductAttributeResponse] = []
+        values = getattr(product, "category_attribute_values", None) or []
+        for payload in values:
+            definition_id = UUID(str(payload["attribute_definition_id"]))
+            value = payload.get("value")
+            value_type = payload.get("value_type", "text")
+            value_text: str | None = None
+            value_number: Decimal | None = None
+            value_date: date | None = None
+            value_boolean: bool | None = None
+            if value_type == "boolean":
+                value_boolean = bool(value)
+            elif value_type == "date":
+                value_date = (
+                    date.fromisoformat(str(value)) if value is not None else None
+                )
+            elif value_type == "number":
+                value_number = Decimal(str(value)) if value is not None else None
+            else:
+                value_text = str(value)
+            responses.append(
+                ProductAttributeResponse(
+                    id=uuid5(NAMESPACE_URL, f"{product.id}:{definition_id}"),
+                    attribute_definition_id=definition_id,
+                    value_text=value_text,
+                    value_number=value_number,
+                    value_date=value_date,
+                    value_boolean=value_boolean,
+                    created_at=product.created_at,
+                    updated_at=product.updated_at,
+                )
+            )
+        return responses
 
     @staticmethod
     def _build_media(
@@ -976,34 +1087,39 @@ class ProductService:
             updated_by=actor_id,
         )
 
-    def _reconcile_attributes(
-        self, product: Product, inputs: list[ProductAttributeInput], actor_id: UUID
-    ) -> None:
-        existing = {row.attribute_definition_id: row for row in product.attributes}
-        now = utc_now()
-        requested = {item.attribute_definition_id for item in inputs}
-        for item in inputs:
-            current = existing.get(item.attribute_definition_id)
-            if current is None:
-                product.attributes.append(
-                    self._build_attribute_value(product.firm_id, item, actor_id)
-                )
-                continue
-            rebuilt = self._build_attribute_value(product.firm_id, item, actor_id)
-            current.value_text = rebuilt.value_text
-            current.value_number = rebuilt.value_number
-            current.value_date = rebuilt.value_date
-            current.value_boolean = rebuilt.value_boolean
-            current.updated_by = actor_id
-            current.is_deleted = False
-            current.deleted_at = None
-            current.deleted_by = None
-        for definition_id, row in existing.items():
-            if definition_id not in requested:
-                row.is_deleted = True
-                row.deleted_at = now
-                row.deleted_by = actor_id
-                row.updated_by = actor_id
+    @staticmethod
+    def _matches_search(
+        *, row: Product, search_term: str | None, attribute_term: str | None
+    ) -> bool:
+        if search_term:
+            search_text = search_term.strip("%").lower()
+            haystacks = [
+                row.code,
+                row.barcode,
+                row.qr_code,
+                row.name,
+                row.short_name,
+                row.brand,
+                row.hsn_sac,
+            ]
+            if any(
+                value is not None and value.lower().find(search_text) >= 0
+                for value in haystacks
+                if value is not None
+            ):
+                return True
+        if attribute_term:
+            attr_text = attribute_term.strip("%").lower()
+            values = getattr(row, "category_attribute_values", None) or []
+            for payload in values:
+                value = payload.get("value")
+                if isinstance(value, str) and value.lower().find(attr_text) >= 0:
+                    return True
+                if isinstance(value, (int, float)):
+                    text_value = str(value)
+                    if text_value.lower().find(attr_text) >= 0:
+                        return True
+        return False
 
     def _reconcile_media(
         self, product: Product, inputs: list[ProductMediaInput], actor_id: UUID
@@ -1071,21 +1187,17 @@ class ProductService:
             "mrp": product.mrp,
             "status": product.status,
             "remarks": product.remarks,
-        }
-
-    @staticmethod
-    def _attribute_input_from_model(row: ProductAttributeValue) -> dict[str, object]:
-        if row.value_boolean is not None:
-            value: object = row.value_boolean
-        elif row.value_date is not None:
-            value = row.value_date
-        elif row.value_number is not None:
-            value = row.value_number
-        else:
-            value = row.value_text or ""
-        return {
-            "attribute_definition_id": row.attribute_definition_id,
-            "value": value,
+            "track_batch": product.track_batch,
+            "track_lot": product.track_lot,
+            "track_serial": product.track_serial,
+            "track_expiry": product.track_expiry,
+            "track_manufacturing_date": product.track_manufacturing_date,
+            "track_warranty": product.track_warranty,
+            "allow_negative_stock": product.allow_negative_stock,
+            "require_batch_on_receipt": product.require_batch_on_receipt,
+            "require_batch_on_issue": product.require_batch_on_issue,
+            "require_serial_on_receipt": product.require_serial_on_receipt,
+            "require_serial_on_issue": product.require_serial_on_issue,
         }
 
     @staticmethod

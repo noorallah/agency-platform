@@ -68,7 +68,7 @@ class ProductController extends ChangeNotifier {
       attributeDefinitions = result.items;
     } on ApiException catch (exception) {
       if (!exception.isForbidden) {
-        rethrow;
+        error = exception.message;
       }
       attributeDefinitions = const [];
     }
@@ -465,6 +465,96 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         includeDeleted: _includeDeleted,
       );
 
+  Json _payloadFromExisting(
+    Product product, {
+    String? status,
+    String? categoryId,
+    String? sellingPrice,
+  }) =>
+      {
+        'code': product.code,
+        'barcode': product.barcode.isEmpty ? null : product.barcode,
+        'qr_code': product.qrCode.isEmpty ? null : product.qrCode,
+        'name': product.name,
+        'short_name': product.shortName.isEmpty ? null : product.shortName,
+        'description':
+            product.description.isEmpty ? null : product.description,
+        'product_type': product.productType,
+        'status': status ?? product.status,
+        'category_id': (categoryId ?? product.categoryId).isEmpty
+            ? null
+            : (categoryId ?? product.categoryId),
+        'sub_category_id':
+            product.subCategoryId.isEmpty ? null : product.subCategoryId,
+        'unit': product.unit.isEmpty ? null : product.unit,
+        'brand': product.brand.isEmpty ? null : product.brand,
+        'model': product.model.isEmpty ? null : product.model,
+        'hsn_sac': product.hsnSac.isEmpty ? null : product.hsnSac,
+        'tax_profile_group_code': product.taxProfileGroupCode.isEmpty
+            ? null
+            : product.taxProfileGroupCode,
+        'base_uom_id': product.baseUomId.isEmpty ? null : product.baseUomId,
+        'inventory_uom_id':
+            product.inventoryUomId.isEmpty ? null : product.inventoryUomId,
+        'purchase_uom_id':
+            product.purchaseUomId.isEmpty ? null : product.purchaseUomId,
+        'sales_uom_id': product.salesUomId.isEmpty ? null : product.salesUomId,
+        'default_receiving_uom_id': product.defaultReceivingUomId.isEmpty
+            ? null
+            : product.defaultReceivingUomId,
+        'default_dispatch_uom_id': product.defaultDispatchUomId.isEmpty
+            ? null
+            : product.defaultDispatchUomId,
+        'minimum_sales_uom_id':
+            product.minimumSalesUomId.isEmpty ? null : product.minimumSalesUomId,
+        'weight': product.weight.isEmpty ? null : product.weight,
+        'volume': product.volume.isEmpty ? null : product.volume,
+        'length': product.length.isEmpty ? null : product.length,
+        'width': product.width.isEmpty ? null : product.width,
+        'height': product.height.isEmpty ? null : product.height,
+        'allow_fraction': product.allowFraction,
+        'allow_decimal': product.allowDecimal,
+        'purchase_price':
+            product.purchasePrice.isEmpty ? null : product.purchasePrice,
+        'selling_price': sellingPrice ?? (product.sellingPrice.isEmpty
+            ? null
+            : product.sellingPrice),
+        'mrp': product.mrp.isEmpty ? null : product.mrp,
+        'remarks': product.remarks.isEmpty ? null : product.remarks,
+        'track_batch': product.trackBatch,
+        'track_lot': product.trackLot,
+        'track_serial': product.trackSerial,
+        'track_expiry': product.trackExpiry,
+        'track_manufacturing_date': product.trackManufacturingDate,
+        'track_warranty': product.trackWarranty,
+        'allow_negative_stock': product.allowNegativeStock,
+        'require_batch_on_receipt': product.requireBatchOnReceipt,
+        'require_batch_on_issue': product.requireBatchOnIssue,
+        'require_serial_on_receipt': product.requireSerialOnReceipt,
+        'require_serial_on_issue': product.requireSerialOnIssue,
+        'attributes': product.attributes
+            .map(
+              (entry) => {
+                'attribute_definition_id': entry.attributeDefinitionId,
+                'value': entry.valueText.isNotEmpty
+                    ? entry.valueText
+                    : entry.valueDate,
+              },
+            )
+            .toList(),
+        'media': product.media
+            .map(
+              (entry) => {
+                'media_kind': entry.mediaKind,
+                'file_name': entry.fileName,
+                'mime_type': entry.mimeType,
+                'storage_path': entry.storagePath,
+                'is_primary': entry.isPrimary,
+              },
+            )
+            .toList(),
+      };
+
   Future<void> _applyFilters() async {
     _controller.filters = _currentQuery();
     await _persistPreferences();
@@ -620,72 +710,35 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         affected = targets.length;
       case _BulkOperationKind.statusChange:
         for (final Product product in targets) {
-          await _controller.save(product, {
-            'code': product.code,
-            'name': product.name,
-            'product_type': product.productType,
-            'status': operation.status,
-            'category_id':
-                product.categoryId.isEmpty ? null : product.categoryId,
-            'tax_profile_id':
-                product.taxProfileId.isEmpty ? null : product.taxProfileId,
-            'attributes': product.attributes
-                .map(
-                  (entry) => {
-                    'attribute_definition_id': entry.attributeDefinitionId,
-                    'value': entry.valueText.isNotEmpty
-                        ? entry.valueText
-                        : entry.valueDate,
-                  },
-                )
-                .toList(),
-            'media': product.media
-                .map(
-                  (entry) => {
-                    'media_kind': entry.mediaKind,
-                    'file_name': entry.fileName,
-                    'mime_type': entry.mimeType,
-                    'storage_path': entry.storagePath,
-                    'is_primary': entry.isPrimary,
-                  },
-                )
-                .toList(),
-          });
+          await _controller.save(
+            product,
+            _payloadFromExisting(product, status: operation.status),
+          );
         }
         affected = targets.length;
       case _BulkOperationKind.categoryChange:
         for (final Product product in targets) {
-          await _controller.save(product, {
-            'code': product.code,
-            'name': product.name,
-            'product_type': product.productType,
-            'status': product.status,
-            'category_id':
-                operation.categoryId.isEmpty ? null : operation.categoryId,
-            'tax_profile_id':
-                product.taxProfileId.isEmpty ? null : product.taxProfileId,
-            'attributes': const [],
-            'media': const [],
-          });
+          await _controller.save(
+            product,
+            _payloadFromExisting(
+              product,
+              categoryId:
+                  operation.categoryId.isEmpty ? product.categoryId : operation.categoryId,
+            ),
+          );
         }
         affected = targets.length;
       case _BulkOperationKind.priceUpdate:
         final num delta = num.tryParse(operation.value) ?? 0;
         for (final Product product in targets) {
           final num current = num.tryParse(product.sellingPrice) ?? 0;
-          await _controller.save(product, {
-            'code': product.code,
-            'name': product.name,
-            'product_type': product.productType,
-            'status': product.status,
-            'category_id':
-                product.categoryId.isEmpty ? null : product.categoryId,
-            'tax_profile_id':
-                product.taxProfileId.isEmpty ? null : product.taxProfileId,
-            'selling_price': (current + delta).toStringAsFixed(2),
-            'attributes': const [],
-            'media': const [],
-          });
+          await _controller.save(
+            product,
+            _payloadFromExisting(
+              product,
+              sellingPrice: (current + delta).toStringAsFixed(2),
+            ),
+          );
         }
         affected = targets.length;
     }
@@ -1247,6 +1300,10 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
                     selected.isDeleted ? 'DELETED' : selected.status,
                   ),
                   DetailLine('Category', _categoryLabel(selected.categoryId)),
+                  DetailLine('Track expiry', selected.trackExpiry ? 'Yes' : 'No'),
+                  DetailLine(
+                      'Track batch/serial',
+                      '${selected.trackBatch ? 'B' : '-'} / ${selected.trackSerial ? 'S' : '-'}'),
                   DetailLine('Selling', selected.sellingPrice),
                   DetailLine('Created', _dateOnly(selected.createdAt)),
                 ],
@@ -1331,18 +1388,12 @@ class ProductWorkspaceDialog extends StatefulWidget {
 }
 
 class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
-  static const List<String> _tabs = [
+  static const List<String> _coreTabs = [
     'general',
     'packaging',
     'pricing',
     'tax',
     'business_attributes',
-    'images',
-    'attachments',
-    'audit',
-    'history',
-    'notes',
-    'future_inventory',
   ];
   late final TextEditingController _code;
   late final TextEditingController _name;
@@ -1363,11 +1414,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late final TextEditingController _sellingPrice;
   late final TextEditingController _mrp;
   late final TextEditingController _remarks;
-  late final TextEditingController _notes;
   late String _productType;
   late String _status;
   late String _categoryId;
-  late String _taxProfileId;
+  late String _taxProfileGroupCode;
   late String _baseUomId;
   late String _inventoryUomId;
   late String _purchaseUomId;
@@ -1377,6 +1427,17 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _minimumSalesUomId;
   late bool _allowFraction;
   late bool _allowDecimal;
+  late bool _trackBatch;
+  late bool _trackLot;
+  late bool _trackSerial;
+  late bool _trackExpiry;
+  late bool _trackManufacturingDate;
+  late bool _trackWarranty;
+  late bool _allowNegativeStock;
+  late bool _requireBatchOnReceipt;
+  late bool _requireBatchOnIssue;
+  late bool _requireSerialOnReceipt;
+  late bool _requireSerialOnIssue;
   late ProductMetadataRecord _metadata;
   late String _tab;
   final Map<String, TextEditingController> _attributeControllers = {};
@@ -1389,6 +1450,22 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   bool get _readOnly => widget.mode == ProductDialogMode.view;
   bool get _barcodeEnabled => _metadata.featureEnabled('BARCODE');
   bool get _qrEnabled => _metadata.featureEnabled('QR_CODE');
+  List<String> get _visibleTabs {
+    final List<String> tabs = List<String>.from(_coreTabs);
+    if (_allowedAttributeIds.isEmpty) {
+      tabs.remove('business_attributes');
+    }
+    if (!_readOnly || _imageRows.isNotEmpty) {
+      tabs.add('images');
+    }
+    if (_metadata.featureEnabled('ATTACHMENTS') || _attachmentRows.isNotEmpty) {
+      tabs.add('attachments');
+    }
+    if (widget.product != null) {
+      tabs.addAll(const ['audit', 'history']);
+    }
+    return tabs;
+  }
 
   @override
   void initState() {
@@ -1413,13 +1490,12 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _sellingPrice = TextEditingController(text: product?.sellingPrice ?? '');
     _mrp = TextEditingController(text: product?.mrp ?? '');
     _remarks = TextEditingController(text: product?.remarks ?? '');
-    _notes = TextEditingController(text: '');
     _productType = product?.productType.isNotEmpty == true
         ? product!.productType
         : 'STOCK_ITEM';
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
-    _taxProfileId = product?.taxProfileId ?? '';
+    _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     _baseUomId = product?.baseUomId ?? '';
     _inventoryUomId = product?.inventoryUomId ?? '';
     _purchaseUomId = product?.purchaseUomId ?? '';
@@ -1429,8 +1505,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _minimumSalesUomId = product?.minimumSalesUomId ?? '';
     _allowFraction = product?.allowFraction ?? false;
     _allowDecimal = product?.allowDecimal ?? true;
+    _trackBatch = product?.trackBatch ?? false;
+    _trackLot = product?.trackLot ?? false;
+    _trackSerial = product?.trackSerial ?? false;
+    _trackExpiry = product?.trackExpiry ?? false;
+    _trackManufacturingDate = product?.trackManufacturingDate ?? false;
+    _trackWarranty = product?.trackWarranty ?? false;
+    _allowNegativeStock = product?.allowNegativeStock ?? false;
+    _requireBatchOnReceipt = product?.requireBatchOnReceipt ?? false;
+    _requireBatchOnIssue = product?.requireBatchOnIssue ?? false;
+    _requireSerialOnReceipt = product?.requireSerialOnReceipt ?? false;
+    _requireSerialOnIssue = product?.requireSerialOnIssue ?? false;
     _metadata = widget.metadata;
-    _tab = _tabs.contains(widget.initialTab) ? widget.initialTab : 'general';
+    _tab = widget.initialTab;
     _syncAttributeControllers();
     for (final ProductMediaRecord media in product?.media ?? const []) {
       _imageRows.add({
@@ -1444,6 +1531,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     for (final TextEditingController controller in _allControllers) {
       controller.addListener(() => _dirty = true);
     }
+    _normalizeTabSelection();
   }
 
   Iterable<TextEditingController> get _allControllers => [
@@ -1466,7 +1554,6 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         _sellingPrice,
         _mrp,
         _remarks,
-        _notes,
       ];
 
   List<String> get _allowedAttributeIds => {
@@ -1519,7 +1606,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                   },
                 ),
                 subtitle: const Text(
-                  'General, pricing, tax, dynamic attributes, images, attachments, audit, and history.',
+                  'Fill core details, UOM, pricing, tax, and attributes.',
                 ),
                 trailing: IconButton(
                   tooltip: 'Close',
@@ -1541,22 +1628,26 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  child: SegmentedButton<String>(
-                    segments: _tabs
-                        .map(
-                          (tab) => ButtonSegment(
-                            value: tab,
-                            label: Text(_label(tab)),
-                            enabled: _tabAvailable(tab),
-                          ),
-                        )
-                        .toList(),
-                    selected: {_tab},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (selection) {
-                      final String value = selection.first;
-                      setState(() => _tab = value);
-                      widget.onTabChanged(value);
+                  child: Builder(
+                    builder: (context) {
+                      final List<String> tabs = _visibleTabs;
+                      return SegmentedButton<String>(
+                        segments: tabs
+                            .map(
+                              (tab) => ButtonSegment(
+                                value: tab,
+                                label: Text(_label(tab)),
+                              ),
+                            )
+                            .toList(),
+                        selected: {_tab},
+                        showSelectedIcon: false,
+                        onSelectionChanged: (selection) {
+                          final String value = selection.first;
+                          setState(() => _tab = value);
+                          widget.onTabChanged(value);
+                        },
+                      );
                     },
                   ),
                 ),
@@ -1605,30 +1696,27 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ),
       );
 
-  bool _tabAvailable(String tab) {
-    if (tab == 'images') {
-      return _metadata.featureEnabled('ATTACHMENTS') ||
-          _metadata.featureEnabled('BARCODE') ||
-          true;
+  void _normalizeTabSelection() {
+    final List<String> tabs = _visibleTabs;
+    if (tabs.isEmpty) {
+      _tab = 'general';
+      return;
     }
-    if (tab == 'attachments') {
-      return _metadata.featureEnabled('ATTACHMENTS') || true;
+    if (!tabs.contains(_tab)) {
+      _tab = tabs.first;
     }
-    return true;
   }
 
   String _label(String key) => switch (key) {
         'general' => 'General',
-        'packaging' => 'Packaging',
+        'packaging' => 'UOM & Size',
         'pricing' => 'Pricing',
         'tax' => 'Tax',
-        'business_attributes' => 'Business Attributes',
+        'business_attributes' => 'Attributes',
         'images' => 'Images',
         'attachments' => 'Attachments',
         'audit' => 'Audit',
         'history' => 'History',
-        'notes' => 'Notes',
-        'future_inventory' => 'Future Inventory',
         _ => key,
       };
 
@@ -1642,8 +1730,6 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         'attachments' => _mediaSection(_attachmentRows, imageMode: false),
         'audit' => _auditSection(),
         'history' => _historySection(),
-        'notes' => _notesSection(),
-        'future_inventory' => _futureInventorySection(),
         _ => const SizedBox.shrink(),
       };
 
@@ -1701,6 +1787,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                         _categoryId = value;
                         _metadata = metadata;
                         _syncAttributeControllers();
+                        _normalizeTabSelection();
                       });
                     },
             ),
@@ -1861,6 +1948,126 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 : (value) => setState(() => _allowDecimal = value),
           ),
         ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track batch'),
+            value: _trackBatch,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _trackBatch = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track lot'),
+            value: _trackLot,
+            onChanged:
+                _readOnly ? null : (value) => setState(() => _trackLot = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track serial'),
+            value: _trackSerial,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _trackSerial = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track expiry'),
+            value: _trackExpiry,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _trackExpiry = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track manufacturing date'),
+            value: _trackManufacturingDate,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _trackManufacturingDate = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Track warranty'),
+            value: _trackWarranty,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _trackWarranty = value),
+          ),
+        ),
+        SizedBox(
+          width: 320,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Allow negative stock'),
+            value: _allowNegativeStock,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _allowNegativeStock = value),
+          ),
+        ),
+        SizedBox(
+          width: 360,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Require batch on receipt'),
+            value: _requireBatchOnReceipt,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _requireBatchOnReceipt = value),
+          ),
+        ),
+        SizedBox(
+          width: 360,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Require batch on issue'),
+            value: _requireBatchOnIssue,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _requireBatchOnIssue = value),
+          ),
+        ),
+        SizedBox(
+          width: 360,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Require serial on receipt'),
+            value: _requireSerialOnReceipt,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _requireSerialOnReceipt = value),
+          ),
+        ),
+        SizedBox(
+          width: 360,
+          child: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Require serial on issue'),
+            value: _requireSerialOnIssue,
+            onChanged: _readOnly
+                ? null
+                : (value) => setState(() => _requireSerialOnIssue = value),
+          ),
+        ),
       ],
     );
   }
@@ -1873,7 +2080,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           SizedBox(
             width: 320,
             child: DropdownButtonFormField<String>(
-              initialValue: _taxProfileId.isEmpty ? null : _taxProfileId,
+              initialValue:
+                  _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
               decoration: const InputDecoration(labelText: 'Tax profile'),
               items: [
                 const DropdownMenuItem<String>(
@@ -1882,14 +2090,15 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                 ),
                 ..._metadata.taxProfiles.map(
                   (profile) => DropdownMenuItem<String>(
-                    value: profile.id,
+                    value: profile.groupCode.isEmpty ? profile.code : profile.groupCode,
                     child: Text('${profile.label} (${profile.code})'),
                   ),
                 ),
               ],
               onChanged: _readOnly
                   ? null
-                  : (value) => setState(() => _taxProfileId = value ?? ''),
+                  : (value) =>
+                      setState(() => _taxProfileGroupCode = value ?? ''),
             ),
           ),
         ],
@@ -2098,29 +2307,6 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     );
   }
 
-  Widget _notesSection() =>
-      _field(_notes, 'Internal notes', width: 760, lines: 8);
-
-  Widget _futureInventorySection() => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Future Inventory Integration',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'This product record already exposes profile-driven dynamic attributes, media references, and core pricing/tax fields used by upcoming Inventory, Purchase, Sales, and Manufacturing modules.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-        ),
-      );
-
   String _categoryLabel(String id) {
     final ProductCategoryRecord? match =
         widget.categories.cast<ProductCategoryRecord?>().firstWhere(
@@ -2286,7 +2472,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'product_type': _productType,
       'status': _status,
       'category_id': _categoryId.isEmpty ? null : _categoryId,
-      'tax_profile_id': _taxProfileId.isEmpty ? null : _taxProfileId,
+      'tax_profile_group_code':
+          _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
       'base_uom_id': _baseUomId.isEmpty ? null : _baseUomId,
       'inventory_uom_id': _inventoryUomId.isEmpty ? null : _inventoryUomId,
       'purchase_uom_id': _purchaseUomId.isEmpty ? null : _purchaseUomId,
@@ -2315,6 +2502,17 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _sellingPrice.text.trim().isEmpty ? null : _sellingPrice.text.trim(),
       'mrp': _mrp.text.trim().isEmpty ? null : _mrp.text.trim(),
       'remarks': _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
+      'track_batch': _trackBatch,
+      'track_lot': _trackLot,
+      'track_serial': _trackSerial,
+      'track_expiry': _trackExpiry,
+      'track_manufacturing_date': _trackManufacturingDate,
+      'track_warranty': _trackWarranty,
+      'allow_negative_stock': _allowNegativeStock,
+      'require_batch_on_receipt': _requireBatchOnReceipt,
+      'require_batch_on_issue': _requireBatchOnIssue,
+      'require_serial_on_receipt': _requireSerialOnReceipt,
+      'require_serial_on_issue': _requireSerialOnIssue,
       'attributes': attributes,
       'media': media,
     };
@@ -2348,7 +2546,18 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _height.clear();
       _allowFraction = false;
       _allowDecimal = true;
-      _taxProfileId = '';
+      _trackBatch = false;
+      _trackLot = false;
+      _trackSerial = false;
+      _trackExpiry = false;
+      _trackManufacturingDate = false;
+      _trackWarranty = false;
+      _allowNegativeStock = false;
+      _requireBatchOnReceipt = false;
+      _requireBatchOnIssue = false;
+      _requireSerialOnReceipt = false;
+      _requireSerialOnIssue = false;
+      _taxProfileGroupCode = '';
       _purchasePrice.clear();
       _sellingPrice.clear();
       _mrp.clear();

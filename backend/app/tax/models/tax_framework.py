@@ -21,6 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.sales.models import GeoCountry
 
 
 class TaxSystem(BaseEntity):

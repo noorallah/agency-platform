@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
@@ -9,11 +10,13 @@ from sqlalchemy import (
     Date,
     ForeignKey,
     Index,
+    JSON,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -72,6 +75,13 @@ class Product(BaseEntity):
         Index("IX_products_firm_barcode", "firm_id", "barcode"),
         Index("IX_products_firm_qr_code", "firm_id", "qr_code"),
         Index("IX_products_firm_tax_group_code", "firm_id", "tax_profile_group_code"),
+        Index(
+            "UQ_products_firm_barcode_active",
+            "firm_id",
+            "barcode",
+            unique=True,
+            postgresql_where=text("barcode IS NOT NULL AND is_deleted IS FALSE"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -159,6 +169,11 @@ class Product(BaseEntity):
     require_batch_on_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     require_serial_on_receipt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     require_serial_on_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    category_attribute_values: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+    )
 
     attributes: Mapped[list["ProductAttributeValue"]] = relationship(
         back_populates="product",

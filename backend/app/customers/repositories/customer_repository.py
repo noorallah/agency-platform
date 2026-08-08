@@ -8,7 +8,12 @@ from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.customers.models import Customer, CustomerAddress, CustomerContact
+from app.customers.models import (
+    Customer,
+    CustomerAddress,
+    CustomerContact,
+    CustomerReceivableTransaction,
+)
 from app.customers.schemas.customer import CustomerListFilters
 
 
@@ -20,6 +25,7 @@ class CustomerRepository:
         "name": Customer.name,
         "status": Customer.status,
         "credit_limit": Customer.credit_limit,
+        "current_outstanding": Customer.current_outstanding,
         "created_at": Customer.created_at,
     }
 
@@ -125,7 +131,7 @@ class CustomerRepository:
 
     def summary(
         self, firm_scope: UUID | None, filters: CustomerListFilters
-    ) -> tuple[int, int, int, int, int, Decimal, Decimal]:
+    ) -> tuple[int, int, int, int, int, Decimal, Decimal, Decimal, Decimal]:
         """Aggregate customer lifecycle and financial totals."""
         base = select(
             func.count(Customer.id),
@@ -135,6 +141,8 @@ class CustomerRepository:
             func.sum(case((Customer.is_deleted.is_(True), 1), else_=0)),
             func.coalesce(func.sum(Customer.credit_limit), 0),
             func.coalesce(func.sum(Customer.opening_balance), 0),
+            func.coalesce(func.sum(Customer.current_outstanding), 0),
+            func.coalesce(func.sum(Customer.unapplied_advance_balance), 0),
         )
         base = base.where(*self._conditions(firm_scope, filters))
         row = self._session.execute(base).one()
@@ -146,6 +154,8 @@ class CustomerRepository:
             int(row[4] or 0),
             Decimal(row[5] or 0),
             Decimal(row[6] or 0),
+            Decimal(row[7] or 0),
+            Decimal(row[8] or 0),
         )
 
     def _conditions(
@@ -220,3 +230,54 @@ class CustomerRepository:
                 .order_by(CustomerContact.created_at)
             )
         )
+
+    def has_receivable_transactions(self, customer_id: UUID) -> bool:
+        """Return whether a customer has any receivable activity rows."""
+        return (
+            self._session.scalar(
+                select(func.count())
+                .select_from(CustomerReceivableTransaction)
+                .where(
+                    CustomerReceivableTransaction.customer_id == customer_id,
+                    CustomerReceivableTransaction.is_deleted.is_(False),
+                    CustomerReceivableTransaction.transaction_type
+                    != "OPENING_BALANCE",
+                )
+            )
+            or 0
+        ) > 0
+
+    def list_receivable_transactions(
+        self,
+        customer_id: UUID,
+        *,
+        offset: int,
+        limit: int,
+    ) -> tuple[list[CustomerReceivableTransaction], int]:
+        """Return paged receivable transactions for one customer."""
+        statement = (
+            select(CustomerReceivableTransaction)
+            .where(
+                CustomerReceivableTransaction.customer_id == customer_id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+            .order_by(
+                CustomerReceivableTransaction.transaction_date.desc(),
+                CustomerReceivableTransaction.created_at.desc(),
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        count = (
+            self._session.scalar(
+                select(func.count())
+                .select_from(CustomerReceivableTransaction)
+                .where(
+                    CustomerReceivableTransaction.customer_id == customer_id,
+                    CustomerReceivableTransaction.is_deleted.is_(False),
+                )
+            )
+            or 0
+        )
+        rows = list(self._session.scalars(statement).all())
+        return rows, int(count)

@@ -35,6 +35,7 @@ class DesktopPreferences {
     this.rememberUsername = false,
     this.rememberMe = false,
     this.cachedUsername,
+    this.recentUsernames = const [],
     this.serverUrl = 'http://localhost:8000',
     this.recentServers = const [],
     this.cachedTheme = 'light',
@@ -50,6 +51,7 @@ class DesktopPreferences {
   final bool rememberUsername;
   final bool rememberMe;
   final String? cachedUsername;
+  final List<String> recentUsernames;
   final String serverUrl;
   final List<String> recentServers;
   final String cachedTheme;
@@ -67,11 +69,19 @@ class DesktopPreferences {
     Map<String, dynamic> object(dynamic value) =>
         value is Map ? Map<String, dynamic>.from(value) : const {};
     String? optionalString(dynamic value) => value is String ? value : null;
+    final List<String> recentUsernames =
+        strings(json['recent_usernames']).toList(growable: false);
+    final String? cachedUsername = optionalString(json['cached_username']);
     return DesktopPreferences(
       version: (json['version'] as num?)?.toInt() ?? 1,
       rememberUsername: json['remember_username'] == true,
       rememberMe: json['remember_me'] == true,
-      cachedUsername: optionalString(json['cached_username']),
+      cachedUsername: cachedUsername,
+      recentUsernames: recentUsernames.isNotEmpty
+          ? recentUsernames
+          : cachedUsername == null || cachedUsername.isEmpty
+              ? const []
+              : [cachedUsername],
       serverUrl: optionalString(json['server_url']) ?? 'http://localhost:8000',
       recentServers: strings(json['recent_servers']),
       cachedTheme: optionalString(json['cached_theme']) ?? 'light',
@@ -91,6 +101,7 @@ class DesktopPreferences {
         'remember_username': rememberUsername,
         'remember_me': rememberMe,
         'cached_username': cachedUsername,
+        'recent_usernames': recentUsernames,
         'server_url': serverUrl,
         'recent_servers': recentServers,
         'cached_theme': cachedTheme,
@@ -107,6 +118,7 @@ class DesktopPreferences {
     bool? rememberMe,
     String? cachedUsername,
     bool clearCachedUsername = false,
+    List<String>? recentUsernames,
     String? serverUrl,
     List<String>? recentServers,
     String? cachedTheme,
@@ -124,6 +136,7 @@ class DesktopPreferences {
         rememberMe: rememberMe ?? this.rememberMe,
         cachedUsername:
             clearCachedUsername ? null : cachedUsername ?? this.cachedUsername,
+        recentUsernames: recentUsernames ?? this.recentUsernames,
         serverUrl: serverUrl ?? this.serverUrl,
         recentServers: recentServers ?? this.recentServers,
         cachedTheme: cachedTheme ?? this.cachedTheme,
@@ -185,15 +198,23 @@ class DesktopPreferencesService {
     required bool rememberUsername,
     required bool rememberMe,
     required String username,
-  }) =>
-      _save(
-        _preferences.copyWith(
-          rememberUsername: rememberUsername,
-          rememberMe: rememberMe,
-          cachedUsername: username,
-          clearCachedUsername: !rememberUsername,
-        ),
-      );
+  }) {
+    final List<String> recentUsernames = rememberUsername
+        ? <String>[
+            username,
+            ..._preferences.recentUsernames.where((entry) => entry != username),
+          ].take(8).toList()
+        : _preferences.recentUsernames;
+    return _save(
+      _preferences.copyWith(
+        rememberUsername: rememberUsername,
+        rememberMe: rememberMe,
+        cachedUsername: username,
+        clearCachedUsername: !rememberUsername,
+        recentUsernames: recentUsernames,
+      ),
+    );
+  }
 
   Future<void> saveServerUrl(String url) {
     final String normalized = normalizeServerUrl(url);

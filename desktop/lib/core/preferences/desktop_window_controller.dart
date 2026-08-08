@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../branding/branding_config.dart';
@@ -12,35 +13,39 @@ class DesktopWindowController with WindowListener {
   final DesktopPreferencesService _preferences;
 
   Future<void> initialize(BrandingConfig branding) async {
-    await windowManager.ensureInitialized();
-    final Map<String, dynamic> state = _preferences.current.windowState;
-    final Size size = Size(
-      _dimension(state['width'], 1280),
-      _dimension(state['height'], 720),
-    );
-    await windowManager.waitUntilReadyToShow(
-      WindowOptions(
-        title: branding.windowName,
-        size: size,
-        center: !_hasPosition(state),
-        minimumSize: const Size(960, 640),
-        backgroundColor: branding.loginBackgroundColor,
-      ),
-    );
-    if (_hasPosition(state)) {
-      await windowManager.setPosition(
-        Offset(
-          _dimension(state['x'], 10),
-          _dimension(state['y'], 10),
+    try {
+      await windowManager.ensureInitialized();
+      final Map<String, dynamic> state = _preferences.current.windowState;
+      final Size size = Size(
+        _dimension(state['width'], 1280),
+        _dimension(state['height'], 720),
+      );
+      await windowManager.waitUntilReadyToShow(
+        WindowOptions(
+          title: branding.windowName,
+          size: size,
+          center: !_hasPosition(state),
+          minimumSize: const Size(960, 640),
+          backgroundColor: branding.loginBackgroundColor,
         ),
       );
+      if (_hasPosition(state)) {
+        await windowManager.setPosition(
+          Offset(
+            _dimension(state['x'], 10),
+            _dimension(state['y'], 10),
+          ),
+        );
+      }
+      if (state['maximized'] == true) {
+        await windowManager.maximize();
+      }
+      await windowManager.show();
+      await windowManager.focus();
+      windowManager.addListener(this);
+    } on Exception catch (error, stack) {
+      debugPrint('Window manager initialization failed: $error\n$stack');
     }
-    if (state['maximized'] == true) {
-      await windowManager.maximize();
-    }
-    await windowManager.show();
-    await windowManager.focus();
-    windowManager.addListener(this);
   }
 
   @override

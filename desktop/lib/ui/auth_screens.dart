@@ -12,8 +12,6 @@ import 'theme_selector.dart';
 
 const String _buildNumber =
     String.fromEnvironment('BUILD_NUMBER', defaultValue: 'Unknown');
-const String _developmentPassword =
-    String.fromEnvironment('DEVELOPMENT_PASSWORD', defaultValue: 'Password@123');
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -59,7 +57,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _rememberUsername = stored.rememberUsername;
     _rememberMe = stored.rememberMe;
     _username.text = _rememberUsername
-        ? stored.cachedUsername ?? ''
+        ? stored.cachedUsername ??
+            (stored.recentUsernames.isNotEmpty ? stored.recentUsernames.first : '')
         : widget.session.attemptedUsername ?? '';
     _errorVisible = widget.error != null;
     _usernameFocus.addListener(_handleFocusChanged);
@@ -128,236 +127,98 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  void _applyQuickLogin(String username) {
+  void _applySavedUsername(String username) {
     _username.text = username;
-    _password.text = _developmentPassword;
-    setState(() {
-      _rememberUsername = true;
-      _rememberMe = true;
-    });
     _focusPassword();
   }
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
     return Scaffold(
       backgroundColor: widget.branding.loginBackgroundColor,
       body: SafeArea(
         child: Stack(
           children: [
             const Positioned.fill(child: _LoginBackdrop()),
-            Positioned(
-              top: 12,
-              right: 12,
-              child: _Toolbar(
-                children: [
-                  ThemeSelector(manager: widget.themes),
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined),
-                    tooltip: 'Application Settings',
-                    onPressed: _showApplicationSettings,
-                  ),
-                ],
-              ),
-            ),
             Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 540),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(40),
-                      child: Shortcuts(
-                        shortcuts: const {
-                          SingleActivator(LogicalKeyboardKey.escape):
-                              _DismissErrorIntent(),
-                        },
-                        child: Actions(
-                          actions: {
-                            _DismissErrorIntent:
-                                CallbackAction<_DismissErrorIntent>(
-                              onInvoke: (intent) {
-                                _dismissError();
-                                return null;
-                              },
-                            ),
-                          },
-                          child: Form(
-                            key: _formKey,
-                            child: AutofillGroup(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _BrandMark(branding: widget.branding),
-                                  const SizedBox(height: 20),
-                                  Text(
-                                    widget.branding.appName,
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.headlineMedium,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Welcome Back',
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.headlineSmall,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Sign in to continue.',
-                                    textAlign: TextAlign.center,
-                                    style: theme.textTheme.bodyMedium,
-                                  ),
-                                  if (widget.error != null && _errorVisible) ...[
-                                    const SizedBox(height: 20),
-                                    _ErrorBanner(onDismiss: _dismissError),
-                                  ],
-                                  if (widget.notice != null) ...[
-                                    const SizedBox(height: 20),
-                                    _NoticeBanner(message: widget.notice!),
-                                  ],
-                                  const SizedBox(height: 24),
-                                  TextFormField(
-                                    controller: _username,
-                                    focusNode: _usernameFocus,
-                                    autofocus: true,
-                                    textInputAction: TextInputAction.next,
-                                    keyboardType: TextInputType.text,
-                                    autofillHints: const [
-                                      AutofillHints.username,
-                                      AutofillHints.email,
-                                    ],
-                                    decoration: const InputDecoration(
-                                      labelText: 'Username / Email',
-                                      helperText:
-                                          'Supports username, email, and employee ID (future).',
-                                      prefixIcon: Icon(Icons.badge_outlined),
-                                    ),
-                                    onFieldSubmitted: (_) => _focusPassword(),
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Enter your username or email.';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _password,
-                                    focusNode: _passwordFocus,
-                                    obscureText: _obscure,
-                                    onTap: _syncCapsLockState,
-                                    onChanged: (_) => _syncCapsLockState(),
-                                    onFieldSubmitted: (_) => _submit(),
-                                    autofillHints: const [AutofillHints.password],
-                                    decoration: InputDecoration(
-                                      labelText: 'Password',
-                                      prefixIcon: const Icon(Icons.lock_outline),
-                                      suffixIcon: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (_capsLockOn && _passwordFocus.hasFocus)
-                                            const Padding(
-                                              padding: EdgeInsets.only(right: 4),
-                                              child: Tooltip(
-                                                message: 'Caps Lock is ON',
-                                                child: Icon(
-                                                  Icons.warning_amber_rounded,
-                                                  size: 20,
-                                                ),
-                                              ),
-                                            ),
-                                          IconButton(
-                                            tooltip: _obscure
-                                                ? 'Show password'
-                                                : 'Hide password',
-                                            onPressed: () => setState(
-                                              () => _obscure = !_obscure,
-                                            ),
-                                            icon: Icon(
-                                              _obscure
-                                                  ? Icons.visibility_outlined
-                                                  : Icons
-                                                      .visibility_off_outlined,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    validator: (value) {
-                                      if (value == null ||
-                                          value.trim().isEmpty) {
-                                        return 'Enter your password.';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  if (_capsLockOn && _passwordFocus.hasFocus) ...[
-                                    const SizedBox(height: 8),
-                                    const _CapsLockNotice(),
-                                  ],
-                                  const SizedBox(height: 20),
-                                  _SignInOptions(
-                                    rememberUsername: _rememberUsername,
-                                    rememberMe: _rememberMe,
-                                    onRememberUsernameChanged: (value) =>
-                                        setState(() => _rememberUsername = value),
-                                    onRememberMeChanged: (value) =>
-                                        setState(() => _rememberMe = value),
-                                  ),
-                                  if (!kReleaseMode) ...[
-                                    const SizedBox(height: 20),
-                                    _QuickLoginPanel(onSelect: _applyQuickLogin),
-                                  ],
-                                  const SizedBox(height: 24),
-                                  SizedBox(
-                                    height: 52,
-                                    child: FilledButton(
-                                      onPressed: _isSubmitting ? null : _submit,
-                                      child: _isSubmitting
-                                          ? const Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                SizedBox(
-                                                  height: 18,
-                                                  width: 18,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                  ),
-                                                ),
-                                                SizedBox(width: 12),
-                                                Text('Signing in...'),
-                                              ],
-                                            )
-                                          : const Text('Sign in'),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: _SecondaryActionLink(
-                                      label: 'Forgot password?',
-                                      onTap: _showForgotPassword,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  const Divider(),
-                                  const SizedBox(height: 16),
-                                  _LoginFooter(
-                                    branding: widget.branding,
-                                    showEnvironment: _showEnvironment,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool wide = constraints.maxWidth >= 980;
+                    final Widget intro = ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: _LoginIntroPanel(branding: widget.branding),
+                    );
+                    final Widget form = ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 540),
+                      child: _LoginCard(
+                        formKey: _formKey,
+                        branding: widget.branding,
+                        preferences: widget.preferences,
+                        errorVisible: _errorVisible,
+                        error: widget.error,
+                        notice: widget.notice,
+                        usernameController: _username,
+                        usernameFocus: _usernameFocus,
+                        passwordController: _password,
+                        passwordFocus: _passwordFocus,
+                        obscurePassword: _obscure,
+                        capsLockOn: _capsLockOn,
+                        rememberUsername: _rememberUsername,
+                        rememberMe: _rememberMe,
+                        isSubmitting: _isSubmitting,
+                        showEnvironment: _showEnvironment,
+                        onDismissError: _dismissError,
+                        onUsernameSelected: _applySavedUsername,
+                        onUsernameRememberChanged: (value) =>
+                            setState(() => _rememberUsername = value),
+                        onRememberMeChanged: (value) =>
+                            setState(() => _rememberMe = value),
+                        onTogglePasswordVisibility: () =>
+                            setState(() => _obscure = !_obscure),
+                        onSubmit: _submit,
+                        onShowPasswordHelp: _showForgotPassword,
+                        onPasswordCapsLockChanged: _syncCapsLockState,
                       ),
+                    );
+                    if (wide) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          intro,
+                          const SizedBox(width: 28),
+                          form,
+                        ],
+                      );
+                    }
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        intro,
+                        const SizedBox(height: 20),
+                        form,
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: _Toolbar(
+                  children: [
+                    ThemeSelector(manager: widget.themes),
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined),
+                      tooltip: 'Application Settings',
+                      onPressed: _showApplicationSettings,
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -584,6 +445,438 @@ class _Toolbar extends StatelessWidget {
       );
 }
 
+class _LoginIntroPanel extends StatelessWidget {
+  const _LoginIntroPanel({required this.branding});
+
+  final BrandingConfig branding;
+
+  @override
+  Widget build(BuildContext context) {
+      final ThemeData theme = Theme.of(context);
+      return Container(
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          color: theme.colorScheme.surface.withValues(alpha: 0.74),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.4)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _BrandMark(branding: branding),
+            const SizedBox(height: 18),
+            Text(
+              branding.appName,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Fast sign-in, remembered usernames, and a cleaner desktop workflow.',
+              style: theme.textTheme.bodyLarge,
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: const [
+                _FeatureChip(icon: Icons.speed_rounded, label: 'Fast access'),
+                _FeatureChip(icon: Icons.group_work_outlined, label: 'Multi-firm'),
+                _FeatureChip(icon: Icons.shield_outlined, label: 'Secure login'),
+                _FeatureChip(icon: Icons.touch_app_outlined, label: 'Easy to use'),
+              ],
+            ),
+            const SizedBox(height: 20),
+            _InfoCard(
+              title: 'Remembered usernames',
+              body: 'Pick a saved username directly from the username field.',
+              icon: Icons.badge_outlined,
+            ),
+            const SizedBox(height: 12),
+            _InfoCard(
+              title: 'Smarter session handling',
+              body: 'Keep your session active without storing your password.',
+              icon: Icons.lock_clock_outlined,
+            ),
+            const SizedBox(height: 12),
+            _InfoCard(
+              title: 'Enterprise ready',
+              body: 'Designed for firm-scoped work, role-based access, and desktop use.',
+              icon: Icons.apartment_outlined,
+            ),
+          ],
+        ),
+      );
+  }
+}
+
+class _FeatureChip extends StatelessWidget {
+  const _FeatureChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+      final ThemeData theme = Theme.of(context);
+      return Chip(
+        avatar: Icon(icon, size: 18, color: theme.colorScheme.primary),
+        label: Text(label),
+        side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.4)),
+        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+      );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({
+      required this.title,
+      required this.body,
+      required this.icon,
+  });
+
+  final String title;
+  final String body;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+      final ThemeData theme = Theme.of(context);
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: theme.colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(body, style: theme.textTheme.bodySmall),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+  }
+}
+
+class _LoginCard extends StatelessWidget {
+  const _LoginCard({
+      required this.formKey,
+      required this.branding,
+      required this.preferences,
+      required this.errorVisible,
+      required this.error,
+      required this.notice,
+      required this.usernameController,
+      required this.usernameFocus,
+      required this.passwordController,
+      required this.passwordFocus,
+      required this.obscurePassword,
+      required this.capsLockOn,
+      required this.rememberUsername,
+      required this.rememberMe,
+      required this.isSubmitting,
+      required this.showEnvironment,
+      required this.onDismissError,
+      required this.onUsernameSelected,
+      required this.onUsernameRememberChanged,
+      required this.onRememberMeChanged,
+      required this.onTogglePasswordVisibility,
+      required this.onSubmit,
+      required this.onShowPasswordHelp,
+      required this.onPasswordCapsLockChanged,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final BrandingConfig branding;
+  final DesktopPreferencesService preferences;
+  final bool errorVisible;
+  final String? error;
+  final String? notice;
+  final TextEditingController usernameController;
+  final FocusNode usernameFocus;
+  final TextEditingController passwordController;
+  final FocusNode passwordFocus;
+  final bool obscurePassword;
+  final bool capsLockOn;
+  final bool rememberUsername;
+  final bool rememberMe;
+  final bool isSubmitting;
+  final bool showEnvironment;
+  final VoidCallback onDismissError;
+  final ValueChanged<String> onUsernameSelected;
+  final ValueChanged<bool> onUsernameRememberChanged;
+  final ValueChanged<bool> onRememberMeChanged;
+  final VoidCallback onTogglePasswordVisibility;
+  final VoidCallback onSubmit;
+  final VoidCallback onShowPasswordHelp;
+  final VoidCallback onPasswordCapsLockChanged;
+
+  @override
+  Widget build(BuildContext context) {
+      final ThemeData theme = Theme.of(context);
+      return Card(
+        elevation: 8,
+        child: Padding(
+          padding: const EdgeInsets.all(34),
+          child: Shortcuts(
+            shortcuts: const {
+              SingleActivator(LogicalKeyboardKey.escape): _DismissErrorIntent(),
+            },
+            child: Actions(
+              actions: {
+                _DismissErrorIntent: CallbackAction<_DismissErrorIntent>(
+                  onInvoke: (intent) {
+                    onDismissError();
+                    return null;
+                  },
+                ),
+              },
+              child: Form(
+                key: formKey,
+                child: AutofillGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        branding.appName,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Welcome back',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Sign in with a remembered username or enter a new one.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                      if (error != null && errorVisible) ...[
+                        const SizedBox(height: 20),
+                        _ErrorBanner(onDismiss: onDismissError),
+                      ],
+                      if (notice != null) ...[
+                        const SizedBox(height: 20),
+                        _NoticeBanner(message: notice!),
+                      ],
+                      const SizedBox(height: 24),
+                      RawAutocomplete<String>(
+                        textEditingController: usernameController,
+                        focusNode: usernameFocus,
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          final List<String> usernames =
+                              preferences.current.recentUsernames;
+                          final String query =
+                              textEditingValue.text.trim().toLowerCase();
+                          if (usernames.isEmpty) {
+                            return const Iterable<String>.empty();
+                          }
+                          if (query.isEmpty) {
+                            return usernames.take(6);
+                          }
+                          return usernames
+                              .where(
+                                (username) =>
+                                    username.toLowerCase().contains(query),
+                              )
+                              .take(6);
+                        },
+                        displayStringForOption: (value) => value,
+                        onSelected: onUsernameSelected,
+                        fieldViewBuilder: (
+                          context,
+                          controller,
+                          focusNode,
+                          onFieldSubmitted,
+                        ) {
+                          return TextFormField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            autofocus: true,
+                            textInputAction: TextInputAction.next,
+                            keyboardType: TextInputType.text,
+                            autofillHints: const [
+                              AutofillHints.username,
+                              AutofillHints.email,
+                            ],
+                            decoration: const InputDecoration(
+                              labelText: 'Username / Email',
+                              helperText:
+                                  'Supports username, email, and employee ID (future).',
+                              prefixIcon: Icon(Icons.badge_outlined),
+                            ),
+                            onFieldSubmitted: (_) => onFieldSubmitted(),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Enter your username or email.';
+                              }
+                              return null;
+                            },
+                          );
+                        },
+                        optionsViewBuilder: (context, onSelected, options) {
+                          final ThemeData optionTheme = Theme.of(context);
+                          return Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              elevation: 10,
+                              borderRadius: BorderRadius.circular(12),
+                              color: optionTheme.colorScheme.surfaceContainerHighest,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 540,
+                                  maxHeight: 240,
+                                ),
+                                child: ListView.separated(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  separatorBuilder: (_, __) => Divider(
+                                    height: 1,
+                                    color: optionTheme.dividerColor,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final String username =
+                                        options.elementAt(index);
+                                    return ListTile(
+                                      dense: true,
+                                      leading: const Icon(Icons.person_outline),
+                                      title: Text(username),
+                                      onTap: () => onSelected(username),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: passwordController,
+                        focusNode: passwordFocus,
+                        obscureText: obscurePassword,
+                        onTap: onPasswordCapsLockChanged,
+                        onChanged: (_) => onPasswordCapsLockChanged(),
+                        onFieldSubmitted: (_) => onSubmit(),
+                        autofillHints: const [AutofillHints.password],
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (capsLockOn && passwordFocus.hasFocus)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 4),
+                                  child: Tooltip(
+                                    message: 'Caps Lock is ON',
+                                    child: Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              IconButton(
+                                tooltip: obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                                onPressed: onTogglePasswordVisibility,
+                                icon: Icon(
+                                  obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Enter your password.';
+                          }
+                          return null;
+                        },
+                      ),
+                      if (capsLockOn && passwordFocus.hasFocus) ...[
+                        const SizedBox(height: 8),
+                        const _CapsLockNotice(),
+                      ],
+                      const SizedBox(height: 20),
+                      _SignInOptions(
+                        rememberUsername: rememberUsername,
+                        rememberMe: rememberMe,
+                        onRememberUsernameChanged: onUsernameRememberChanged,
+                        onRememberMeChanged: onRememberMeChanged,
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        height: 52,
+                        child: FilledButton(
+                          onPressed: isSubmitting ? null : onSubmit,
+                          child: isSubmitting
+                              ? const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    SizedBox(width: 12),
+                                    Text('Signing in...'),
+                                  ],
+                                )
+                              : const Text('Sign in'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _SecondaryActionLink(
+                          label: 'Forgot password?',
+                          onTap: onShowPasswordHelp,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const Divider(),
+                      const SizedBox(height: 16),
+                      _LoginFooter(
+                        branding: branding,
+                        showEnvironment: showEnvironment,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+  }
+}
+
 class _BrandMark extends StatelessWidget {
   const _BrandMark({required this.branding});
 
@@ -664,80 +957,6 @@ class _SignInOptions extends StatelessWidget {
       ),
     );
   }
-}
-
-class _QuickLoginPanel extends StatelessWidget {
-  const _QuickLoginPanel({required this.onSelect});
-
-  final ValueChanged<String> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceVariant.withOpacity(.25),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor.withOpacity(.5)),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Quick Login', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 6),
-          Text(
-            'Development builds only. Buttons auto-fill credentials; sign-in still uses authentication.',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _QuickLoginButton(
-                label: 'Administrator',
-                onPressed: () => onSelect('superadmin@agency.local'),
-              ),
-              _QuickLoginButton(
-                label: 'Firm Admin',
-                onPressed: () => onSelect('admin@alpha.pharma.distributors.local'),
-              ),
-              _QuickLoginButton(
-                label: 'Manager',
-                onPressed: () => onSelect('regional.ops1@agency.local'),
-              ),
-              _QuickLoginButton(
-                label: 'Salesman',
-                onPressed: () => onSelect('salesman1@alpha.pharma.distributors.local'),
-              ),
-              _QuickLoginButton(
-                label: 'Store Keeper',
-                onPressed: () => onSelect('main.manager@alpha.pharma.distributors.local'),
-              ),
-              _QuickLoginButton(
-                label: 'Viewer',
-                onPressed: () => onSelect('viewer@alpha.pharma.distributors.local'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _QuickLoginButton extends StatelessWidget {
-  const _QuickLoginButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => OutlinedButton(
-        onPressed: onPressed,
-        child: Text(label),
-      );
 }
 
 class _CapsLockNotice extends StatelessWidget {

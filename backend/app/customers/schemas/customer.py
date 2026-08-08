@@ -25,6 +25,18 @@ class CustomerStatus(StrEnum):
     ON_HOLD = "ON_HOLD"
 
 
+class CustomerReceivableTransactionType(StrEnum):
+    """Supported receivable transaction categories."""
+
+    OPENING_BALANCE = "OPENING_BALANCE"
+    INVOICE = "INVOICE"
+    RECEIPT = "RECEIPT"
+    ADVANCE_RECEIPT = "ADVANCE_RECEIPT"
+    ADVANCE_APPLY = "ADVANCE_APPLY"
+    CREDIT_NOTE = "CREDIT_NOTE"
+    REFUND = "REFUND"
+
+
 class AddressType(StrEnum):
     """Supported customer address classifications."""
 
@@ -203,6 +215,8 @@ class CustomerResponse(CustomerSchema):
     opening_balance: Decimal
     payment_terms_days: int
     currency_code: str
+    current_outstanding: Decimal
+    unapplied_advance_balance: Decimal
     status: CustomerStatus
     notes: str | None
     created_by: UUID | None
@@ -225,6 +239,8 @@ class CustomerSummary(CustomerSchema):
     deleted: int
     total_credit_limit: Decimal
     total_opening_balance: Decimal
+    total_current_outstanding: Decimal
+    total_unapplied_advance: Decimal
 
 
 class CustomerListFilters(CustomerSchema):
@@ -249,3 +265,47 @@ class CustomerListFilters(CustomerSchema):
         ):
             raise ValueError("created_from must not be after created_to.")
         return self
+
+
+class CustomerReceivableTransactionCreate(CustomerSchema):
+    """Create one customer receivable transaction entry."""
+
+    transaction_type: CustomerReceivableTransactionType
+    transaction_date: date
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    reference_type: str | None = Field(default=None, max_length=40)
+    reference_id: UUID | None = None
+    reference_number: str | None = Field(default=None, max_length=120)
+    remarks: str | None = None
+
+
+class CustomerReceivableTransactionResponse(CustomerSchema):
+    """Expose one customer receivable transaction."""
+
+    id: UUID
+    customer_id: UUID
+    firm_id: UUID
+    transaction_type: CustomerReceivableTransactionType
+    transaction_date: date
+    amount: Decimal
+    outstanding_delta: Decimal
+    advance_delta: Decimal
+    outstanding_after: Decimal
+    advance_after: Decimal
+    reference_type: str | None
+    reference_id: UUID | None
+    reference_number: str | None
+    remarks: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerReceivableSummary(CustomerSchema):
+    """Expose customer-level receivable and advance balances."""
+
+    customer_id: UUID
+    customer_name: str
+    outstanding: Decimal
+    unapplied_advance: Decimal
+    net_position: Decimal

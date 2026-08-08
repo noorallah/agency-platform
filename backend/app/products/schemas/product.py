@@ -131,6 +131,17 @@ class ProductWrite(ProductSchema):
     mrp: Decimal | None = Field(default=None, ge=0, max_digits=18)
     status: ProductStatus = ProductStatus.ACTIVE
     remarks: str | None = None
+    track_batch: bool = False
+    track_lot: bool = False
+    track_serial: bool = False
+    track_expiry: bool = False
+    track_manufacturing_date: bool = False
+    track_warranty: bool = False
+    allow_negative_stock: bool = False
+    require_batch_on_receipt: bool = False
+    require_batch_on_issue: bool = False
+    require_serial_on_receipt: bool = False
+    require_serial_on_issue: bool = False
     attributes: list[ProductAttributeInput] = Field(
         default_factory=list, max_length=300
     )
@@ -236,6 +247,17 @@ class ProductResponse(ProductSchema):
     mrp: Decimal | None
     status: ProductStatus
     remarks: str | None
+    track_batch: bool
+    track_lot: bool
+    track_serial: bool
+    track_expiry: bool
+    track_manufacturing_date: bool
+    track_warranty: bool
+    allow_negative_stock: bool
+    require_batch_on_receipt: bool
+    require_batch_on_issue: bool
+    require_serial_on_receipt: bool
+    require_serial_on_issue: bool
     is_deleted: bool
     deleted_at: datetime | None
     created_by: UUID | None

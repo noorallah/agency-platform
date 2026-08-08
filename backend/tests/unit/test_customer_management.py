@@ -30,6 +30,10 @@ from app.customers.api.router import (
 from app.customers.models import Customer, CustomerAddress, CustomerContact
 from app.customers.schemas import CustomerCreate, CustomerUpdate
 from app.customers.schemas.customer import CustomerListFilters
+from app.customers.schemas.customer import (
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
+)
 from app.customers.services import CustomerService
 from app.firms.models import Firm
 from app.identity.models import UserFirm
@@ -237,6 +241,49 @@ def test_customer_search_filters_summary_and_soft_delete() -> None:
     )
     assert visible_total == 0
     assert all_total == 1
+
+
+def test_customer_receivable_transactions_track_outstanding_and_advance() -> None:
+    """Track positive outstanding and unapplied advance from customer transactions."""
+    session = _session_factory()()
+    firm = _firm(session, "AR")
+    actor_id = uuid4()
+    service = CustomerService(session)
+    payload = _customer_data("CUST-AR-001").model_copy(update={"opening_balance": Decimal("0.00")})
+    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+
+    tx = service.post_receivable_transaction(
+        customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.INVOICE,
+            transaction_date=date(2026, 8, 8),
+            amount=Decimal("1000.00"),
+            reference_type="TEST",
+            reference_number="INV-001",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    assert tx.outstanding_after == Decimal("1000.00")
+
+    tx = service.post_receivable_transaction(
+        customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.RECEIPT,
+            transaction_date=date(2026, 8, 8),
+            amount=Decimal("1200.00"),
+            reference_type="TEST",
+            reference_number="RCT-001",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    assert tx.outstanding_after == Decimal("0.00")
+    assert tx.advance_after == Decimal("200.00")
+
+    summary = service.receivable_summary(customer.id, firm_scope=firm.id)
+    assert summary.outstanding == Decimal("0.00")
+    assert summary.unapplied_advance == Decimal("200.00")
 
 
 def test_nested_customer_removal_is_soft_deleted_and_audit_is_immutable() -> None:

@@ -501,9 +501,7 @@ def _resolve_firm_scope(
     x_firm_id: UUID | None,
     firm_id: UUID | None,
 ) -> UUID | None:
-    selected = (
-        firm_id if principal.is_platform_admin else (x_firm_id or principal.firm_id)
-    )
+    selected = firm_id or x_firm_id or principal.firm_id
     if selected is None:
         return None
     if principal.is_platform_admin:

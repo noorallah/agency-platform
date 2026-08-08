@@ -1,10 +1,12 @@
-"""Firm-scoped customer, address, and contact persistence models."""
+"""Firm-scoped customer, receivable, address, and contact persistence models."""
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -57,6 +59,12 @@ class Customer(BaseEntity):
     currency_code: Mapped[str] = mapped_column(String(3), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    current_outstanding: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    unapplied_advance_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     addresses: Mapped[list["CustomerAddress"]] = relationship(
         back_populates="customer",
@@ -134,3 +142,34 @@ class CustomerContact(BaseEntity):
     )
 
     customer: Mapped[Customer] = relationship(back_populates="contacts")
+
+
+class CustomerReceivableTransaction(BaseEntity):
+    """Represent one immutable receivable movement for a customer."""
+
+    __tablename__ = "customer_receivable_transactions"
+    __table_args__ = (
+        Index("IX_customer_ar_tx_customer_date", "customer_id", "transaction_date"),
+        Index("IX_customer_ar_tx_firm_type", "firm_id", "transaction_type"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    outstanding_delta: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    advance_delta: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    outstanding_after: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    advance_after: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    reference_type: Mapped[str | None] = mapped_column(String(40))
+    reference_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    reference_number: Mapped[str | None] = mapped_column(String(120))
+    remarks: Mapped[str | None] = mapped_column(Text)

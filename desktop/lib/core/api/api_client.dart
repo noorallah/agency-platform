@@ -618,6 +618,45 @@ class ApiClient {
         query: {if (search.isNotEmpty) 'search': search},
       );
 
+  Future<CustomerReceivableSummary> customerReceivableSummary(
+          String customerId) async =>
+      CustomerReceivableSummary.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/customers/$customerId/receivables/summary',
+          ),
+        ),
+      );
+
+  Future<PagedResult<CustomerReceivableTransaction>>
+      customerReceivableTransactions(
+    String customerId, {
+    int page = 1,
+    int pageSize = 20,
+  }) =>
+          _list(
+            '/api/v1/customers/$customerId/receivables/transactions',
+            CustomerReceivableTransaction.fromJson,
+            page,
+            '',
+            pageSize: pageSize,
+          );
+
+  Future<CustomerReceivableTransaction> postCustomerReceivableTransaction(
+    String customerId,
+    Json data,
+  ) async =>
+      CustomerReceivableTransaction.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/customers/$customerId/receivables/transactions',
+            body: data,
+          ),
+        ),
+      );
+
   Future<PagedResult<Vendor>> vendors({
     int page = 1,
     String search = '',
@@ -892,17 +931,19 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     ProductQuery filters = const ProductQuery(),
-  }) =>
-      _list(
-        '/api/v1/products',
-        Product.fromJson,
-        page,
-        search,
-        pageSize: pageSize,
-        sortBy: sortBy,
-        descending: descending,
-        additionalQuery: filters.toQuery(),
-      );
+  }) {
+    final int normalizedPageSize = pageSize.clamp(1, 100);
+    return _list(
+      '/api/v1/products',
+      Product.fromJson,
+      page,
+      search,
+      pageSize: normalizedPageSize,
+      sortBy: sortBy,
+      descending: descending,
+      additionalQuery: filters.toQuery(),
+    );
+  }
 
   Future<PagedResult<InventoryRecord>> inventory({
     int page = 1,
@@ -1382,6 +1423,20 @@ class ApiClient {
         },
       );
 
+  Future<List<int>> exportInventoryBytes({
+    String search = '',
+    String dataset = 'inventory',
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        '/api/v1/inventory/export',
+        query: {
+          if (search.isNotEmpty) 'search': search,
+          if (dataset.isNotEmpty) 'dataset': dataset,
+          if (format.isNotEmpty) 'format': format,
+        },
+      );
+
   Future<ProductMetadataRecord> productMetadata({String? categoryId}) async =>
       ProductMetadataRecord.fromJson(_unwrapMap(
         await request(
@@ -1686,15 +1741,18 @@ class ApiClient {
 
   Future<GoodsReceiptRecord> updateGoodsReceipt(String id, Json data) async =>
       GoodsReceiptRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/goods-receipts/$id', body: data)),
+        _unwrapMap(
+            await request('PUT', '/api/v1/goods-receipts/$id', body: data)),
       );
 
   Future<GoodsReceiptRecord> completeGoodsReceipt(String id) async =>
       GoodsReceiptRecord.fromJson(
-        _unwrapMap(await request('POST', '/api/v1/goods-receipts/$id/complete')),
+        _unwrapMap(
+            await request('POST', '/api/v1/goods-receipts/$id/complete')),
       );
 
-  Future<GoodsReceiptRecord> cancelGoodsReceipt(String id, {String reason = ''}) async =>
+  Future<GoodsReceiptRecord> cancelGoodsReceipt(String id,
+          {String reason = ''}) async =>
       GoodsReceiptRecord.fromJson(
         _unwrapMap(
           await request(
@@ -1705,7 +1763,8 @@ class ApiClient {
         ),
       );
 
-  Future<GoodsReceiptRecord> closeGoodsReceipt(String id, {String reason = ''}) async =>
+  Future<GoodsReceiptRecord> closeGoodsReceipt(String id,
+          {String reason = ''}) async =>
       GoodsReceiptRecord.fromJson(
         _unwrapMap(
           await request(

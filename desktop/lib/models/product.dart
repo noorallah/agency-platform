@@ -103,12 +103,14 @@ class ProductTaxProfileRecord {
   const ProductTaxProfileRecord({
     required this.id,
     required this.code,
+    required this.groupCode,
     required this.label,
     required this.taxSystemId,
   });
 
   final String id;
   final String code;
+  final String groupCode;
   final String label;
   final String taxSystemId;
 
@@ -116,6 +118,7 @@ class ProductTaxProfileRecord {
       ProductTaxProfileRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
+        groupCode: stringValue(json['group_code']),
         label: stringValue(json['label']),
         taxSystemId: stringValue(json['tax_system_id']),
       );
@@ -176,7 +179,8 @@ class Product {
     required this.brand,
     required this.model,
     required this.hsnSac,
-    required this.taxProfileId,
+    this.taxProfileGroupCode = '',
+    String? taxProfileId,
     this.baseUomId = '',
     this.inventoryUomId = '',
     this.purchaseUomId = '',
@@ -196,6 +200,17 @@ class Product {
     required this.mrp,
     required this.status,
     required this.remarks,
+    this.trackBatch = false,
+    this.trackLot = false,
+    this.trackSerial = false,
+    this.trackExpiry = false,
+    this.trackManufacturingDate = false,
+    this.trackWarranty = false,
+    this.allowNegativeStock = false,
+    this.requireBatchOnReceipt = false,
+    this.requireBatchOnIssue = false,
+    this.requireSerialOnReceipt = false,
+    this.requireSerialOnIssue = false,
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
@@ -218,7 +233,7 @@ class Product {
   final String brand;
   final String model;
   final String hsnSac;
-  final String taxProfileId;
+  final String taxProfileGroupCode;
   final String baseUomId;
   final String inventoryUomId;
   final String purchaseUomId;
@@ -238,6 +253,17 @@ class Product {
   final String mrp;
   final String status;
   final String remarks;
+  final bool trackBatch;
+  final bool trackLot;
+  final bool trackSerial;
+  final bool trackExpiry;
+  final bool trackManufacturingDate;
+  final bool trackWarranty;
+  final bool allowNegativeStock;
+  final bool requireBatchOnReceipt;
+  final bool requireBatchOnIssue;
+  final bool requireSerialOnReceipt;
+  final bool requireSerialOnIssue;
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
@@ -260,7 +286,10 @@ class Product {
         brand: stringValue(json['brand']),
         model: stringValue(json['model']),
         hsnSac: stringValue(json['hsn_sac']),
-        taxProfileId: stringValue(json['tax_profile_id']),
+        taxProfileGroupCode:
+            stringValue(json['tax_profile_group_code']).isNotEmpty
+                ? stringValue(json['tax_profile_group_code'])
+                : stringValue(json['tax_profile_id']),
         baseUomId: stringValue(json['base_uom_id']),
         inventoryUomId: stringValue(json['inventory_uom_id']),
         purchaseUomId: stringValue(json['purchase_uom_id']),
@@ -280,6 +309,17 @@ class Product {
         mrp: stringValue(json['mrp']),
         status: stringValue(json['status']),
         remarks: stringValue(json['remarks']),
+        trackBatch: boolValue(json['track_batch']),
+        trackLot: boolValue(json['track_lot']),
+        trackSerial: boolValue(json['track_serial']),
+        trackExpiry: boolValue(json['track_expiry']),
+        trackManufacturingDate: boolValue(json['track_manufacturing_date']),
+        trackWarranty: boolValue(json['track_warranty']),
+        allowNegativeStock: boolValue(json['allow_negative_stock']),
+        requireBatchOnReceipt: boolValue(json['require_batch_on_receipt']),
+        requireBatchOnIssue: boolValue(json['require_batch_on_issue']),
+        requireSerialOnReceipt: boolValue(json['require_serial_on_receipt']),
+        requireSerialOnIssue: boolValue(json['require_serial_on_issue']),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
@@ -296,7 +336,7 @@ class ProductQuery {
     this.status,
     this.productType,
     this.categoryId,
-    this.taxProfileId,
+    this.taxProfileGroupCode,
     this.brand,
     this.hsnSac,
     this.attributeQuery,
@@ -306,7 +346,7 @@ class ProductQuery {
   final String? status;
   final String? productType;
   final String? categoryId;
-  final String? taxProfileId;
+  final String? taxProfileGroupCode;
   final String? brand;
   final String? hsnSac;
   final String? attributeQuery;
@@ -316,7 +356,8 @@ class ProductQuery {
         if (status?.isNotEmpty == true) 'status': status!,
         if (productType?.isNotEmpty == true) 'product_type': productType!,
         if (categoryId?.isNotEmpty == true) 'category_id': categoryId!,
-        if (taxProfileId?.isNotEmpty == true) 'tax_profile_id': taxProfileId!,
+        if (taxProfileGroupCode?.isNotEmpty == true)
+          'tax_profile_group_code': taxProfileGroupCode!,
         if (brand?.isNotEmpty == true) 'brand': brand!,
         if (hsnSac?.isNotEmpty == true) 'hsn_sac': hsnSac!,
         if (attributeQuery?.isNotEmpty == true)

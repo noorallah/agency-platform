@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.api.dependencies.settings import get_settings
+from app.batch_serial import models as batch_serial_models
 from app.branches.models import Branch, BranchType, Warehouse, WarehouseStorageNode, WarehouseType
 from app.branches.schemas import (
     BranchCreate,
@@ -23,7 +24,16 @@ from app.branches.schemas import (
     WarehouseTypeWrite,
 )
 from app.branches.services.branch_warehouse_service import BranchWarehouseService
-from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.business.models import (
+    AttributeDefinition,
+    BusinessFeature,
+    BusinessModule,
+    BusinessProfile,
+    CategoryAttributeRule,
+    FirmBusinessProfile,
+    ProfileFeature,
+    ProfileModule,
+)
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy import (
     DeploymentMode,
@@ -39,6 +49,8 @@ from app.customers.schemas import (
     CustomerAddressInput,
     CustomerContactInput,
     CustomerCreate,
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
 )
 from app.customers.schemas.customer import AddressType as CustomerAddressType
 from app.customers.schemas.customer import CustomerStatus, CustomerType
@@ -49,8 +61,11 @@ from app.firms.services.firm_service import FirmService
 from app.identity.models import Role, User, UserFirm
 from app.identity.schemas.api import UserCreate, UserFirmAssignment
 from app.identity.services.identity_service import IdentityService
+from app.inventory.models import OpeningStockBatch
+from app.inventory.schemas import OpeningStockBatchCreate, OpeningStockLineCreate
+from app.inventory.services import InventoryService
 from app.products.models import Product, ProductCategory
-from app.products.schemas import ProductCategoryCreate, ProductCreate
+from app.products.schemas import ProductAttributeInput, ProductCategoryCreate, ProductCreate
 from app.products.schemas.product import ProductStatus, ProductType
 from app.products.services.product_service import ProductService
 from app.tax.models import TaxProfile, TaxSystem
@@ -402,6 +417,8 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
 
 
 def main() -> int:
+    # Keep batch/lot/serial mappers loaded so inventory transaction FKs resolve.
+    assert batch_serial_models is not None
     settings = get_settings()
     platform = DatabaseManager.from_settings(settings)
     lifecycle = TenantStorageLifecycleService(
@@ -470,6 +487,7 @@ def main() -> int:
                 _seed_vendors(tenant_session, firm, blueprint, actor_id)
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
                 _seed_products(tenant_session, firm, blueprint, actor_id)
+                _seed_inventory_opening_stock(tenant_session, firm, blueprint, actor_id)
 
         _print_summary(platform, settings)
     finally:
@@ -1000,7 +1018,7 @@ def _seed_customers(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUI
             )
         ):
             continue
-        service.create(
+        customer = service.create(
             CustomerCreate(
                 code=f"{firm.code}C{index:02d}",
                 customer_type=CustomerType.BUSINESS,
@@ -1047,10 +1065,423 @@ def _seed_customers(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUI
             firm_id=firm.id,
             actor_id=actor_id,
         )
+        if index == 1:
+            service.post_receivable_transaction(
+                customer.id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.INVOICE,
+                    transaction_date=utc_now().date(),
+                    amount=Decimal("50000"),
+                    reference_type="SEED_INVOICE",
+                    reference_number=f"SI-DEMO-{firm.code}-001",
+                    remarks="Seeded receivable invoice balance.",
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+            service.post_receivable_transaction(
+                customer.id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                    transaction_date=utc_now().date(),
+                    amount=Decimal("20000"),
+                    reference_type="SEED_RECEIPT",
+                    reference_number=f"RCPT-DEMO-{firm.code}-001",
+                    remarks="Seeded customer receipt allocation.",
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+        elif index == 2:
+            service.post_receivable_transaction(
+                customer.id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.ADVANCE_RECEIPT,
+                    transaction_date=utc_now().date(),
+                    amount=Decimal("15000"),
+                    reference_type="SEED_ADVANCE",
+                    reference_number=f"ADV-DEMO-{firm.code}-001",
+                    remarks="Seeded unapplied customer advance.",
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+        elif index == 3:
+            service.post_receivable_transaction(
+                customer.id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.INVOICE,
+                    transaction_date=utc_now().date(),
+                    amount=Decimal("12000"),
+                    reference_type="SEED_INVOICE",
+                    reference_number=f"SI-DEMO-{firm.code}-003",
+                    remarks="Seeded receivable invoice.",
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+            service.post_receivable_transaction(
+                customer.id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
+                    transaction_date=utc_now().date(),
+                    amount=Decimal("3000"),
+                    reference_type="SEED_CREDIT_NOTE",
+                    reference_number=f"CN-DEMO-{firm.code}-003",
+                    remarks="Seeded credit note adjustment.",
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+
+
+def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) -> dict[str, AttributeDefinition]:
+    profile = _business_profile(session, blueprint.profile_code)
+    feature_definitions = {
+        "BARCODE": {"name": "Barcode", "category": "PRODUCT", "default_enabled": True},
+        "QR_CODE": {"name": "QR Code", "category": "PRODUCT", "default_enabled": True},
+        "ATTACHMENTS": {"name": "Product Attachments", "category": "PRODUCT", "default_enabled": True},
+        "EXPIRY_TRACKING": {"name": "Expiry Tracking", "category": "INVENTORY", "default_enabled": True},
+        "SERIAL_TRACKING": {"name": "Serial Tracking", "category": "INVENTORY", "default_enabled": False},
+    }
+    for code, payload in feature_definitions.items():
+        feature = session.scalar(
+            select(BusinessFeature).where(
+                BusinessFeature.code == code,
+                BusinessFeature.is_deleted.is_(False),
+            )
+        )
+        if feature is None:
+            feature = BusinessFeature(
+                code=code,
+                name=payload["name"],
+                description=f"Seeded feature for {blueprint.profile_code.lower()} demo flows.",
+                category=payload["category"],
+                default_enabled=payload["default_enabled"],
+                is_active=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(feature)
+            session.flush()
+        else:
+            feature.name = payload["name"]
+            feature.category = payload["category"]
+            feature.default_enabled = payload["default_enabled"]
+            feature.is_active = True
+            feature.updated_by = actor_id
+
+    module_definitions = {
+        "PRODUCT_MASTER": {
+            "name": "Product Master",
+            "route": "products",
+            "default_enabled": True,
+        },
+        "INVENTORY_CONTROL": {
+            "name": "Inventory Control",
+            "route": "inventory",
+            "default_enabled": True,
+        },
+        "CUSTOMER_RECEIVABLES": {
+            "name": "Customer Receivables",
+            "route": "customers",
+            "default_enabled": True,
+        },
+    }
+    for code, payload in module_definitions.items():
+        module = session.scalar(
+            select(BusinessModule).where(
+                BusinessModule.code == code,
+                BusinessModule.is_deleted.is_(False),
+            )
+        )
+        if module is None:
+            module = BusinessModule(
+                code=code,
+                name=payload["name"],
+                description=f"Seeded module for {blueprint.profile_code.lower()} demo flows.",
+                ui_route=payload["route"],
+                default_enabled=payload["default_enabled"],
+                is_active=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(module)
+            session.flush()
+        else:
+            module.name = payload["name"]
+            module.ui_route = payload["route"]
+            module.default_enabled = payload["default_enabled"]
+            module.is_active = True
+            module.updated_by = actor_id
+
+    enabled_features = {
+        "PHARMACY": {"BARCODE", "QR_CODE", "ATTACHMENTS", "EXPIRY_TRACKING"},
+        "FOOD": {"BARCODE", "QR_CODE", "ATTACHMENTS", "EXPIRY_TRACKING"},
+        "WHOLESALE": {"BARCODE", "ATTACHMENTS"},
+        "ELECTRONICS": {"BARCODE", "QR_CODE", "ATTACHMENTS"},
+    }.get(blueprint.profile_code, {"BARCODE", "ATTACHMENTS"})
+    for code in feature_definitions:
+        relationship = session.scalar(
+            select(ProfileFeature).where(
+                ProfileFeature.business_profile_id == profile.id,
+                ProfileFeature.feature_id == session.scalar(
+                    select(BusinessFeature.id).where(
+                        BusinessFeature.code == code,
+                        BusinessFeature.is_deleted.is_(False),
+                    )
+                ),
+                ProfileFeature.is_deleted.is_(False),
+            )
+        )
+        if relationship is None:
+            relationship = ProfileFeature(
+                business_profile_id=profile.id,
+                feature_id=session.scalar(
+                    select(BusinessFeature.id).where(
+                        BusinessFeature.code == code,
+                        BusinessFeature.is_deleted.is_(False),
+                    )
+                ),
+                is_enabled=code in enabled_features,
+                configuration={"seeded": True},
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(relationship)
+        else:
+            relationship.is_enabled = code in enabled_features
+            relationship.configuration = {"seeded": True}
+            relationship.updated_by = actor_id
+
+    enabled_modules = {
+        "PHARMACY": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
+        "FOOD": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
+        "WHOLESALE": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
+        "ELECTRONICS": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
+    }.get(blueprint.profile_code, {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"})
+    for code in module_definitions:
+        relationship = session.scalar(
+            select(ProfileModule).where(
+                ProfileModule.business_profile_id == profile.id,
+                ProfileModule.module_id == session.scalar(
+                    select(BusinessModule.id).where(
+                        BusinessModule.code == code,
+                        BusinessModule.is_deleted.is_(False),
+                    )
+                ),
+                ProfileModule.is_deleted.is_(False),
+            )
+        )
+        if relationship is None:
+            relationship = ProfileModule(
+                business_profile_id=profile.id,
+                module_id=session.scalar(
+                    select(BusinessModule.id).where(
+                        BusinessModule.code == code,
+                        BusinessModule.is_deleted.is_(False),
+                    )
+                ),
+                is_enabled=code in enabled_modules,
+                is_visible=code in enabled_modules,
+                display_order=0,
+                configuration={"seeded": True},
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(relationship)
+        else:
+            relationship.is_enabled = code in enabled_modules
+            relationship.is_visible = code in enabled_modules
+            relationship.configuration = {"seeded": True}
+            relationship.updated_by = actor_id
+
+    attribute_definitions = {
+        "BATCH_NUMBER": {
+            "name": "Batch Number",
+            "description": "Lot or batch reference for inventory tracking.",
+            "data_type": "TEXT",
+            "mandatory": False,
+        },
+        "EXPIRY_DATE": {
+            "name": "Expiry Date",
+            "description": "Shelf-life expiry date.",
+            "data_type": "DATE",
+            "mandatory": False,
+        },
+        "MANUFACTURER": {
+            "name": "Manufacturer",
+            "description": "Manufacturer or brand source.",
+            "data_type": "TEXT",
+            "mandatory": False,
+        },
+        "PACK_SIZE": {
+            "name": "Pack Size",
+            "description": "Display pack size or unit count.",
+            "data_type": "TEXT",
+            "mandatory": False,
+        },
+        "COUNTRY_OF_ORIGIN": {
+            "name": "Country of Origin",
+            "description": "Country from which the item originates.",
+            "data_type": "TEXT",
+            "mandatory": False,
+        },
+        "WARRANTY_MONTHS": {
+            "name": "Warranty Months",
+            "description": "Warranty period in months.",
+            "data_type": "NUMBER",
+            "mandatory": False,
+        },
+    }
+    definitions: dict[str, AttributeDefinition] = {}
+    for code, payload in attribute_definitions.items():
+        definition = session.scalar(
+            select(AttributeDefinition).where(
+                AttributeDefinition.code == code,
+                AttributeDefinition.is_deleted.is_(False),
+            )
+        )
+        if definition is None:
+            definition = AttributeDefinition(
+                code=code,
+                name=payload["name"],
+                description=payload["description"],
+                data_type=payload["data_type"],
+                mandatory=payload["mandatory"],
+                applicable_category="CORE_PRODUCTS",
+                is_active=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(definition)
+            session.flush()
+        else:
+            definition.name = payload["name"]
+            definition.description = payload["description"]
+            definition.data_type = payload["data_type"]
+            definition.mandatory = payload["mandatory"]
+            definition.applicable_category = "CORE_PRODUCTS"
+            definition.is_active = True
+            definition.updated_by = actor_id
+        definitions[code] = definition
+
+    rule_targets = {
+        "PHARMACY": {
+            "required": ["BATCH_NUMBER", "EXPIRY_DATE"],
+            "optional": ["MANUFACTURER", "COUNTRY_OF_ORIGIN"],
+        },
+        "FOOD": {
+            "required": ["PACK_SIZE", "COUNTRY_OF_ORIGIN"],
+            "optional": ["EXPIRY_DATE", "MANUFACTURER"],
+        },
+        "WHOLESALE": {
+            "required": [],
+            "optional": ["PACK_SIZE", "COUNTRY_OF_ORIGIN"],
+        },
+        "ELECTRONICS": {
+            "required": [],
+            "optional": ["WARRANTY_MONTHS", "COUNTRY_OF_ORIGIN"],
+        },
+    }.get(blueprint.profile_code, {"required": [], "optional": ["COUNTRY_OF_ORIGIN"]})
+    for code in rule_targets["required"] + rule_targets["optional"]:
+        attribute_definition = definitions[code]
+        rule = session.scalar(
+            select(CategoryAttributeRule).where(
+                CategoryAttributeRule.business_profile_id == profile.id,
+                CategoryAttributeRule.category_code == "CORE_PRODUCTS",
+                CategoryAttributeRule.attribute_definition_id == attribute_definition.id,
+                CategoryAttributeRule.is_deleted.is_(False),
+            )
+        )
+        if rule is None:
+            rule = CategoryAttributeRule(
+                business_profile_id=profile.id,
+                category_code="CORE_PRODUCTS",
+                attribute_definition_id=attribute_definition.id,
+                is_mandatory=code in rule_targets["required"],
+                validation_override={"seeded": True},
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(rule)
+        else:
+            rule.is_mandatory = code in rule_targets["required"]
+            rule.validation_override = {"seeded": True}
+            rule.updated_by = actor_id
+
+    session.commit()
+    return definitions
+
+
+def _product_attributes_for_profile(
+    blueprint: FirmBlueprint,
+    definitions: dict[str, AttributeDefinition],
+    product: ProductSeed,
+) -> list[ProductAttributeInput]:
+    if blueprint.profile_code == "PHARMACY":
+        return [
+            ProductAttributeInput(
+                attribute_definition_id=definitions["BATCH_NUMBER"].id,
+                value=f"{product.code}-B1",
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["EXPIRY_DATE"].id,
+                value=date(2028, 12, 31),
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["MANUFACTURER"].id,
+                value=product.brand,
+            ),
+        ]
+    if blueprint.profile_code == "FOOD":
+        return [
+            ProductAttributeInput(
+                attribute_definition_id=definitions["PACK_SIZE"].id,
+                value=product.unit_label,
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["COUNTRY_OF_ORIGIN"].id,
+                value="India",
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["EXPIRY_DATE"].id,
+                value=date(2027, 12, 31),
+            ),
+        ]
+    if blueprint.profile_code == "WHOLESALE":
+        return [
+            ProductAttributeInput(
+                attribute_definition_id=definitions["PACK_SIZE"].id,
+                value=product.unit_label,
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["COUNTRY_OF_ORIGIN"].id,
+                value="India",
+            ),
+        ]
+    if blueprint.profile_code == "ELECTRONICS":
+        return [
+            ProductAttributeInput(
+                attribute_definition_id=definitions["WARRANTY_MONTHS"].id,
+                value=12,
+            ),
+            ProductAttributeInput(
+                attribute_definition_id=definitions["COUNTRY_OF_ORIGIN"].id,
+                value="India",
+            ),
+        ]
+    return [
+        ProductAttributeInput(
+            attribute_definition_id=definitions["COUNTRY_OF_ORIGIN"].id,
+            value="India",
+        )
+    ]
 
 
 def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID) -> None:
     service = ProductService(session)
+    attribute_definitions = _seed_business_framework(session, blueprint, actor_id)
     category = session.scalar(
         select(ProductCategory).where(
             ProductCategory.firm_id == firm.id,
@@ -1082,6 +1513,11 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
             continue
         base_uom = uoms[product.base_uom_code]
         sales_uom = uoms[product.sales_uom_code]
+        attributes = _product_attributes_for_profile(
+            blueprint=blueprint,
+            definitions=attribute_definitions,
+            product=product,
+        )
         service.create_product(
             ProductCreate(
                 code=product.code,
@@ -1097,7 +1533,7 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
                 brand=product.brand,
                 model=None,
                 hsn_sac=product.hsn_sac,
-                tax_profile_id=tax_profile.id,
+                tax_profile_group_code=tax_profile.group_code,
                 base_uom_id=base_uom.id,
                 inventory_uom_id=base_uom.id,
                 purchase_uom_id=base_uom.id,
@@ -1117,12 +1553,98 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
                 mrp=product.mrp,
                 status=ProductStatus.ACTIVE,
                 remarks=f"Seeded for {blueprint.profile_code.lower()} demo flows.",
-                attributes=[],
+                attributes=attributes,
                 media=[],
             ),
             firm_id=firm.id,
             actor_id=actor_id,
         )
+
+
+def _seed_inventory_opening_stock(
+    session,
+    firm: FirmRef,
+    blueprint: FirmBlueprint,
+    actor_id: UUID,
+) -> None:
+    reference_number = f"OS-DEMO-{firm.code}"
+    service = InventoryService(session)
+    existing = session.scalar(
+        select(OpeningStockBatch).where(
+            OpeningStockBatch.firm_id == firm.id,
+            OpeningStockBatch.reference_number == reference_number,
+            OpeningStockBatch.is_deleted.is_(False),
+        )
+    )
+    if existing is not None:
+        if existing.status == "DRAFT":
+            service.post_opening_stock_batch(
+                existing.id,
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+        return
+
+    branch = session.scalar(
+        select(Branch).where(
+            Branch.firm_id == firm.id,
+            Branch.code == blueprint.branch_code,
+            Branch.is_deleted.is_(False),
+        )
+    )
+    warehouse = session.scalar(
+        select(Warehouse).where(
+            Warehouse.firm_id == firm.id,
+            Warehouse.code == blueprint.warehouse_code,
+            Warehouse.is_deleted.is_(False),
+        )
+    )
+    if branch is None or warehouse is None:
+        raise RuntimeError(
+            f"Branch/warehouse not found for firm '{firm.code}' while seeding inventory."
+        )
+
+    product_codes = [item.code for item in blueprint.products]
+    products = session.scalars(
+        select(Product).where(
+            Product.firm_id == firm.id,
+            Product.code.in_(product_codes),
+            Product.is_deleted.is_(False),
+            Product.status == ProductStatus.ACTIVE.value,
+        )
+    ).all()
+    product_by_code = {item.code: item for item in products}
+    missing_codes = [code for code in product_codes if code not in product_by_code]
+    if missing_codes:
+        raise RuntimeError(
+            f"Products missing for firm '{firm.code}' while seeding inventory: {missing_codes}"
+        )
+
+    lines = [
+        OpeningStockLineCreate(
+            product_id=product_by_code[product.code].id,
+            quantity=Decimal("100") + Decimal(index * 25),
+            entered_quantity=Decimal("100") + Decimal(index * 25),
+            minimum_level=Decimal("20"),
+            reorder_level=Decimal("30"),
+            safety_stock=Decimal("10"),
+            remarks="Seeded opening stock",
+        )
+        for index, product in enumerate(blueprint.products, start=1)
+    ]
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            reference_number=reference_number,
+            posting_date=date(2026, 4, 1),
+            remarks=f"Seeded opening stock for {firm.code}.",
+            lines=lines,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
 
 
 def _business_profile(session, profile_code: str) -> BusinessProfile:

@@ -20,7 +20,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import get_db, get_platform_db
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -77,7 +77,7 @@ class ProductScope:
 
 def product_scope(
     principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_platform_db)],
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
 ) -> ProductScope:
     if "platform_admin" in principal.roles:
@@ -290,6 +290,67 @@ def export_products(
     )
 
 
+@router.get("/categories", response_model=ApiResponse[list[ProductCategoryResponse]])
+def list_categories(
+    scope: ProductViewScope,
+    parent_id: UUID | None = None,
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ProductCategoryResponse]]:
+    rows = ProductService(db).list_categories(
+        firm_scope=scope.firm_id,
+        filters=ProductCategoryFilter(
+            parent_id=parent_id, include_inactive=include_inactive
+        ),
+    )
+    return ApiResponse(
+        data=[ProductCategoryResponse.model_validate(item) for item in rows]
+    )
+
+
+@router.post(
+    "/categories",
+    response_model=ApiResponse[ProductCategoryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_category(
+    data: ProductCategoryCreate,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProductCategoryResponse]:
+    row = ProductService(db).create_category(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=ProductCategoryResponse.model_validate(row))
+
+
+@router.put(
+    "/categories/{category_id}", response_model=ApiResponse[ProductCategoryResponse]
+)
+def update_category(
+    category_id: UUID,
+    data: ProductCategoryUpdate,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProductCategoryResponse]:
+    row = ProductService(db).update_category(
+        category_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=ProductCategoryResponse.model_validate(row))
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(
+    category_id: UUID,
+    scope: ProductUpdateScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    ProductService(db).delete_category(
+        category_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{product_id}", response_model=ApiResponse[ProductResponse])
 def get_product(
     product_id: UUID,
@@ -380,69 +441,9 @@ def bulk_restore_products(
     return ApiResponse(data={"affected": count})
 
 
-@router.get("/categories", response_model=ApiResponse[list[ProductCategoryResponse]])
-def list_categories(
-    scope: ProductViewScope,
-    parent_id: UUID | None = None,
-    include_inactive: bool = False,
-    db: Session = Depends(get_db),
-) -> ApiResponse[list[ProductCategoryResponse]]:
-    rows = ProductService(db).list_categories(
-        firm_scope=scope.firm_id,
-        filters=ProductCategoryFilter(
-            parent_id=parent_id, include_inactive=include_inactive
-        ),
-    )
-    return ApiResponse(
-        data=[ProductCategoryResponse.model_validate(item) for item in rows]
-    )
-
-
-@router.post(
-    "/categories",
-    response_model=ApiResponse[ProductCategoryResponse],
-    status_code=status.HTTP_201_CREATED,
-)
-def create_category(
-    data: ProductCategoryCreate,
-    scope: ProductUpdateScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[ProductCategoryResponse]:
-    row = ProductService(db).create_category(
-        data, firm_id=scope.firm_id, actor_id=scope.actor_id
-    )
-    return ApiResponse(data=ProductCategoryResponse.model_validate(row))
-
-
-@router.put(
-    "/categories/{category_id}", response_model=ApiResponse[ProductCategoryResponse]
-)
-def update_category(
-    category_id: UUID,
-    data: ProductCategoryUpdate,
-    scope: ProductUpdateScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[ProductCategoryResponse]:
-    row = ProductService(db).update_category(
-        category_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
-    )
-    return ApiResponse(data=ProductCategoryResponse.model_validate(row))
-
-
-@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_category(
-    category_id: UUID,
-    scope: ProductUpdateScope,
-    db: Session = Depends(get_db),
-) -> Response:
-    ProductService(db).delete_category(
-        category_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
 def _response(row: Product, *, can_view_cost: bool) -> ProductResponse:
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = ProductService.build_attribute_responses(row)
     if not can_view_cost:
         payload["purchase_price"] = None
     return ProductResponse.model_validate(payload)

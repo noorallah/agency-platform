@@ -118,6 +118,8 @@ class Customer {
     required this.openingBalance,
     required this.paymentTermsDays,
     required this.currencyCode,
+    required this.currentOutstanding,
+    required this.unappliedAdvanceBalance,
     required this.status,
     required this.notes,
     required this.createdBy,
@@ -145,6 +147,8 @@ class Customer {
   final String openingBalance;
   final int paymentTermsDays;
   final String currencyCode;
+  final String currentOutstanding;
+  final String unappliedAdvanceBalance;
   final String status;
   final String notes;
   final String createdBy;
@@ -183,6 +187,13 @@ class Customer {
             : stringValue(json['opening_balance']),
         paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
         currencyCode: stringValue(json['currency_code']),
+        currentOutstanding: stringValue(json['current_outstanding']).isEmpty
+            ? '0.00'
+            : stringValue(json['current_outstanding']),
+        unappliedAdvanceBalance:
+            stringValue(json['unapplied_advance_balance']).isEmpty
+                ? '0.00'
+                : stringValue(json['unapplied_advance_balance']),
         status: stringValue(json['status']),
         notes: stringValue(json['notes']),
         createdBy: stringValue(json['created_by']),
@@ -232,4 +243,90 @@ class CustomerQuery {
         if (createdTo?.isNotEmpty == true) 'created_to': createdTo!,
         if (includeDeleted) 'include_deleted': 'true',
       };
+}
+
+class CustomerReceivableSummary {
+  const CustomerReceivableSummary({
+    required this.customerId,
+    required this.customerName,
+    required this.outstanding,
+    required this.unappliedAdvance,
+    required this.netPosition,
+  });
+
+  final String customerId;
+  final String customerName;
+  final String outstanding;
+  final String unappliedAdvance;
+  final String netPosition;
+
+  factory CustomerReceivableSummary.fromJson(Json json) =>
+      CustomerReceivableSummary(
+        customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
+        outstanding: stringValue(json['outstanding']).isEmpty
+            ? '0.00'
+            : stringValue(json['outstanding']),
+        unappliedAdvance: stringValue(json['unapplied_advance']).isEmpty
+            ? '0.00'
+            : stringValue(json['unapplied_advance']),
+        netPosition: stringValue(json['net_position']).isEmpty
+            ? '0.00'
+            : stringValue(json['net_position']),
+      );
+}
+
+class CustomerReceivableTransaction {
+  const CustomerReceivableTransaction({
+    required this.id,
+    required this.customerId,
+    required this.firmId,
+    required this.transactionType,
+    required this.transactionDate,
+    required this.amount,
+    required this.outstandingDelta,
+    required this.advanceDelta,
+    required this.outstandingAfter,
+    required this.advanceAfter,
+    required this.referenceType,
+    required this.referenceId,
+    required this.referenceNumber,
+    required this.remarks,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String customerId;
+  final String firmId;
+  final String transactionType;
+  final String transactionDate;
+  final String amount;
+  final String outstandingDelta;
+  final String advanceDelta;
+  final String outstandingAfter;
+  final String advanceAfter;
+  final String referenceType;
+  final String referenceId;
+  final String referenceNumber;
+  final String remarks;
+  final String createdAt;
+
+  factory CustomerReceivableTransaction.fromJson(Json json) =>
+      CustomerReceivableTransaction(
+        id: stringValue(json['id']),
+        customerId: stringValue(json['customer_id']),
+        firmId: stringValue(json['firm_id']),
+        transactionType: stringValue(json['transaction_type']),
+        transactionDate: stringValue(json['transaction_date']),
+        amount: stringValue(json['amount']),
+        outstandingDelta: stringValue(json['outstanding_delta']),
+        advanceDelta: stringValue(json['advance_delta']),
+        outstandingAfter: stringValue(json['outstanding_after']),
+        advanceAfter: stringValue(json['advance_after']),
+        referenceType: stringValue(json['reference_type']),
+        referenceId: stringValue(json['reference_id']),
+        referenceNumber: stringValue(json['reference_number']),
+        remarks: stringValue(json['remarks']),
+        createdAt: stringValue(json['created_at']),
+      );
 }

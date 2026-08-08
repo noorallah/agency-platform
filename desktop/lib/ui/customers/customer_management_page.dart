@@ -271,6 +271,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         customer.city,
         customer.status,
         _money(customer.creditLimit),
+        _money(customer.currentOutstanding),
+        _money(customer.unappliedAdvanceBalance),
         customer.createdAt,
       ].join('\t'),
     );
@@ -502,6 +504,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             const GridColumn(key: 'city', label: 'City'),
             _column('Status', 'status'),
             _column('Credit limit', 'credit_limit'),
+            _column('Outstanding', 'current_outstanding'),
+            const GridColumn(key: 'advance', label: 'Advance'),
             _column('Created', 'created_at'),
           ],
           id: (customer) => customer.id,
@@ -513,6 +517,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             customer.city,
             customer.isDeleted ? 'DELETED' : customer.status,
             _money(customer.creditLimit),
+            _money(customer.currentOutstanding),
+            _money(customer.unappliedAdvanceBalance),
             _dateOnly(customer.createdAt),
           ],
           selectedId: selected?.id,
@@ -586,6 +592,10 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                 DetailLine('GST', customer.gstNumber),
                 DetailLine('Phone', customer.phone),
                 DetailLine('City', customer.city),
+                DetailLine('Credit limit', _money(customer.creditLimit)),
+                DetailLine('Outstanding', _money(customer.currentOutstanding)),
+                DetailLine('Unapplied advance',
+                    _money(customer.unappliedAdvanceBalance)),
               ],
         onView: customer == null
             ? null

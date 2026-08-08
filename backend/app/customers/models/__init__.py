@@ -1,5 +1,15 @@
 """Customer persistence models."""
 
-from app.customers.models.customer import Customer, CustomerAddress, CustomerContact
+from app.customers.models.customer import (
+    Customer,
+    CustomerAddress,
+    CustomerContact,
+    CustomerReceivableTransaction,
+)
 
-__all__ = ["Customer", "CustomerAddress", "CustomerContact"]
+__all__ = [
+    "Customer",
+    "CustomerAddress",
+    "CustomerContact",
+    "CustomerReceivableTransaction",
+]

@@ -20,7 +20,6 @@ from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.firms.models import Firm
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
@@ -227,9 +226,7 @@ class InventoryService:
     def stock_by_firm(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
         row = self._session.execute(
             select(
-                Firm.id,
-                Firm.code,
-                Firm.name,
+                func.count(InventoryRecord.id),
                 func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
                 func.coalesce(func.sum(InventoryRecord.reserved_quantity), 0),
                 func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
@@ -238,24 +235,25 @@ class InventoryService:
                 func.coalesce(func.sum(InventoryRecord.quarantine_quantity), 0),
                 func.coalesce(func.sum(InventoryRecord.in_transit_quantity), 0),
             )
-            .join(Firm, Firm.id == InventoryRecord.firm_id)
-            .where(InventoryRecord.firm_id == firm_scope, InventoryRecord.is_deleted.is_(False))
-            .group_by(Firm.id, Firm.code, Firm.name)
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.is_deleted.is_(False),
+            )
         ).first()
-        if row is None:
+        if row is None or int(row[0] or 0) == 0:
             return []
         return [
             InventoryLocationSummary(
-                scope_id=row[0],
-                scope_code=row[1] or "FIRM",
-                scope_name=row[2] or "Firm",
-                current_quantity=Decimal(row[3] or 0),
-                reserved_quantity=Decimal(row[4] or 0),
-                available_quantity=Decimal(row[5] or 0),
-                blocked_quantity=Decimal(row[6] or 0),
-                damaged_quantity=Decimal(row[7] or 0),
-                quarantine_quantity=Decimal(row[8] or 0),
-                in_transit_quantity=Decimal(row[9] or 0),
+                scope_id=firm_scope,
+                scope_code="FIRM",
+                scope_name="Selected Firm",
+                current_quantity=Decimal(row[1] or 0),
+                reserved_quantity=Decimal(row[2] or 0),
+                available_quantity=Decimal(row[3] or 0),
+                blocked_quantity=Decimal(row[4] or 0),
+                damaged_quantity=Decimal(row[5] or 0),
+                quarantine_quantity=Decimal(row[6] or 0),
+                in_transit_quantity=Decimal(row[7] or 0),
             )
         ]
 

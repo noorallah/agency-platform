@@ -26,6 +26,9 @@ from app.customers.schemas import (
     CustomerContactResponse,
     CustomerCreate,
     CustomerImportRequest,
+    CustomerReceivableSummary,
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionResponse,
     CustomerResponse,
     CustomerSummary,
     CustomerUpdate,
@@ -154,7 +157,7 @@ def list_customers(
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "code", "name", "status", "credit_limit", "created_at"
+        "code", "name", "status", "credit_limit", "current_outstanding", "created_at"
     ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     status_value: Annotated[CustomerStatus | None, Query(alias="status")] = None,
@@ -383,3 +386,67 @@ def list_customer_contacts(
     return ApiResponse(
         data=[CustomerContactResponse.model_validate(row) for row in rows]
     )
+
+
+@router.get(
+    "/{customer_id}/receivables/summary",
+    response_model=ApiResponse[CustomerReceivableSummary],
+)
+def customer_receivable_summary(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerReceivableSummary]:
+    """Return receivable balances for one visible customer."""
+    summary = CustomerService(db).receivable_summary(
+        customer_id,
+        firm_scope=scope.firm_id,
+    )
+    return ApiResponse(data=summary)
+
+
+@router.get(
+    "/{customer_id}/receivables/transactions",
+    response_model=PaginatedResponse[CustomerReceivableTransactionResponse],
+)
+def list_customer_receivable_transactions(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CustomerReceivableTransactionResponse]:
+    """List receivable transactions for one visible customer."""
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = CustomerService(db).receivable_transactions(
+        customer_id,
+        firm_scope=scope.firm_id,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    return PaginatedResponse(
+        data=[
+            CustomerReceivableTransactionResponse.model_validate(row) for row in rows
+        ],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/{customer_id}/receivables/transactions",
+    response_model=ApiResponse[CustomerReceivableTransactionResponse],
+)
+def post_customer_receivable_transaction(
+    customer_id: UUID,
+    data: CustomerReceivableTransactionCreate,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerReceivableTransactionResponse]:
+    """Post one receivable transaction for a visible customer."""
+    row = CustomerService(db).post_receivable_transaction(
+        customer_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=CustomerReceivableTransactionResponse.model_validate(row))

@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.customers.schemas import (
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
+)
+from app.customers.services.customer_service import CustomerService
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.models import (
@@ -403,6 +408,21 @@ class SalesInvoiceService:
         row.status = SalesInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
+        CustomerService(self._session).post_receivable_transaction(
+            row.customer_id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=CustomerReceivableTransactionType.INVOICE,
+                transaction_date=row.invoice_date,
+                amount=self._q(row.grand_total),
+                reference_type="SALES_INVOICE",
+                reference_id=row.id,
+                reference_number=row.invoice_number,
+                remarks=f"Invoice {row.invoice_number} approved.",
+            ),
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            commit=False,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -438,6 +458,23 @@ class SalesInvoiceService:
         row.status = SalesInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        if before == SalesInvoiceStatus.APPROVED.value:
+            CustomerService(self._session).post_receivable_transaction(
+                row.customer_id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
+                    transaction_date=utc_now().date(),
+                    amount=self._q(row.grand_total),
+                    reference_type="SALES_INVOICE",
+                    reference_id=row.id,
+                    reference_number=row.invoice_number,
+                    remarks=reason
+                    or f"Auto reversal for cancelled invoice {row.invoice_number}.",
+                ),
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                commit=False,
+            )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -665,34 +702,30 @@ class SalesInvoiceService:
     def outstanding_report(self, *, firm_scope: UUID) -> list[SalesInvoiceCustomerOutstandingRecord]:
         rows = list(
             self._session.scalars(
-                select(SalesInvoice).where(
-                    SalesInvoice.firm_id == firm_scope,
-                    SalesInvoice.is_deleted.is_(False),
-                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                select(Customer).where(
+                    Customer.firm_id == firm_scope,
+                    Customer.is_deleted.is_(False),
                 )
             ).all()
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
-        customer_names: dict[UUID, str] = {}
-        for row in rows:
-            totals[row.customer_id] += row.grand_total
+        for row in self._session.scalars(
+            select(SalesInvoice).where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status == SalesInvoiceStatus.APPROVED.value,
+            )
+        ):
             counts[row.customer_id] += 1
-        customers = list(
-            self._session.scalars(
-                select(Customer).where(Customer.id.in_(list(totals.keys())))
-            ).all()
-        )
-        for customer in customers:
-            customer_names[customer.id] = customer.name
         return [
             SalesInvoiceCustomerOutstandingRecord(
-                customer_id=customer_id,
-                customer_name=customer_names.get(customer_id, str(customer_id)),
-                outstanding_amount=self._q(amount),
-                invoice_count=counts[customer_id],
+                customer_id=customer.id,
+                customer_name=customer.name,
+                outstanding_amount=self._q(customer.current_outstanding),
+                invoice_count=counts[customer.id],
             )
-            for customer_id, amount in totals.items()
+            for customer in rows
+            if customer.current_outstanding > ZERO
         ]
 
     def reconciliation_report(
