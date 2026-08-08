@@ -1,566 +1,632 @@
-"""Finance API routes - Chart of Accounts, Journal Entries, GL Reports."""
+"""Firm-scoped REST endpoints for finance masters, journals, and reports."""
 
-from decimal import Decimal
-from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.db import get_db
-from app.core.auth import get_current_user
-from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
-from app.core.security import require_permission
-
-from app.finance.models import (
-    FinancialYear,
-    AccountingPeriod,
-    AccountGroup,
-    LedgerAccount,
-    CostCenter,
-    ProfitCenter,
-    JournalType,
-    VoucherType,
-    JournalEntry,
-    LedgerBalance,
+from app.core.database.dependencies import get_db, get_platform_db
+from app.core.exceptions import AuthorizationError
+from app.core.openapi import STANDARD_ERROR_RESPONSES
+from app.core.responses.models import ApiResponse
+from app.core.security.authorization import (
+    Principal,
+    get_current_principal,
+    require_permission,
 )
 from app.finance.schemas import (
-    FinancialYearCreate,
-    FinancialYearResponse,
-    AccountingPeriodCreate,
-    AccountingPeriodResponse,
     AccountGroupCreate,
     AccountGroupResponse,
-    LedgerAccountCreate,
-    LedgerAccountResponse,
+    AccountGroupUpdate,
+    AccountingPeriodCreate,
+    AccountingPeriodResponse,
+    AccountingPeriodUpdate,
+    AccountSummary,
     CostCenterCreate,
     CostCenterResponse,
-    ProfitCenterCreate,
-    ProfitCenterResponse,
-    JournalTypeCreate,
-    JournalTypeResponse,
-    VoucherTypeCreate,
-    VoucherTypeResponse,
+    CostCenterUpdate,
+    FinancialYearCreate,
+    FinancialYearResponse,
+    FinancialYearUpdate,
+    GeneralLedgerReport,
     JournalEntryCreate,
     JournalEntryResponse,
-    JournalLineSchema,
-    TrialBalanceReportSchema,
-    GeneralLedgerReportSchema,
-    AccountSummarySchema,
+    JournalEntryReverse,
+    JournalTypeCreate,
+    JournalTypeResponse,
+    LedgerAccountCreate,
+    LedgerAccountResponse,
+    LedgerAccountUpdate,
+    ProfitCenterCreate,
+    ProfitCenterResponse,
+    ProfitCenterUpdate,
+    TrialBalanceReport,
+    VoucherTypeCreate,
+    VoucherTypeResponse,
 )
 from app.finance.services import (
+    FinanceService,
+    GeneralLedgerService,
     JournalEntryEngine,
     JournalLineData,
-    GeneralLedgerEngine,
+)
+from app.firms.models import Firm
+from app.identity.models import UserFirm
+
+router = APIRouter(
+    prefix="/api/v1/finance",
+    tags=["Finance"],
+    responses=STANDARD_ERROR_RESPONSES,
 )
 
-router = APIRouter(prefix="/api/finance", tags=["finance"])
+
+class FinanceScope:
+    """Carry the authenticated principal and its validated firm context."""
+
+    def __init__(self, principal: Principal, firm_id: UUID) -> None:
+        """Store the authenticated identity and active firm."""
+        self.principal = principal
+        self.firm_id = firm_id
+
+    @property
+    def actor_id(self) -> UUID:
+        """Return the user UUID responsible for mutations."""
+        if not isinstance(self.principal.subject, UUID):
+            raise RuntimeError("Finance operations require a user principal.")
+        return self.principal.subject
 
 
-# ============================================================================
-# Financial Years
-# ============================================================================
-
-
-@router.post("/financial-years", response_model=FinancialYearResponse)
-async def create_financial_year(
-    req: FinancialYearCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a new financial year."""
-    await require_permission(user, "finance:master:create")
-    
-    fy = FinancialYear(
-        firm_id=user.firm_id,
-        financial_year_code=req.financial_year_code,
-        financial_year_name=req.financial_year_name,
-        financial_year_start=req.financial_year_start,
-        financial_year_end=req.financial_year_end,
-        is_active=req.is_active,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(fy)
-    db.commit()
-    db.refresh(fy)
-    return fy
-
-
-@router.get("/financial-years", response_model=list[FinancialYearResponse])
-async def list_financial_years(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List all financial years."""
-    years = db.scalars(
-        select(FinancialYear).where(FinancialYear.firm_id == user.firm_id)
-    ).all()
-    return years
-
-
-# ============================================================================
-# Accounting Periods
-# ============================================================================
-
-
-@router.post("/accounting-periods", response_model=AccountingPeriodResponse)
-async def create_accounting_period(
-    req: AccountingPeriodCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a new accounting period."""
-    await require_permission(user, "finance:master:create")
-    
-    period = AccountingPeriod(
-        firm_id=user.firm_id,
-        financial_year_id=req.financial_year_id,
-        period_code=req.period_code,
-        period_name=req.period_name,
-        period_start=req.period_start,
-        period_end=req.period_end,
-        status=req.status.value,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(period)
-    db.commit()
-    db.refresh(period)
-    return period
-
-
-@router.get("/accounting-periods", response_model=list[AccountingPeriodResponse])
-async def list_accounting_periods(
-    financial_year_id: UUID | None = Query(None),
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List accounting periods."""
-    query = select(AccountingPeriod).where(AccountingPeriod.firm_id == user.firm_id)
-    if financial_year_id:
-        query = query.where(AccountingPeriod.financial_year_id == financial_year_id)
-    
-    periods = db.scalars(query).all()
-    return periods
-
-
-# ============================================================================
-# Account Groups
-# ============================================================================
-
-
-@router.post("/account-groups", response_model=AccountGroupResponse)
-async def create_account_group(
-    req: AccountGroupCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create an account group."""
-    await require_permission(user, "finance:master:create")
-    
-    group = AccountGroup(
-        firm_id=user.firm_id,
-        account_group_code=req.account_group_code,
-        account_group_name=req.account_group_name,
-        account_type=req.account_type.value,
-        parent_group_id=req.parent_group_id,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(group)
-    db.commit()
-    db.refresh(group)
-    return group
-
-
-@router.get("/account-groups", response_model=list[AccountGroupResponse])
-async def list_account_groups(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List all account groups."""
-    groups = db.scalars(
-        select(AccountGroup).where(AccountGroup.firm_id == user.firm_id)
-    ).all()
-    return groups
-
-
-# ============================================================================
-# Ledger Accounts (Chart of Accounts)
-# ============================================================================
-
-
-@router.post("/ledger-accounts", response_model=LedgerAccountResponse)
-async def create_ledger_account(
-    req: LedgerAccountCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a new ledger account."""
-    await require_permission(user, "finance:master:create")
-    
-    account = LedgerAccount(
-        firm_id=user.firm_id,
-        account_group_id=req.account_group_id,
-        account_code=req.account_code,
-        account_name=req.account_name,
-        account_type=req.account_type.value,
-        is_active=req.is_active,
-        requires_cost_center=req.requires_cost_center,
-        requires_profit_center=req.requires_profit_center,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(account)
-    db.commit()
-    db.refresh(account)
-    return account
-
-
-@router.get("/ledger-accounts", response_model=list[LedgerAccountResponse])
-async def list_ledger_accounts(
-    account_type: str | None = Query(None),
-    is_active: bool | None = Query(None),
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List ledger accounts (Chart of Accounts)."""
-    query = select(LedgerAccount).where(LedgerAccount.firm_id == user.firm_id)
-    
-    if account_type:
-        query = query.where(LedgerAccount.account_type == account_type)
-    if is_active is not None:
-        query = query.where(LedgerAccount.is_active == is_active)
-    
-    query = query.order_by(LedgerAccount.account_code)
-    accounts = db.scalars(query).all()
-    return accounts
-
-
-# ============================================================================
-# Cost Centers
-# ============================================================================
-
-
-@router.post("/cost-centers", response_model=CostCenterResponse)
-async def create_cost_center(
-    req: CostCenterCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a cost center."""
-    await require_permission(user, "finance:master:create")
-    
-    center = CostCenter(
-        firm_id=user.firm_id,
-        cost_center_code=req.cost_center_code,
-        cost_center_name=req.cost_center_name,
-        is_active=req.is_active,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(center)
-    db.commit()
-    db.refresh(center)
-    return center
-
-
-@router.get("/cost-centers", response_model=list[CostCenterResponse])
-async def list_cost_centers(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List cost centers."""
-    centers = db.scalars(
-        select(CostCenter).where(CostCenter.firm_id == user.firm_id)
-    ).all()
-    return centers
-
-
-# ============================================================================
-# Profit Centers
-# ============================================================================
-
-
-@router.post("/profit-centers", response_model=ProfitCenterResponse)
-async def create_profit_center(
-    req: ProfitCenterCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a profit center."""
-    await require_permission(user, "finance:master:create")
-    
-    center = ProfitCenter(
-        firm_id=user.firm_id,
-        profit_center_code=req.profit_center_code,
-        profit_center_name=req.profit_center_name,
-        is_active=req.is_active,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(center)
-    db.commit()
-    db.refresh(center)
-    return center
-
-
-@router.get("/profit-centers", response_model=list[ProfitCenterResponse])
-async def list_profit_centers(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List profit centers."""
-    centers = db.scalars(
-        select(ProfitCenter).where(ProfitCenter.firm_id == user.firm_id)
-    ).all()
-    return centers
-
-
-# ============================================================================
-# Journal Types
-# ============================================================================
-
-
-@router.post("/journal-types", response_model=JournalTypeResponse)
-async def create_journal_type(
-    req: JournalTypeCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a journal type."""
-    await require_permission(user, "finance:master:create")
-    
-    jtype = JournalType(
-        firm_id=user.firm_id,
-        journal_type_code=req.journal_type_code,
-        journal_type_name=req.journal_type_name,
-        is_active=req.is_active,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(jtype)
-    db.commit()
-    db.refresh(jtype)
-    return jtype
-
-
-@router.get("/journal-types", response_model=list[JournalTypeResponse])
-async def list_journal_types(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List journal types."""
-    jtypes = db.scalars(
-        select(JournalType).where(JournalType.firm_id == user.firm_id)
-    ).all()
-    return jtypes
-
-
-# ============================================================================
-# Voucher Types
-# ============================================================================
-
-
-@router.post("/voucher-types", response_model=VoucherTypeResponse)
-async def create_voucher_type(
-    req: VoucherTypeCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a voucher type."""
-    await require_permission(user, "finance:master:create")
-    
-    vtype = VoucherType(
-        firm_id=user.firm_id,
-        voucher_type_code=req.voucher_type_code,
-        voucher_type_name=req.voucher_type_name,
-        is_active=req.is_active,
-        description=req.description,
-        created_by=user.id,
-    )
-    db.add(vtype)
-    db.commit()
-    db.refresh(vtype)
-    return vtype
-
-
-@router.get("/voucher-types", response_model=list[VoucherTypeResponse])
-async def list_voucher_types(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List voucher types."""
-    vtypes = db.scalars(
-        select(VoucherType).where(VoucherType.firm_id == user.firm_id)
-    ).all()
-    return vtypes
-
-
-# ============================================================================
-# Journal Entries
-# ============================================================================
-
-
-@router.post("/journal-entries", response_model=JournalEntryResponse)
-async def create_journal_entry(
-    req: JournalEntryCreate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Create a new journal entry (in DRAFT status)."""
-    await require_permission(user, "finance:journal:create")
-    
-    engine = JournalEntryEngine(db)
-    
-    try:
-        entry = engine.create_entry(
-            firm_id=user.firm_id,
-            journal_type_id=req.journal_type_id,
-            voucher_type_id=req.voucher_type_id,
-            accounting_period_id=req.accounting_period_id,
-            journal_date=req.journal_date,
-            reference_number=req.reference_number,
-            description=req.description,
-            lines=[
-                JournalLineData(
-                    ledger_account_id=line.ledger_account_id,
-                    debit_amount=line.debit_amount,
-                    credit_amount=line.credit_amount,
-                    cost_center_id=line.cost_center_id,
-                    profit_center_id=line.profit_center_id,
-                    description=line.description,
-                )
-                for line in req.lines
-            ],
-            actor_id=user.id,
-            remarks=req.remarks,
+def finance_scope(
+    principal: Annotated[Principal, Depends(get_current_principal)],
+    platform_db: Annotated[Session, Depends(get_platform_db)],
+    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
+) -> FinanceScope:
+    """Validate active firm access for every finance operation."""
+    if x_firm_id is None:
+        raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
+    if "platform_admin" in principal.roles:
+        firm = platform_db.scalar(
+            select(Firm.id).where(
+                Firm.id == x_firm_id,
+                Firm.is_active.is_(True),
+                Firm.is_deleted.is_(False),
+            )
         )
-        db.commit()
-        db.refresh(entry)
-        return entry
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if firm is None:
+            raise AuthorizationError("The selected firm is inactive or unavailable.")
+        return FinanceScope(principal, x_firm_id)
+    if not isinstance(principal.subject, UUID):
+        raise AuthorizationError("An authorized active firm is required.")
+    membership = platform_db.scalar(
+        select(UserFirm.id)
+        .join(Firm, Firm.id == UserFirm.firm_id)
+        .where(
+            UserFirm.user_id == principal.subject,
+            UserFirm.firm_id == x_firm_id,
+            UserFirm.is_active.is_(True),
+            UserFirm.is_deleted.is_(False),
+            Firm.is_active.is_(True),
+            Firm.is_deleted.is_(False),
+        )
+    )
+    if membership is None:
+        raise AuthorizationError("You are not authorized for the selected firm.")
+    return FinanceScope(principal, x_firm_id)
 
 
-@router.get("/journal-entries", response_model=list[JournalEntryResponse])
-async def list_journal_entries(
-    accounting_period_id: UUID | None = Query(None),
-    status: str | None = Query(None),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=1000),
+def _permission(code: str) -> object:
+    """Compose the permission check and finance scope into one dependency."""
+
+    def dependency(
+        _: Annotated[Principal, Depends(require_permission(code))],
+        scope: Annotated[FinanceScope, Depends(finance_scope)],
+    ) -> FinanceScope:
+        return scope
+
+    return Depends(dependency)
+
+
+# Codes come from the seeded `accounting` and `financial_year` permission groups
+# in app.identity.system_seed rather than a finance-specific namespace, so the
+# existing ACCOUNTANT role grants these endpoints without further mapping.
+MasterViewScope = Annotated[FinanceScope, _permission("ACCOUNT_VIEW")]
+MasterManageScope = Annotated[FinanceScope, _permission("ACCOUNT_MANAGE")]
+YearViewScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_VIEW")]
+YearManageScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_CREATE")]
+PeriodCloseScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_CLOSE")]
+JournalViewScope = Annotated[FinanceScope, _permission("JOURNAL_VIEW")]
+JournalCreateScope = Annotated[FinanceScope, _permission("JOURNAL_CREATE")]
+JournalPostScope = Annotated[FinanceScope, _permission("JOURNAL_POST")]
+JournalReverseScope = Annotated[FinanceScope, _permission("JOURNAL_REVERSE")]
+LedgerViewScope = Annotated[FinanceScope, _permission("LEDGER_VIEW")]
+TrialBalanceScope = Annotated[FinanceScope, _permission("TRIAL_BALANCE_VIEW")]
+
+
+# ----------------------------------------------------------------------
+# Financial years and accounting periods
+# ----------------------------------------------------------------------
+
+
+@router.post(
+    "/financial-years",
+    response_model=ApiResponse[FinancialYearResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_financial_year(
+    payload: FinancialYearCreate,
+    scope: YearManageScope,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """List journal entries."""
-    query = select(JournalEntry).where(JournalEntry.firm_id == user.firm_id)
-    
-    if accounting_period_id:
-        query = query.where(JournalEntry.accounting_period_id == accounting_period_id)
-    if status:
-        query = query.where(JournalEntry.journal_status == status)
-    
-    query = query.order_by(JournalEntry.journal_date.desc()).offset(skip).limit(limit)
-    entries = db.scalars(query).all()
-    return entries
+) -> ApiResponse[FinancialYearResponse]:
+    """Create one financial year for the active firm."""
+    row = FinanceService(db).create_financial_year(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=FinancialYearResponse.model_validate(row))
 
 
-@router.get("/journal-entries/{entry_id}", response_model=JournalEntryResponse)
-async def get_journal_entry(
+@router.get("/financial-years", response_model=ApiResponse[list[FinancialYearResponse]])
+def list_financial_years(
+    scope: YearViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[FinancialYearResponse]]:
+    """Return every financial year for the active firm."""
+    rows = FinanceService(db).list_financial_years(firm_id=scope.firm_id)
+    return ApiResponse(data=[FinancialYearResponse.model_validate(row) for row in rows])
+
+
+@router.patch(
+    "/financial-years/{year_id}", response_model=ApiResponse[FinancialYearResponse]
+)
+def update_financial_year(
+    year_id: UUID,
+    payload: FinancialYearUpdate,
+    scope: YearManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FinancialYearResponse]:
+    """Apply a partial update to one financial year."""
+    row = FinanceService(db).update_financial_year(
+        year_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=FinancialYearResponse.model_validate(row))
+
+
+@router.delete("/financial-years/{year_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_financial_year(
+    year_id: UUID, scope: YearManageScope, db: Session = Depends(get_db)
+) -> None:
+    """Soft delete one financial year that carries no periods."""
+    FinanceService(db).delete_financial_year(
+        year_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+
+
+@router.post(
+    "/accounting-periods",
+    response_model=ApiResponse[AccountingPeriodResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_accounting_period(
+    payload: AccountingPeriodCreate,
+    scope: YearManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AccountingPeriodResponse]:
+    """Create one accounting period inside a financial year."""
+    row = FinanceService(db).create_accounting_period(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AccountingPeriodResponse.model_validate(row))
+
+
+@router.get(
+    "/accounting-periods", response_model=ApiResponse[list[AccountingPeriodResponse]]
+)
+def list_accounting_periods(
+    scope: YearViewScope,
+    financial_year_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[AccountingPeriodResponse]]:
+    """Return accounting periods, optionally for one financial year."""
+    rows = FinanceService(db).list_accounting_periods(
+        firm_id=scope.firm_id, financial_year_id=financial_year_id
+    )
+    return ApiResponse(
+        data=[AccountingPeriodResponse.model_validate(row) for row in rows]
+    )
+
+
+@router.patch(
+    "/accounting-periods/{period_id}",
+    response_model=ApiResponse[AccountingPeriodResponse],
+)
+def update_accounting_period(
+    period_id: UUID,
+    payload: AccountingPeriodUpdate,
+    scope: PeriodCloseScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AccountingPeriodResponse]:
+    """Update one accounting period, including its open or closed status."""
+    row = FinanceService(db).update_accounting_period(
+        period_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AccountingPeriodResponse.model_validate(row))
+
+
+# ----------------------------------------------------------------------
+# Chart of accounts
+# ----------------------------------------------------------------------
+
+
+@router.post(
+    "/account-groups",
+    response_model=ApiResponse[AccountGroupResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_account_group(
+    payload: AccountGroupCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AccountGroupResponse]:
+    """Create one account group."""
+    row = FinanceService(db).create_account_group(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AccountGroupResponse.model_validate(row))
+
+
+@router.get("/account-groups", response_model=ApiResponse[list[AccountGroupResponse]])
+def list_account_groups(
+    scope: MasterViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[AccountGroupResponse]]:
+    """Return every account group for the active firm."""
+    rows = FinanceService(db).list_account_groups(firm_id=scope.firm_id)
+    return ApiResponse(data=[AccountGroupResponse.model_validate(r) for r in rows])
+
+
+@router.patch(
+    "/account-groups/{group_id}", response_model=ApiResponse[AccountGroupResponse]
+)
+def update_account_group(
+    group_id: UUID,
+    payload: AccountGroupUpdate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[AccountGroupResponse]:
+    """Apply a partial update to one account group."""
+    row = FinanceService(db).update_account_group(
+        group_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=AccountGroupResponse.model_validate(row))
+
+
+@router.post(
+    "/ledger-accounts",
+    response_model=ApiResponse[LedgerAccountResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_ledger_account(
+    payload: LedgerAccountCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LedgerAccountResponse]:
+    """Create one ledger account."""
+    row = FinanceService(db).create_ledger_account(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=LedgerAccountResponse.model_validate(row))
+
+
+@router.get("/ledger-accounts", response_model=ApiResponse[list[LedgerAccountResponse]])
+def list_ledger_accounts(
+    scope: MasterViewScope,
+    account_group_id: UUID | None = None,
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LedgerAccountResponse]]:
+    """Return ledger accounts, optionally filtered by group and status."""
+    rows = FinanceService(db).list_ledger_accounts(
+        firm_id=scope.firm_id,
+        account_group_id=account_group_id,
+        is_active=is_active,
+    )
+    return ApiResponse(data=[LedgerAccountResponse.model_validate(r) for r in rows])
+
+
+@router.patch(
+    "/ledger-accounts/{account_id}",
+    response_model=ApiResponse[LedgerAccountResponse],
+)
+def update_ledger_account(
+    account_id: UUID,
+    payload: LedgerAccountUpdate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LedgerAccountResponse]:
+    """Apply a partial update to one ledger account."""
+    row = FinanceService(db).update_ledger_account(
+        account_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=LedgerAccountResponse.model_validate(row))
+
+
+# ----------------------------------------------------------------------
+# Cost centres, profit centres, journal and voucher types
+# ----------------------------------------------------------------------
+
+
+@router.post(
+    "/cost-centers",
+    response_model=ApiResponse[CostCenterResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_cost_center(
+    payload: CostCenterCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CostCenterResponse]:
+    """Create one cost centre."""
+    row = FinanceService(db).create_cost_center(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=CostCenterResponse.model_validate(row))
+
+
+@router.get("/cost-centers", response_model=ApiResponse[list[CostCenterResponse]])
+def list_cost_centers(
+    scope: MasterViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[CostCenterResponse]]:
+    """Return every cost centre for the active firm."""
+    rows = FinanceService(db).list_cost_centers(firm_id=scope.firm_id)
+    return ApiResponse(data=[CostCenterResponse.model_validate(r) for r in rows])
+
+
+@router.patch(
+    "/cost-centers/{centre_id}", response_model=ApiResponse[CostCenterResponse]
+)
+def update_cost_center(
+    centre_id: UUID,
+    payload: CostCenterUpdate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CostCenterResponse]:
+    """Apply a partial update to one cost centre."""
+    row = FinanceService(db).update_cost_center(
+        centre_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=CostCenterResponse.model_validate(row))
+
+
+@router.post(
+    "/profit-centers",
+    response_model=ApiResponse[ProfitCenterResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_profit_center(
+    payload: ProfitCenterCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProfitCenterResponse]:
+    """Create one profit centre."""
+    row = FinanceService(db).create_profit_center(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=ProfitCenterResponse.model_validate(row))
+
+
+@router.get("/profit-centers", response_model=ApiResponse[list[ProfitCenterResponse]])
+def list_profit_centers(
+    scope: MasterViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[ProfitCenterResponse]]:
+    """Return every profit centre for the active firm."""
+    rows = FinanceService(db).list_profit_centers(firm_id=scope.firm_id)
+    return ApiResponse(data=[ProfitCenterResponse.model_validate(r) for r in rows])
+
+
+@router.patch(
+    "/profit-centers/{centre_id}", response_model=ApiResponse[ProfitCenterResponse]
+)
+def update_profit_center(
+    centre_id: UUID,
+    payload: ProfitCenterUpdate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProfitCenterResponse]:
+    """Apply a partial update to one profit centre."""
+    row = FinanceService(db).update_profit_center(
+        centre_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=ProfitCenterResponse.model_validate(row))
+
+
+@router.post(
+    "/journal-types",
+    response_model=ApiResponse[JournalTypeResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_journal_type(
+    payload: JournalTypeCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[JournalTypeResponse]:
+    """Create one journal type."""
+    row = FinanceService(db).create_journal_type(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=JournalTypeResponse.model_validate(row))
+
+
+@router.get("/journal-types", response_model=ApiResponse[list[JournalTypeResponse]])
+def list_journal_types(
+    scope: MasterViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[JournalTypeResponse]]:
+    """Return every journal type for the active firm."""
+    rows = FinanceService(db).list_journal_types(firm_id=scope.firm_id)
+    return ApiResponse(data=[JournalTypeResponse.model_validate(r) for r in rows])
+
+
+@router.post(
+    "/voucher-types",
+    response_model=ApiResponse[VoucherTypeResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_voucher_type(
+    payload: VoucherTypeCreate,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VoucherTypeResponse]:
+    """Create one voucher type."""
+    row = FinanceService(db).create_voucher_type(
+        payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=VoucherTypeResponse.model_validate(row))
+
+
+@router.get("/voucher-types", response_model=ApiResponse[list[VoucherTypeResponse]])
+def list_voucher_types(
+    scope: MasterViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[list[VoucherTypeResponse]]:
+    """Return every voucher type for the active firm."""
+    rows = FinanceService(db).list_voucher_types(firm_id=scope.firm_id)
+    return ApiResponse(data=[VoucherTypeResponse.model_validate(r) for r in rows])
+
+
+# ----------------------------------------------------------------------
+# Journal entries
+# ----------------------------------------------------------------------
+
+
+@router.post(
+    "/journal-entries",
+    response_model=ApiResponse[JournalEntryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_journal_entry(
+    payload: JournalEntryCreate,
+    scope: JournalCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[JournalEntryResponse]:
+    """Create one balanced draft journal entry."""
+    entry = JournalEntryEngine(db).create_entry(
+        firm_id=scope.firm_id,
+        journal_type_id=payload.journal_type_id,
+        voucher_type_id=payload.voucher_type_id,
+        accounting_period_id=payload.accounting_period_id,
+        journal_date=payload.journal_date,
+        reference_number=payload.reference_number,
+        description=payload.description,
+        remarks=payload.remarks,
+        lines=[
+            JournalLineData(
+                ledger_account_id=line.ledger_account_id,
+                debit_amount=line.debit_amount,
+                credit_amount=line.credit_amount,
+                cost_center_id=line.cost_center_id,
+                profit_center_id=line.profit_center_id,
+                description=line.description,
+            )
+            for line in payload.lines
+        ],
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.get(
+    "/journal-entries/{entry_id}", response_model=ApiResponse[JournalEntryResponse]
+)
+def get_journal_entry(
+    entry_id: UUID, scope: JournalViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[JournalEntryResponse]:
+    """Return one journal entry with its lines."""
+    entry = JournalEntryEngine(db).get_entry(entry_id, firm_id=scope.firm_id)
+    return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.post(
+    "/journal-entries/{entry_id}/post",
+    response_model=ApiResponse[JournalEntryResponse],
+)
+def post_journal_entry(
+    entry_id: UUID, scope: JournalPostScope, db: Session = Depends(get_db)
+) -> ApiResponse[JournalEntryResponse]:
+    """Post one draft journal entry to the general ledger."""
+    entry = JournalEntryEngine(db).post_entry(
+        entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.post(
+    "/journal-entries/{entry_id}/reverse",
+    response_model=ApiResponse[JournalEntryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def reverse_journal_entry(
     entry_id: UUID,
+    payload: JournalEntryReverse,
+    scope: JournalReverseScope,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Get a journal entry by ID."""
-    entry = db.scalar(
-        select(JournalEntry).where(
-            JournalEntry.id == entry_id,
-            JournalEntry.firm_id == user.firm_id,
-        )
+) -> ApiResponse[JournalEntryResponse]:
+    """Reverse one posted journal entry under a new reference."""
+    reversal = JournalEntryEngine(db).reverse_entry(
+        entry_id,
+        firm_id=scope.firm_id,
+        reference_number=payload.reference_number,
+        accounting_period_id=payload.accounting_period_id,
+        journal_date=payload.journal_date,
+        actor_id=scope.actor_id,
     )
-    if not entry:
-        raise HTTPException(status_code=404, detail="Journal entry not found")
-    return entry
+    db.commit()
+    return ApiResponse(data=JournalEntryResponse.model_validate(reversal))
 
 
-@router.post("/journal-entries/{entry_id}/post")
-async def post_journal_entry(
-    entry_id: UUID,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Post a journal entry to the general ledger."""
-    await require_permission(user, "finance:journal:post")
-    
-    entry = db.scalar(
-        select(JournalEntry).where(
-            JournalEntry.id == entry_id,
-            JournalEntry.firm_id == user.firm_id,
-        )
-    )
-    if not entry:
-        raise HTTPException(status_code=404, detail="Journal entry not found")
-    
-    engine = JournalEntryEngine(db)
-    try:
-        engine.post_entry(entry_id)
-        db.commit()
-        db.refresh(entry)
-        return {"message": "Journal entry posted successfully", "entry": entry}
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# ----------------------------------------------------------------------
+# Reports
+# ----------------------------------------------------------------------
 
 
-# ============================================================================
-# General Ledger Reports
-# ============================================================================
-
-
-@router.get("/trial-balance", response_model=TrialBalanceReportSchema)
-async def get_trial_balance(
+@router.get("/trial-balance", response_model=ApiResponse[TrialBalanceReport])
+def trial_balance(
     accounting_period_id: UUID,
+    scope: TrialBalanceScope,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Get trial balance for a period."""
-    engine = GeneralLedgerEngine(db)
-    report = engine.trial_balance(
-        firm_id=user.firm_id,
-        accounting_period_id=accounting_period_id,
+) -> ApiResponse[TrialBalanceReport]:
+    """Return the trial balance for one accounting period."""
+    report = GeneralLedgerService(db).trial_balance(
+        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
     )
-    return report
+    return ApiResponse(data=report)
 
 
-@router.get("/general-ledger/{ledger_account_id}", response_model=GeneralLedgerReportSchema)
-async def get_general_ledger(
+@router.get(
+    "/general-ledger/{ledger_account_id}",
+    response_model=ApiResponse[GeneralLedgerReport],
+)
+def general_ledger(
     ledger_account_id: UUID,
     accounting_period_id: UUID,
+    scope: LedgerViewScope,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Get general ledger detail for an account."""
-    engine = GeneralLedgerEngine(db)
-    report = engine.general_ledger(
-        firm_id=user.firm_id,
+) -> ApiResponse[GeneralLedgerReport]:
+    """Return the movement statement for one ledger account."""
+    report = GeneralLedgerService(db).general_ledger(
+        firm_id=scope.firm_id,
         ledger_account_id=ledger_account_id,
         accounting_period_id=accounting_period_id,
     )
-    return report
+    return ApiResponse(data=report)
 
 
-@router.get("/account-summaries", response_model=list[AccountSummarySchema])
-async def get_account_summaries(
+@router.get("/account-summaries", response_model=ApiResponse[list[AccountSummary]])
+def account_summaries(
     accounting_period_id: UUID,
+    scope: LedgerViewScope,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    """Get summary of all accounts for a period."""
-    engine = GeneralLedgerEngine(db)
-    summaries = engine.account_summary(
-        firm_id=user.firm_id,
-        accounting_period_id=accounting_period_id,
+) -> ApiResponse[list[AccountSummary]]:
+    """Return one balance row per account for a period."""
+    rows = GeneralLedgerService(db).account_summary(
+        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
     )
-    return summaries
+    return ApiResponse(data=rows)

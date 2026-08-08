@@ -1,16 +1,19 @@
-"""Finance API schemas - Pydantic models for request/response validation."""
+"""Validated request and response contracts for the finance module."""
 
+from datetime import date, datetime
 from decimal import Decimal
-from datetime import datetime
+from enum import StrEnum
+from typing import Self
 from uuid import UUID
-from enum import Enum
-from typing import Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+MONEY = Decimal("0.01")
 
 
-class AccountTypeEnum(str, Enum):
-    """GL Account types."""
+class AccountTypeEnum(StrEnum):
+    """Supported ledger account classifications."""
+
     ASSET = "ASSET"
     LIABILITY = "LIABILITY"
     INCOME = "INCOME"
@@ -20,386 +23,558 @@ class AccountTypeEnum(str, Enum):
     CONTROL = "CONTROL"
 
 
-class PeriodStatusEnum(str, Enum):
-    """Accounting period status."""
+class PeriodStatusEnum(StrEnum):
+    """Supported accounting period statuses."""
+
     OPEN = "OPEN"
     CLOSED = "CLOSED"
     LOCKED = "LOCKED"
 
 
-class JournalStatusEnum(str, Enum):
-    """Journal entry status."""
+class JournalStatusEnum(StrEnum):
+    """Supported journal entry statuses."""
+
     DRAFT = "DRAFT"
     POSTED = "POSTED"
     REVERSED = "REVERSED"
+    REJECTED = "REJECTED"
 
 
-class PostingStatusEnum(str, Enum):
-    """GL posting status."""
+class PostingStatusEnum(StrEnum):
+    """Supported general-ledger posting statuses."""
+
     PENDING = "PENDING"
     POSTED = "POSTED"
     ERROR = "ERROR"
+    CANCELLED = "CANCELLED"
 
 
-# Financial Year Schema
-class FinancialYearCreate(BaseModel):
-    financial_year_code: str
-    financial_year_name: str
-    financial_year_start: datetime
-    financial_year_end: datetime
+class FinanceSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+CodeField = Field(max_length=20, min_length=1, pattern=r"^[A-Z0-9_-]+$")
+NameField = Field(max_length=100, min_length=1)
+
+
+class FinancialYearCreate(FinanceSchema):
+    """Create one financial year."""
+
+    code: str = CodeField
+    name: str = NameField
+    starts_on: date
+    ends_on: date
+    description: str | None = None
     is_active: bool = True
-    description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_range(self) -> Self:
+        """Reject a year whose end does not follow its start."""
+        if self.ends_on <= self.starts_on:
+            raise ValueError("Financial year must end after it starts.")
+        return self
 
 
-class FinancialYearUpdate(BaseModel):
-    financial_year_name: Optional[str] = None
-    financial_year_start: Optional[datetime] = None
-    financial_year_end: Optional[datetime] = None
-    is_active: Optional[bool] = None
-    description: Optional[str] = None
+class FinancialYearUpdate(FinanceSchema):
+    """Apply a partial financial year update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    description: str | None = None
+    is_active: bool | None = None
+    is_locked: bool | None = None
 
 
-class FinancialYearResponse(BaseModel):
+class FinancialYearResponse(FinanceSchema):
+    """Return one financial year."""
+
     id: UUID
     firm_id: UUID
-    financial_year_code: str
-    financial_year_name: str
-    financial_year_start: datetime
-    financial_year_end: datetime
+    code: str
+    name: str
+    starts_on: date
+    ends_on: date
+    description: str | None
     is_active: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    is_locked: bool
+    version: int
 
 
-# Accounting Period Schema
-class AccountingPeriodCreate(BaseModel):
+class AccountingPeriodCreate(FinanceSchema):
+    """Create one accounting period inside a financial year."""
+
     financial_year_id: UUID
-    period_code: str
-    period_name: str
-    period_start: datetime
-    period_end: datetime
-    status: PeriodStatusEnum = PeriodStatusEnum.OPEN
-    description: Optional[str] = None
+    period_number: int = Field(ge=1, le=24)
+    code: str = CodeField
+    name: str = NameField
+    starts_on: date
+    ends_on: date
+    description: str | None = None
+
+    @model_validator(mode="after")
+    def validate_range(self) -> Self:
+        """Reject a period whose end does not follow its start."""
+        if self.ends_on <= self.starts_on:
+            raise ValueError("Accounting period must end after it starts.")
+        return self
 
 
-class AccountingPeriodUpdate(BaseModel):
-    period_name: Optional[str] = None
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None
-    status: Optional[PeriodStatusEnum] = None
-    description: Optional[str] = None
+class AccountingPeriodUpdate(FinanceSchema):
+    """Apply a partial accounting period update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    status: PeriodStatusEnum | None = None
+    description: str | None = None
 
 
-class AccountingPeriodResponse(BaseModel):
+class AccountingPeriodResponse(FinanceSchema):
+    """Return one accounting period."""
+
     id: UUID
+    firm_id: UUID
     financial_year_id: UUID
-    period_code: str
-    period_name: str
-    period_start: datetime
-    period_end: datetime
+    period_number: int
+    code: str
+    name: str
+    starts_on: date
+    ends_on: date
     status: PeriodStatusEnum
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    description: str | None
+    version: int
 
 
-# Account Group Schema
-class AccountGroupCreate(BaseModel):
-    account_group_code: str
-    account_group_name: str
+class AccountGroupCreate(FinanceSchema):
+    """Create one account group."""
+
+    code: str = CodeField
+    name: str = NameField
     account_type: AccountTypeEnum
-    parent_group_id: Optional[UUID] = None
-    description: Optional[str] = None
-
-
-class AccountGroupResponse(BaseModel):
-    id: UUID
-    account_group_code: str
-    account_group_name: str
-    account_type: str
-    parent_group_id: Optional[UUID]
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-# Ledger Account Schema
-class LedgerAccountCreate(BaseModel):
-    account_group_id: UUID
-    account_code: str
-    account_name: str
-    account_type: AccountTypeEnum
+    parent_group_id: UUID | None = None
+    description: str | None = None
+    sort_order: int = Field(default=0, ge=0)
     is_active: bool = True
+
+
+class AccountGroupUpdate(FinanceSchema):
+    """Apply a partial account group update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    parent_group_id: UUID | None = None
+    description: str | None = None
+    sort_order: int | None = Field(default=None, ge=0)
+    is_active: bool | None = None
+
+
+class AccountGroupResponse(FinanceSchema):
+    """Return one account group."""
+
+    id: UUID
+    firm_id: UUID
+    code: str
+    name: str
+    account_type: AccountTypeEnum
+    parent_group_id: UUID | None
+    description: str | None
+    sort_order: int
+    is_active: bool
+    version: int
+
+
+class LedgerAccountCreate(FinanceSchema):
+    """Create one ledger account."""
+
+    account_group_id: UUID
+    code: str = CodeField
+    name: str = NameField
+    account_type: AccountTypeEnum
+    description: str | None = None
+    is_balance_sheet: bool = True
+    is_profit_loss: bool = False
     requires_cost_center: bool = False
     requires_profit_center: bool = False
-    description: Optional[str] = None
+    is_active: bool = True
 
 
-class LedgerAccountUpdate(BaseModel):
-    account_name: Optional[str] = None
-    is_active: Optional[bool] = None
-    requires_cost_center: Optional[bool] = None
-    requires_profit_center: Optional[bool] = None
-    description: Optional[str] = None
+class LedgerAccountUpdate(FinanceSchema):
+    """Apply a partial ledger account update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    account_group_id: UUID | None = None
+    description: str | None = None
+    is_balance_sheet: bool | None = None
+    is_profit_loss: bool | None = None
+    requires_cost_center: bool | None = None
+    requires_profit_center: bool | None = None
+    is_active: bool | None = None
 
 
-class LedgerAccountResponse(BaseModel):
+class LedgerAccountResponse(FinanceSchema):
+    """Return one ledger account."""
+
     id: UUID
+    firm_id: UUID
     account_group_id: UUID
-    account_code: str
-    account_name: str
-    account_type: str
-    is_active: bool
+    code: str
+    name: str
+    account_type: AccountTypeEnum
+    description: str | None
+    is_balance_sheet: bool
+    is_profit_loss: bool
     requires_cost_center: bool
     requires_profit_center: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
-
-
-# Cost Center Schema
-class CostCenterCreate(BaseModel):
-    cost_center_code: str
-    cost_center_name: str
-    is_active: bool = True
-    description: Optional[str] = None
-
-
-class CostCenterResponse(BaseModel):
-    id: UUID
-    cost_center_code: str
-    cost_center_name: str
     is_active: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    version: int
 
 
-# Profit Center Schema
-class ProfitCenterCreate(BaseModel):
-    profit_center_code: str
-    profit_center_name: str
+class CostCenterCreate(FinanceSchema):
+    """Create one cost centre."""
+
+    code: str = CodeField
+    name: str = NameField
+    description: str | None = None
     is_active: bool = True
-    description: Optional[str] = None
 
 
-class ProfitCenterResponse(BaseModel):
+class CostCenterUpdate(FinanceSchema):
+    """Apply a partial cost centre update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class CostCenterResponse(FinanceSchema):
+    """Return one cost centre."""
+
     id: UUID
-    profit_center_code: str
-    profit_center_name: str
+    firm_id: UUID
+    code: str
+    name: str
+    description: str | None
     is_active: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    version: int
 
 
-# Journal Type Schema
-class JournalTypeCreate(BaseModel):
-    journal_type_code: str
-    journal_type_name: str
+class ProfitCenterCreate(FinanceSchema):
+    """Create one profit centre."""
+
+    code: str = CodeField
+    name: str = NameField
+    description: str | None = None
     is_active: bool = True
-    description: Optional[str] = None
 
 
-class JournalTypeResponse(BaseModel):
+class ProfitCenterUpdate(FinanceSchema):
+    """Apply a partial profit centre update."""
+
+    name: str | None = Field(default=None, max_length=100, min_length=1)
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class ProfitCenterResponse(FinanceSchema):
+    """Return one profit centre."""
+
     id: UUID
-    journal_type_code: str
-    journal_type_name: str
+    firm_id: UUID
+    code: str
+    name: str
+    description: str | None
     is_active: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    version: int
 
 
-# Voucher Type Schema
-class VoucherTypeCreate(BaseModel):
-    voucher_type_code: str
-    voucher_type_name: str
+class JournalTypeCreate(FinanceSchema):
+    """Create one journal type."""
+
+    code: str = CodeField
+    name: str = NameField
+    description: str | None = None
     is_active: bool = True
-    description: Optional[str] = None
 
 
-class VoucherTypeResponse(BaseModel):
+class JournalTypeResponse(FinanceSchema):
+    """Return one journal type."""
+
     id: UUID
-    voucher_type_code: str
-    voucher_type_name: str
+    firm_id: UUID
+    code: str
+    name: str
+    description: str | None
     is_active: bool
-    description: Optional[str]
-
-    class Config:
-        from_attributes = True
+    version: int
 
 
-# Journal Line Schema (for entry/response)
-class JournalLineSchema(BaseModel):
+class VoucherTypeCreate(FinanceSchema):
+    """Create one voucher type."""
+
+    code: str = CodeField
+    name: str = NameField
+    description: str | None = None
+    is_active: bool = True
+
+
+class VoucherTypeResponse(FinanceSchema):
+    """Return one voucher type."""
+
+    id: UUID
+    firm_id: UUID
+    code: str
+    name: str
+    description: str | None
+    is_active: bool
+    version: int
+
+
+class JournalLineInput(FinanceSchema):
+    """Submit one debit or credit leg of a journal entry."""
+
     ledger_account_id: UUID
-    debit_amount: Decimal = Decimal("0")
-    credit_amount: Decimal = Decimal("0")
-    cost_center_id: Optional[UUID] = None
-    profit_center_id: Optional[UUID] = None
-    description: Optional[str] = None
+    debit_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    credit_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    cost_center_id: UUID | None = None
+    profit_center_id: UUID | None = None
+    description: str | None = None
 
-    @validator("debit_amount", "credit_amount", pre=True)
-    def quantize_decimal(cls, v):
-        if v is None:
-            return Decimal("0")
-        val = Decimal(str(v))
-        return val.quantize(Decimal("0.01"))
-
-
-# Journal Entry Schema
-class JournalEntryCreate(BaseModel):
-    journal_type_id: UUID
-    voucher_type_id: UUID
-    accounting_period_id: UUID
-    journal_date: datetime
-    reference_number: str
-    description: str
-    lines: list[JournalLineSchema]
-    remarks: Optional[str] = None
-
-    @validator("lines")
-    def validate_lines(cls, v):
-        if len(v) < 2:
-            raise ValueError("Journal entry must have at least 2 lines (1 debit, 1 credit)")
-        return v
+    @model_validator(mode="after")
+    def validate_single_side(self) -> Self:
+        """Require exactly one populated side on every line."""
+        debit = self.debit_amount.quantize(MONEY)
+        credit = self.credit_amount.quantize(MONEY)
+        if debit > 0 and credit > 0:
+            raise ValueError("A journal line cannot be both a debit and a credit.")
+        if debit == 0 and credit == 0:
+            raise ValueError("A journal line must carry a debit or a credit amount.")
+        return self
 
 
-class JournalEntryUpdate(BaseModel):
-    description: Optional[str] = None
-    remarks: Optional[str] = None
+class JournalLineResponse(FinanceSchema):
+    """Return one journal line."""
 
-
-class JournalEntryResponse(BaseModel):
     id: UUID
+    journal_entry_id: UUID
+    ledger_account_id: UUID
+    cost_center_id: UUID | None
+    profit_center_id: UUID | None
+    line_number: int
+    debit_amount: Decimal
+    credit_amount: Decimal
+    description: str | None
+
+
+class JournalEntryCreate(FinanceSchema):
+    """Create one balanced journal entry."""
+
     journal_type_id: UUID
     voucher_type_id: UUID
     accounting_period_id: UUID
-    journal_date: datetime
+    journal_date: date
+    reference_number: str = Field(max_length=50, min_length=1)
+    description: str | None = None
+    remarks: str | None = None
+    lines: list[JournalLineInput] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def validate_balanced(self) -> Self:
+        """Require total debits to equal total credits."""
+        debit = sum((line.debit_amount for line in self.lines), Decimal("0"))
+        credit = sum((line.credit_amount for line in self.lines), Decimal("0"))
+        if debit.quantize(MONEY) != credit.quantize(MONEY):
+            raise ValueError(
+                f"Journal entry is not balanced: debit {debit}, credit {credit}."
+            )
+        return self
+
+
+class JournalEntryUpdate(FinanceSchema):
+    """Apply a partial journal entry update while it remains a draft."""
+
+    description: str | None = None
+    remarks: str | None = None
+    journal_date: date | None = None
+
+
+class JournalEntryResponse(FinanceSchema):
+    """Return one journal entry with its lines."""
+
+    id: UUID
+    firm_id: UUID
+    journal_type_id: UUID
+    voucher_type_id: UUID
+    accounting_period_id: UUID
+    journal_date: date
     reference_number: str
-    description: str
+    description: str | None
+    remarks: str | None
     status: JournalStatusEnum
-    remarks: Optional[str]
+    posted_at: datetime | None
     total_debit: Decimal
     total_credit: Decimal
-    source_module: Optional[str]
-    source_id: Optional[UUID]
-    created_by: UUID
-    created_at: datetime
-    modified_at: datetime
-
-    class Config:
-        from_attributes = True
+    is_balanced: bool
+    source_module: str | None
+    source_id: UUID | None
+    reversal_of_id: UUID | None
+    version: int
+    lines: list[JournalLineResponse]
 
 
-# Ledger Balance Schema
-class LedgerBalanceResponse(BaseModel):
+class JournalEntryReverse(FinanceSchema):
+    """Reverse a posted journal entry under a new reference."""
+
+    reference_number: str = Field(max_length=50, min_length=1)
+    accounting_period_id: UUID | None = None
+    journal_date: date | None = None
+
+
+class JournalEntryFilters(FinanceSchema):
+    """Filter the journal entry list."""
+
+    accounting_period_id: UUID | None = None
+    journal_type_id: UUID | None = None
+    status: JournalStatusEnum | None = None
+    source_module: str | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+
+
+class LedgerBalanceResponse(FinanceSchema):
+    """Return the stored balance of one account for one period."""
+
+    id: UUID
+    firm_id: UUID
     ledger_account_id: UUID
     accounting_period_id: UUID
     opening_balance: Decimal
     period_debit: Decimal
     period_credit: Decimal
     closing_balance: Decimal
-    last_updated: datetime
-
-    class Config:
-        from_attributes = True
+    updated_at: datetime
 
 
-# GL Posting Schema
-class GLPostingResponse(BaseModel):
+class GLPostingResponse(FinanceSchema):
+    """Return one general-ledger posting record."""
+
     id: UUID
+    firm_id: UUID
     journal_entry_id: UUID
+    journal_line_id: UUID
     ledger_account_id: UUID
     accounting_period_id: UUID
+    posting_date: datetime
     debit_amount: Decimal
     credit_amount: Decimal
-    posting_date: datetime
-
-    class Config:
-        from_attributes = True
+    status: PostingStatusEnum
+    error_message: str | None
 
 
-# Trial Balance Report Schema
-class TrialBalanceLineSchema(BaseModel):
+class TrialBalanceLine(FinanceSchema):
+    """Return one account row of a trial balance."""
+
+    ledger_account_id: UUID
     account_code: str
     account_name: str
-    account_type: str
-    debit_balance: Decimal
-    credit_balance: Decimal
+    account_type: AccountTypeEnum
+    opening_balance: Decimal
+    period_debit: Decimal
+    period_credit: Decimal
     closing_balance: Decimal
 
 
-class TrialBalanceReportSchema(BaseModel):
+class TrialBalanceReport(FinanceSchema):
+    """Return a trial balance for one accounting period."""
+
     accounting_period_id: UUID
-    as_of: datetime
-    lines: list[TrialBalanceLineSchema]
+    generated_at: datetime
+    lines: list[TrialBalanceLine]
     total_debit: Decimal
     total_credit: Decimal
     is_balanced: bool
 
 
-# GL Detail Report Schema
-class GLDetailLineSchema(BaseModel):
-    posting_date: Optional[datetime]
-    reference: str
-    debit: Decimal
-    credit: Decimal
+class GeneralLedgerLine(FinanceSchema):
+    """Return one movement row of a general-ledger statement."""
+
+    journal_entry_id: UUID
+    posting_date: datetime
+    reference_number: str
+    description: str | None
+    debit_amount: Decimal
+    credit_amount: Decimal
     running_balance: Decimal
 
 
-class GeneralLedgerReportSchema(BaseModel):
+class GeneralLedgerReport(FinanceSchema):
+    """Return a general-ledger statement for one account."""
+
+    ledger_account_id: UUID
     account_code: str
     account_name: str
-    account_type: str
+    account_type: AccountTypeEnum
+    accounting_period_id: UUID
     opening_balance: Decimal
-    closing_balance: Decimal
     total_debit: Decimal
     total_credit: Decimal
-    lines: list[GLDetailLineSchema]
+    closing_balance: Decimal
+    lines: list[GeneralLedgerLine]
 
 
-# Account Summary Schema
-class AccountSummarySchema(BaseModel):
-    account_id: UUID
+class AccountSummary(FinanceSchema):
+    """Return one aggregated account balance row."""
+
+    ledger_account_id: UUID
     account_code: str
     account_name: str
-    account_type: str
+    account_type: AccountTypeEnum
     opening_balance: Decimal
     period_debit: Decimal
     period_credit: Decimal
     closing_balance: Decimal
 
 
-# Customer Ledger Schema
-class CustomerLedgerSchema(BaseModel):
-    customer_id: UUID
-    opening_balance: Decimal
-    period_debit: Decimal
-    period_credit: Decimal
-    closing_balance: Decimal
-    ageing_0_30: Decimal
-    ageing_31_60: Decimal
-    ageing_61_90: Decimal
-    ageing_90_plus: Decimal
-
-
-# Vendor Ledger Schema
-class VendorLedgerSchema(BaseModel):
-    vendor_id: UUID
-    opening_balance: Decimal
-    period_debit: Decimal
-    period_credit: Decimal
-    closing_balance: Decimal
-    ageing_0_30: Decimal
-    ageing_31_60: Decimal
-    ageing_61_90: Decimal
-    ageing_90_plus: Decimal
+__all__ = [
+    "AccountGroupCreate",
+    "AccountGroupResponse",
+    "AccountGroupUpdate",
+    "AccountSummary",
+    "AccountTypeEnum",
+    "AccountingPeriodCreate",
+    "AccountingPeriodResponse",
+    "AccountingPeriodUpdate",
+    "CostCenterCreate",
+    "CostCenterResponse",
+    "CostCenterUpdate",
+    "FinancialYearCreate",
+    "FinancialYearResponse",
+    "FinancialYearUpdate",
+    "GLPostingResponse",
+    "GeneralLedgerLine",
+    "GeneralLedgerReport",
+    "JournalEntryCreate",
+    "JournalEntryFilters",
+    "JournalEntryResponse",
+    "JournalEntryReverse",
+    "JournalEntryUpdate",
+    "JournalLineInput",
+    "JournalLineResponse",
+    "JournalStatusEnum",
+    "JournalTypeCreate",
+    "JournalTypeResponse",
+    "LedgerAccountCreate",
+    "LedgerAccountResponse",
+    "LedgerAccountUpdate",
+    "LedgerBalanceResponse",
+    "PeriodStatusEnum",
+    "PostingStatusEnum",
+    "ProfitCenterCreate",
+    "ProfitCenterResponse",
+    "ProfitCenterUpdate",
+    "TrialBalanceLine",
+    "TrialBalanceReport",
+    "VoucherTypeCreate",
+    "VoucherTypeResponse",
+]

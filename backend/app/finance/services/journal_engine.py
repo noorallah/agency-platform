@@ -1,45 +1,66 @@
-"""Journal Entry Engine - Core double-entry accounting logic."""
+"""Double-entry journal engine.
 
-from __future__ import annotations
+The engine owns the transition of a journal entry from draft to posted: it
+validates that an entry balances, that its period accepts postings, and that
+every referenced account belongs to the firm, then writes the ledger balances
+and the immutable posting trail that reporting reads.
+"""
 
-from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
-from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ValidationError, ResourceNotFoundError
+from app.common.audit.services import record_audit
+from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
+    DEBIT_BALANCE_ACCOUNT_TYPES,
+    AccountingPeriod,
+    GLPosting,
     JournalEntry,
     JournalLine,
     JournalStatus,
-    PostingStatus,
-    LedgerBalance,
-    GLPosting,
-    AccountingPeriod,
+    JournalType,
     LedgerAccount,
+    LedgerBalance,
+    PeriodStatus,
+    PostingStatus,
+    VoucherType,
 )
 
-
 ZERO = Decimal("0")
+MONEY = Decimal("0.01")
+
+
+def quantize_money(value: Decimal | None) -> Decimal:
+    """Round a monetary value to two decimal places."""
+    if value is None:
+        return ZERO
+    return value.quantize(MONEY, rounding=ROUND_HALF_UP)
+
+
+@dataclass(slots=True)
+class JournalLineData:
+    """Carry one debit or credit leg into the engine."""
+
+    ledger_account_id: UUID
+    debit_amount: Decimal = field(default=ZERO)
+    credit_amount: Decimal = field(default=ZERO)
+    cost_center_id: UUID | None = None
+    profit_center_id: UUID | None = None
+    description: str | None = None
 
 
 class JournalEntryEngine:
-    """
-    Core Journal Entry Engine.
-    
-    Responsible for:
-    - Creating balanced journal entries
-    - Validating debit/credit balance
-    - Posting to ledger with balance calculation
-    - Supporting reversals and adjustments
-    - Maintaining GL posting audit trail
-    """
+    """Create, post, and reverse double-entry journal entries."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the engine to one request unit of work."""
         self._session = session
 
     def create_entry(
@@ -49,50 +70,44 @@ class JournalEntryEngine:
         journal_type_id: UUID,
         voucher_type_id: UUID,
         accounting_period_id: UUID,
-        journal_date: datetime,
+        journal_date: date,
         reference_number: str,
         description: str | None,
+        remarks: str | None = None,
         lines: list[JournalLineData],
         source_module: str | None = None,
         source_id: UUID | None = None,
         actor_id: UUID,
     ) -> JournalEntry:
-        """
-        Create a new journal entry with multiple debit/credit lines.
-        
-        Validation:
-        - Total debits must equal total credits
-        - At least 2 lines required
-        - All referenced accounts must exist
-        - Period must be open
-        """
-        # Validate period is open
-        period = self._session.scalar(
-            select(AccountingPeriod).where(
-                AccountingPeriod.id == accounting_period_id,
-                AccountingPeriod.firm_id == firm_id,
-            )
-        )
-        if period is None:
-            raise ValidationError("Accounting period not found or not accessible.")
-        if period.status != "OPEN":
-            raise ValidationError(f"Accounting period is {period.status.lower()}. Cannot post entries.")
-
-        # Validate and calculate totals
-        total_debit = sum((line.debit_amount for line in lines), ZERO)
-        total_credit = sum((line.credit_amount for line in lines), ZERO)
-        is_balanced = self._q(total_debit) == self._q(total_credit)
-
-        if not is_balanced:
-            raise ValidationError(
-                f"Journal entry is not balanced. Debit: {total_debit}, Credit: {total_credit}"
-            )
-
+        """Create one balanced draft journal entry."""
         if len(lines) < 2:
-            raise ValidationError("Journal entry must have at least 2 lines (one debit, one credit).")
+            raise ValidationError(
+                "A journal entry needs at least one debit and one credit line."
+            )
+        period = self._require_open_period(accounting_period_id, firm_id=firm_id)
+        if not (period.starts_on <= journal_date <= period.ends_on):
+            raise ValidationError(
+                "The journal date must fall inside the accounting period."
+            )
+        self._require_reference(
+            journal_type_id, JournalType, firm_id, "Journal type not found."
+        )
+        self._require_reference(
+            voucher_type_id, VoucherType, firm_id, "Voucher type not found."
+        )
 
-        # Create header
-        journal_entry = JournalEntry(
+        total_debit = quantize_money(sum((line.debit_amount for line in lines), ZERO))
+        total_credit = quantize_money(sum((line.credit_amount for line in lines), ZERO))
+        if total_debit != total_credit:
+            raise ValidationError(
+                f"Journal entry is not balanced: debit {total_debit}, "
+                f"credit {total_credit}."
+            )
+        if total_debit == ZERO:
+            raise ValidationError("A journal entry must carry a non-zero amount.")
+
+        accounts = self._load_accounts(lines, firm_id=firm_id)
+        entry = JournalEntry(
             firm_id=firm_id,
             journal_type_id=journal_type_id,
             voucher_type_id=voucher_type_id,
@@ -100,79 +115,92 @@ class JournalEntryEngine:
             journal_date=journal_date,
             reference_number=reference_number,
             description=description,
+            remarks=remarks,
             status=JournalStatus.DRAFT.value,
-            total_debit=self._q(total_debit),
-            total_credit=self._q(total_credit),
-            is_balanced=is_balanced,
+            total_debit=total_debit,
+            total_credit=total_credit,
+            is_balanced=True,
             source_module=source_module,
             source_id=source_id,
             created_by=actor_id,
+            updated_by=actor_id,
         )
-
-        # Create lines
-        for idx, line_data in enumerate(lines, start=1):
-            line = JournalLine(
-                journal_entry=journal_entry,
-                ledger_account_id=line_data.ledger_account_id,
-                cost_center_id=line_data.cost_center_id,
-                profit_center_id=line_data.profit_center_id,
-                line_number=idx,
-                debit_amount=self._q(line_data.debit_amount),
-                credit_amount=self._q(line_data.credit_amount),
-                description=line_data.description,
+        for index, data in enumerate(lines, start=1):
+            account = accounts[data.ledger_account_id]
+            self._validate_line_dimensions(account, data)
+            entry.lines.append(
+                JournalLine(
+                    ledger_account_id=data.ledger_account_id,
+                    cost_center_id=data.cost_center_id,
+                    profit_center_id=data.profit_center_id,
+                    line_number=index,
+                    debit_amount=quantize_money(data.debit_amount),
+                    credit_amount=quantize_money(data.credit_amount),
+                    description=data.description,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
             )
-            journal_entry.lines.append(line)
+        self._session.add(entry)
+        try:
+            self._session.flush()
+        except IntegrityError as error:
+            self._session.rollback()
+            raise ConflictError(
+                "A journal entry with this reference number already exists."
+            ) from error
 
-        self._session.add(journal_entry)
-        self._session.flush()
-
-        return journal_entry
+        record_audit(
+            self._session,
+            action="finance.journal_entry.created",
+            entity_type="journal_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "reference_number": entry.reference_number,
+                "total_debit": str(entry.total_debit),
+                "total_credit": str(entry.total_credit),
+            },
+        )
+        return entry
 
     def post_entry(
-        self,
-        journal_entry_id: UUID,
-        *,
-        firm_id: UUID,
-        actor_id: UUID,
+        self, journal_entry_id: UUID, *, firm_id: UUID, actor_id: UUID
     ) -> JournalEntry:
-        """
-        Post a journal entry to the General Ledger.
-        
-        Updates:
-        - Journal status to POSTED
-        - Ledger balances for each account
-        - Creates GL posting records
-        - Updates period balance metadata
-        """
-        entry = self._session.scalar(
-            select(JournalEntry).where(
-                JournalEntry.id == journal_entry_id,
-                JournalEntry.firm_id == firm_id,
-            )
-        )
-        if entry is None:
-            raise ResourceNotFoundError("Journal entry not found.")
-
+        """Post a draft entry to the general ledger."""
+        entry = self.get_entry(journal_entry_id, firm_id=firm_id)
         if entry.status != JournalStatus.DRAFT.value:
-            raise ValidationError(f"Cannot post entry in {entry.status} status.")
-
-        if not entry.is_balanced:
-            raise ValidationError("Cannot post unbalanced entry.")
-
-        # Post each line to ledger
-        for line in entry.lines:
-            self._post_line_to_ledger(
-                journal_entry=entry,
-                journal_line=line,
-                firm_id=firm_id,
-                actor_id=actor_id,
+            raise ValidationError(
+                f"Only draft entries can be posted; this entry is "
+                f"{entry.status.lower()}."
             )
+        if not entry.is_balanced:
+            raise ValidationError("An unbalanced entry cannot be posted.")
+        # Re-check at posting time: the period may have closed since creation.
+        self._require_open_period(entry.accounting_period_id, firm_id=firm_id)
 
-        # Update entry status
+        posted_at = utc_now()
+        for line in entry.lines:
+            self._post_line(
+                entry, line, firm_id=firm_id, actor_id=actor_id, posted_at=posted_at
+            )
         entry.status = JournalStatus.POSTED.value
-        entry.posted_at = utc_now()
-        entry.updated_at = utc_now()
+        entry.posted_at = posted_at
+        entry.updated_by = actor_id
+        entry.version += 1
+        self._session.flush()
 
+        record_audit(
+            self._session,
+            action="finance.journal_entry.posted",
+            entity_type="journal_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": JournalStatus.DRAFT.value},
+            after_data={"status": entry.status},
+        )
         return entry
 
     def reverse_entry(
@@ -180,155 +208,253 @@ class JournalEntryEngine:
         journal_entry_id: UUID,
         *,
         firm_id: UUID,
-        new_reference_number: str,
+        reference_number: str,
+        accounting_period_id: UUID | None = None,
+        journal_date: date | None = None,
         actor_id: UUID,
     ) -> JournalEntry:
-        """
-        Create a reversal journal entry (flip debits and credits).
-        
-        Used for:
-        - Correcting posted entries
-        - Reversing accruals
-        - Adjustment entries
-        """
-        original = self._session.scalar(
-            select(JournalEntry).where(
-                JournalEntry.id == journal_entry_id,
-                JournalEntry.firm_id == firm_id,
+        """Create and post a mirror entry that cancels a posted entry."""
+        original = self.get_entry(journal_entry_id, firm_id=firm_id)
+        if original.status != JournalStatus.POSTED.value:
+            raise ValidationError("Only posted entries can be reversed.")
+
+        target_period_id = accounting_period_id or original.accounting_period_id
+        period = self._require_open_period(target_period_id, firm_id=firm_id)
+        target_date = journal_date or period.starts_on
+        if not (period.starts_on <= target_date <= period.ends_on):
+            target_date = period.starts_on
+
+        reversal_lines = [
+            JournalLineData(
+                ledger_account_id=line.ledger_account_id,
+                cost_center_id=line.cost_center_id,
+                profit_center_id=line.profit_center_id,
+                debit_amount=line.credit_amount,
+                credit_amount=line.debit_amount,
+                description=f"Reversal of {original.reference_number}",
             )
-        )
-        if original is None:
-            raise ResourceNotFoundError("Journal entry not found.")
-
-        if original.status not in [JournalStatus.POSTED.value, JournalStatus.REVERSED.value]:
-            raise ValidationError("Can only reverse posted entries.")
-
-        # Create reversed lines (flip debit/credit)
-        reversed_lines = []
-        for line in original.lines:
-            reversed_lines.append(
-                JournalLineData(
-                    ledger_account_id=line.ledger_account_id,
-                    cost_center_id=line.cost_center_id,
-                    profit_center_id=line.profit_center_id,
-                    debit_amount=line.credit_amount,
-                    credit_amount=line.debit_amount,
-                    description=f"Reversal of {original.reference_number}: {line.description or ''}",
-                )
-            )
-
-        # Create reversal entry
+            for line in original.lines
+        ]
         reversal = self.create_entry(
             firm_id=firm_id,
             journal_type_id=original.journal_type_id,
             voucher_type_id=original.voucher_type_id,
-            accounting_period_id=original.accounting_period_id,
-            journal_date=utc_now(),
-            reference_number=new_reference_number,
+            accounting_period_id=target_period_id,
+            journal_date=target_date,
+            reference_number=reference_number,
             description=f"Reversal of {original.reference_number}",
-            lines=reversed_lines,
+            lines=reversal_lines,
             source_module=original.source_module,
             source_id=original.source_id,
             actor_id=actor_id,
         )
-
-        # Mark original as reversed
-        original.status = JournalStatus.REVERSED.value
-        original.updated_at = utc_now()
-
-        # Post reversal immediately
+        reversal.reversal_of_id = original.id
         self.post_entry(reversal.id, firm_id=firm_id, actor_id=actor_id)
 
+        original.status = JournalStatus.REVERSED.value
+        original.updated_by = actor_id
+        original.version += 1
+        record_audit(
+            self._session,
+            action="finance.journal_entry.reversed",
+            entity_type="journal_entry",
+            entity_id=original.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "status": original.status,
+                "reversal_entry_id": str(reversal.id),
+            },
+        )
         return reversal
 
-    def _post_line_to_ledger(
+    def get_entry(self, journal_entry_id: UUID, *, firm_id: UUID) -> JournalEntry:
+        """Return one journal entry or raise when it is unavailable."""
+        entry = self._session.scalar(
+            select(JournalEntry).where(
+                JournalEntry.id == journal_entry_id,
+                JournalEntry.firm_id == firm_id,
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if entry is None:
+            raise ResourceNotFoundError("Journal entry not found.")
+        return entry
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _post_line(
         self,
-        journal_entry: JournalEntry,
-        journal_line: JournalLine,
+        entry: JournalEntry,
+        line: JournalLine,
         *,
         firm_id: UUID,
         actor_id: UUID,
+        posted_at: object,
     ) -> None:
-        """Post a single journal line to the ledger balance."""
-        # Get or create balance record for account+period
+        """Apply one journal line to its ledger balance and posting trail."""
         balance = self._session.scalar(
             select(LedgerBalance).where(
-                LedgerBalance.ledger_account_id == journal_line.ledger_account_id,
-                LedgerBalance.accounting_period_id == journal_entry.accounting_period_id,
+                LedgerBalance.ledger_account_id == line.ledger_account_id,
+                LedgerBalance.accounting_period_id == entry.accounting_period_id,
             )
         )
-
         if balance is None:
-            # Get opening balance from previous period or 0
-            previous_balance = ZERO
+            opening = self._opening_balance(
+                line.ledger_account_id, entry.accounting_period_id, firm_id=firm_id
+            )
             balance = LedgerBalance(
                 firm_id=firm_id,
-                ledger_account_id=journal_line.ledger_account_id,
-                accounting_period_id=journal_entry.accounting_period_id,
-                opening_balance=previous_balance,
+                ledger_account_id=line.ledger_account_id,
+                accounting_period_id=entry.accounting_period_id,
+                opening_balance=opening,
                 period_debit=ZERO,
                 period_credit=ZERO,
-                closing_balance=previous_balance,
+                closing_balance=opening,
+                created_by=actor_id,
+                updated_by=actor_id,
             )
             self._session.add(balance)
+            self._session.flush()
 
-        # Update period totals
-        balance.period_debit = self._q(balance.period_debit + journal_line.debit_amount)
-        balance.period_credit = self._q(balance.period_credit + journal_line.credit_amount)
-
-        # Calculate closing balance based on account type
-        account = journal_line.ledger_account
-        if account.account_type in ["ASSET", "EXPENSE"]:
-            # Debit increases, credit decreases
-            balance.closing_balance = self._q(
-                balance.opening_balance + balance.period_debit - balance.period_credit
-            )
-        else:
-            # Credit increases, debit decreases (for liability, income, equity)
-            balance.closing_balance = self._q(
-                balance.opening_balance + balance.period_credit - balance.period_debit
-            )
-
-        balance.last_updated = utc_now()
-
-        # Create GL posting record (audit trail)
-        posting = GLPosting(
-            firm_id=firm_id,
-            journal_entry_id=journal_entry.id,
-            journal_line_id=journal_line.id,
-            ledger_account_id=journal_line.ledger_account_id,
-            accounting_period_id=journal_entry.accounting_period_id,
-            posting_date=utc_now(),
-            debit_amount=journal_line.debit_amount,
-            credit_amount=journal_line.credit_amount,
-            status=PostingStatus.POSTED.value,
-            posted_by=actor_id,
+        balance.period_debit = quantize_money(balance.period_debit + line.debit_amount)
+        balance.period_credit = quantize_money(
+            balance.period_credit + line.credit_amount
         )
-        self._session.add(posting)
+        balance.closing_balance = self._closing_balance(
+            line.ledger_account.account_type, balance
+        )
+        balance.updated_by = actor_id
 
-    def _q(self, value: Decimal | None) -> Decimal:
-        """Quantize to 2 decimal places."""
-        if value is None:
+        self._session.add(
+            GLPosting(
+                firm_id=firm_id,
+                journal_entry_id=entry.id,
+                journal_line_id=line.id,
+                ledger_account_id=line.ledger_account_id,
+                accounting_period_id=entry.accounting_period_id,
+                posting_date=posted_at,
+                debit_amount=line.debit_amount,
+                credit_amount=line.credit_amount,
+                status=PostingStatus.POSTED.value,
+                posted_by=actor_id,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+
+    def _opening_balance(
+        self, ledger_account_id: UUID, accounting_period_id: UUID, *, firm_id: UUID
+    ) -> Decimal:
+        """Carry the previous period's closing balance into a new period."""
+        period = self._session.scalar(
+            select(AccountingPeriod).where(
+                AccountingPeriod.id == accounting_period_id,
+                AccountingPeriod.firm_id == firm_id,
+            )
+        )
+        if period is None:
             return ZERO
-        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        previous = self._session.scalar(
+            select(LedgerBalance)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.ledger_account_id == ledger_account_id,
+                LedgerBalance.firm_id == firm_id,
+                AccountingPeriod.ends_on < period.starts_on,
+            )
+            .order_by(AccountingPeriod.ends_on.desc())
+            .limit(1)
+        )
+        return previous.closing_balance if previous is not None else ZERO
 
+    def _closing_balance(self, account_type: str, balance: LedgerBalance) -> Decimal:
+        """Compute a closing balance using the account's normal balance side."""
+        if account_type in DEBIT_BALANCE_ACCOUNT_TYPES:
+            movement = balance.period_debit - balance.period_credit
+        else:
+            movement = balance.period_credit - balance.period_debit
+        return quantize_money(balance.opening_balance + movement)
 
-class JournalLineData:
-    """DTO for journal line data."""
+    def _require_open_period(
+        self, accounting_period_id: UUID, *, firm_id: UUID
+    ) -> AccountingPeriod:
+        """Return the period only when it still accepts postings."""
+        period = self._session.scalar(
+            select(AccountingPeriod).where(
+                AccountingPeriod.id == accounting_period_id,
+                AccountingPeriod.firm_id == firm_id,
+                AccountingPeriod.is_deleted.is_(False),
+            )
+        )
+        if period is None:
+            raise ValidationError("Accounting period not found for the active firm.")
+        if period.status != PeriodStatus.OPEN.value:
+            raise ValidationError(
+                f"Accounting period {period.code} is {period.status.lower()} "
+                f"and cannot accept postings."
+            )
+        return period
 
-    def __init__(
+    def _require_reference(
         self,
-        *,
-        ledger_account_id: UUID,
-        debit_amount: Decimal = ZERO,
-        credit_amount: Decimal = ZERO,
-        cost_center_id: UUID | None = None,
-        profit_center_id: UUID | None = None,
-        description: str | None = None,
+        entity_id: UUID,
+        model: type[JournalType] | type[VoucherType],
+        firm_id: UUID,
+        message: str,
     ) -> None:
-        self.ledger_account_id = ledger_account_id
-        self.debit_amount = debit_amount
-        self.credit_amount = credit_amount
-        self.cost_center_id = cost_center_id
-        self.profit_center_id = profit_center_id
-        self.description = description
+        """Confirm a supporting master record belongs to the firm."""
+        found = self._session.scalar(
+            select(model.id).where(
+                model.id == entity_id,
+                model.firm_id == firm_id,
+                model.is_deleted.is_(False),
+            )
+        )
+        if found is None:
+            raise ValidationError(message)
+
+    def _load_accounts(
+        self, lines: list[JournalLineData], *, firm_id: UUID
+    ) -> dict[UUID, LedgerAccount]:
+        """Load and validate every ledger account referenced by the lines."""
+        requested = {line.ledger_account_id for line in lines}
+        accounts = {
+            account.id: account
+            for account in self._session.scalars(
+                select(LedgerAccount).where(
+                    LedgerAccount.id.in_(requested),
+                    LedgerAccount.firm_id == firm_id,
+                    LedgerAccount.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        missing = requested - accounts.keys()
+        if missing:
+            raise ValidationError(
+                "One or more ledger accounts are unavailable for the active firm."
+            )
+        inactive = [a.code for a in accounts.values() if not a.is_active]
+        if inactive:
+            raise ValidationError(
+                f"Ledger accounts are inactive: {', '.join(sorted(inactive))}."
+            )
+        return accounts
+
+    def _validate_line_dimensions(
+        self, account: LedgerAccount, data: JournalLineData
+    ) -> None:
+        """Enforce the cost and profit centre requirements of an account."""
+        if account.requires_cost_center and data.cost_center_id is None:
+            raise ValidationError(
+                f"Ledger account {account.code} requires a cost centre."
+            )
+        if account.requires_profit_center and data.profit_center_id is None:
+            raise ValidationError(
+                f"Ledger account {account.code} requires a profit centre."
+            )

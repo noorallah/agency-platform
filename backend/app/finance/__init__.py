@@ -1,5 +1,1 @@
-"""Enterprise Finance Module - GL, AR/AP, Journal Engine."""
-
-from app.finance.api import router
-
-__all__ = ["router"]
+"""Firm-scoped finance and general-ledger domain."""

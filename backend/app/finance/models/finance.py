@@ -1,18 +1,36 @@
-"""Finance module - Chart of Accounts, Ledger, and Journal entry engine."""
+"""Firm-scoped finance persistence models for the general ledger.
 
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, Boolean, Enum, UniqueConstraint, Index
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from datetime import datetime
-import enum
-import uuid
+The module covers the accounting calendar (financial years and periods), the
+chart of accounts (groups, ledger accounts, cost and profit centres), the
+double-entry journal (entries, lines, and their posting audit trail), and the
+derived balance tables used by reporting.
+"""
 
-from app.core.database import Base
-from app.core.utils.dates import utc_now
+from datetime import date, datetime
+from decimal import Decimal
+from enum import StrEnum
+from uuid import UUID
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database.entity import BaseEntity
+from app.core.database.types import UTCDateTime, UUIDType
 
 
-class AccountType(str, enum.Enum):
-    """Account classification for GL reporting."""
+class AccountType(StrEnum):
+    """Classify a ledger account for reporting and balance direction."""
+
     ASSET = "ASSET"
     LIABILITY = "LIABILITY"
     INCOME = "INCOME"
@@ -22,345 +40,525 @@ class AccountType(str, enum.Enum):
     CONTROL = "CONTROL"
 
 
-class PeriodStatus(str, enum.Enum):
-    """Status of accounting periods."""
+#: Account types whose balance increases on the debit side.
+DEBIT_BALANCE_ACCOUNT_TYPES = frozenset({AccountType.ASSET, AccountType.EXPENSE})
+
+
+class PeriodStatus(StrEnum):
+    """Describe whether an accounting period accepts new postings."""
+
     OPEN = "OPEN"
     CLOSED = "CLOSED"
     LOCKED = "LOCKED"
 
 
-class JournalStatus(str, enum.Enum):
-    """Status of journal entries."""
+class JournalStatus(StrEnum):
+    """Track the lifecycle of a journal entry."""
+
     DRAFT = "DRAFT"
     POSTED = "POSTED"
     REVERSED = "REVERSED"
     REJECTED = "REJECTED"
 
 
-class PostingStatus(str, enum.Enum):
-    """Posting status for GL entries."""
+class PostingStatus(StrEnum):
+    """Track the outcome of posting one journal line to the ledger."""
+
     PENDING = "PENDING"
     POSTED = "POSTED"
     ERROR = "ERROR"
     CANCELLED = "CANCELLED"
 
 
-class FinancialYear(Base):
-    """Fiscal year definition for the firm."""
+class FinancialYear(BaseEntity):
+    """Represent one fiscal year owned by a firm."""
+
     __tablename__ = "financial_years"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    year_code = Column(String(4), nullable=False)
-    financial_year_start = Column(DateTime, nullable=False)
-    financial_year_end = Column(DateTime, nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_locked = Column(Boolean, default=False)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    periods = relationship("AccountingPeriod", back_populates="financial_year", cascade="all, delete-orphan")
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "year_code", name="uq_financial_year_code"),
-        Index("ix_financial_years_firm_active", "firm_id", "is_active"),
+        UniqueConstraint("firm_id", "code", name="UQ_financial_years_firm_code"),
+        Index("IX_financial_years_firm_active", "firm_id", "is_active"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[date] = mapped_column(Date, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    periods: Mapped[list["AccountingPeriod"]] = relationship(
+        back_populates="financial_year", cascade="save-update, merge"
     )
 
 
-class AccountingPeriod(Base):
-    """Monthly/periodic division of financial year."""
+class AccountingPeriod(BaseEntity):
+    """Represent one posting period inside a financial year."""
+
     __tablename__ = "accounting_periods"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    financial_year_id = Column(UUID(as_uuid=True), ForeignKey("financial_years.id"), nullable=False)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    period_number = Column(Integer, nullable=False)
-    period_name = Column(String(50), nullable=False)
-    period_start = Column(DateTime, nullable=False)
-    period_end = Column(DateTime, nullable=False)
-    status = Column(String(20), default=PeriodStatus.OPEN.value)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    financial_year = relationship("FinancialYear", back_populates="periods")
-
     __table_args__ = (
-        UniqueConstraint("financial_year_id", "period_number", name="uq_period_number_per_year"),
-        Index("ix_accounting_periods_firm_status", "firm_id", "status"),
+        UniqueConstraint(
+            "financial_year_id",
+            "period_number",
+            name="UQ_accounting_periods_year_number",
+        ),
+        UniqueConstraint("firm_id", "code", name="UQ_accounting_periods_firm_code"),
+        Index("IX_accounting_periods_firm_status", "firm_id", "status"),
     )
 
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    financial_year_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("financial_years.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    period_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=PeriodStatus.OPEN.value
+    )
+    description: Mapped[str | None] = mapped_column(Text)
 
-class AccountGroup(Base):
-    """Account grouping for reporting and classification."""
+    financial_year: Mapped[FinancialYear] = relationship(back_populates="periods")
+
+
+class AccountGroup(BaseEntity):
+    """Group ledger accounts for classification and report rollups."""
+
     __tablename__ = "account_groups"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    group_code = Column(String(20), nullable=False)
-    group_name = Column(String(100), nullable=False)
-    account_type = Column(String(20), nullable=False)
-    parent_group_id = Column(UUID(as_uuid=True), ForeignKey("account_groups.id"), nullable=True)
-    description = Column(String(500))
-    is_active = Column(Boolean, default=True)
-    sort_order = Column(Integer, default=0)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    accounts = relationship("LedgerAccount", back_populates="account_group")
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "group_code", name="uq_account_group_code"),
-        Index("ix_account_groups_firm_type", "firm_id", "account_type"),
+        UniqueConstraint("firm_id", "code", name="UQ_account_groups_firm_code"),
+        Index("IX_account_groups_firm_type", "firm_id", "account_type"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    parent_group_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("account_groups.id", ondelete="RESTRICT")
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    accounts: Mapped[list["LedgerAccount"]] = relationship(
+        back_populates="account_group"
     )
 
 
-class LedgerAccount(Base):
-    """General Ledger account."""
+class LedgerAccount(BaseEntity):
+    """Represent one general-ledger account in the chart of accounts."""
+
     __tablename__ = "ledger_accounts"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    account_group_id = Column(UUID(as_uuid=True), ForeignKey("account_groups.id"), nullable=False)
-    account_code = Column(String(20), nullable=False)
-    account_name = Column(String(100), nullable=False)
-    account_type = Column(String(20), nullable=False)
-    description = Column(String(500))
-    is_balance_sheet = Column(Boolean, default=True)
-    is_profit_loss = Column(Boolean, default=True)
-    enable_cost_center = Column(Boolean, default=False)
-    enable_profit_center = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    account_group = relationship("AccountGroup", back_populates="accounts")
-    balances = relationship("LedgerBalance", back_populates="ledger_account", cascade="all, delete-orphan")
-    journal_lines = relationship("JournalLine", back_populates="ledger_account")
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "account_code", name="uq_ledger_account_code"),
-        Index("ix_ledger_accounts_firm_type", "firm_id", "account_type"),
-        Index("ix_ledger_accounts_firm_active", "firm_id", "is_active"),
+        UniqueConstraint("firm_id", "code", name="UQ_ledger_accounts_firm_code"),
+        Index("IX_ledger_accounts_firm_type", "firm_id", "account_type"),
+        Index("IX_ledger_accounts_firm_active", "firm_id", "is_active"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    account_group_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("account_groups.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    account_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_balance_sheet: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_profit_loss: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    requires_cost_center: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    requires_profit_center: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+    account_group: Mapped[AccountGroup] = relationship(back_populates="accounts")
+    balances: Mapped[list["LedgerBalance"]] = relationship(
+        back_populates="ledger_account"
+    )
+    journal_lines: Mapped[list["JournalLine"]] = relationship(
+        back_populates="ledger_account"
     )
 
 
-class CostCenter(Base):
-    """Cost center for cost allocation."""
+class CostCenter(BaseEntity):
+    """Represent a cost centre used to attribute expenditure."""
+
     __tablename__ = "cost_centers"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    cost_center_code = Column(String(20), nullable=False)
-    cost_center_name = Column(String(100), nullable=False)
-    description = Column(String(500))
-    is_active = Column(Boolean, default=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "cost_center_code", name="uq_cost_center_code"),
-        Index("ix_cost_centers_firm_active", "firm_id", "is_active"),
+        UniqueConstraint("firm_id", "code", name="UQ_cost_centers_firm_code"),
+        Index("IX_cost_centers_firm_active", "firm_id", "is_active"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 
-class ProfitCenter(Base):
-    """Profit center for profit allocation."""
+class ProfitCenter(BaseEntity):
+    """Represent a profit centre used to attribute revenue."""
+
     __tablename__ = "profit_centers"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    profit_center_code = Column(String(20), nullable=False)
-    profit_center_name = Column(String(100), nullable=False)
-    description = Column(String(500))
-    is_active = Column(Boolean, default=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "profit_center_code", name="uq_profit_center_code"),
-        Index("ix_profit_centers_firm_active", "firm_id", "is_active"),
+        UniqueConstraint("firm_id", "code", name="UQ_profit_centers_firm_code"),
+        Index("IX_profit_centers_firm_active", "firm_id", "is_active"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 
-class JournalType(Base):
-    """Type of journal (Sales, Purchase, General, etc.)."""
+class JournalType(BaseEntity):
+    """Classify journals such as sales, purchase, or general."""
+
     __tablename__ = "journal_types"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    journal_type_code = Column(String(20), nullable=False)
-    journal_type_name = Column(String(50), nullable=False)
-    description = Column(String(200))
-    is_active = Column(Boolean, default=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "journal_type_code", name="uq_journal_type_code"),
+        UniqueConstraint("firm_id", "code", name="UQ_journal_types_firm_code"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 
-class VoucherType(Base):
-    """Type of voucher (Invoice, Receipt, Payment, etc.)."""
+class VoucherType(BaseEntity):
+    """Classify vouchers such as invoice, receipt, or payment."""
+
     __tablename__ = "voucher_types"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    voucher_type_code = Column(String(20), nullable=False)
-    voucher_type_name = Column(String(50), nullable=False)
-    description = Column(String(200))
-    is_active = Column(Boolean, default=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "voucher_type_code", name="uq_voucher_type_code"),
+        UniqueConstraint("firm_id", "code", name="UQ_voucher_types_firm_code"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
 
-class JournalEntry(Base):
-    """Journal entry with multiple debit/credit lines."""
+class JournalEntry(BaseEntity):
+    """Represent one balanced double-entry journal voucher."""
+
     __tablename__ = "journal_entries"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    journal_type_id = Column(UUID(as_uuid=True), ForeignKey("journal_types.id"), nullable=False)
-    voucher_type_id = Column(UUID(as_uuid=True), ForeignKey("voucher_types.id"), nullable=False)
-    accounting_period_id = Column(UUID(as_uuid=True), ForeignKey("accounting_periods.id"), nullable=False)
-    journal_date = Column(DateTime, nullable=False)
-    reference_number = Column(String(50), nullable=False)
-    description = Column(String(500))
-    status = Column(String(20), default=JournalStatus.DRAFT.value)
-    posted_at = Column(DateTime, nullable=True)
-    total_debit = Column(Numeric(18, 2), default=0)
-    total_credit = Column(Numeric(18, 2), default=0)
-    is_balanced = Column(Boolean, default=False)
-    source_module = Column(String(50), nullable=True)
-    source_id = Column(UUID(as_uuid=True), nullable=True)
-    reversal_of_id = Column(UUID(as_uuid=True), ForeignKey("journal_entries.id"), nullable=True)
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    lines = relationship("JournalLine", back_populates="journal_entry", cascade="all, delete-orphan")
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "reference_number", name="uq_journal_reference"),
-        Index("ix_journal_entries_firm_status", "firm_id", "status"),
-        Index("ix_journal_entries_firm_period", "firm_id", "accounting_period_id"),
-        Index("ix_journal_entries_source", "source_module", "source_id"),
+        UniqueConstraint(
+            "firm_id", "reference_number", name="UQ_journal_entries_firm_reference"
+        ),
+        Index("IX_journal_entries_firm_status", "firm_id", "status"),
+        Index("IX_journal_entries_firm_period", "firm_id", "accounting_period_id"),
+        Index("IX_journal_entries_source", "source_module", "source_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    journal_type_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("journal_types.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    voucher_type_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("voucher_types.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accounting_period_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("accounting_periods.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    journal_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reference_number: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    remarks: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=JournalStatus.DRAFT.value
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    total_debit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_credit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    is_balanced: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    source_module: Mapped[str | None] = mapped_column(String(50))
+    source_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    reversal_of_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
+
+    lines: Mapped[list["JournalLine"]] = relationship(
+        back_populates="journal_entry",
+        cascade="all, delete-orphan",
+        order_by="JournalLine.line_number",
     )
 
 
-class JournalLine(Base):
-    """Individual debit or credit line in a journal entry."""
+class JournalLine(BaseEntity):
+    """Represent one debit or credit leg of a journal entry."""
+
     __tablename__ = "journal_lines"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    journal_entry_id = Column(UUID(as_uuid=True), ForeignKey("journal_entries.id"), nullable=False)
-    ledger_account_id = Column(UUID(as_uuid=True), ForeignKey("ledger_accounts.id"), nullable=False)
-    cost_center_id = Column(UUID(as_uuid=True), ForeignKey("cost_centers.id"), nullable=True)
-    profit_center_id = Column(UUID(as_uuid=True), ForeignKey("profit_centers.id"), nullable=True)
-    line_number = Column(Integer, nullable=False)
-    debit_amount = Column(Numeric(18, 2), default=0)
-    credit_amount = Column(Numeric(18, 2), default=0)
-    description = Column(String(200))
-    created_at = Column(DateTime, default=utc_now, nullable=False)
-
-    journal_entry = relationship("JournalEntry", back_populates="lines")
-    ledger_account = relationship("LedgerAccount", back_populates="journal_lines")
-
     __table_args__ = (
-        Index("ix_journal_lines_account", "ledger_account_id"),
+        UniqueConstraint(
+            "journal_entry_id", "line_number", name="UQ_journal_lines_entry_line"
+        ),
+        Index("IX_journal_lines_account", "ledger_account_id"),
     )
 
+    journal_entry_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("journal_entries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ledger_account_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    cost_center_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("cost_centers.id", ondelete="RESTRICT")
+    )
+    profit_center_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("profit_centers.id", ondelete="RESTRICT")
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    debit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    credit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    description: Mapped[str | None] = mapped_column(Text)
 
-class LedgerBalance(Base):
-    """Running balance for each ledger account per period."""
+    journal_entry: Mapped[JournalEntry] = relationship(back_populates="lines")
+    ledger_account: Mapped[LedgerAccount] = relationship(back_populates="journal_lines")
+
+
+class LedgerBalance(BaseEntity):
+    """Hold the derived balance of one ledger account for one period."""
+
     __tablename__ = "ledger_balances"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    ledger_account_id = Column(UUID(as_uuid=True), ForeignKey("ledger_accounts.id"), nullable=False)
-    accounting_period_id = Column(UUID(as_uuid=True), ForeignKey("accounting_periods.id"), nullable=False)
-    opening_balance = Column(Numeric(18, 2), default=0)
-    period_debit = Column(Numeric(18, 2), default=0)
-    period_credit = Column(Numeric(18, 2), default=0)
-    closing_balance = Column(Numeric(18, 2), default=0)
-    last_updated = Column(DateTime, default=utc_now, onupdate=utc_now)
-
-    ledger_account = relationship("LedgerAccount", back_populates="balances")
-
     __table_args__ = (
-        UniqueConstraint("ledger_account_id", "accounting_period_id", name="uq_balance_per_period"),
-        Index("ix_ledger_balances_firm_period", "firm_id", "accounting_period_id"),
+        UniqueConstraint(
+            "ledger_account_id",
+            "accounting_period_id",
+            name="UQ_ledger_balances_account_period",
+        ),
+        Index("IX_ledger_balances_firm_period", "firm_id", "accounting_period_id"),
     )
 
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    ledger_account_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accounting_period_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("accounting_periods.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    period_debit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    period_credit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    closing_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
-class GLPosting(Base):
-    """Record of posting from journal to ledger (audit trail)."""
+    ledger_account: Mapped[LedgerAccount] = relationship(back_populates="balances")
+
+
+class GLPosting(BaseEntity):
+    """Record one journal line as it was posted to the general ledger."""
+
     __tablename__ = "gl_postings"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    journal_entry_id = Column(UUID(as_uuid=True), ForeignKey("journal_entries.id"), nullable=False)
-    journal_line_id = Column(UUID(as_uuid=True), ForeignKey("journal_lines.id"), nullable=False)
-    ledger_account_id = Column(UUID(as_uuid=True), ForeignKey("ledger_accounts.id"), nullable=False)
-    accounting_period_id = Column(UUID(as_uuid=True), ForeignKey("accounting_periods.id"), nullable=False)
-    posting_date = Column(DateTime, default=utc_now)
-    debit_amount = Column(Numeric(18, 2), default=0)
-    credit_amount = Column(Numeric(18, 2), default=0)
-    status = Column(String(20), default=PostingStatus.POSTED.value)
-    error_message = Column(String(500), nullable=True)
-    posted_by = Column(UUID(as_uuid=True), nullable=False)
-
     __table_args__ = (
-        Index("ix_gl_postings_firm_period", "firm_id", "accounting_period_id"),
-        Index("ix_gl_postings_account", "ledger_account_id", "accounting_period_id"),
+        Index("IX_gl_postings_firm_period", "firm_id", "accounting_period_id"),
+        Index("IX_gl_postings_account", "ledger_account_id", "accounting_period_id"),
     )
 
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    journal_entry_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("journal_entries.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    journal_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("journal_lines.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ledger_account_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    accounting_period_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("accounting_periods.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    posting_date: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    debit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    credit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=PostingStatus.POSTED.value
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+    posted_by: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
 
-class CustomerLedger(Base):
-    """AR ledger - customer invoice and payment tracking."""
+
+class CustomerLedger(BaseEntity):
+    """Hold derived receivable totals for one customer and period."""
+
     __tablename__ = "customer_ledgers"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    customer_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    accounting_period_id = Column(UUID(as_uuid=True), ForeignKey("accounting_periods.id"), nullable=False)
-    invoice_amount = Column(Numeric(18, 2), default=0)
-    payment_amount = Column(Numeric(18, 2), default=0)
-    outstanding_amount = Column(Numeric(18, 2), default=0)
-    days_overdue = Column(Integer, default=0)
-    created_at = Column(DateTime, default=utc_now)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "customer_id", "accounting_period_id", name="uq_customer_ledger_period"),
-        Index("ix_customer_ledgers_firm", "firm_id"),
+        UniqueConstraint(
+            "firm_id",
+            "customer_id",
+            "accounting_period_id",
+            name="UQ_customer_ledgers_firm_customer_period",
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    accounting_period_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("accounting_periods.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    invoice_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    payment_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    outstanding_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    days_overdue: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
 
 
-class VendorLedger(Base):
-    """AP ledger - vendor invoice and payment tracking."""
+class VendorLedger(BaseEntity):
+    """Hold derived payable totals for one vendor and period."""
+
     __tablename__ = "vendor_ledgers"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    firm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    vendor_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    accounting_period_id = Column(UUID(as_uuid=True), ForeignKey("accounting_periods.id"), nullable=False)
-    invoice_amount = Column(Numeric(18, 2), default=0)
-    payment_amount = Column(Numeric(18, 2), default=0)
-    outstanding_amount = Column(Numeric(18, 2), default=0)
-    days_overdue = Column(Integer, default=0)
-    created_at = Column(DateTime, default=utc_now)
-
     __table_args__ = (
-        UniqueConstraint("firm_id", "vendor_id", "accounting_period_id", name="uq_vendor_ledger_period"),
-        Index("ix_vendor_ledgers_firm", "firm_id"),
+        UniqueConstraint(
+            "firm_id",
+            "vendor_id",
+            "accounting_period_id",
+            name="UQ_vendor_ledgers_firm_vendor_period",
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    vendor_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("vendors.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    accounting_period_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("accounting_periods.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    invoice_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    payment_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    outstanding_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    days_overdue: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
