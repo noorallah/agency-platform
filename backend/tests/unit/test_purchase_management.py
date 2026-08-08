@@ -257,7 +257,7 @@ def _product(
     actor_id: UUID,
     code: str = "SKU-001",
     status: str = "ACTIVE",
-    tax_profile_id: UUID | None = None,
+    tax_profile_group_code: str | None = None,
     base_uom_id: UUID | None = None,
     inventory_uom_id: UUID | None = None,
     purchase_uom_id: UUID | None = None,
@@ -268,7 +268,7 @@ def _product(
         code=code,
         name=f"Product {code}",
         product_type="STOCK_ITEM",
-        tax_profile_id=tax_profile_id,
+        tax_profile_group_code=tax_profile_group_code,
         base_uom_id=base_uom_id,
         inventory_uom_id=inventory_uom_id,
         purchase_uom_id=purchase_uom_id,
@@ -281,6 +281,11 @@ def _product(
     session.add(row)
     session.commit()
     return row
+
+
+# Products reference tax profiles by the version-stable group code rather than the
+# profile UUID, so a product keeps its mapping when a profile is superseded.
+_TAX_PROFILE_GROUP_CODE = "VAT_5"
 
 
 def _tax_profile(session: Session, *, firm_id: UUID, actor_id: UUID) -> UUID:
@@ -466,7 +471,7 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
         session,
         firm_id=firm.id,
         actor_id=actor_id,
-        tax_profile_id=tax_profile_id,
+        tax_profile_group_code=_TAX_PROFILE_GROUP_CODE,
         base_uom_id=inventory_uom_id,
         inventory_uom_id=inventory_uom_id,
         purchase_uom_id=purchase_uom_id,
@@ -684,7 +689,7 @@ def test_purchase_service_validations_multi_firm_search_and_import_duplicates() 
         session,
         firm_id=first_firm.id,
         actor_id=actor_id,
-        tax_profile_id=tax_profile_id,
+        tax_profile_group_code=_TAX_PROFILE_GROUP_CODE,
         base_uom_id=inventory_uom_id,
         inventory_uom_id=inventory_uom_id,
         purchase_uom_id=purchase_uom_id,
@@ -941,7 +946,7 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         setup,
         firm_id=firm.id,
         actor_id=actor_id,
-        tax_profile_id=tax_profile_id,
+        tax_profile_group_code=_TAX_PROFILE_GROUP_CODE,
         base_uom_id=inventory_uom_id,
         inventory_uom_id=inventory_uom_id,
         purchase_uom_id=purchase_uom_id,

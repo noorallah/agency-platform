@@ -268,7 +268,10 @@ def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
         "INVENTORY_ADJUST",
     }
     session = factory()
-    scope = inventory_scope(_principal(user_id, permissions), session, firm.id)
+    # One SQLite session backs both the tenant and platform dependencies here.
+    scope = inventory_scope(
+        _principal(user_id, permissions), session, session, firm.id
+    )
     created = create_inventory(
         InventoryCreate(
             branch_id=branch.id,

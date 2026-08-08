@@ -141,7 +141,7 @@ def test_tax_framework_profile_drives_product_assignment() -> None:
                 "name": "Taxable Item",
                 "product_type": "STOCK_ITEM",
                 "status": "ACTIVE",
-                "tax_profile_id": str(profile.id),
+                "tax_profile_group_code": profile.group_code,
                 "selling_price": "10",
                 "attributes": [],
                 "media": [],
@@ -150,10 +150,11 @@ def test_tax_framework_profile_drives_product_assignment() -> None:
         firm_id=firm.id,
         actor_id=actor_id,
     )
-    assert product.tax_profile_id == profile.id
+    assert product.tax_profile_group_code == profile.group_code
 
     with pytest.raises(
-        ValidationError, match="Tax profile assigned to active products cannot be deleted."
+        ValidationError,
+        match="Tax profile group assigned to active products cannot be deleted.",
     ):
         tax_service.delete_profile(profile.id, firm_scope=firm.id, actor_id=actor_id)
 

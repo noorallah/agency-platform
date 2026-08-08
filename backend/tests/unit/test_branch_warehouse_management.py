@@ -179,7 +179,8 @@ def test_branch_and_warehouse_api_scope_permissions_and_listing() -> None:
     }
     principal = _principal(user_id, permissions)
     session = factory()
-    scope = branch_warehouse_scope(principal, session, firm.id)
+    # One SQLite session backs both the tenant and platform dependencies here.
+    scope = branch_warehouse_scope(principal, session, session, firm.id)
     branch = create_branch(_branch_data("BR-API-1"), scope, session)
     assert branch.data.code == "BR-API-1"
     warehouse = create_warehouse(
