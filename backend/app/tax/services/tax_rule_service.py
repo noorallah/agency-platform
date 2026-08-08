@@ -723,6 +723,23 @@ class TaxRuleService:
             context.setdefault("tax_profile_group_code", product.tax_profile_group_code)
             context.setdefault("product_category_id", product.category_id)
             context.setdefault("product_type", product.product_type)
+        # A rule must survive a rate change. Profile ids identify one version, so
+        # a condition written against an id stops matching the moment a new
+        # version is created; the group code is stable across versions. Derive it
+        # whenever a profile is named so rules can be written against it even
+        # when no product is supplied.
+        if context.get("tax_profile_group_code") is None:
+            profile_id = context.get("tax_profile_id")
+            if profile_id is not None:
+                group_code = self._session.scalar(
+                    select(TaxProfile.group_code).where(
+                        TaxProfile.id == profile_id,
+                        TaxProfile.firm_id == firm_scope,
+                        TaxProfile.is_deleted.is_(False),
+                    )
+                )
+                if group_code is not None:
+                    context["tax_profile_group_code"] = group_code
         return context
 
     def _rule_matches(

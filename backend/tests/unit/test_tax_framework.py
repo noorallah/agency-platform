@@ -690,3 +690,79 @@ def test_a_replacement_must_start_after_the_version_it_replaces() -> None:
             firm_scope=firm.id,
             actor_id=actor_id,
         )
+
+
+def test_a_rule_keeps_matching_after_the_rate_version_changes() -> None:
+    """A rule written against a tax group must survive a rate change.
+
+    Profiles are versioned, so a rate change creates a new row with a new id and
+    the same group_code. A rule condition written against the id stops matching
+    the moment that happens — silently, because a rule that does not match simply
+    does not fire. For INTERSTATE_GST_18 that means an interstate sale is taxed
+    as a local one with no error anywhere.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    rule_service = TaxRuleService(session)
+    business_profile = session.query(BusinessProfile).first()
+    country = session.query(GeoCountry).first()
+
+    old = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    rule_service.create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            business_profile_id=business_profile.id,
+            code="INTERSTATE",
+            name="Interstate swap",
+            priority=1,
+            status="ACTIVE",
+            conditions=[
+                {
+                    "sequence": 1,
+                    "field_key": "tax_profile_group_code",
+                    "operator": "EQUALS",
+                    "value_text": "GST_STANDARD",
+                }
+            ],
+            actions=[{"sequence": 1, "action_type": "ZERO_RATED"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def _fires(profile_id: UUID, when: date) -> bool:
+        result = rule_service.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type="SALES_INTERSTATE",
+                transaction_date=when,
+                country_id=country.id,
+                business_profile_id=business_profile.id,
+                tax_profile_id=profile_id,
+                invoice_value="100",
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+        # zero_rated is set by the rule's action, so it proves the rule fired.
+        return result.matched_rule_id is not None and result.zero_rated
+
+    assert _fires(old.id, date(2026, 1, 1)), "the rule should match the first version"
+
+    # The rate changes: a new version, a new id, the same group.
+    new = service.supersede_profile(
+        old.id,
+        _profile_write(system, component, "GST_8", "8", date(2026, 4, 1), None),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    assert new.id != old.id
+    assert new.group_code == old.group_code
+    assert _fires(new.id, date(2026, 6, 1)), (
+        "the rule must still fire after a rate change; matching on the profile "
+        "id instead of the group is what silently broke this"
+    )
