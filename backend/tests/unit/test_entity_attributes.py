@@ -384,3 +384,93 @@ def test_datetime_is_narrowed_to_a_date() -> None:
     session.commit()
     stored = AttributeService(session).values_for(ProductAttributeValue, product.id)
     assert stored[0].value == date(2026, 6, 30)
+
+
+def test_disabling_a_definition_stops_new_data_without_blocking_edits() -> None:
+    """A deactivated field must not trap records that already carry a value.
+
+    ``replace_values`` is a full replacement, so an edit form resubmits
+    everything it wants to keep. If a disabled attribute were rejected the
+    record could not be edited at all; if it were silently dropped the user
+    would lose a value still visible on screen.
+    """
+    session = _session()
+    firm = _firm(session)
+    existing_product = _product(session, firm, "SKU-1")
+    fresh_product = _product(session, firm, "SKU-2")
+    definition = _definition(session, "FSSAI_NO")
+    service = AttributeService(session)
+    actor = uuid4()
+
+    service.replace_values(
+        ProductAttributeValue,
+        existing_product.id,
+        [AttributeInput(attribute_definition_id=definition.id, value="FS-1")],
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    session.commit()
+
+    definition.is_active = False
+    session.commit()
+
+    # No longer offered or required for anything new.
+    assert (
+        service.definitions_for(AttributeEntityType.PRODUCT.value, firm_id=firm.id)
+        == []
+    )
+    assert definition.id not in service.mandatory_ids(
+        AttributeEntityType.PRODUCT.value, firm_id=firm.id
+    )
+    # Still readable on the record that has it.
+    assert service.values_for(ProductAttributeValue, existing_product.id)[0].value == (
+        "FS-1"
+    )
+    # That record stays editable.
+    service.replace_values(
+        ProductAttributeValue,
+        existing_product.id,
+        [AttributeInput(attribute_definition_id=definition.id, value="FS-2")],
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    session.commit()
+    assert service.values_for(ProductAttributeValue, existing_product.id)[0].value == (
+        "FS-2"
+    )
+    # But it cannot be set on a record that never had it.
+    with pytest.raises(ValidationError, match="do not apply to this record"):
+        service.replace_values(
+            ProductAttributeValue,
+            fresh_product.id,
+            [AttributeInput(attribute_definition_id=definition.id, value="FS-9")],
+            firm_id=firm.id,
+            actor_id=actor,
+        )
+
+
+def test_a_disabled_value_can_still_be_cleared() -> None:
+    """Omitting a disabled attribute removes it, so records can be tidied."""
+    session = _session()
+    firm = _firm(session)
+    product = _product(session, firm)
+    definition = _definition(session, "LEGACY_CODE")
+    service = AttributeService(session)
+    actor = uuid4()
+
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=definition.id, value="old")],
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    session.commit()
+    definition.is_active = False
+    session.commit()
+
+    service.replace_values(
+        ProductAttributeValue, product.id, [], firm_id=firm.id, actor_id=actor
+    )
+    session.commit()
+    assert service.values_for(ProductAttributeValue, product.id) == []

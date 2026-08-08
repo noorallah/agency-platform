@@ -150,6 +150,19 @@ class AttributeService:
         }
         submitted = {item.attribute_definition_id for item in inputs}
 
+        existing = {
+            row.attribute_definition_id: row
+            for row in self._session.scalars(
+                select(model).where(model.owner_column() == owner_id)
+            ).all()
+        }
+        # Disabling a definition stops new data; it must not block edits to a
+        # record that already carries a value, nor silently destroy that value
+        # because a form resubmitted what the user could still see. Retained
+        # values keep their definition available for this save only.
+        retained = self._retained_definitions(submitted - definitions.keys(), existing)
+        definitions.update(retained)
+
         unknown = sorted(str(item) for item in submitted - definitions.keys())
         if unknown:
             raise ValidationError(
@@ -171,12 +184,6 @@ class AttributeService:
         if len(submitted) != len(inputs):
             raise ValidationError("An attribute was supplied more than once.")
 
-        existing = {
-            row.attribute_definition_id: row
-            for row in self._session.scalars(
-                select(model).where(model.owner_column() == owner_id)
-            ).all()
-        }
         for item in inputs:
             definition = definitions[item.attribute_definition_id]
             columns = self._coerce(definition, item.value)
@@ -257,6 +264,34 @@ class AttributeService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _retained_definitions(
+        self,
+        unmatched: set[UUID],
+        existing: dict[UUID, AttributeValueBase],
+    ) -> dict[UUID, AttributeDefinition]:
+        """Return definitions the record already carries but no longer offers.
+
+        A definition that has been deactivated, or scoped away from the record's
+        profile or category, stays writable for a record that already holds a
+        value for it. Anything else the caller submitted remains an error.
+        """
+        candidates = {
+            item
+            for item in unmatched
+            if item in existing and not existing[item].is_deleted
+        }
+        if not candidates:
+            return {}
+        return {
+            row.id: row
+            for row in self._session.scalars(
+                select(AttributeDefinition).where(
+                    AttributeDefinition.id.in_(candidates),
+                    AttributeDefinition.is_deleted.is_(False),
+                )
+            ).all()
+        }
 
     def _coerce(
         self, definition: AttributeDefinition, value: AttributeValue
