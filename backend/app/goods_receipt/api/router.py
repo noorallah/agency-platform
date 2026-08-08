@@ -4,7 +4,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -25,8 +35,8 @@ from app.firms.models import Firm
 from app.goods_receipt.schemas import (
     GoodsReceiptCreate,
     GoodsReceiptImportRequest,
-    GoodsReceiptListFilters,
     GoodsReceiptLineResponse,
+    GoodsReceiptListFilters,
     GoodsReceiptPurchaseOrderReport,
     GoodsReceiptResponse,
     GoodsReceiptStatus,
@@ -151,7 +161,9 @@ def list_goods_receipts(
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["grn_number", "receipt_date", "status", "created_at", "updated_at"] = "created_at",
+    sort_by: Literal[
+        "grn_number", "receipt_date", "status", "created_at", "updated_at"
+    ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     purchase_order_id: UUID | None = None,
     vendor_id: UUID | None = None,
@@ -198,7 +210,9 @@ def goods_receipt_summary(
 
 
 @router.post(
-    "", response_model=ApiResponse[GoodsReceiptResponse], status_code=status.HTTP_201_CREATED
+    "",
+    response_model=ApiResponse[GoodsReceiptResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_goods_receipt(
     data: GoodsReceiptCreate,
@@ -218,7 +232,9 @@ def update_goods_receipt(
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
     service = GoodsReceiptService(db)
-    row = service.update_receipt(receipt_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_receipt(
+        receipt_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.receipt_response(row))
 
 
@@ -229,7 +245,9 @@ def complete_goods_receipt(
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
     service = GoodsReceiptService(db)
-    row = service.complete_receipt(receipt_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.complete_receipt(
+        receipt_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.receipt_response(row))
 
 
@@ -274,10 +292,17 @@ def get_goods_receipt(
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
     service = GoodsReceiptService(db)
-    return ApiResponse(data=service.receipt_response(service.get_receipt(receipt_id, firm_scope=scope.firm_id)))
+    return ApiResponse(
+        data=service.receipt_response(
+            service.get_receipt(receipt_id, firm_scope=scope.firm_id)
+        )
+    )
 
 
-@router.get("/{receipt_id}/history", response_model=ApiResponse[list[DocumentLifecycleEventResponse]])
+@router.get(
+    "/{receipt_id}/history",
+    response_model=ApiResponse[list[DocumentLifecycleEventResponse]],
+)
 def goods_receipt_history(
     receipt_id: UUID,
     scope: GoodsReceiptViewScope,
@@ -285,7 +310,9 @@ def goods_receipt_history(
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
     service = GoodsReceiptService(db)
     rows = service.receipt_history(receipt_id=receipt_id, firm_scope=scope.firm_id)
-    return ApiResponse(data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows]
+    )
 
 
 @router.get("/reports/pending", response_model=ApiResponse[list[GoodsReceiptResponse]])
@@ -294,39 +321,62 @@ def pending_goods_receipts(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
     service = GoodsReceiptService(db)
-    return ApiResponse(data=[service.receipt_response(item) for item in service.pending_receipts(firm_scope=scope.firm_id)])
+    return ApiResponse(
+        data=[
+            service.receipt_response(item)
+            for item in service.pending_receipts(firm_scope=scope.firm_id)
+        ]
+    )
 
 
-@router.get("/reports/completed", response_model=ApiResponse[list[GoodsReceiptResponse]])
+@router.get(
+    "/reports/completed", response_model=ApiResponse[list[GoodsReceiptResponse]]
+)
 def completed_goods_receipts(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
     service = GoodsReceiptService(db)
-    return ApiResponse(data=[service.receipt_response(item) for item in service.completed_receipts(firm_scope=scope.firm_id)])
+    return ApiResponse(
+        data=[
+            service.receipt_response(item)
+            for item in service.completed_receipts(firm_scope=scope.firm_id)
+        ]
+    )
 
 
-@router.get("/reports/rejected", response_model=ApiResponse[list[GoodsReceiptLineResponse]])
+@router.get(
+    "/reports/rejected", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
+)
 def rejected_goods_receipt_items(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
     service = GoodsReceiptService(db)
     rows = service.rejected_items(firm_scope=scope.firm_id)
-    return ApiResponse(data=[GoodsReceiptLineResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[GoodsReceiptLineResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/damaged", response_model=ApiResponse[list[GoodsReceiptLineResponse]])
+@router.get(
+    "/reports/damaged", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
+)
 def damaged_goods_receipt_items(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
     service = GoodsReceiptService(db)
     rows = service.damaged_items(firm_scope=scope.firm_id)
-    return ApiResponse(data=[GoodsReceiptLineResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[GoodsReceiptLineResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/partial", response_model=ApiResponse[list[GoodsReceiptPurchaseOrderReport]])
+@router.get(
+    "/reports/partial",
+    response_model=ApiResponse[list[GoodsReceiptPurchaseOrderReport]],
+)
 def partial_purchase_orders(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),

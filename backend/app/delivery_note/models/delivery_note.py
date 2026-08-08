@@ -125,20 +125,29 @@ class DeliveryNoteLine(BaseEntity):
 
     __tablename__ = "delivery_note_lines"
     __table_args__ = (
-        UniqueConstraint("delivery_note_id", "line_number", name="UQ_delivery_note_lines_note_line"),
+        UniqueConstraint(
+            "delivery_note_id", "line_number", name="UQ_delivery_note_lines_note_line"
+        ),
         Index("IX_delivery_note_lines_note", "delivery_note_id"),
-        Index("IX_delivery_note_lines_firm_order_line", "firm_id", "sales_order_line_id"),
+        Index(
+            "IX_delivery_note_lines_firm_order_line", "firm_id", "sales_order_line_id"
+        ),
         Index("IX_delivery_note_lines_firm_product", "firm_id", "product_id"),
     )
 
     delivery_note_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("delivery_notes.id", ondelete="CASCADE"), nullable=False, index=True
+        UUIDType(),
+        ForeignKey("delivery_notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )
     sales_order_line_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("sales_order_lines.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(),
+        ForeignKey("sales_order_lines.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     product_id: Mapped[UUID] = mapped_column(
@@ -146,30 +155,70 @@ class DeliveryNoteLine(BaseEntity):
     )
     description: Mapped[str | None] = mapped_column(String(500))
     ordered_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
-    reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    previously_delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    current_delivery_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    free_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    remaining_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    damaged_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    short_shipment_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    sales_uom_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"))
-    inventory_uom_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"))
-    packaging_type_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("packaging_types.id", ondelete="RESTRICT"))
+    reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    previously_delivered_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    current_delivery_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    free_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    delivered_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    remaining_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    short_shipment_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    sales_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT")
+    )
+    inventory_uom_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT")
+    )
+    packaging_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("packaging_types.id", ondelete="RESTRICT")
+    )
     conversion_factor: Mapped[Decimal] = mapped_column(
         Numeric(24, 10), nullable=False, default=Decimal("1"), server_default="1"
     )
     conversion_version: Mapped[int | None] = mapped_column(Integer)
-    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    discount_percent: Mapped[Decimal] = mapped_column(Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0")
-    discount_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    gross_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    tax_profile_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT"))
-    tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    net_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0")
-    warehouse_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT"))
-    storage_node_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT"))
+    unit_price: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    gross_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    tax_profile_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT")
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    net_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    warehouse_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
+    )
+    storage_node_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
+    )
     batch_number: Mapped[str | None] = mapped_column(String(120))
     serial_numbers: Mapped[str | None] = mapped_column(Text)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
@@ -186,14 +235,22 @@ class DeliveryNoteAttachment(BaseEntity):
     __table_args__ = (Index("IX_delivery_note_attachments_note", "delivery_note_id"),)
 
     delivery_note_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("delivery_notes.id", ondelete="CASCADE"), nullable=False, index=True
+        UUIDType(),
+        ForeignKey("delivery_notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    firm_id: Mapped[UUID] = mapped_column(UUIDType(), ForeignKey("firms.id"), nullable=False, index=True)
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
     file_name: Mapped[str] = mapped_column(String(260), nullable=False)
     mime_type: Mapped[str | None] = mapped_column(String(120))
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     attachment_kind: Mapped[str] = mapped_column(
-        String(40), nullable=False, default="DELIVERY_NOTE_FILE", server_default="DELIVERY_NOTE_FILE"
+        String(40),
+        nullable=False,
+        default="DELIVERY_NOTE_FILE",
+        server_default="DELIVERY_NOTE_FILE",
     )
 
 
@@ -204,9 +261,15 @@ class DeliveryNoteNote(BaseEntity):
     __table_args__ = (Index("IX_delivery_note_notes_note", "delivery_note_id"),)
 
     delivery_note_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("delivery_notes.id", ondelete="CASCADE"), nullable=False, index=True
+        UUIDType(),
+        ForeignKey("delivery_notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
-    firm_id: Mapped[UUID] = mapped_column(UUIDType(), ForeignKey("firms.id"), nullable=False, index=True)
-    note_type: Mapped[str] = mapped_column(String(30), nullable=False, default="INTERNAL", server_default="INTERNAL")
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    note_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="INTERNAL", server_default="INTERNAL"
+    )
     note: Mapped[str] = mapped_column(Text, nullable=False)
-

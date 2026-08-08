@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -52,7 +52,9 @@ from app.document_framework.schemas import (
     DocumentStateCreate,
     DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import DocumentFrameworkService
+from app.document_framework.services.document_framework_service import (
+    DocumentFrameworkService,
+)
 from app.firms.models import Firm
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
@@ -61,6 +63,7 @@ from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -98,12 +101,18 @@ class DeliveryNoteService:
             "updated_at": DeliveryNote.updated_at,
         }
         statement = select(DeliveryNote).where(DeliveryNote.firm_id == firm_scope)
-        count = select(func.count()).select_from(DeliveryNote).where(DeliveryNote.firm_id == firm_scope)
+        count = (
+            select(func.count())
+            .select_from(DeliveryNote)
+            .where(DeliveryNote.firm_id == firm_scope)
+        )
         if not filters.include_deleted:
             statement = statement.where(DeliveryNote.is_deleted.is_(False))
             count = count.where(DeliveryNote.is_deleted.is_(False))
         if filters.sales_order_id is not None:
-            statement = statement.where(DeliveryNote.sales_order_id == filters.sales_order_id)
+            statement = statement.where(
+                DeliveryNote.sales_order_id == filters.sales_order_id
+            )
             count = count.where(DeliveryNote.sales_order_id == filters.sales_order_id)
         if filters.customer_id is not None:
             statement = statement.where(DeliveryNote.customer_id == filters.customer_id)
@@ -112,16 +121,22 @@ class DeliveryNoteService:
             statement = statement.where(DeliveryNote.branch_id == filters.branch_id)
             count = count.where(DeliveryNote.branch_id == filters.branch_id)
         if filters.warehouse_id is not None:
-            statement = statement.where(DeliveryNote.warehouse_id == filters.warehouse_id)
+            statement = statement.where(
+                DeliveryNote.warehouse_id == filters.warehouse_id
+            )
             count = count.where(DeliveryNote.warehouse_id == filters.warehouse_id)
         if filters.status is not None:
             statement = statement.where(DeliveryNote.status == filters.status.value)
             count = count.where(DeliveryNote.status == filters.status.value)
         if filters.delivery_from is not None:
-            statement = statement.where(DeliveryNote.delivery_date >= filters.delivery_from)
+            statement = statement.where(
+                DeliveryNote.delivery_date >= filters.delivery_from
+            )
             count = count.where(DeliveryNote.delivery_date >= filters.delivery_from)
         if filters.delivery_to is not None:
-            statement = statement.where(DeliveryNote.delivery_date <= filters.delivery_to)
+            statement = statement.where(
+                DeliveryNote.delivery_date <= filters.delivery_to
+            )
             count = count.where(DeliveryNote.delivery_date <= filters.delivery_to)
         if search:
             token = f"%{search.strip()}%"
@@ -137,7 +152,9 @@ class DeliveryNoteService:
         order_column = columns.get(sort_by, DeliveryNote.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(order_column.desc() if descending else order_column.asc())
+                statement.order_by(
+                    order_column.desc() if descending else order_column.asc()
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -156,22 +173,49 @@ class DeliveryNoteService:
         progress = self.partially_delivered_orders(firm_scope=firm_scope)
         return DeliveryNoteSummary(
             total=len(rows),
-            draft=sum(1 for row in rows if row.status == DeliveryNoteStatus.DRAFT.value),
-            approved=sum(1 for row in rows if row.status == DeliveryNoteStatus.APPROVED.value),
-            dispatched=sum(1 for row in rows if row.status == DeliveryNoteStatus.DISPATCHED.value),
-            completed=sum(1 for row in rows if row.status == DeliveryNoteStatus.COMPLETED.value),
-            cancelled=sum(1 for row in rows if row.status == DeliveryNoteStatus.CANCELLED.value),
-            closed=sum(1 for row in rows if row.status == DeliveryNoteStatus.CLOSED.value),
+            draft=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.DRAFT.value
+            ),
+            approved=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.APPROVED.value
+            ),
+            dispatched=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.DISPATCHED.value
+            ),
+            completed=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.COMPLETED.value
+            ),
+            cancelled=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.CANCELLED.value
+            ),
+            closed=sum(
+                1 for row in rows if row.status == DeliveryNoteStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_orders=sum(1 for item in progress if item.delivered_quantity <= ZERO),
-            partial_orders=sum(1 for item in progress if item.delivered_quantity > ZERO and item.pending_quantity > ZERO),
+            pending_orders=sum(
+                1 for item in progress if item.delivered_quantity <= ZERO
+            ),
+            partial_orders=sum(
+                1
+                for item in progress
+                if item.delivered_quantity > ZERO and item.pending_quantity > ZERO
+            ),
         )
 
-    def create_note(self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID) -> DeliveryNote:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
+    def create_note(
+        self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> DeliveryNote:
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
         order = self._sales_order(data.sales_order_id, firm_id=firm_id)
-        if order.status not in {DeliveryNoteStatus.APPROVED.value, DeliveryNoteStatus.CLOSED.value}:
-            raise ValidationError("Delivery notes can be created only from approved sales orders.")
+        if order.status not in {
+            DeliveryNoteStatus.APPROVED.value,
+            DeliveryNoteStatus.CLOSED.value,
+        }:
+            raise ValidationError(
+                "Delivery notes can be created only from approved sales orders."
+            )
         self._validate_scope_references(
             firm_id=firm_id,
             customer_id=order.customer_id,
@@ -222,14 +266,20 @@ class DeliveryNoteService:
         self._session.flush()
         totals = self._replace_lines(row, lines=data.lines, actor_id=actor_id)
         row.total_ordered_quantity = totals["total_ordered_quantity"]
-        row.total_previously_delivered_quantity = totals["total_previously_delivered_quantity"]
+        row.total_previously_delivered_quantity = totals[
+            "total_previously_delivered_quantity"
+        ]
         row.total_current_delivery_quantity = totals["total_current_delivery_quantity"]
         row.total_free_quantity = totals["total_free_quantity"]
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
-        row.grand_total = self._q(row.subtotal + row.tax_total + row.additional_charges + row.round_off)
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        row.grand_total = self._q(
+            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+        )
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
             firm_id=firm_id,
@@ -247,14 +297,22 @@ class DeliveryNoteService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"delivery_note_number": row.delivery_note_number, "status": row.status},
+            after_data={
+                "delivery_note_number": row.delivery_note_number,
+                "status": row.status,
+            },
         )
         self._flush_or_conflict("Delivery note number already exists in this firm.")
         self._session.commit()
         return row
 
     def update_note(
-        self, note_id: UUID, data: DeliveryNoteCreate, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        data: DeliveryNoteCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
     ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
@@ -281,14 +339,20 @@ class DeliveryNoteService:
         row.updated_by = actor_id
         totals = self._replace_lines(row, lines=data.lines, actor_id=actor_id)
         row.total_ordered_quantity = totals["total_ordered_quantity"]
-        row.total_previously_delivered_quantity = totals["total_previously_delivered_quantity"]
+        row.total_previously_delivered_quantity = totals[
+            "total_previously_delivered_quantity"
+        ]
         row.total_current_delivery_quantity = totals["total_current_delivery_quantity"]
         row.total_free_quantity = totals["total_free_quantity"]
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
-        row.grand_total = self._q(row.subtotal + row.tax_total + row.additional_charges + row.round_off)
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_scope)
+        row.grand_total = self._q(
+            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+        )
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_scope
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_scope)
         self._record_event(
             firm_id=firm_scope,
@@ -306,13 +370,18 @@ class DeliveryNoteService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"delivery_note_number": row.delivery_note_number, "status": row.status},
+            after_data={
+                "delivery_note_number": row.delivery_note_number,
+                "status": row.status,
+            },
         )
         self._flush_or_conflict("Delivery note number already exists in this firm.")
         self._session.commit()
         return row
 
-    def approve_note(self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> DeliveryNote:
+    def approve_note(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
@@ -339,7 +408,9 @@ class DeliveryNoteService:
         self._session.commit()
         return row
 
-    def dispatch_note(self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> DeliveryNote:
+    def dispatch_note(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.DISPATCHED.value:
             return row
@@ -369,18 +440,27 @@ class DeliveryNoteService:
         self._session.commit()
         return row
 
-    def complete_note(self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> DeliveryNote:
+    def complete_note(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.COMPLETED.value:
             return row
-        if row.status in {DeliveryNoteStatus.CANCELLED.value, DeliveryNoteStatus.CLOSED.value}:
-            raise ValidationError("Cancelled/closed delivery notes cannot be completed.")
+        if row.status in {
+            DeliveryNoteStatus.CANCELLED.value,
+            DeliveryNoteStatus.CLOSED.value,
+        }:
+            raise ValidationError(
+                "Cancelled/closed delivery notes cannot be completed."
+            )
         before = row.status
         if row.status == DeliveryNoteStatus.APPROVED.value:
             self._dispatch_inventory(row=row, actor_id=actor_id)
             row.dispatched_at = row.dispatched_at or utc_now()
         elif row.status != DeliveryNoteStatus.DISPATCHED.value:
-            raise ValidationError("Only approved or dispatched delivery notes can be completed.")
+            raise ValidationError(
+                "Only approved or dispatched delivery notes can be completed."
+            )
         row.status = DeliveryNoteStatus.COMPLETED.value
         row.completed_at = utc_now()
         row.updated_by = actor_id
@@ -405,7 +485,12 @@ class DeliveryNoteService:
         return row
 
     def cancel_note(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None = None
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
     ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status in {
@@ -441,7 +526,12 @@ class DeliveryNoteService:
         return row
 
     def close_note(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None = None
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
     ) -> DeliveryNote:
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
@@ -496,11 +586,17 @@ class DeliveryNoteService:
         )
         attachments = list(
             self._session.scalars(
-                select(DeliveryNoteAttachment).where(DeliveryNoteAttachment.delivery_note_id == row.id)
+                select(DeliveryNoteAttachment).where(
+                    DeliveryNoteAttachment.delivery_note_id == row.id
+                )
             ).all()
         )
         notes = list(
-            self._session.scalars(select(DeliveryNoteNote).where(DeliveryNoteNote.delivery_note_id == row.id)).all()
+            self._session.scalars(
+                select(DeliveryNoteNote).where(
+                    DeliveryNoteNote.delivery_note_id == row.id
+                )
+            ).all()
         )
         return DeliveryNoteResponse(
             id=row.id,
@@ -560,8 +656,13 @@ class DeliveryNoteService:
         rows = list(
             self._session.scalars(
                 select(DeliveryNote)
-                .where(DeliveryNote.firm_id == firm_scope, DeliveryNote.is_deleted.is_(False))
-                .order_by(DeliveryNote.delivery_date.desc(), DeliveryNote.created_at.desc())
+                .where(
+                    DeliveryNote.firm_id == firm_scope,
+                    DeliveryNote.is_deleted.is_(False),
+                )
+                .order_by(
+                    DeliveryNote.delivery_date.desc(), DeliveryNote.created_at.desc()
+                )
             ).all()
         )
         return [
@@ -586,12 +687,19 @@ class DeliveryNoteService:
                 select(DeliveryNote).where(
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
-                    DeliveryNote.status.in_([DeliveryNoteStatus.DRAFT.value, DeliveryNoteStatus.APPROVED.value]),
+                    DeliveryNote.status.in_(
+                        [
+                            DeliveryNoteStatus.DRAFT.value,
+                            DeliveryNoteStatus.APPROVED.value,
+                        ]
+                    ),
                 )
             ).all()
         )
 
-    def partially_delivered_orders(self, *, firm_scope: UUID) -> list[DeliveryNoteOrderProgressRecord]:
+    def partially_delivered_orders(
+        self, *, firm_scope: UUID
+    ) -> list[DeliveryNoteOrderProgressRecord]:
         order_rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -605,7 +713,9 @@ class DeliveryNoteService:
         for order in order_rows:
             lines = list(
                 self._session.scalars(
-                    select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+                    select(SalesOrderLine).where(
+                        SalesOrderLine.sales_order_id == order.id
+                    )
                 ).all()
             )
             ordered = self._q(sum((line.reservable_quantity for line in lines), ZERO))
@@ -635,12 +745,18 @@ class DeliveryNoteService:
                     ordered_quantity=ordered,
                     delivered_quantity=delivered,
                     pending_quantity=pending if pending > ZERO else ZERO,
-                    status="COMPLETED" if pending <= ZERO else ("PARTIAL" if delivered > ZERO else "PENDING"),
+                    status=(
+                        "COMPLETED"
+                        if pending <= ZERO
+                        else ("PARTIAL" if delivered > ZERO else "PENDING")
+                    ),
                 )
             )
         return result
 
-    def by_route_report(self, *, firm_scope: UUID) -> list[DeliveryNoteByDimensionRecord]:
+    def by_route_report(
+        self, *, firm_scope: UUID
+    ) -> list[DeliveryNoteByDimensionRecord]:
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -652,7 +768,9 @@ class DeliveryNoteService:
         )
         return self._aggregate_dimension(rows=rows, attr="route_id", dimension="route")
 
-    def by_salesman_report(self, *, firm_scope: UUID) -> list[DeliveryNoteByDimensionRecord]:
+    def by_salesman_report(
+        self, *, firm_scope: UUID
+    ) -> list[DeliveryNoteByDimensionRecord]:
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -662,9 +780,13 @@ class DeliveryNoteService:
                 )
             ).all()
         )
-        return self._aggregate_dimension(rows=rows, attr="salesman_id", dimension="salesman")
+        return self._aggregate_dimension(
+            rows=rows, attr="salesman_id", dimension="salesman"
+        )
 
-    def by_warehouse_report(self, *, firm_scope: UUID) -> list[DeliveryNoteByDimensionRecord]:
+    def by_warehouse_report(
+        self, *, firm_scope: UUID
+    ) -> list[DeliveryNoteByDimensionRecord]:
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -674,7 +796,9 @@ class DeliveryNoteService:
                 )
             ).all()
         )
-        return self._aggregate_dimension(rows=rows, attr="warehouse_id", dimension="warehouse")
+        return self._aggregate_dimension(
+            rows=rows, attr="warehouse_id", dimension="warehouse"
+        )
 
     def export_notes_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
         rows, _ = self.list_notes(
@@ -718,7 +842,10 @@ class DeliveryNoteService:
     def import_notes(
         self, data: DeliveryNoteImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[DeliveryNote]:
-        return [self.create_note(record, firm_id=firm_scope, actor_id=actor_id) for record in data.records]
+        return [
+            self.create_note(record, firm_id=firm_scope, actor_id=actor_id)
+            for record in data.records
+        ]
 
     def _replace_lines(
         self,
@@ -727,13 +854,15 @@ class DeliveryNoteService:
         lines: list[DeliveryNoteLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(DeliveryNoteLine).filter(DeliveryNoteLine.delivery_note_id == row.id).delete(
-            synchronize_session=False
-        )
+        self._session.query(DeliveryNoteLine).filter(
+            DeliveryNoteLine.delivery_note_id == row.id
+        ).delete(synchronize_session=False)
         source_lines = {
             item.id: item
             for item in self._session.scalars(
-                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.sales_order_id)
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id == row.sales_order_id
+                )
             ).all()
         }
         if not source_lines:
@@ -742,7 +871,9 @@ class DeliveryNoteService:
         for item in lines:
             source_line = source_lines.get(item.sales_order_line_id)
             if source_line is None:
-                raise ValidationError("Delivery line must reference a sales order line.")
+                raise ValidationError(
+                    "Delivery line must reference a sales order line."
+                )
             warehouse_id = item.warehouse_id or source_line.warehouse_id
             if warehouse_id is None:
                 raise ValidationError("Warehouse is required for delivery lines.")
@@ -777,10 +908,17 @@ class DeliveryNoteService:
             allowed_qty = ordered_qty
             if row.allow_over_delivery:
                 allowed_qty = self._q(
-                    ordered_qty + (ordered_qty * self._q(row.over_delivery_percent) / Decimal("100"))
+                    ordered_qty
+                    + (
+                        ordered_qty
+                        * self._q(row.over_delivery_percent)
+                        / Decimal("100")
+                    )
                 )
             if previous_delivered + delivered_qty > allowed_qty:
-                raise ValidationError("Delivery quantity exceeds allowed quantity for the order line.")
+                raise ValidationError(
+                    "Delivery quantity exceeds allowed quantity for the order line."
+                )
             remaining_qty = self._q(ordered_qty - previous_delivered - delivered_qty)
             short_qty = self._q(remaining_qty if remaining_qty > ZERO else ZERO)
             gross = self._q(current_qty * self._q(item.unit_price))
@@ -821,7 +959,8 @@ class DeliveryNoteService:
                 short_shipment_quantity=short_qty,
                 sales_uom_id=item.sales_uom_id or source_line.sales_uom_id,
                 inventory_uom_id=item.inventory_uom_id or source_line.inventory_uom_id,
-                packaging_type_id=item.packaging_type_id or source_line.packaging_type_id,
+                packaging_type_id=item.packaging_type_id
+                or source_line.packaging_type_id,
                 conversion_factor=self._q(conversion["factor"]),
                 conversion_version=conversion["version"],
                 unit_price=self._q(item.unit_price),
@@ -884,9 +1023,9 @@ class DeliveryNoteService:
         actor_id: UUID,
         firm_id: UUID,
     ) -> None:
-        self._session.query(DeliveryNoteNote).filter(DeliveryNoteNote.delivery_note_id == row.id).delete(
-            synchronize_session=False
-        )
+        self._session.query(DeliveryNoteNote).filter(
+            DeliveryNoteNote.delivery_note_id == row.id
+        ).delete(synchronize_session=False)
         for item in notes:
             self._session.add(
                 DeliveryNoteNote(
@@ -903,21 +1042,30 @@ class DeliveryNoteService:
         lines = list(
             self._session.scalars(
                 select(DeliveryNoteLine)
-                .where(DeliveryNoteLine.delivery_note_id == row.id, DeliveryNoteLine.is_deleted.is_(False))
+                .where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
                 .order_by(DeliveryNoteLine.line_number.asc())
             ).all()
         )
         if not lines:
-            raise ValidationError("Delivery note must contain at least one line before dispatch.")
+            raise ValidationError(
+                "Delivery note must contain at least one line before dispatch."
+            )
         for line in lines:
             if line.inventory_transaction_id is not None:
                 continue
             if line.warehouse_id is None:
-                raise ValidationError("Warehouse is required on all lines before dispatch.")
+                raise ValidationError(
+                    "Warehouse is required on all lines before dispatch."
+                )
             if line.delivered_quantity <= ZERO:
                 continue
             source_line = self._session.scalar(
-                select(SalesOrderLine).where(SalesOrderLine.id == line.sales_order_line_id)
+                select(SalesOrderLine).where(
+                    SalesOrderLine.id == line.sales_order_line_id
+                )
             )
             if source_line is None:
                 raise ValidationError("Sales order line not found for dispatch.")
@@ -930,9 +1078,13 @@ class DeliveryNoteService:
             )
             if available < line.delivered_quantity:
                 raise ValidationError("Insufficient available stock for dispatch line.")
-            release_qty = self._q(min(source_line.reserved_quantity, line.delivered_quantity))
+            release_qty = self._q(
+                min(source_line.reserved_quantity, line.delivered_quantity)
+            )
             if not row.allow_over_delivery and release_qty < line.delivered_quantity:
-                raise ValidationError("Reservation is insufficient for dispatch quantity.")
+                raise ValidationError(
+                    "Reservation is insufficient for dispatch quantity."
+                )
             if release_qty > ZERO:
                 released = self._inventory.release_sales_order_reservation(
                     firm_scope=row.firm_id,
@@ -944,12 +1096,16 @@ class DeliveryNoteService:
                     reference_number=row.sales_order_reference,
                     transaction_date=row.delivery_date,
                     release_quantity=release_qty,
-                    entered_quantity=self._q(line.current_delivery_quantity + line.free_quantity),
+                    entered_quantity=self._q(
+                        line.current_delivery_quantity + line.free_quantity
+                    ),
                     entered_uom_id=line.sales_uom_id,
                     conversion_version=line.conversion_version,
                     remarks=f"delivery_note release line {line.line_number}",
                 )
-                source_line.reserved_quantity = self._q(source_line.reserved_quantity - release_qty)
+                source_line.reserved_quantity = self._q(
+                    source_line.reserved_quantity - release_qty
+                )
                 line.released_reservation_transaction_id = released.id
             dispatched = self._inventory.record_delivery_note_dispatch(
                 firm_scope=row.firm_id,
@@ -961,7 +1117,9 @@ class DeliveryNoteService:
                 reference_number=row.delivery_note_number,
                 transaction_date=row.delivery_date,
                 dispatch_quantity=line.delivered_quantity,
-                entered_quantity=self._q(line.current_delivery_quantity + line.free_quantity),
+                entered_quantity=self._q(
+                    line.current_delivery_quantity + line.free_quantity
+                ),
                 entered_uom_id=line.sales_uom_id,
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
@@ -971,15 +1129,15 @@ class DeliveryNoteService:
         self._session.flush()
 
     def _delete_children(self, note_id: UUID) -> None:
-        self._session.query(DeliveryNoteLine).filter(DeliveryNoteLine.delivery_note_id == note_id).delete(
-            synchronize_session=False
-        )
+        self._session.query(DeliveryNoteLine).filter(
+            DeliveryNoteLine.delivery_note_id == note_id
+        ).delete(synchronize_session=False)
         self._session.query(DeliveryNoteAttachment).filter(
             DeliveryNoteAttachment.delivery_note_id == note_id
         ).delete(synchronize_session=False)
-        self._session.query(DeliveryNoteNote).filter(DeliveryNoteNote.delivery_note_id == note_id).delete(
-            synchronize_session=False
-        )
+        self._session.query(DeliveryNoteNote).filter(
+            DeliveryNoteNote.delivery_note_id == note_id
+        ).delete(synchronize_session=False)
 
     def _tax_amount(
         self,
@@ -995,8 +1153,28 @@ class DeliveryNoteService:
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
     ) -> Decimal:
-        if tax_profile_id is None or invoice_value <= ZERO:
+        if invoice_value <= ZERO:
             return ZERO
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
+        if tax_profile_id is None:
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, delivery_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, delivery_date, firm_scope=firm_id
+            )
         request = TaxRuleSimulationRequest(
             transaction_type="DELIVERY_NOTE",
             transaction_date=delivery_date,
@@ -1022,8 +1200,16 @@ class DeliveryNoteService:
         delivery_date: date,
         firm_id: UUID,
     ) -> dict[str, Decimal | int | None]:
-        if sales_uom_id is None or inventory_uom_id is None or sales_uom_id == inventory_uom_id:
-            return {"factor": Decimal("1"), "converted": self._q(quantity), "version": None}
+        if (
+            sales_uom_id is None
+            or inventory_uom_id is None
+            or sales_uom_id == inventory_uom_id
+        ):
+            return {
+                "factor": Decimal("1"),
+                "converted": self._q(quantity),
+                "version": None,
+            }
         response = self._uom.convert_quantity(
             ConversionRequest(
                 quantity=quantity,
@@ -1085,9 +1271,13 @@ class DeliveryNoteService:
             )
         )
         if storage is None:
-            raise ValidationError("Storage area does not belong to the selected warehouse.")
+            raise ValidationError(
+                "Storage area does not belong to the selected warehouse."
+            )
         if not storage.is_active:
-            raise ValidationError("Inactive storage areas cannot be used for delivery notes.")
+            raise ValidationError(
+                "Inactive storage areas cannot be used for delivery notes."
+            )
 
     def _validate_scope_references(
         self,
@@ -1129,7 +1319,9 @@ class DeliveryNoteService:
         if warehouse is None:
             raise ValidationError("Warehouse not found in this branch.")
         if salesman_id is not None:
-            user = self._session.scalar(select(User).where(User.id == salesman_id, User.is_deleted.is_(False)))
+            user = self._session.scalar(
+                select(User).where(User.id == salesman_id, User.is_deleted.is_(False))
+            )
             if user is None:
                 raise ValidationError("Salesman user not found.")
         if territory_id is not None:
@@ -1221,7 +1413,9 @@ class DeliveryNoteService:
             ("CANCELLED", "Cancelled", 90, True),
             ("CLOSED", "Closed", 100, True),
         ]:
-            if not self._state_exists(firm_id=firm_id, document_type_id=document_type.id, code=code):
+            if not self._state_exists(
+                firm_id=firm_id, document_type_id=document_type.id, code=code
+            ):
                 self._documents.create_state(
                     firm_id,
                     DocumentStateCreate(
@@ -1270,7 +1464,9 @@ class DeliveryNoteService:
             )
         return document_type, numbering
 
-    def _state_exists(self, *, firm_id: UUID, document_type_id: UUID, code: str) -> bool:
+    def _state_exists(
+        self, *, firm_id: UUID, document_type_id: UUID, code: str
+    ) -> bool:
         return (
             self._session.scalar(
                 select(DocumentStateDefinition.id).where(
@@ -1292,7 +1488,9 @@ class DeliveryNoteService:
             )
         )
         if document_type is None:
-            raise ResourceNotFoundError("Delivery note document type is not configured.")
+            raise ResourceNotFoundError(
+                "Delivery note document type is not configured."
+            )
         return document_type
 
     def _sales_order(self, sales_order_id: UUID, *, firm_id: UUID) -> SalesOrder:
@@ -1352,7 +1550,9 @@ class DeliveryNoteService:
                     (
                         line.delivered_quantity
                         for line in self._session.scalars(
-                            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == row.id)
+                            select(DeliveryNoteLine).where(
+                                DeliveryNoteLine.delivery_note_id == row.id
+                            )
                         ).all()
                     ),
                     ZERO,
@@ -1361,13 +1561,19 @@ class DeliveryNoteService:
             quantities[key] += delivered
             if key not in labels:
                 if dimension == "route":
-                    entity = self._session.scalar(select(TerritoryRouteProfile).where(TerritoryRouteProfile.id == key))
+                    entity = self._session.scalar(
+                        select(TerritoryRouteProfile).where(
+                            TerritoryRouteProfile.id == key
+                        )
+                    )
                     labels[key] = entity.name if entity is not None else str(key)
                 elif dimension == "salesman":
                     entity = self._session.scalar(select(User).where(User.id == key))
                     labels[key] = entity.full_name if entity is not None else str(key)
                 else:
-                    entity = self._session.scalar(select(Warehouse).where(Warehouse.id == key))
+                    entity = self._session.scalar(
+                        select(Warehouse).where(Warehouse.id == key)
+                    )
                     labels[key] = entity.name if entity is not None else str(key)
         return [
             DeliveryNoteByDimensionRecord(
@@ -1377,7 +1583,9 @@ class DeliveryNoteService:
                 delivered_quantity=self._q(quantities[key]),
                 total_value=self._q(values[key]),
             )
-            for key in sorted(counts.keys(), key=lambda item: labels.get(item, str(item)))
+            for key in sorted(
+                counts.keys(), key=lambda item: labels.get(item, str(item))
+            )
         ]
 
     def _duplicate_warning(self, row: DeliveryNote) -> str | None:
@@ -1394,10 +1602,16 @@ class DeliveryNoteService:
         )
         if duplicate is None:
             return None
-        return "Potential duplicate dispatch detected for this sales order/date/vehicle."
+        return (
+            "Potential duplicate dispatch detected for this sales order/date/vehicle."
+        )
 
     def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}-{str(on.year + 1)[-2:]}" if on.month >= 4 else f"{on.year - 1}-{str(on.year)[-2:]}"
+        return (
+            f"{on.year}-{str(on.year + 1)[-2:]}"
+            if on.month >= 4
+            else f"{on.year - 1}-{str(on.year)[-2:]}"
+        )
 
     def _scope_code(self, branch_id: UUID | None) -> str | None:
         if branch_id is None:
@@ -1421,7 +1635,9 @@ class DeliveryNoteService:
             Decimal("0.0001"), rounding=ROUND_HALF_UP
         )
 
-    def _attachment_response(self, row: DeliveryNoteAttachment) -> DeliveryNoteAttachmentResponse:
+    def _attachment_response(
+        self, row: DeliveryNoteAttachment
+    ) -> DeliveryNoteAttachmentResponse:
         return DeliveryNoteAttachmentResponse.model_validate(row)
 
     def _note_response(self, row: DeliveryNoteNote) -> DeliveryNoteNoteResponse:
@@ -1429,4 +1645,3 @@ class DeliveryNoteService:
 
     def _line_response(self, row: DeliveryNoteLine) -> DeliveryNoteLineResponse:
         return DeliveryNoteLineResponse.model_validate(row)
-

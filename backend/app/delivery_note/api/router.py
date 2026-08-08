@@ -4,7 +4,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -152,7 +162,9 @@ def list_delivery_notes(
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["delivery_note_number", "delivery_date", "status", "grand_total", "created_at"] = "created_at",
+    sort_by: Literal[
+        "delivery_note_number", "delivery_date", "status", "grand_total", "created_at"
+    ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     sales_order_id: UUID | None = None,
     customer_id: UUID | None = None,
@@ -198,7 +210,11 @@ def delivery_note_summary(
     return ApiResponse(data=DeliveryNoteService(db).summary(firm_scope=scope.firm_id))
 
 
-@router.post("", response_model=ApiResponse[DeliveryNoteResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApiResponse[DeliveryNoteResponse],
+    status_code=status.HTTP_201_CREATED,
+)
 def create_delivery_note(
     data: DeliveryNoteCreate,
     scope: DeliveryNoteCreateScope,
@@ -217,7 +233,9 @@ def update_delivery_note(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     service = DeliveryNoteService(db)
-    row = service.update_note(note_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_note(
+        note_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.note_response(row))
 
 
@@ -228,7 +246,9 @@ def approve_delivery_note(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     service = DeliveryNoteService(db)
-    row = service.approve_note(note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.approve_note(
+        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.note_response(row))
 
 
@@ -239,7 +259,9 @@ def dispatch_delivery_note(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     service = DeliveryNoteService(db)
-    row = service.dispatch_note(note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.dispatch_note(
+        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.note_response(row))
 
 
@@ -250,7 +272,9 @@ def complete_delivery_note(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     service = DeliveryNoteService(db)
-    row = service.complete_note(note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.complete_note(
+        note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.note_response(row))
 
 
@@ -295,25 +319,38 @@ def get_delivery_note(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     service = DeliveryNoteService(db)
-    return ApiResponse(data=service.note_response(service.get_note(note_id, firm_scope=scope.firm_id)))
+    return ApiResponse(
+        data=service.note_response(service.get_note(note_id, firm_scope=scope.firm_id))
+    )
 
 
-@router.get("/{note_id}/history", response_model=ApiResponse[list[DocumentLifecycleEventResponse]])
+@router.get(
+    "/{note_id}/history",
+    response_model=ApiResponse[list[DocumentLifecycleEventResponse]],
+)
 def delivery_note_history(
     note_id: UUID,
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
-    rows = DeliveryNoteService(db).timeline(note_id=note_id, firm_scope=scope.firm_id, page=1, page_size=200)[0]
-    return ApiResponse(data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows])
+    rows = DeliveryNoteService(db).timeline(
+        note_id=note_id, firm_scope=scope.firm_id, page=1, page_size=200
+    )[0]
+    return ApiResponse(
+        data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/register", response_model=ApiResponse[list[DeliveryNoteRegisterRecord]])
+@router.get(
+    "/reports/register", response_model=ApiResponse[list[DeliveryNoteRegisterRecord]]
+)
 def delivery_note_register(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteRegisterRecord]]:
-    return ApiResponse(data=DeliveryNoteService(db).register_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=DeliveryNoteService(db).register_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/reports/pending", response_model=ApiResponse[list[DeliveryNoteResponse]])
@@ -322,39 +359,65 @@ def pending_delivery_notes(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteResponse]]:
     service = DeliveryNoteService(db)
-    return ApiResponse(data=[service.note_response(item) for item in service.pending_notes(firm_scope=scope.firm_id)])
+    return ApiResponse(
+        data=[
+            service.note_response(item)
+            for item in service.pending_notes(firm_scope=scope.firm_id)
+        ]
+    )
 
 
-@router.get("/reports/partial", response_model=ApiResponse[list[DeliveryNoteOrderProgressRecord]])
+@router.get(
+    "/reports/partial",
+    response_model=ApiResponse[list[DeliveryNoteOrderProgressRecord]],
+)
 def partial_delivery_report(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteOrderProgressRecord]]:
-    return ApiResponse(data=DeliveryNoteService(db).partially_delivered_orders(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=DeliveryNoteService(db).partially_delivered_orders(
+            firm_scope=scope.firm_id
+        )
+    )
 
 
-@router.get("/reports/by-route", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]])
+@router.get(
+    "/reports/by-route", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]]
+)
 def delivery_by_route(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
-    return ApiResponse(data=DeliveryNoteService(db).by_route_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=DeliveryNoteService(db).by_route_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-salesman", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]])
+@router.get(
+    "/reports/by-salesman",
+    response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
+)
 def delivery_by_salesman(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
-    return ApiResponse(data=DeliveryNoteService(db).by_salesman_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=DeliveryNoteService(db).by_salesman_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-warehouse", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]])
+@router.get(
+    "/reports/by-warehouse",
+    response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
+)
 def delivery_by_warehouse(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
-    return ApiResponse(data=DeliveryNoteService(db).by_warehouse_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=DeliveryNoteService(db).by_warehouse_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/export")
@@ -363,7 +426,9 @@ def export_delivery_notes(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
-    csv_content = DeliveryNoteService(db).export_notes_csv(firm_scope=scope.firm_id, search=search)
+    csv_content = DeliveryNoteService(db).export_notes_csv(
+        firm_scope=scope.firm_id, search=search
+    )
     return StreamingResponse(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
@@ -394,4 +459,3 @@ async def import_delivery_notes(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=[service.note_response(item) for item in rows])
-

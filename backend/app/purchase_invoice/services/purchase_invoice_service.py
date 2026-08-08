@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -26,8 +26,11 @@ from app.document_framework.schemas import (
     DocumentStateCreate,
     DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import DocumentFrameworkService
+from app.document_framework.services.document_framework_service import (
+    DocumentFrameworkService,
+)
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import (
     PurchaseInvoice,
@@ -45,7 +48,6 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceLineResponse,
-    PurchaseInvoiceLineWrite,
     PurchaseInvoiceListFilters,
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
@@ -59,6 +61,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -97,8 +100,10 @@ class PurchaseInvoiceService:
             "updated_at": PurchaseInvoice.updated_at,
         }
         statement = select(PurchaseInvoice).where(PurchaseInvoice.firm_id == firm_scope)
-        count = select(func.count()).select_from(PurchaseInvoice).where(
-            PurchaseInvoice.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(PurchaseInvoice)
+            .where(PurchaseInvoice.firm_id == firm_scope)
         )
         if not filters.include_deleted:
             statement = statement.where(PurchaseInvoice.is_deleted.is_(False))
@@ -113,10 +118,14 @@ class PurchaseInvoiceService:
             statement = statement.where(PurchaseInvoice.status == filters.status.value)
             count = count.where(PurchaseInvoice.status == filters.status.value)
         if filters.invoice_from is not None:
-            statement = statement.where(PurchaseInvoice.invoice_date >= filters.invoice_from)
+            statement = statement.where(
+                PurchaseInvoice.invoice_date >= filters.invoice_from
+            )
             count = count.where(PurchaseInvoice.invoice_date >= filters.invoice_from)
         if filters.invoice_to is not None:
-            statement = statement.where(PurchaseInvoice.invoice_date <= filters.invoice_to)
+            statement = statement.where(
+                PurchaseInvoice.invoice_date <= filters.invoice_to
+            )
             count = count.where(PurchaseInvoice.invoice_date <= filters.invoice_to)
         if filters.due_from is not None:
             statement = statement.where(PurchaseInvoice.due_date >= filters.due_from)
@@ -137,7 +146,9 @@ class PurchaseInvoiceService:
         sort_column = columns.get(sort_by, PurchaseInvoice.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(sort_column.desc() if descending else sort_column.asc())
+                statement.order_by(
+                    sort_column.desc() if descending else sort_column.asc()
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -158,24 +169,42 @@ class PurchaseInvoiceService:
             for row in rows
             if row.due_date is not None
             and row.due_date < date.today()
-            and row.status not in {PurchaseInvoiceStatus.CANCELLED.value, PurchaseInvoiceStatus.CLOSED.value}
+            and row.status
+            not in {
+                PurchaseInvoiceStatus.CANCELLED.value,
+                PurchaseInvoiceStatus.CLOSED.value,
+            }
         )
         return PurchaseInvoiceSummary(
             total=len(rows),
-            draft=sum(1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value),
-            approved=sum(1 for row in rows if row.status == PurchaseInvoiceStatus.APPROVED.value),
-            cancelled=sum(1 for row in rows if row.status == PurchaseInvoiceStatus.CANCELLED.value),
-            closed=sum(1 for row in rows if row.status == PurchaseInvoiceStatus.CLOSED.value),
+            draft=sum(
+                1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value
+            ),
+            approved=sum(
+                1 for row in rows if row.status == PurchaseInvoiceStatus.APPROVED.value
+            ),
+            cancelled=sum(
+                1 for row in rows if row.status == PurchaseInvoiceStatus.CANCELLED.value
+            ),
+            closed=sum(
+                1 for row in rows if row.status == PurchaseInvoiceStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_invoices=sum(1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value),
+            pending_invoices=sum(
+                1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value
+            ),
             overdue_invoices=overdue,
         )
 
     def create_invoice(
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseInvoice:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
-        header, source_rows, line_specs = self._prepare_invoice_sources(data, firm_id=firm_id)
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
+        header, source_rows, line_specs = self._prepare_invoice_sources(
+            data, firm_id=firm_id
+        )
         branch_id = data.branch_id or header["branch_id"]
         vendor_id = data.vendor_id or header["vendor_id"]
         business_profile_id = data.business_profile_id
@@ -210,7 +239,9 @@ class PurchaseInvoiceService:
             invoice_date=data.invoice_date,
             supplier_invoice_number=data.supplier_invoice_number.strip(),
             supplier_invoice_date=data.supplier_invoice_date,
-            currency_code=(data.currency_code.strip().upper() if data.currency_code else None),
+            currency_code=(
+                data.currency_code.strip().upper() if data.currency_code else None
+            ),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
             due_date=data.due_date,
@@ -237,15 +268,21 @@ class PurchaseInvoiceService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_invoiced_quantity = line_totals["total_already_invoiced_quantity"]
-        row.total_current_invoice_quantity = line_totals["total_current_invoice_quantity"]
+        row.total_already_invoiced_quantity = line_totals[
+            "total_already_invoiced_quantity"
+        ]
+        row.total_current_invoice_quantity = line_totals[
+            "total_current_invoice_quantity"
+        ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
@@ -282,14 +319,18 @@ class PurchaseInvoiceService:
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")
         self._delete_children(row.id)
-        header, source_rows, line_specs = self._prepare_invoice_sources(data, firm_scope)
+        header, source_rows, line_specs = self._prepare_invoice_sources(
+            data, firm_scope
+        )
         row.vendor_id = data.vendor_id or header["vendor_id"]
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
         row.invoice_date = data.invoice_date
         row.supplier_invoice_number = data.supplier_invoice_number.strip()
         row.supplier_invoice_date = data.supplier_invoice_date
-        row.currency_code = data.currency_code.strip().upper() if data.currency_code else None
+        row.currency_code = (
+            data.currency_code.strip().upper() if data.currency_code else None
+        )
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         row.due_date = data.due_date
@@ -317,15 +358,21 @@ class PurchaseInvoiceService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_invoiced_quantity = line_totals["total_already_invoiced_quantity"]
-        row.total_current_invoice_quantity = line_totals["total_current_invoice_quantity"]
+        row.total_already_invoiced_quantity = line_totals[
+            "total_already_invoiced_quantity"
+        ]
+        row.total_current_invoice_quantity = line_totals[
+            "total_current_invoice_quantity"
+        ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_scope)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_scope
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_scope)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_scope)
         self._record_event(
@@ -348,7 +395,9 @@ class PurchaseInvoiceService:
         self._session.commit()
         return row
 
-    def approve_invoice(self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> PurchaseInvoice:
+    def approve_invoice(
+        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseInvoice:
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
@@ -385,7 +434,10 @@ class PurchaseInvoiceService:
         reason: str | None = None,
     ) -> PurchaseInvoice:
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
-        if row.status in {PurchaseInvoiceStatus.CANCELLED.value, PurchaseInvoiceStatus.CLOSED.value}:
+        if row.status in {
+            PurchaseInvoiceStatus.CANCELLED.value,
+            PurchaseInvoiceStatus.CLOSED.value,
+        }:
             raise ValidationError("This purchase invoice can no longer be cancelled.")
         before = row.status
         row.status = PurchaseInvoiceStatus.CANCELLED.value
@@ -474,10 +526,12 @@ class PurchaseInvoiceService:
         )
         lines = list(
             self._session.scalars(
-                select(PurchaseInvoiceLine).where(
+                select(PurchaseInvoiceLine)
+                .where(
                     PurchaseInvoiceLine.purchase_invoice_id == row.id,
                     PurchaseInvoiceLine.is_deleted.is_(False),
-                ).order_by(PurchaseInvoiceLine.line_number.asc())
+                )
+                .order_by(PurchaseInvoiceLine.line_number.asc())
             ).all()
         )
         attachments = list(
@@ -550,11 +604,15 @@ class PurchaseInvoiceService:
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
-            accounting_events=[self._accounting_event_response(item) for item in accounting_events],
+            accounting_events=[
+                self._accounting_event_response(item) for item in accounting_events
+            ],
             duplicate_warning=warning,
         )
 
-    def timeline(self, *, invoice_id: UUID, firm_scope: UUID, page: int, page_size: int):
+    def timeline(
+        self, *, invoice_id: UUID, firm_scope: UUID, page: int, page_size: int
+    ):
         return self._documents.list_timeline(
             firm_id=firm_scope,
             document_id=invoice_id,
@@ -584,18 +642,29 @@ class PurchaseInvoiceService:
                     PurchaseInvoice.due_date.is_not(None),
                     PurchaseInvoice.due_date < today,
                     PurchaseInvoice.status.not_in(
-                        [PurchaseInvoiceStatus.CANCELLED.value, PurchaseInvoiceStatus.CLOSED.value]
+                        [
+                            PurchaseInvoiceStatus.CANCELLED.value,
+                            PurchaseInvoiceStatus.CLOSED.value,
+                        ]
                     ),
                 )
             ).all()
         )
 
-    def register_report(self, *, firm_scope: UUID) -> list[PurchaseInvoiceRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseInvoiceRegisterRecord]:
         rows = list(
             self._session.scalars(
                 select(PurchaseInvoice)
-                .where(PurchaseInvoice.firm_id == firm_scope, PurchaseInvoice.is_deleted.is_(False))
-                .order_by(PurchaseInvoice.invoice_date.desc(), PurchaseInvoice.created_at.desc())
+                .where(
+                    PurchaseInvoice.firm_id == firm_scope,
+                    PurchaseInvoice.is_deleted.is_(False),
+                )
+                .order_by(
+                    PurchaseInvoice.invoice_date.desc(),
+                    PurchaseInvoice.created_at.desc(),
+                )
             ).all()
         )
         return [
@@ -613,7 +682,9 @@ class PurchaseInvoiceService:
             for row in rows
         ]
 
-    def outstanding_report(self, *, firm_scope: UUID) -> list[PurchaseInvoiceVendorOutstandingRecord]:
+    def outstanding_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseInvoiceVendorOutstandingRecord]:
         rows = list(
             self._session.scalars(
                 select(PurchaseInvoice).where(
@@ -652,7 +723,10 @@ class PurchaseInvoiceService:
         rows = list(
             self._session.scalars(
                 select(PurchaseInvoiceLine)
-                .join(PurchaseInvoice, PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id)
+                .join(
+                    PurchaseInvoice,
+                    PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+                )
                 .where(
                     PurchaseInvoice.firm_id == firm_scope,
                     PurchaseInvoice.is_deleted.is_(False),
@@ -662,10 +736,16 @@ class PurchaseInvoiceService:
         )
         result: list[PurchaseInvoiceReconciliationRecord] = []
         for row in rows:
-            pending = self._q(row.received_quantity - row.already_invoiced_quantity - row.current_invoice_quantity)
+            pending = self._q(
+                row.received_quantity
+                - row.already_invoiced_quantity
+                - row.current_invoice_quantity
+            )
             result.append(
                 PurchaseInvoiceReconciliationRecord(
-                    source_document_type=PurchaseInvoiceSourceType(row.source_document_type),
+                    source_document_type=PurchaseInvoiceSourceType(
+                        row.source_document_type
+                    ),
                     source_document_id=row.source_document_id,
                     source_document_number=row.source_document_number,
                     source_document_line_id=row.source_document_line_id,
@@ -678,7 +758,9 @@ class PurchaseInvoiceService:
             )
         return result
 
-    def export_invoices_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+    def export_invoices_csv(
+        self, *, firm_scope: UUID, search: str | None = None
+    ) -> str:
         rows, _ = self.list_invoices(
             firm_scope=firm_scope,
             filters=PurchaseInvoiceListFilters(),
@@ -718,7 +800,10 @@ class PurchaseInvoiceService:
     def import_invoices(
         self, data: PurchaseInvoiceImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseInvoice]:
-        return [self.create_invoice(record, firm_id=firm_scope, actor_id=actor_id) for record in data.records]
+        return [
+            self.create_invoice(record, firm_id=firm_scope, actor_id=actor_id)
+            for record in data.records
+        ]
 
     def _replace_sources(
         self,
@@ -764,11 +849,15 @@ class PurchaseInvoiceService:
             source_type = self._source_type(spec["source_document_type"])
             if source_type == PurchaseInvoiceSourceType.GOODS_RECEIPT.value:
                 source_line = self._session.scalar(
-                    select(GoodsReceiptLine).where(GoodsReceiptLine.id == spec["source_document_line_id"])
+                    select(GoodsReceiptLine).where(
+                        GoodsReceiptLine.id == spec["source_document_line_id"]
+                    )
                 )
             else:
                 source_line = self._session.scalar(
-                    select(PurchaseOrderLine).where(PurchaseOrderLine.id == spec["source_document_line_id"])
+                    select(PurchaseOrderLine).where(
+                        PurchaseOrderLine.id == spec["source_document_line_id"]
+                    )
                 )
             if source_line is None:
                 raise ResourceNotFoundError("Source document line not found.")
@@ -776,9 +865,15 @@ class PurchaseInvoiceService:
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
             invoice_uom_id = spec.get("invoice_uom_id")
-            conversion_factor = self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
+            conversion_factor = self._q(
+                Decimal(str(spec.get("conversion_factor", Decimal("1"))))
+            )
             invoice_quantity = requested_quantity
-            if source_uom_id is not None and invoice_uom_id is not None and invoice_uom_id != source_uom_id:
+            if (
+                source_uom_id is not None
+                and invoice_uom_id is not None
+                and invoice_uom_id != source_uom_id
+            ):
                 conversion = self._uom.convert_quantity(
                     ConversionRequest(
                         product_id=self._product_id(source_line),
@@ -795,8 +890,13 @@ class PurchaseInvoiceService:
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            if not row.allow_over_invoice and invoice_quantity + already_invoiced > source_quantity:
-                raise ValidationError("Invoice quantity exceeds the available source quantity.")
+            if (
+                not row.allow_over_invoice
+                and invoice_quantity + already_invoiced > source_quantity
+            ):
+                raise ValidationError(
+                    "Invoice quantity exceeds the available source quantity."
+                )
             tax_amount = self._tax_amount(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
@@ -818,7 +918,9 @@ class PurchaseInvoiceService:
             discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
-            net_amount = self._q(gross_amount - discount_amount + charges_amount + tax_amount)
+            net_amount = self._q(
+                gross_amount - discount_amount + charges_amount + tax_amount
+            )
             line = PurchaseInvoiceLine(
                 purchase_invoice_id=row.id,
                 firm_id=firm_id,
@@ -834,7 +936,9 @@ class PurchaseInvoiceService:
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
                 unit_price=unit_price,
-                discount_percent=self._q(Decimal(str(spec.get("discount_percent", ZERO)))),
+                discount_percent=self._q(
+                    Decimal(str(spec.get("discount_percent", ZERO)))
+                ),
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
@@ -861,7 +965,9 @@ class PurchaseInvoiceService:
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(gross_amount - discount_amount + charges_amount)
+            totals["subtotal"] += self._q(
+                gross_amount - discount_amount + charges_amount
+            )
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -906,7 +1012,11 @@ class PurchaseInvoiceService:
                 PurchaseInvoiceNote(
                     purchase_invoice_id=row.id,
                     firm_id=firm_id,
-                    note_type=note.note_type.value if hasattr(note.note_type, "value") else str(note.note_type),
+                    note_type=(
+                        note.note_type.value
+                        if hasattr(note.note_type, "value")
+                        else str(note.note_type)
+                    ),
                     note=note.note,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -920,9 +1030,24 @@ class PurchaseInvoiceService:
             PurchaseInvoiceAccountingEvent.purchase_invoice_id == row.id
         ).delete(synchronize_session=False)
         events = [
-            (PurchaseInvoiceAccountingEventType.PURCHASE_EXPENSE.value, "Purchase Expense", "DEBIT", row.subtotal),
-            (PurchaseInvoiceAccountingEventType.INPUT_TAX.value, "Input Tax", "DEBIT", row.tax_total),
-            (PurchaseInvoiceAccountingEventType.ACCOUNTS_PAYABLE.value, "Accounts Payable", "CREDIT", row.grand_total),
+            (
+                PurchaseInvoiceAccountingEventType.PURCHASE_EXPENSE.value,
+                "Purchase Expense",
+                "DEBIT",
+                row.subtotal,
+            ),
+            (
+                PurchaseInvoiceAccountingEventType.INPUT_TAX.value,
+                "Input Tax",
+                "DEBIT",
+                row.tax_total,
+            ),
+            (
+                PurchaseInvoiceAccountingEventType.ACCOUNTS_PAYABLE.value,
+                "Accounts Payable",
+                "CREDIT",
+                row.grand_total,
+            ),
         ]
         for event_type, account_name, direction, amount in events:
             self._session.add(
@@ -945,7 +1070,10 @@ class PurchaseInvoiceService:
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
-            (self._source_type(item["source_document_type"]), item["source_document_id"])
+            (
+                self._source_type(item["source_document_type"]),
+                item["source_document_id"],
+            )
             for item in lines
         }
         if not sources:
@@ -980,7 +1108,9 @@ class PurchaseInvoiceService:
                 )
             elif source_type == PurchaseInvoiceSourceType.PURCHASE_ORDER.value:
                 if not data.allow_direct_purchase_order:
-                    raise ValidationError("Direct purchase order invoicing is disabled.")
+                    raise ValidationError(
+                        "Direct purchase order invoicing is disabled."
+                    )
                 document = self._session.scalar(
                     select(PurchaseOrder).where(
                         PurchaseOrder.id == source_id,
@@ -1008,9 +1138,16 @@ class PurchaseInvoiceService:
         header["vendor_id"] = first["vendor_id"]
         header["branch_id"] = first["branch_id"]
         for source in source_rows[1:]:
-            if source["vendor_id"] != header["vendor_id"] or source["branch_id"] != header["branch_id"]:
-                raise ValidationError("All source documents must belong to the same vendor and branch.")
-        self._validate_line_sources(lines, {row["source_document_id"] for row in source_rows})
+            if (
+                source["vendor_id"] != header["vendor_id"]
+                or source["branch_id"] != header["branch_id"]
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same vendor and branch."
+                )
+        self._validate_line_sources(
+            lines, {row["source_document_id"] for row in source_rows}
+        )
         return header, source_rows, lines
 
     def _validate_line_sources(
@@ -1018,7 +1155,9 @@ class PurchaseInvoiceService:
     ) -> None:
         for line in lines:
             if line["source_document_id"] not in source_ids:
-                raise ValidationError("Every invoice line must reference a selected source document.")
+                raise ValidationError(
+                    "Every invoice line must reference a selected source document."
+                )
 
     def _delete_children(self, invoice_id: UUID) -> None:
         self._session.query(PurchaseInvoiceAccountingEvent).filter(
@@ -1051,8 +1190,28 @@ class PurchaseInvoiceService:
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
     ) -> Decimal:
-        if tax_profile_id is None or invoice_value <= ZERO:
+        if invoice_value <= ZERO:
             return ZERO
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
+        if tax_profile_id is None:
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, invoice_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, invoice_date, firm_scope=firm_id
+            )
         request = TaxRuleSimulationRequest(
             transaction_type="PURCHASE_INVOICE",
             transaction_date=invoice_date,
@@ -1069,14 +1228,26 @@ class PurchaseInvoiceService:
         return self._q(response.total_tax_amount)
 
     def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
-        if self._source_type(spec["source_document_type"]) == PurchaseInvoiceSourceType.GOODS_RECEIPT.value:
+        if (
+            self._source_type(spec["source_document_type"])
+            == PurchaseInvoiceSourceType.GOODS_RECEIPT.value
+        ):
             return self._q(getattr(source_line, "accepted_quantity", ZERO))
         return self._q(getattr(source_line, "ordered_quantity", ZERO))
 
-    def _already_invoiced_quantity(self, *, firm_id: UUID, source_document_line_id: UUID) -> Decimal:
+    def _already_invoiced_quantity(
+        self, *, firm_id: UUID, source_document_line_id: UUID
+    ) -> Decimal:
         total = self._session.scalar(
-            select(func.coalesce(func.sum(PurchaseInvoiceLine.current_invoice_quantity), ZERO))
-            .join(PurchaseInvoice, PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id)
+            select(
+                func.coalesce(
+                    func.sum(PurchaseInvoiceLine.current_invoice_quantity), ZERO
+                )
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
             .where(
                 PurchaseInvoice.firm_id == firm_id,
                 PurchaseInvoice.is_deleted.is_(False),
@@ -1094,37 +1265,50 @@ class PurchaseInvoiceService:
         return value.value if hasattr(value, "value") else str(value)
 
     def _source_uom_id(self, source_line: object) -> UUID | None:
-        return getattr(source_line, "purchase_uom_id", None) or getattr(source_line, "inventory_uom_id", None)
+        return getattr(source_line, "purchase_uom_id", None) or getattr(
+            source_line, "inventory_uom_id", None
+        )
 
     def _source_line_number(self, source_line: object) -> int:
-        return int(getattr(source_line, "line_number"))
+        return int(source_line.line_number)
 
     def _source_description(self, source_line: object) -> str | None:
         return getattr(source_line, "description", None)
 
-    def _source_document_number(self, spec: dict[str, object], source_line: object) -> str:
+    def _source_document_number(
+        self, spec: dict[str, object], source_line: object
+    ) -> str:
         source_number = spec.get("source_document_number")
         if source_number:
             return str(source_number)
         source_type = self._source_type(spec["source_document_type"])
         if source_type == PurchaseInvoiceSourceType.GOODS_RECEIPT.value:
             document = self._session.scalar(
-                select(GoodsReceipt).where(GoodsReceipt.id == getattr(source_line, "goods_receipt_id"))
+                select(GoodsReceipt).where(
+                    GoodsReceipt.id == source_line.goods_receipt_id
+                )
             )
             if document is not None:
                 return document.grn_number
         document = self._session.scalar(
-            select(PurchaseOrder).where(PurchaseOrder.id == getattr(source_line, "purchase_order_id"))
+            select(PurchaseOrder).where(
+                PurchaseOrder.id == source_line.purchase_order_id
+            )
         )
         if document is not None:
             return document.po_number
         return str(source_number or "")
 
     def _product_id(self, source_line: object) -> UUID:
-        return getattr(source_line, "product_id")
+        return source_line.product_id
 
     def _line_net_amount(
-        self, *, quantity: Decimal, unit_price: Decimal, discount_amount: Decimal, charges_amount: Decimal
+        self,
+        *,
+        quantity: Decimal,
+        unit_price: Decimal,
+        discount_amount: Decimal,
+        charges_amount: Decimal,
     ) -> Decimal:
         return self._q(quantity * unit_price - discount_amount + charges_amount)
 
@@ -1161,7 +1345,9 @@ class PurchaseInvoiceService:
         if current_id is not None:
             statement = statement.where(PurchaseInvoice.id != current_id)
         if self._session.scalar(statement) is not None:
-            return "A purchase invoice with this supplier invoice number already exists."
+            return (
+                "A purchase invoice with this supplier invoice number already exists."
+            )
         return None
 
     def _record_event(
@@ -1231,7 +1417,9 @@ class PurchaseInvoiceService:
             ("CANCELLED", "Cancelled", 3),
             ("CLOSED", "Closed", 4),
         ]:
-            if not self._state_exists(firm_id=firm_id, document_type_id=document_type.id, code=state_code):
+            if not self._state_exists(
+                firm_id=firm_id, document_type_id=document_type.id, code=state_code
+            ):
                 self._documents.create_state(
                     firm_id,
                     DocumentStateCreate(
@@ -1245,7 +1433,10 @@ class PurchaseInvoiceService:
                         allows_print=True,
                         allows_email=True,
                         allows_export_pdf=True,
-                        transition_rules={"module": "purchase_invoice", "state": state_code},
+                        transition_rules={
+                            "module": "purchase_invoice",
+                            "state": state_code,
+                        },
                         is_active=True,
                     ),
                     actor_id,
@@ -1282,7 +1473,9 @@ class PurchaseInvoiceService:
             )
         return document_type, numbering_rule
 
-    def _state_exists(self, *, firm_id: UUID, document_type_id: UUID, code: str) -> bool:
+    def _state_exists(
+        self, *, firm_id: UUID, document_type_id: UUID, code: str
+    ) -> bool:
         return (
             self._session.scalar(
                 select(DocumentStateDefinition.id).where(
@@ -1327,13 +1520,17 @@ class PurchaseInvoiceService:
             return ZERO
         return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
-    def _attachment_response(self, row: PurchaseInvoiceAttachment) -> PurchaseInvoiceAttachmentResponse:
+    def _attachment_response(
+        self, row: PurchaseInvoiceAttachment
+    ) -> PurchaseInvoiceAttachmentResponse:
         return PurchaseInvoiceAttachmentResponse.model_validate(row)
 
     def _note_response(self, row: PurchaseInvoiceNote) -> PurchaseInvoiceNoteResponse:
         return PurchaseInvoiceNoteResponse.model_validate(row)
 
-    def _source_response(self, row: PurchaseInvoiceSource) -> PurchaseInvoiceSourceResponse:
+    def _source_response(
+        self, row: PurchaseInvoiceSource
+    ) -> PurchaseInvoiceSourceResponse:
         return PurchaseInvoiceSourceResponse(
             id=row.id,
             source_document_type=PurchaseInvoiceSourceType(row.source_document_type),

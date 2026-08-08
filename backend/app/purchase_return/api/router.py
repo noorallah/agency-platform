@@ -4,7 +4,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -109,12 +119,24 @@ def _permission(code: str) -> object:
 
 
 PurchaseReturnViewScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_VIEW")]
-PurchaseReturnCreateScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_CREATE")]
-PurchaseReturnUpdateScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_UPDATE")]
-PurchaseReturnApproveScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_APPROVE")]
-PurchaseReturnCancelScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_CANCEL")]
-PurchaseReturnExportScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_EXPORT")]
-PurchaseReturnImportScope = Annotated[PurchaseReturnScope, _permission("PURCHASE_IMPORT")]
+PurchaseReturnCreateScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_CREATE")
+]
+PurchaseReturnUpdateScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_UPDATE")
+]
+PurchaseReturnApproveScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_APPROVE")
+]
+PurchaseReturnCancelScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_CANCEL")
+]
+PurchaseReturnExportScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_EXPORT")
+]
+PurchaseReturnImportScope = Annotated[
+    PurchaseReturnScope, _permission("PURCHASE_IMPORT")
+]
 
 
 def _filters(
@@ -150,7 +172,12 @@ def list_purchase_returns(
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "return_number", "return_date", "warehouse_id", "grand_total", "status", "created_at"
+        "return_number",
+        "return_date",
+        "warehouse_id",
+        "grand_total",
+        "status",
+        "created_at",
     ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     vendor_id: UUID | None = None,
@@ -196,7 +223,9 @@ def purchase_return_summary(
 
 
 @router.post(
-    "", response_model=ApiResponse[PurchaseReturnResponse], status_code=status.HTTP_201_CREATED
+    "",
+    response_model=ApiResponse[PurchaseReturnResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_purchase_return(
     data: PurchaseReturnCreate,
@@ -216,7 +245,9 @@ def update_purchase_return(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     service = PurchaseReturnService(db)
-    row = service.update_return(return_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_return(
+        return_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.return_response(row))
 
 
@@ -227,7 +258,9 @@ def approve_purchase_return(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     service = PurchaseReturnService(db)
-    row = service.approve_return(return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.approve_return(
+        return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.return_response(row))
 
 
@@ -265,14 +298,18 @@ def close_purchase_return(
     return ApiResponse(data=service.return_response(row))
 
 
-@router.post("/{return_id}/complete", response_model=ApiResponse[PurchaseReturnResponse])
+@router.post(
+    "/{return_id}/complete", response_model=ApiResponse[PurchaseReturnResponse]
+)
 def complete_purchase_return(
     return_id: UUID,
     scope: PurchaseReturnApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     service = PurchaseReturnService(db)
-    row = service.complete_return(return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.complete_return(
+        return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.return_response(row))
 
 
@@ -283,10 +320,17 @@ def get_purchase_return(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
     service = PurchaseReturnService(db)
-    return ApiResponse(data=service.return_response(service.get_return(return_id, firm_scope=scope.firm_id)))
+    return ApiResponse(
+        data=service.return_response(
+            service.get_return(return_id, firm_scope=scope.firm_id)
+        )
+    )
 
 
-@router.get("/{return_id}/history", response_model=ApiResponse[list[DocumentLifecycleEventResponse]])
+@router.get(
+    "/{return_id}/history",
+    response_model=ApiResponse[list[DocumentLifecycleEventResponse]],
+)
 def purchase_return_history(
     return_id: UUID,
     scope: PurchaseReturnViewScope,
@@ -295,65 +339,96 @@ def purchase_return_history(
     rows = PurchaseReturnService(db).timeline(
         return_id=return_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
-    return ApiResponse(data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/register", response_model=ApiResponse[list[PurchaseReturnRegisterRecord]])
+@router.get(
+    "/reports/register", response_model=ApiResponse[list[PurchaseReturnRegisterRecord]]
+)
 def purchase_return_register(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnRegisterRecord]]:
-    return ApiResponse(data=PurchaseReturnService(db).register_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseReturnService(db).register_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-vendor", response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]])
+@router.get(
+    "/reports/by-vendor",
+    response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]],
+)
 def returns_by_vendor(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
-    return ApiResponse(data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-product", response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]])
+@router.get(
+    "/reports/by-product",
+    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+)
 def returns_by_product(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
-    return ApiResponse(data=PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/damaged", response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]])
+@router.get(
+    "/reports/damaged",
+    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+)
 def damaged_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
     rows = [
         item
-        for item in PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+        for item in PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id
+        )
         if item.current_return_quantity > 0
     ]
     return ApiResponse(data=rows)
 
 
-@router.get("/reports/expired", response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]])
+@router.get(
+    "/reports/expired",
+    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+)
 def expired_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
     rows = [
         item
-        for item in PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+        for item in PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id
+        )
         if item.pending_quantity >= 0
     ]
     return ApiResponse(data=rows)
 
 
-@router.get("/reports/supplier-analysis", response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]])
+@router.get(
+    "/reports/supplier-analysis",
+    response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]],
+)
 def supplier_return_analysis(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
-    return ApiResponse(data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/export")

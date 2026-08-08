@@ -4,7 +4,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -156,7 +166,14 @@ def list_sales_orders(
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["order_number", "order_date", "delivery_date", "grand_total", "status", "created_at"] = "created_at",
+    sort_by: Literal[
+        "order_number",
+        "order_date",
+        "delivery_date",
+        "grand_total",
+        "status",
+        "created_at",
+    ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     customer_id: UUID | None = None,
     salesman_id: UUID | None = None,
@@ -204,7 +221,11 @@ def sales_order_summary(
     return ApiResponse(data=SalesOrderService(db).summary(firm_scope=scope.firm_id))
 
 
-@router.post("", response_model=ApiResponse[SalesOrderResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApiResponse[SalesOrderResponse],
+    status_code=status.HTTP_201_CREATED,
+)
 def create_sales_order(
     data: SalesOrderCreate,
     scope: SalesOrderCreateScope,
@@ -223,7 +244,9 @@ def update_sales_order(
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
     service = SalesOrderService(db)
-    row = service.update_order(order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_order(
+        order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.order_response(row))
 
 
@@ -234,7 +257,9 @@ def approve_sales_order(
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
     service = SalesOrderService(db)
-    row = service.approve_order(order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.approve_order(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.order_response(row))
 
 
@@ -279,36 +304,57 @@ def get_sales_order(
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
     service = SalesOrderService(db)
-    return ApiResponse(data=service.order_response(service.get_order(order_id, firm_scope=scope.firm_id)))
+    return ApiResponse(
+        data=service.order_response(
+            service.get_order(order_id, firm_scope=scope.firm_id)
+        )
+    )
 
 
-@router.get("/{order_id}/history", response_model=ApiResponse[list[DocumentLifecycleEventResponse]])
+@router.get(
+    "/{order_id}/history",
+    response_model=ApiResponse[list[DocumentLifecycleEventResponse]],
+)
 def sales_order_history(
     order_id: UUID,
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
-    rows = SalesOrderService(db).timeline(order_id=order_id, firm_scope=scope.firm_id, page=1, page_size=200)[0]
-    return ApiResponse(data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows])
+    rows = SalesOrderService(db).timeline(
+        order_id=order_id, firm_scope=scope.firm_id, page=1, page_size=200
+    )[0]
+    return ApiResponse(
+        data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/register", response_model=ApiResponse[list[SalesOrderRegisterRecord]])
+@router.get(
+    "/reports/register", response_model=ApiResponse[list[SalesOrderRegisterRecord]]
+)
 def sales_order_register(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderRegisterRecord]]:
-    return ApiResponse(data=SalesOrderService(db).register_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=SalesOrderService(db).register_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/pending", response_model=ApiResponse[list[SalesOrderPendingRecord]])
+@router.get(
+    "/reports/pending", response_model=ApiResponse[list[SalesOrderPendingRecord]]
+)
 def pending_sales_orders(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderPendingRecord]]:
-    return ApiResponse(data=SalesOrderService(db).pending_orders(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=SalesOrderService(db).pending_orders(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/back-orders", response_model=ApiResponse[list[SalesOrderBackOrderRecord]])
+@router.get(
+    "/reports/back-orders", response_model=ApiResponse[list[SalesOrderBackOrderRecord]]
+)
 def back_order_report(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
@@ -316,28 +362,41 @@ def back_order_report(
     return ApiResponse(data=SalesOrderService(db).back_orders(firm_scope=scope.firm_id))
 
 
-@router.get("/reports/by-customer", response_model=ApiResponse[list[SalesOrderByCustomerRecord]])
+@router.get(
+    "/reports/by-customer", response_model=ApiResponse[list[SalesOrderByCustomerRecord]]
+)
 def orders_by_customer(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByCustomerRecord]]:
-    return ApiResponse(data=SalesOrderService(db).orders_by_customer(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=SalesOrderService(db).orders_by_customer(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-salesman", response_model=ApiResponse[list[SalesOrderBySalesmanRecord]])
+@router.get(
+    "/reports/by-salesman", response_model=ApiResponse[list[SalesOrderBySalesmanRecord]]
+)
 def orders_by_salesman(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBySalesmanRecord]]:
-    return ApiResponse(data=SalesOrderService(db).orders_by_salesman(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=SalesOrderService(db).orders_by_salesman(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/by-territory", response_model=ApiResponse[list[SalesOrderByTerritoryRecord]])
+@router.get(
+    "/reports/by-territory",
+    response_model=ApiResponse[list[SalesOrderByTerritoryRecord]],
+)
 def orders_by_territory(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByTerritoryRecord]]:
-    return ApiResponse(data=SalesOrderService(db).orders_by_territory(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=SalesOrderService(db).orders_by_territory(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/export")
@@ -346,7 +405,9 @@ def export_sales_orders(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
-    csv_content = SalesOrderService(db).export_orders_csv(firm_scope=scope.firm_id, search=search)
+    csv_content = SalesOrderService(db).export_orders_csv(
+        firm_scope=scope.firm_id, search=search
+    )
     return StreamingResponse(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",

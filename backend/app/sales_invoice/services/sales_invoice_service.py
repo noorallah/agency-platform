@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -15,12 +15,12 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
 from app.customers.services.customer_service import CustomerService
-from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.models import (
     DocumentNumberingRule,
@@ -33,8 +33,11 @@ from app.document_framework.schemas import (
     DocumentStateCreate,
     DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import DocumentFrameworkService
+from app.document_framework.services.document_framework_service import (
+    DocumentFrameworkService,
+)
 from app.identity.models import User
+from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -53,7 +56,6 @@ from app.sales_invoice.schemas import (
     SalesInvoiceCustomerOutstandingRecord,
     SalesInvoiceImportRequest,
     SalesInvoiceLineResponse,
-    SalesInvoiceLineWrite,
     SalesInvoiceListFilters,
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
@@ -67,6 +69,7 @@ from app.sales_invoice.schemas import (
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -104,8 +107,10 @@ class SalesInvoiceService:
             "updated_at": SalesInvoice.updated_at,
         }
         statement = select(SalesInvoice).where(SalesInvoice.firm_id == firm_scope)
-        count = select(func.count()).select_from(SalesInvoice).where(
-            SalesInvoice.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(SalesInvoice)
+            .where(SalesInvoice.firm_id == firm_scope)
         )
         if not filters.include_deleted:
             statement = statement.where(SalesInvoice.is_deleted.is_(False))
@@ -120,13 +125,17 @@ class SalesInvoiceService:
             statement = statement.where(SalesInvoice.salesman_id == filters.salesman_id)
             count = count.where(SalesInvoice.salesman_id == filters.salesman_id)
         if filters.territory_id is not None:
-            statement = statement.where(SalesInvoice.territory_id == filters.territory_id)
+            statement = statement.where(
+                SalesInvoice.territory_id == filters.territory_id
+            )
             count = count.where(SalesInvoice.territory_id == filters.territory_id)
         if filters.status is not None:
             statement = statement.where(SalesInvoice.status == filters.status.value)
             count = count.where(SalesInvoice.status == filters.status.value)
         if filters.invoice_from is not None:
-            statement = statement.where(SalesInvoice.invoice_date >= filters.invoice_from)
+            statement = statement.where(
+                SalesInvoice.invoice_date >= filters.invoice_from
+            )
             count = count.where(SalesInvoice.invoice_date >= filters.invoice_from)
         if filters.invoice_to is not None:
             statement = statement.where(SalesInvoice.invoice_date <= filters.invoice_to)
@@ -150,7 +159,9 @@ class SalesInvoiceService:
         sort_column = columns.get(sort_by, SalesInvoice.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(sort_column.desc() if descending else sort_column.asc())
+                statement.order_by(
+                    sort_column.desc() if descending else sort_column.asc()
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -171,24 +182,39 @@ class SalesInvoiceService:
             for row in rows
             if row.due_date is not None
             and row.due_date < date.today()
-            and row.status not in {SalesInvoiceStatus.CANCELLED.value, SalesInvoiceStatus.CLOSED.value}
+            and row.status
+            not in {SalesInvoiceStatus.CANCELLED.value, SalesInvoiceStatus.CLOSED.value}
         )
         return SalesInvoiceSummary(
             total=len(rows),
-            draft=sum(1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value),
-            approved=sum(1 for row in rows if row.status == SalesInvoiceStatus.APPROVED.value),
-            cancelled=sum(1 for row in rows if row.status == SalesInvoiceStatus.CANCELLED.value),
-            closed=sum(1 for row in rows if row.status == SalesInvoiceStatus.CLOSED.value),
+            draft=sum(
+                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
+            ),
+            approved=sum(
+                1 for row in rows if row.status == SalesInvoiceStatus.APPROVED.value
+            ),
+            cancelled=sum(
+                1 for row in rows if row.status == SalesInvoiceStatus.CANCELLED.value
+            ),
+            closed=sum(
+                1 for row in rows if row.status == SalesInvoiceStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_invoices=sum(1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value),
+            pending_invoices=sum(
+                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
+            ),
             overdue_invoices=overdue,
         )
 
     def create_invoice(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesInvoice:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
-        header, source_rows, line_specs = self._prepare_invoice_sources(data, firm_id=firm_id)
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
+        header, source_rows, line_specs = self._prepare_invoice_sources(
+            data, firm_id=firm_id
+        )
         branch_id = data.branch_id or header["branch_id"]
         customer_id = data.customer_id or header["customer_id"]
         salesman_id = data.salesman_id or header.get("salesman_id")
@@ -199,11 +225,20 @@ class SalesInvoiceService:
             raise ValidationError("Invoice customer must match all source documents.")
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
-        if data.salesman_id is not None and header.get("salesman_id") not in {None, data.salesman_id}:
+        if data.salesman_id is not None and header.get("salesman_id") not in {
+            None,
+            data.salesman_id,
+        }:
             raise ValidationError("Invoice salesman must match all source documents.")
-        if data.territory_id is not None and header.get("territory_id") not in {None, data.territory_id}:
+        if data.territory_id is not None and header.get("territory_id") not in {
+            None,
+            data.territory_id,
+        }:
             raise ValidationError("Invoice territory must match all source documents.")
-        if data.route_id is not None and header.get("route_id") not in {None, data.route_id}:
+        if data.route_id is not None and header.get("route_id") not in {
+            None,
+            data.route_id,
+        }:
             raise ValidationError("Invoice route must match all source documents.")
         self._validate_scope_references(
             firm_id=firm_id,
@@ -240,9 +275,13 @@ class SalesInvoiceService:
             invoice_number=invoice_number,
             invoice_date=data.invoice_date,
             customer_invoice_number=(
-                data.customer_invoice_number.strip() if data.customer_invoice_number else None
+                data.customer_invoice_number.strip()
+                if data.customer_invoice_number
+                else None
             ),
-            currency_code=(data.currency_code.strip().upper() if data.currency_code else None),
+            currency_code=(
+                data.currency_code.strip().upper() if data.currency_code else None
+            ),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
             due_date=data.due_date,
@@ -269,15 +308,21 @@ class SalesInvoiceService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_invoiced_quantity = line_totals["total_already_invoiced_quantity"]
-        row.total_current_invoice_quantity = line_totals["total_current_invoice_quantity"]
+        row.total_already_invoiced_quantity = line_totals[
+            "total_already_invoiced_quantity"
+        ]
+        row.total_current_invoice_quantity = line_totals[
+            "total_current_invoice_quantity"
+        ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
@@ -323,9 +368,13 @@ class SalesInvoiceService:
         row.route_id = data.route_id or header.get("route_id")
         row.invoice_date = data.invoice_date
         row.customer_invoice_number = (
-            data.customer_invoice_number.strip() if data.customer_invoice_number else None
+            data.customer_invoice_number.strip()
+            if data.customer_invoice_number
+            else None
         )
-        row.currency_code = data.currency_code.strip().upper() if data.currency_code else None
+        row.currency_code = (
+            data.currency_code.strip().upper() if data.currency_code else None
+        )
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         row.due_date = data.due_date
@@ -341,11 +390,20 @@ class SalesInvoiceService:
             raise ValidationError("Invoice customer must match all source documents.")
         if row.branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
-        if data.salesman_id is not None and header.get("salesman_id") not in {None, data.salesman_id}:
+        if data.salesman_id is not None and header.get("salesman_id") not in {
+            None,
+            data.salesman_id,
+        }:
             raise ValidationError("Invoice salesman must match all source documents.")
-        if data.territory_id is not None and header.get("territory_id") not in {None, data.territory_id}:
+        if data.territory_id is not None and header.get("territory_id") not in {
+            None,
+            data.territory_id,
+        }:
             raise ValidationError("Invoice territory must match all source documents.")
-        if data.route_id is not None and header.get("route_id") not in {None, data.route_id}:
+        if data.route_id is not None and header.get("route_id") not in {
+            None,
+            data.route_id,
+        }:
             raise ValidationError("Invoice route must match all source documents.")
         self._validate_scope_references(
             firm_id=firm_id,
@@ -369,15 +427,21 @@ class SalesInvoiceService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_invoiced_quantity = line_totals["total_already_invoiced_quantity"]
-        row.total_current_invoice_quantity = line_totals["total_current_invoice_quantity"]
+        row.total_already_invoiced_quantity = line_totals[
+            "total_already_invoiced_quantity"
+        ]
+        row.total_current_invoice_quantity = line_totals[
+            "total_current_invoice_quantity"
+        ]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
@@ -400,7 +464,9 @@ class SalesInvoiceService:
         self._session.commit()
         return row
 
-    def approve_invoice(self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> SalesInvoice:
+    def approve_invoice(
+        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesInvoice:
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
@@ -452,7 +518,10 @@ class SalesInvoiceService:
         reason: str | None = None,
     ) -> SalesInvoice:
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
-        if row.status in {SalesInvoiceStatus.CANCELLED.value, SalesInvoiceStatus.CLOSED.value}:
+        if row.status in {
+            SalesInvoiceStatus.CANCELLED.value,
+            SalesInvoiceStatus.CLOSED.value,
+        }:
             raise ValidationError("This sales invoice can no longer be cancelled.")
         before = row.status
         row.status = SalesInvoiceStatus.CANCELLED.value
@@ -558,10 +627,12 @@ class SalesInvoiceService:
         )
         lines = list(
             self._session.scalars(
-                select(SalesInvoiceLine).where(
+                select(SalesInvoiceLine)
+                .where(
                     SalesInvoiceLine.sales_invoice_id == row.id,
                     SalesInvoiceLine.is_deleted.is_(False),
-                ).order_by(SalesInvoiceLine.line_number.asc())
+                )
+                .order_by(SalesInvoiceLine.line_number.asc())
             ).all()
         )
         attachments = list(
@@ -636,11 +707,15 @@ class SalesInvoiceService:
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
-            accounting_events=[self._accounting_event_response(item) for item in accounting_events],
+            accounting_events=[
+                self._accounting_event_response(item) for item in accounting_events
+            ],
             duplicate_warning=warning,
         )
 
-    def timeline(self, *, invoice_id: UUID, firm_scope: UUID, page: int, page_size: int):
+    def timeline(
+        self, *, invoice_id: UUID, firm_scope: UUID, page: int, page_size: int
+    ):
         return self._documents.list_timeline(
             firm_id=firm_scope,
             document_id=invoice_id,
@@ -670,7 +745,10 @@ class SalesInvoiceService:
                     SalesInvoice.due_date.is_not(None),
                     SalesInvoice.due_date < today,
                     SalesInvoice.status.not_in(
-                        [SalesInvoiceStatus.CANCELLED.value, SalesInvoiceStatus.CLOSED.value]
+                        [
+                            SalesInvoiceStatus.CANCELLED.value,
+                            SalesInvoiceStatus.CLOSED.value,
+                        ]
                     ),
                 )
             ).all()
@@ -680,8 +758,13 @@ class SalesInvoiceService:
         rows = list(
             self._session.scalars(
                 select(SalesInvoice)
-                .where(SalesInvoice.firm_id == firm_scope, SalesInvoice.is_deleted.is_(False))
-                .order_by(SalesInvoice.invoice_date.desc(), SalesInvoice.created_at.desc())
+                .where(
+                    SalesInvoice.firm_id == firm_scope,
+                    SalesInvoice.is_deleted.is_(False),
+                )
+                .order_by(
+                    SalesInvoice.invoice_date.desc(), SalesInvoice.created_at.desc()
+                )
             ).all()
         )
         return [
@@ -699,7 +782,9 @@ class SalesInvoiceService:
             for row in rows
         ]
 
-    def outstanding_report(self, *, firm_scope: UUID) -> list[SalesInvoiceCustomerOutstandingRecord]:
+    def outstanding_report(
+        self, *, firm_scope: UUID
+    ) -> list[SalesInvoiceCustomerOutstandingRecord]:
         rows = list(
             self._session.scalars(
                 select(Customer).where(
@@ -734,7 +819,9 @@ class SalesInvoiceService:
         rows = list(
             self._session.scalars(
                 select(SalesInvoiceLine)
-                .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+                .join(
+                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
+                )
                 .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
@@ -744,10 +831,16 @@ class SalesInvoiceService:
         )
         result: list[SalesInvoiceReconciliationRecord] = []
         for row in rows:
-            pending = self._q(row.delivered_quantity - row.already_invoiced_quantity - row.current_invoice_quantity)
+            pending = self._q(
+                row.delivered_quantity
+                - row.already_invoiced_quantity
+                - row.current_invoice_quantity
+            )
             result.append(
                 SalesInvoiceReconciliationRecord(
-                    source_document_type=SalesInvoiceSourceType(row.source_document_type),
+                    source_document_type=SalesInvoiceSourceType(
+                        row.source_document_type
+                    ),
                     source_document_id=row.source_document_id,
                     source_document_number=row.source_document_number,
                     source_document_line_id=row.source_document_line_id,
@@ -760,7 +853,9 @@ class SalesInvoiceService:
             )
         return result
 
-    def export_invoices_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+    def export_invoices_csv(
+        self, *, firm_scope: UUID, search: str | None = None
+    ) -> str:
         rows, _ = self.list_invoices(
             firm_scope=firm_scope,
             filters=SalesInvoiceListFilters(),
@@ -800,7 +895,10 @@ class SalesInvoiceService:
     def import_invoices(
         self, data: SalesInvoiceImportRequest, *, firm_id: UUID, actor_id: UUID
     ) -> list[SalesInvoice]:
-        return [self.create_invoice(record, firm_id=firm_id, actor_id=actor_id) for record in data.records]
+        return [
+            self.create_invoice(record, firm_id=firm_id, actor_id=actor_id)
+            for record in data.records
+        ]
 
     def _replace_sources(
         self,
@@ -846,11 +944,15 @@ class SalesInvoiceService:
             source_type = self._source_type(spec["source_document_type"])
             if source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value:
                 source_line = self._session.scalar(
-                    select(DeliveryNoteLine).where(DeliveryNoteLine.id == spec["source_document_line_id"])
+                    select(DeliveryNoteLine).where(
+                        DeliveryNoteLine.id == spec["source_document_line_id"]
+                    )
                 )
             else:
                 source_line = self._session.scalar(
-                    select(SalesOrderLine).where(SalesOrderLine.id == spec["source_document_line_id"])
+                    select(SalesOrderLine).where(
+                        SalesOrderLine.id == spec["source_document_line_id"]
+                    )
                 )
             if source_line is None:
                 raise ResourceNotFoundError("Source document line not found.")
@@ -858,9 +960,15 @@ class SalesInvoiceService:
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
             invoice_uom_id = spec.get("invoice_uom_id")
-            conversion_factor = self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
+            conversion_factor = self._q(
+                Decimal(str(spec.get("conversion_factor", Decimal("1"))))
+            )
             invoice_quantity = requested_quantity
-            if source_uom_id is not None and invoice_uom_id is not None and invoice_uom_id != source_uom_id:
+            if (
+                source_uom_id is not None
+                and invoice_uom_id is not None
+                and invoice_uom_id != source_uom_id
+            ):
                 conversion = self._uom.convert_quantity(
                     ConversionRequest(
                         product_id=self._product_id(source_line),
@@ -881,10 +989,16 @@ class SalesInvoiceService:
             if row.allow_over_invoice:
                 allowed_quantity = self._q(
                     source_quantity
-                    + (source_quantity * self._q(row.over_invoice_percent) / Decimal("100"))
+                    + (
+                        source_quantity
+                        * self._q(row.over_invoice_percent)
+                        / Decimal("100")
+                    )
                 )
             if invoice_quantity + already_invoiced > allowed_quantity:
-                raise ValidationError("Invoice quantity exceeds the available source quantity.")
+                raise ValidationError(
+                    "Invoice quantity exceeds the available source quantity."
+                )
             tax_amount = self._tax_amount(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
@@ -906,7 +1020,9 @@ class SalesInvoiceService:
             discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
-            net_amount = self._q(gross_amount - discount_amount + charges_amount + tax_amount)
+            net_amount = self._q(
+                gross_amount - discount_amount + charges_amount + tax_amount
+            )
             line = SalesInvoiceLine(
                 sales_invoice_id=row.id,
                 firm_id=firm_id,
@@ -922,7 +1038,9 @@ class SalesInvoiceService:
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
                 unit_price=unit_price,
-                discount_percent=self._q(Decimal(str(spec.get("discount_percent", ZERO)))),
+                discount_percent=self._q(
+                    Decimal(str(spec.get("discount_percent", ZERO)))
+                ),
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
@@ -949,7 +1067,9 @@ class SalesInvoiceService:
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(gross_amount - discount_amount + charges_amount)
+            totals["subtotal"] += self._q(
+                gross_amount - discount_amount + charges_amount
+            )
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -994,7 +1114,11 @@ class SalesInvoiceService:
                 SalesInvoiceNote(
                     sales_invoice_id=row.id,
                     firm_id=firm_id,
-                    note_type=note.note_type.value if hasattr(note.note_type, "value") else str(note.note_type),
+                    note_type=(
+                        note.note_type.value
+                        if hasattr(note.note_type, "value")
+                        else str(note.note_type)
+                    ),
                     note=note.note,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -1008,9 +1132,24 @@ class SalesInvoiceService:
             SalesInvoiceAccountingEvent.sales_invoice_id == row.id
         ).delete(synchronize_session=False)
         events = [
-            (SalesInvoiceAccountingEventType.SALES_REVENUE.value, "Sales Revenue", "CREDIT", row.subtotal),
-            (SalesInvoiceAccountingEventType.OUTPUT_TAX.value, "Output Tax", "CREDIT", row.tax_total),
-            (SalesInvoiceAccountingEventType.ACCOUNTS_RECEIVABLE.value, "Accounts Receivable", "DEBIT", row.grand_total),
+            (
+                SalesInvoiceAccountingEventType.SALES_REVENUE.value,
+                "Sales Revenue",
+                "CREDIT",
+                row.subtotal,
+            ),
+            (
+                SalesInvoiceAccountingEventType.OUTPUT_TAX.value,
+                "Output Tax",
+                "CREDIT",
+                row.tax_total,
+            ),
+            (
+                SalesInvoiceAccountingEventType.ACCOUNTS_RECEIVABLE.value,
+                "Accounts Receivable",
+                "DEBIT",
+                row.grand_total,
+            ),
         ]
         for event_type, account_name, direction, amount in events:
             self._session.add(
@@ -1033,7 +1172,10 @@ class SalesInvoiceService:
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
-            (self._source_type(item["source_document_type"]), item["source_document_id"])
+            (
+                self._source_type(item["source_document_type"]),
+                item["source_document_id"],
+            )
             for item in lines
         }
         if not sources:
@@ -1108,19 +1250,37 @@ class SalesInvoiceService:
         if first.get("route_id") is not None:
             header["route_id"] = first["route_id"]
         for source in source_rows[1:]:
-            if source["customer_id"] != header["customer_id"] or source["branch_id"] != header["branch_id"]:
-                raise ValidationError("All source documents must belong to the same customer and branch.")
-            if header.get("salesman_id") not in {None, source.get("salesman_id")} and source.get(
-                "salesman_id"
-            ) is not None:
-                raise ValidationError("All source documents must belong to the same salesman.")
-            if header.get("territory_id") not in {None, source.get("territory_id")} and source.get(
-                "territory_id"
-            ) is not None:
-                raise ValidationError("All source documents must belong to the same territory.")
-            if header.get("route_id") not in {None, source.get("route_id")} and source.get("route_id") is not None:
-                raise ValidationError("All source documents must belong to the same route.")
-        self._validate_line_sources(lines, {row["source_document_id"] for row in source_rows})
+            if (
+                source["customer_id"] != header["customer_id"]
+                or source["branch_id"] != header["branch_id"]
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same customer and branch."
+                )
+            if (
+                header.get("salesman_id") not in {None, source.get("salesman_id")}
+                and source.get("salesman_id") is not None
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same salesman."
+                )
+            if (
+                header.get("territory_id") not in {None, source.get("territory_id")}
+                and source.get("territory_id") is not None
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same territory."
+                )
+            if (
+                header.get("route_id") not in {None, source.get("route_id")}
+                and source.get("route_id") is not None
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same route."
+                )
+        self._validate_line_sources(
+            lines, {row["source_document_id"] for row in source_rows}
+        )
         return header, source_rows, lines
 
     def _validate_line_sources(
@@ -1128,7 +1288,9 @@ class SalesInvoiceService:
     ) -> None:
         for line in lines:
             if line["source_document_id"] not in source_ids:
-                raise ValidationError("Every invoice line must reference a selected source document.")
+                raise ValidationError(
+                    "Every invoice line must reference a selected source document."
+                )
 
     def _delete_children(self, invoice_id: UUID) -> None:
         self._session.query(SalesInvoiceAccountingEvent).filter(
@@ -1161,8 +1323,28 @@ class SalesInvoiceService:
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
     ) -> Decimal:
-        if tax_profile_id is None or invoice_value <= ZERO:
+        if invoice_value <= ZERO:
             return ZERO
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
+        if tax_profile_id is None:
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, invoice_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, invoice_date, firm_scope=firm_id
+            )
         request = TaxRuleSimulationRequest(
             transaction_type="SALES_INVOICE",
             transaction_date=invoice_date,
@@ -1179,13 +1361,20 @@ class SalesInvoiceService:
         return self._q(response.total_tax_amount)
 
     def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
-        if self._source_type(spec["source_document_type"]) == SalesInvoiceSourceType.DELIVERY_NOTE.value:
+        if (
+            self._source_type(spec["source_document_type"])
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value
+        ):
             return self._q(getattr(source_line, "delivered_quantity", ZERO))
         return self._q(getattr(source_line, "quantity", ZERO))
 
-    def _already_invoiced_quantity(self, *, firm_id: UUID, source_document_line_id: UUID) -> Decimal:
+    def _already_invoiced_quantity(
+        self, *, firm_id: UUID, source_document_line_id: UUID
+    ) -> Decimal:
         total = self._session.scalar(
-            select(func.coalesce(func.sum(SalesInvoiceLine.current_invoice_quantity), ZERO))
+            select(
+                func.coalesce(func.sum(SalesInvoiceLine.current_invoice_quantity), ZERO)
+            )
             .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
             .where(
                 SalesInvoice.firm_id == firm_id,
@@ -1204,37 +1393,48 @@ class SalesInvoiceService:
         return value.value if hasattr(value, "value") else str(value)
 
     def _source_uom_id(self, source_line: object) -> UUID | None:
-        return getattr(source_line, "sales_uom_id", None) or getattr(source_line, "inventory_uom_id", None)
+        return getattr(source_line, "sales_uom_id", None) or getattr(
+            source_line, "inventory_uom_id", None
+        )
 
     def _source_line_number(self, source_line: object) -> int:
-        return int(getattr(source_line, "line_number"))
+        return int(source_line.line_number)
 
     def _source_description(self, source_line: object) -> str | None:
         return getattr(source_line, "description", None)
 
-    def _source_document_number(self, spec: dict[str, object], source_line: object) -> str:
+    def _source_document_number(
+        self, spec: dict[str, object], source_line: object
+    ) -> str:
         source_number = spec.get("source_document_number")
         if source_number:
             return str(source_number)
         source_type = self._source_type(spec["source_document_type"])
         if source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value:
             document = self._session.scalar(
-                select(DeliveryNote).where(DeliveryNote.id == getattr(source_line, "delivery_note_id"))
+                select(DeliveryNote).where(
+                    DeliveryNote.id == source_line.delivery_note_id
+                )
             )
             if document is not None:
                 return document.delivery_note_number
         document = self._session.scalar(
-            select(SalesOrder).where(SalesOrder.id == getattr(source_line, "sales_order_id"))
+            select(SalesOrder).where(SalesOrder.id == source_line.sales_order_id)
         )
         if document is not None:
             return document.order_number
         return str(source_number or "")
 
     def _product_id(self, source_line: object) -> UUID:
-        return getattr(source_line, "product_id")
+        return source_line.product_id
 
     def _line_net_amount(
-        self, *, quantity: Decimal, unit_price: Decimal, discount_amount: Decimal, charges_amount: Decimal
+        self,
+        *,
+        quantity: Decimal,
+        unit_price: Decimal,
+        discount_amount: Decimal,
+        charges_amount: Decimal,
     ) -> Decimal:
         return self._q(quantity * unit_price - discount_amount + charges_amount)
 
@@ -1248,7 +1448,9 @@ class SalesInvoiceService:
     ) -> None:
         if salesman_id is not None:
             user = self._session.scalar(
-                select(User.id).where(User.id == salesman_id, User.is_deleted.is_(False))
+                select(User.id).where(
+                    User.id == salesman_id, User.is_deleted.is_(False)
+                )
             )
             if user is None:
                 raise ValidationError("Salesman user not found.")
@@ -1297,7 +1499,9 @@ class SalesInvoiceService:
         customer_invoice_number: str | None,
         current_id: UUID | None,
     ) -> str | None:
-        normalized_number = customer_invoice_number.strip() if customer_invoice_number else None
+        normalized_number = (
+            customer_invoice_number.strip() if customer_invoice_number else None
+        )
         if not normalized_number:
             return None
         statement = select(SalesInvoice.id).where(
@@ -1379,7 +1583,9 @@ class SalesInvoiceService:
             ("CANCELLED", "Cancelled", 3),
             ("CLOSED", "Closed", 4),
         ]:
-            if not self._state_exists(firm_id=firm_id, document_type_id=document_type.id, code=state_code):
+            if not self._state_exists(
+                firm_id=firm_id, document_type_id=document_type.id, code=state_code
+            ):
                 self._documents.create_state(
                     firm_id,
                     DocumentStateCreate(
@@ -1393,7 +1599,10 @@ class SalesInvoiceService:
                         allows_print=True,
                         allows_email=True,
                         allows_export_pdf=True,
-                        transition_rules={"module": "sales_invoice", "state": state_code},
+                        transition_rules={
+                            "module": "sales_invoice",
+                            "state": state_code,
+                        },
                         is_active=True,
                     ),
                     actor_id,
@@ -1430,7 +1639,9 @@ class SalesInvoiceService:
             )
         return document_type, numbering_rule
 
-    def _state_exists(self, *, firm_id: UUID, document_type_id: UUID, code: str) -> bool:
+    def _state_exists(
+        self, *, firm_id: UUID, document_type_id: UUID, code: str
+    ) -> bool:
         return (
             self._session.scalar(
                 select(DocumentStateDefinition.id).where(
@@ -1475,7 +1686,9 @@ class SalesInvoiceService:
             return ZERO
         return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
-    def _attachment_response(self, row: SalesInvoiceAttachment) -> SalesInvoiceAttachmentResponse:
+    def _attachment_response(
+        self, row: SalesInvoiceAttachment
+    ) -> SalesInvoiceAttachmentResponse:
         return SalesInvoiceAttachmentResponse.model_validate(row)
 
     def _note_response(self, row: SalesInvoiceNote) -> SalesInvoiceNoteResponse:

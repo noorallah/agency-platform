@@ -42,12 +42,24 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
     line_number: int = Field(ge=1)
     description: str | None = Field(default=None, max_length=500)
     current_receipt_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    rejected_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    damaged_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    rejected_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    damaged_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    free_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -69,9 +81,13 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     invoice_reference: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_over_receipt: bool = False
-    over_receipt_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
+    over_receipt_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
     lines: list[GoodsReceiptLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[GoodsReceiptAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[GoodsReceiptAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[GoodsReceiptNoteWrite] = Field(default_factory=list, max_length=500)
     grn_number: str | None = Field(default=None, max_length=60)
 

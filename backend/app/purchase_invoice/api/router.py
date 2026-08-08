@@ -4,7 +4,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -109,12 +119,24 @@ def _permission(code: str) -> object:
 
 
 PurchaseInvoiceViewScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_VIEW")]
-PurchaseInvoiceCreateScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_CREATE")]
-PurchaseInvoiceUpdateScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_UPDATE")]
-PurchaseInvoiceApproveScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_APPROVE")]
-PurchaseInvoiceCancelScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_CANCEL")]
-PurchaseInvoiceExportScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_EXPORT")]
-PurchaseInvoiceImportScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_IMPORT")]
+PurchaseInvoiceCreateScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_CREATE")
+]
+PurchaseInvoiceUpdateScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_UPDATE")
+]
+PurchaseInvoiceApproveScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_APPROVE")
+]
+PurchaseInvoiceCancelScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_CANCEL")
+]
+PurchaseInvoiceExportScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_EXPORT")
+]
+PurchaseInvoiceImportScope = Annotated[
+    PurchaseInvoiceScope, _permission("PURCHASE_IMPORT")
+]
 
 
 def _filters(
@@ -152,7 +174,12 @@ def list_purchase_invoices(
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "invoice_number", "invoice_date", "due_date", "grand_total", "status", "created_at"
+        "invoice_number",
+        "invoice_date",
+        "due_date",
+        "grand_total",
+        "status",
+        "created_at",
     ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     vendor_id: UUID | None = None,
@@ -196,11 +223,15 @@ def purchase_invoice_summary(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceSummary]:
-    return ApiResponse(data=PurchaseInvoiceService(db).summary(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).summary(firm_scope=scope.firm_id)
+    )
 
 
 @router.post(
-    "", response_model=ApiResponse[PurchaseInvoiceResponse], status_code=status.HTTP_201_CREATED
+    "",
+    response_model=ApiResponse[PurchaseInvoiceResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_purchase_invoice(
     data: PurchaseInvoiceCreate,
@@ -220,22 +251,30 @@ def update_purchase_invoice(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
     service = PurchaseInvoiceService(db)
-    row = service.update_invoice(invoice_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_invoice(
+        invoice_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.invoice_response(row))
 
 
-@router.post("/{invoice_id}/approve", response_model=ApiResponse[PurchaseInvoiceResponse])
+@router.post(
+    "/{invoice_id}/approve", response_model=ApiResponse[PurchaseInvoiceResponse]
+)
 def approve_purchase_invoice(
     invoice_id: UUID,
     scope: PurchaseInvoiceApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
     service = PurchaseInvoiceService(db)
-    row = service.approve_invoice(invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.approve_invoice(
+        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.invoice_response(row))
 
 
-@router.post("/{invoice_id}/cancel", response_model=ApiResponse[PurchaseInvoiceResponse])
+@router.post(
+    "/{invoice_id}/cancel", response_model=ApiResponse[PurchaseInvoiceResponse]
+)
 def cancel_purchase_invoice(
     invoice_id: UUID,
     data: ActionReasonRequest,
@@ -276,10 +315,17 @@ def get_purchase_invoice(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
     service = PurchaseInvoiceService(db)
-    return ApiResponse(data=service.invoice_response(service.get_invoice(invoice_id, firm_scope=scope.firm_id)))
+    return ApiResponse(
+        data=service.invoice_response(
+            service.get_invoice(invoice_id, firm_scope=scope.firm_id)
+        )
+    )
 
 
-@router.get("/{invoice_id}/history", response_model=ApiResponse[list[DocumentLifecycleEventResponse]])
+@router.get(
+    "/{invoice_id}/history",
+    response_model=ApiResponse[list[DocumentLifecycleEventResponse]],
+)
 def purchase_invoice_history(
     invoice_id: UUID,
     scope: PurchaseInvoiceViewScope,
@@ -288,49 +334,79 @@ def purchase_invoice_history(
     rows = PurchaseInvoiceService(db).timeline(
         invoice_id=invoice_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
-    return ApiResponse(data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[DocumentLifecycleEventResponse.model_validate(item) for item in rows]
+    )
 
 
-@router.get("/reports/pending", response_model=ApiResponse[list[PurchaseInvoiceResponse]])
+@router.get(
+    "/reports/pending", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
+)
 def pending_purchase_invoices(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
     service = PurchaseInvoiceService(db)
-    return ApiResponse(data=[service.invoice_response(item) for item in service.pending_invoices(firm_scope=scope.firm_id)])
+    return ApiResponse(
+        data=[
+            service.invoice_response(item)
+            for item in service.pending_invoices(firm_scope=scope.firm_id)
+        ]
+    )
 
 
-@router.get("/reports/overdue", response_model=ApiResponse[list[PurchaseInvoiceResponse]])
+@router.get(
+    "/reports/overdue", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
+)
 def overdue_purchase_invoices(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
     service = PurchaseInvoiceService(db)
-    return ApiResponse(data=[service.invoice_response(item) for item in service.overdue_invoices(firm_scope=scope.firm_id)])
+    return ApiResponse(
+        data=[
+            service.invoice_response(item)
+            for item in service.overdue_invoices(firm_scope=scope.firm_id)
+        ]
+    )
 
 
-@router.get("/reports/register", response_model=ApiResponse[list[PurchaseInvoiceRegisterRecord]])
+@router.get(
+    "/reports/register", response_model=ApiResponse[list[PurchaseInvoiceRegisterRecord]]
+)
 def purchase_invoice_register(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceRegisterRecord]]:
-    return ApiResponse(data=PurchaseInvoiceService(db).register_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).register_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/outstanding", response_model=ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]])
+@router.get(
+    "/reports/outstanding",
+    response_model=ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]],
+)
 def vendor_outstanding_placeholder(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]]:
-    return ApiResponse(data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/reports/reconciliation", response_model=ApiResponse[list[PurchaseInvoiceReconciliationRecord]])
+@router.get(
+    "/reports/reconciliation",
+    response_model=ApiResponse[list[PurchaseInvoiceReconciliationRecord]],
+)
 def invoice_reconciliation_report(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceReconciliationRecord]]:
-    return ApiResponse(data=PurchaseInvoiceService(db).reconciliation_report(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).reconciliation_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/export")
@@ -372,4 +448,3 @@ async def import_purchase_invoices(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=[service.invoice_response(item) for item in rows])
-

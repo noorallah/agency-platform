@@ -6,14 +6,14 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.branches.models import Branch, Warehouse, WarehouseStorageNode
+from app.branches.models import Branch, Warehouse
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -29,7 +29,9 @@ from app.document_framework.schemas import (
     DocumentStateCreate,
     DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import DocumentFrameworkService
+from app.document_framework.services.document_framework_service import (
+    DocumentFrameworkService,
+)
 from app.firms.models import Firm
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
@@ -63,6 +65,7 @@ from app.sales_order.schemas import (
     SalesOrderSummary,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -101,7 +104,11 @@ class SalesOrderService:
             "updated_at": SalesOrder.updated_at,
         }
         statement = select(SalesOrder).where(SalesOrder.firm_id == firm_scope)
-        count = select(func.count()).select_from(SalesOrder).where(SalesOrder.firm_id == firm_scope)
+        count = (
+            select(func.count())
+            .select_from(SalesOrder)
+            .where(SalesOrder.firm_id == firm_scope)
+        )
         if not filters.include_deleted:
             statement = statement.where(SalesOrder.is_deleted.is_(False))
             count = count.where(SalesOrder.is_deleted.is_(False))
@@ -142,7 +149,9 @@ class SalesOrderService:
         order_column = columns.get(sort_by, SalesOrder.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(order_column.desc() if descending else order_column.asc())
+                statement.order_by(
+                    order_column.desc() if descending else order_column.asc()
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -161,14 +170,24 @@ class SalesOrderService:
         return SalesOrderSummary(
             total=len(rows),
             draft=sum(1 for row in rows if row.status == SalesOrderStatus.DRAFT.value),
-            approved=sum(1 for row in rows if row.status == SalesOrderStatus.APPROVED.value),
-            cancelled=sum(1 for row in rows if row.status == SalesOrderStatus.CANCELLED.value),
-            closed=sum(1 for row in rows if row.status == SalesOrderStatus.CLOSED.value),
+            approved=sum(
+                1 for row in rows if row.status == SalesOrderStatus.APPROVED.value
+            ),
+            cancelled=sum(
+                1 for row in rows if row.status == SalesOrderStatus.CANCELLED.value
+            ),
+            closed=sum(
+                1 for row in rows if row.status == SalesOrderStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
         )
 
-    def create_order(self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID) -> SalesOrder:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
+    def create_order(
+        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesOrder:
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
         customer, _, _ = self._validate_scope_references(
             firm_id=firm_id,
             customer_id=data.customer_id,
@@ -222,8 +241,12 @@ class SalesOrderService:
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
-        row.grand_total = self._q(row.subtotal + row.tax_total + row.additional_charges + row.round_off)
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        row.grand_total = self._q(
+            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+        )
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
             firm_id=firm_id,
@@ -248,7 +271,12 @@ class SalesOrderService:
         return row
 
     def update_order(
-        self, order_id: UUID, data: SalesOrderCreate, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        data: SalesOrderCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
     ) -> SalesOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
@@ -286,8 +314,12 @@ class SalesOrderService:
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
-        row.grand_total = self._q(row.subtotal + row.tax_total + row.additional_charges + row.round_off)
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_scope)
+        row.grand_total = self._q(
+            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+        )
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_scope
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_scope)
         self._record_event(
             firm_id=firm_scope,
@@ -311,7 +343,9 @@ class SalesOrderService:
         self._session.commit()
         return row
 
-    def approve_order(self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> SalesOrder:
+    def approve_order(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
@@ -342,10 +376,18 @@ class SalesOrderService:
         return row
 
     def cancel_order(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None = None
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
     ) -> SalesOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {SalesOrderStatus.CANCELLED.value, SalesOrderStatus.CLOSED.value}:
+        if row.status in {
+            SalesOrderStatus.CANCELLED.value,
+            SalesOrderStatus.CLOSED.value,
+        }:
             raise ValidationError("Sales order is already closed for updates.")
         from_status = row.status
         if row.status == SalesOrderStatus.APPROVED.value:
@@ -377,10 +419,18 @@ class SalesOrderService:
         return row
 
     def close_order(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None = None
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
     ) -> SalesOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {SalesOrderStatus.CANCELLED.value, SalesOrderStatus.CLOSED.value}:
+        if row.status in {
+            SalesOrderStatus.CANCELLED.value,
+            SalesOrderStatus.CLOSED.value,
+        }:
             raise ValidationError("Sales order is already closed for updates.")
         from_status = row.status
         if row.status == SalesOrderStatus.APPROVED.value:
@@ -434,11 +484,15 @@ class SalesOrderService:
         )
         attachments = list(
             self._session.scalars(
-                select(SalesOrderAttachment).where(SalesOrderAttachment.sales_order_id == row.id)
+                select(SalesOrderAttachment).where(
+                    SalesOrderAttachment.sales_order_id == row.id
+                )
             ).all()
         )
         notes = list(
-            self._session.scalars(select(SalesOrderNote).where(SalesOrderNote.sales_order_id == row.id)).all()
+            self._session.scalars(
+                select(SalesOrderNote).where(SalesOrderNote.sales_order_id == row.id)
+            ).all()
         )
         return SalesOrderResponse(
             id=row.id,
@@ -492,7 +546,9 @@ class SalesOrderService:
         rows = list(
             self._session.scalars(
                 select(SalesOrder)
-                .where(SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False))
+                .where(
+                    SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False)
+                )
                 .order_by(SalesOrder.order_date.desc(), SalesOrder.created_at.desc())
             ).all()
         )
@@ -518,7 +574,9 @@ class SalesOrderService:
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status.in_([SalesOrderStatus.DRAFT.value, SalesOrderStatus.APPROVED.value]),
+                    SalesOrder.status.in_(
+                        [SalesOrderStatus.DRAFT.value, SalesOrderStatus.APPROVED.value]
+                    ),
                 )
             ).all()
         )
@@ -539,7 +597,9 @@ class SalesOrderService:
             self._session.scalars(
                 select(SalesOrderLine)
                 .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
-                .where(SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False))
+                .where(
+                    SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False)
+                )
             ).all()
         )
         result: list[SalesOrderBackOrderRecord] = []
@@ -547,7 +607,9 @@ class SalesOrderService:
             back_qty = self._q(row.reservable_quantity - row.available_stock)
             if back_qty <= ZERO:
                 continue
-            order = self._session.scalar(select(SalesOrder).where(SalesOrder.id == row.sales_order_id))
+            order = self._session.scalar(
+                select(SalesOrder).where(SalesOrder.id == row.sales_order_id)
+            )
             if order is None:
                 continue
             result.append(
@@ -563,7 +625,9 @@ class SalesOrderService:
             )
         return result
 
-    def orders_by_customer(self, *, firm_scope: UUID) -> list[SalesOrderByCustomerRecord]:
+    def orders_by_customer(
+        self, *, firm_scope: UUID
+    ) -> list[SalesOrderByCustomerRecord]:
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -580,8 +644,12 @@ class SalesOrderService:
             totals[row.customer_id] += row.grand_total
             counts[row.customer_id] += 1
             if row.customer_id not in names:
-                customer = self._session.scalar(select(Customer).where(Customer.id == row.customer_id))
-                names[row.customer_id] = customer.name if customer is not None else str(row.customer_id)
+                customer = self._session.scalar(
+                    select(Customer).where(Customer.id == row.customer_id)
+                )
+                names[row.customer_id] = (
+                    customer.name if customer is not None else str(row.customer_id)
+                )
         return [
             SalesOrderByCustomerRecord(
                 customer_id=customer_id,
@@ -589,10 +657,14 @@ class SalesOrderService:
                 order_count=counts[customer_id],
                 total_value=self._q(totals[customer_id]),
             )
-            for customer_id in sorted(totals.keys(), key=lambda item: names.get(item, str(item)))
+            for customer_id in sorted(
+                totals.keys(), key=lambda item: names.get(item, str(item))
+            )
         ]
 
-    def orders_by_salesman(self, *, firm_scope: UUID) -> list[SalesOrderBySalesmanRecord]:
+    def orders_by_salesman(
+        self, *, firm_scope: UUID
+    ) -> list[SalesOrderBySalesmanRecord]:
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -612,8 +684,12 @@ class SalesOrderService:
             totals[row.salesman_id] += row.grand_total
             counts[row.salesman_id] += 1
             if row.salesman_id not in names:
-                user = self._session.scalar(select(User).where(User.id == row.salesman_id))
-                names[row.salesman_id] = user.full_name if user is not None else str(row.salesman_id)
+                user = self._session.scalar(
+                    select(User).where(User.id == row.salesman_id)
+                )
+                names[row.salesman_id] = (
+                    user.full_name if user is not None else str(row.salesman_id)
+                )
         return [
             SalesOrderBySalesmanRecord(
                 salesman_id=salesman_id,
@@ -621,10 +697,14 @@ class SalesOrderService:
                 order_count=counts[salesman_id],
                 total_value=self._q(totals[salesman_id]),
             )
-            for salesman_id in sorted(totals.keys(), key=lambda item: names.get(item, str(item)))
+            for salesman_id in sorted(
+                totals.keys(), key=lambda item: names.get(item, str(item))
+            )
         ]
 
-    def orders_by_territory(self, *, firm_scope: UUID) -> list[SalesOrderByTerritoryRecord]:
+    def orders_by_territory(
+        self, *, firm_scope: UUID
+    ) -> list[SalesOrderByTerritoryRecord]:
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -644,8 +724,14 @@ class SalesOrderService:
             totals[row.territory_id] += row.grand_total
             counts[row.territory_id] += 1
             if row.territory_id not in names:
-                territory = self._session.scalar(select(SalesTerritoryNode).where(SalesTerritoryNode.id == row.territory_id))
-                names[row.territory_id] = territory.name if territory is not None else str(row.territory_id)
+                territory = self._session.scalar(
+                    select(SalesTerritoryNode).where(
+                        SalesTerritoryNode.id == row.territory_id
+                    )
+                )
+                names[row.territory_id] = (
+                    territory.name if territory is not None else str(row.territory_id)
+                )
         return [
             SalesOrderByTerritoryRecord(
                 territory_id=territory_id,
@@ -653,7 +739,9 @@ class SalesOrderService:
                 order_count=counts[territory_id],
                 total_value=self._q(totals[territory_id]),
             )
-            for territory_id in sorted(totals.keys(), key=lambda item: names.get(item, str(item)))
+            for territory_id in sorted(
+                totals.keys(), key=lambda item: names.get(item, str(item))
+            )
         ]
 
     def export_orders_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
@@ -693,8 +781,13 @@ class SalesOrderService:
             )
         return buffer.getvalue()
 
-    def import_orders(self, data: SalesOrderImportRequest, *, firm_scope: UUID, actor_id: UUID) -> list[SalesOrder]:
-        return [self.create_order(record, firm_id=firm_scope, actor_id=actor_id) for record in data.records]
+    def import_orders(
+        self, data: SalesOrderImportRequest, *, firm_scope: UUID, actor_id: UUID
+    ) -> list[SalesOrder]:
+        return [
+            self.create_order(record, firm_id=firm_scope, actor_id=actor_id)
+            for record in data.records
+        ]
 
     def _replace_lines(
         self,
@@ -703,15 +796,17 @@ class SalesOrderService:
         lines: list[SalesOrderLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(SalesOrderLine).filter(SalesOrderLine.sales_order_id == row.id).delete(
-            synchronize_session=False
-        )
+        self._session.query(SalesOrderLine).filter(
+            SalesOrderLine.sales_order_id == row.id
+        ).delete(synchronize_session=False)
         subtotal = ZERO
         tax_total = ZERO
         line_discount_total = ZERO
         for item in lines:
             product = self._session.scalar(
-                select(Product).where(Product.id == item.product_id, Product.is_deleted.is_(False))
+                select(Product).where(
+                    Product.id == item.product_id, Product.is_deleted.is_(False)
+                )
             )
             if product is None:
                 raise ValidationError("Product not found for sales order line.")
@@ -726,7 +821,11 @@ class SalesOrderService:
                 firm_id=row.firm_id,
             )
             gross = self._q(quantity * self._q(item.unit_price))
-            discount = self._q(item.discount_amount if item.discount_amount > ZERO else (gross * self._q(item.discount_percent) / Decimal("100")))
+            discount = self._q(
+                item.discount_amount
+                if item.discount_amount > ZERO
+                else (gross * self._q(item.discount_percent) / Decimal("100"))
+            )
             taxable = self._q(gross - discount)
             tax = self._tax_amount(
                 order_date=row.order_date,
@@ -816,11 +915,16 @@ class SalesOrderService:
             )
 
     def _replace_notes(
-        self, row: SalesOrder, notes: list[SalesOrderNoteWrite], *, firm_id: UUID, actor_id: UUID
+        self,
+        row: SalesOrder,
+        notes: list[SalesOrderNoteWrite],
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
     ) -> None:
-        self._session.query(SalesOrderNote).filter(SalesOrderNote.sales_order_id == row.id).delete(
-            synchronize_session=False
-        )
+        self._session.query(SalesOrderNote).filter(
+            SalesOrderNote.sales_order_id == row.id
+        ).delete(synchronize_session=False)
         for item in notes:
             self._session.add(
                 SalesOrderNote(
@@ -834,20 +938,22 @@ class SalesOrderService:
             )
 
     def _delete_children(self, order_id: UUID) -> None:
-        self._session.query(SalesOrderLine).filter(SalesOrderLine.sales_order_id == order_id).delete(
-            synchronize_session=False
-        )
+        self._session.query(SalesOrderLine).filter(
+            SalesOrderLine.sales_order_id == order_id
+        ).delete(synchronize_session=False)
         self._session.query(SalesOrderAttachment).filter(
             SalesOrderAttachment.sales_order_id == order_id
         ).delete(synchronize_session=False)
-        self._session.query(SalesOrderNote).filter(SalesOrderNote.sales_order_id == order_id).delete(
-            synchronize_session=False
-        )
+        self._session.query(SalesOrderNote).filter(
+            SalesOrderNote.sales_order_id == order_id
+        ).delete(synchronize_session=False)
 
     def _reserve_inventory(self, row: SalesOrder, *, actor_id: UUID) -> None:
         lines = list(
             self._session.scalars(
-                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id).order_by(SalesOrderLine.line_number.asc())
+                select(SalesOrderLine)
+                .where(SalesOrderLine.sales_order_id == row.id)
+                .order_by(SalesOrderLine.line_number.asc())
             ).all()
         )
         for line in lines:
@@ -875,7 +981,9 @@ class SalesOrderService:
     def _release_inventory(self, row: SalesOrder, *, actor_id: UUID) -> None:
         lines = list(
             self._session.scalars(
-                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id).order_by(SalesOrderLine.line_number.asc())
+                select(SalesOrderLine)
+                .where(SalesOrderLine.sales_order_id == row.id)
+                .order_by(SalesOrderLine.line_number.asc())
             ).all()
         )
         for line in lines:
@@ -914,8 +1022,28 @@ class SalesOrderService:
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
     ) -> Decimal:
-        if tax_profile_id is None or invoice_value <= ZERO:
+        if invoice_value <= ZERO:
             return ZERO
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
+        if tax_profile_id is None:
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, order_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, order_date, firm_scope=firm_id
+            )
         request = TaxRuleSimulationRequest(
             transaction_type="SALES_ORDER",
             transaction_date=order_date,
@@ -941,8 +1069,16 @@ class SalesOrderService:
         order_date: date,
         firm_id: UUID,
     ) -> dict[str, Decimal | int | None]:
-        if sales_uom_id is None or inventory_uom_id is None or sales_uom_id == inventory_uom_id:
-            return {"factor": Decimal("1"), "converted": self._q(quantity), "version": None}
+        if (
+            sales_uom_id is None
+            or inventory_uom_id is None
+            or sales_uom_id == inventory_uom_id
+        ):
+            return {
+                "factor": Decimal("1"),
+                "converted": self._q(quantity),
+                "version": None,
+            }
         response = self._uom.convert_quantity(
             ConversionRequest(
                 quantity=quantity,
@@ -1114,7 +1250,9 @@ class SalesOrderService:
             ("CANCELLED", "Cancelled", 3, True),
             ("CLOSED", "Closed", 4, True),
         ]:
-            if not self._state_exists(firm_id=firm_id, document_type_id=document_type.id, code=code):
+            if not self._state_exists(
+                firm_id=firm_id, document_type_id=document_type.id, code=code
+            ):
                 self._documents.create_state(
                     firm_id,
                     DocumentStateCreate(
@@ -1165,7 +1303,9 @@ class SalesOrderService:
             )
         return document_type, numbering
 
-    def _state_exists(self, *, firm_id: UUID, document_type_id: UUID, code: str) -> bool:
+    def _state_exists(
+        self, *, firm_id: UUID, document_type_id: UUID, code: str
+    ) -> bool:
         return (
             self._session.scalar(
                 select(DocumentStateDefinition.id).where(
@@ -1191,7 +1331,11 @@ class SalesOrderService:
         return document_type
 
     def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}-{str(on.year + 1)[-2:]}" if on.month >= 4 else f"{on.year - 1}-{str(on.year)[-2:]}"
+        return (
+            f"{on.year}-{str(on.year + 1)[-2:]}"
+            if on.month >= 4
+            else f"{on.year - 1}-{str(on.year)[-2:]}"
+        )
 
     def _scope_code(self, branch_id: UUID | None) -> str | None:
         if branch_id is None:
@@ -1211,9 +1355,13 @@ class SalesOrderService:
             raise ConflictError(message) from error
 
     def _q(self, value: Decimal | int | str | None) -> Decimal:
-        return Decimal("0" if value is None else str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        return Decimal("0" if value is None else str(value)).quantize(
+            Decimal("0.0001"), rounding=ROUND_HALF_UP
+        )
 
-    def _attachment_response(self, row: SalesOrderAttachment) -> SalesOrderAttachmentResponse:
+    def _attachment_response(
+        self, row: SalesOrderAttachment
+    ) -> SalesOrderAttachmentResponse:
         return SalesOrderAttachmentResponse.model_validate(row)
 
     def _note_response(self, row: SalesOrderNote) -> SalesOrderNoteResponse:

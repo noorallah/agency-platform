@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -26,9 +26,12 @@ from app.document_framework.schemas import (
     DocumentStateCreate,
     DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import DocumentFrameworkService
+from app.document_framework.services.document_framework_service import (
+    DocumentFrameworkService,
+)
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.services import InventoryService
+from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.purchase_return.models import (
@@ -47,7 +50,6 @@ from app.purchase_return.schemas import (
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnLineResponse,
-    PurchaseReturnLineWrite,
     PurchaseReturnListFilters,
     PurchaseReturnNoteResponse,
     PurchaseReturnNoteWrite,
@@ -61,6 +63,7 @@ from app.purchase_return.schemas import (
     PurchaseReturnVendorOutstandingRecord,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -100,8 +103,10 @@ class PurchaseReturnService:
             "updated_at": PurchaseReturn.updated_at,
         }
         statement = select(PurchaseReturn).where(PurchaseReturn.firm_id == firm_scope)
-        count = select(func.count()).select_from(PurchaseReturn).where(
-            PurchaseReturn.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(PurchaseReturn)
+            .where(PurchaseReturn.firm_id == firm_scope)
         )
         if not filters.include_deleted:
             statement = statement.where(PurchaseReturn.is_deleted.is_(False))
@@ -113,13 +118,17 @@ class PurchaseReturnService:
             statement = statement.where(PurchaseReturn.branch_id == filters.branch_id)
             count = count.where(PurchaseReturn.branch_id == filters.branch_id)
         if filters.warehouse_id is not None:
-            statement = statement.where(PurchaseReturn.warehouse_id == filters.warehouse_id)
+            statement = statement.where(
+                PurchaseReturn.warehouse_id == filters.warehouse_id
+            )
             count = count.where(PurchaseReturn.warehouse_id == filters.warehouse_id)
         if filters.status is not None:
             statement = statement.where(PurchaseReturn.status == filters.status.value)
             count = count.where(PurchaseReturn.status == filters.status.value)
         if filters.return_from is not None:
-            statement = statement.where(PurchaseReturn.return_date >= filters.return_from)
+            statement = statement.where(
+                PurchaseReturn.return_date >= filters.return_from
+            )
             count = count.where(PurchaseReturn.return_date >= filters.return_from)
         if filters.return_to is not None:
             statement = statement.where(PurchaseReturn.return_date <= filters.return_to)
@@ -137,7 +146,9 @@ class PurchaseReturnService:
         sort_column = columns.get(sort_by, PurchaseReturn.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(sort_column.desc() if descending else sort_column.asc())
+                statement.order_by(
+                    sort_column.desc() if descending else sort_column.asc()
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()
@@ -155,19 +166,33 @@ class PurchaseReturnService:
         )
         return PurchaseReturnSummary(
             total=len(rows),
-            draft=sum(1 for row in rows if row.status == PurchaseReturnStatus.DRAFT.value),
-            approved=sum(1 for row in rows if row.status == PurchaseReturnStatus.APPROVED.value),
-            completed=sum(1 for row in rows if row.status == PurchaseReturnStatus.COMPLETED.value),
-            cancelled=sum(1 for row in rows if row.status == PurchaseReturnStatus.CANCELLED.value),
-            closed=sum(1 for row in rows if row.status == PurchaseReturnStatus.CLOSED.value),
+            draft=sum(
+                1 for row in rows if row.status == PurchaseReturnStatus.DRAFT.value
+            ),
+            approved=sum(
+                1 for row in rows if row.status == PurchaseReturnStatus.APPROVED.value
+            ),
+            completed=sum(
+                1 for row in rows if row.status == PurchaseReturnStatus.COMPLETED.value
+            ),
+            cancelled=sum(
+                1 for row in rows if row.status == PurchaseReturnStatus.CANCELLED.value
+            ),
+            closed=sum(
+                1 for row in rows if row.status == PurchaseReturnStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
         )
 
     def create_return(
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseReturn:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
-        header, source_rows, line_specs = self._prepare_return_sources(data, firm_id=firm_id)
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
+        header, source_rows, line_specs = self._prepare_return_sources(
+            data, firm_id=firm_id
+        )
         branch_id = data.branch_id or header["branch_id"]
         vendor_id = data.vendor_id or header["vendor_id"]
         business_profile_id = data.business_profile_id
@@ -202,12 +227,18 @@ class PurchaseReturnService:
             business_profile_id=business_profile_id,
             return_number=return_number,
             return_date=data.return_date,
-            supplier_return_number=data.supplier_return_number.strip() if data.supplier_return_number else None,
+            supplier_return_number=(
+                data.supplier_return_number.strip()
+                if data.supplier_return_number
+                else None
+            ),
             supplier_return_date=data.supplier_return_date,
             reference_grn_number=data.reference_grn_number,
             reference_invoice_number=data.reference_invoice_number,
             return_reason=data.return_reason,
-            currency_code=(data.currency_code.strip().upper() if data.currency_code else None),
+            currency_code=(
+                data.currency_code.strip().upper() if data.currency_code else None
+            ),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
             due_date=data.due_date,
@@ -234,7 +265,9 @@ class PurchaseReturnService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_returned_quantity = line_totals["total_already_returned_quantity"]
+        row.total_already_returned_quantity = line_totals[
+            "total_already_returned_quantity"
+        ]
         row.total_current_return_quantity = line_totals["total_current_return_quantity"]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
@@ -242,7 +275,9 @@ class PurchaseReturnService:
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_id)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_id
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_id)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_id)
         self._record_event(
@@ -285,12 +320,16 @@ class PurchaseReturnService:
         row.warehouse_id = data.warehouse_id
         row.business_profile_id = data.business_profile_id
         row.return_date = data.return_date
-        row.supplier_return_number = data.supplier_return_number.strip() if data.supplier_return_number else None
+        row.supplier_return_number = (
+            data.supplier_return_number.strip() if data.supplier_return_number else None
+        )
         row.supplier_return_date = data.supplier_return_date
         row.reference_grn_number = data.reference_grn_number
         row.reference_invoice_number = data.reference_invoice_number
         row.return_reason = data.return_reason
-        row.currency_code = data.currency_code.strip().upper() if data.currency_code else None
+        row.currency_code = (
+            data.currency_code.strip().upper() if data.currency_code else None
+        )
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         row.due_date = data.due_date
@@ -319,7 +358,9 @@ class PurchaseReturnService:
             actor_id=actor_id,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
-        row.total_already_returned_quantity = line_totals["total_already_returned_quantity"]
+        row.total_already_returned_quantity = line_totals[
+            "total_already_returned_quantity"
+        ]
         row.total_current_return_quantity = line_totals["total_current_return_quantity"]
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
@@ -327,7 +368,9 @@ class PurchaseReturnService:
         row.grand_total = self._q(
             row.subtotal + row.tax_total + row.additional_charges + row.round_off
         )
-        self._replace_attachments(row, data.attachments, actor_id=actor_id, firm_id=firm_scope)
+        self._replace_attachments(
+            row, data.attachments, actor_id=actor_id, firm_id=firm_scope
+        )
         self._replace_notes(row, data.notes, actor_id=actor_id, firm_id=firm_scope)
         self._replace_accounting_events(row, actor_id=actor_id, firm_id=firm_scope)
         self._record_event(
@@ -350,7 +393,9 @@ class PurchaseReturnService:
         self._session.commit()
         return row
 
-    def approve_return(self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> PurchaseReturn:
+    def approve_return(
+        self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseReturn:
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be approved.")
@@ -378,12 +423,19 @@ class PurchaseReturnService:
         self._session.commit()
         return row
 
-    def complete_return(self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> PurchaseReturn:
+    def complete_return(
+        self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseReturn:
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status == PurchaseReturnStatus.COMPLETED.value:
             return row
-        if row.status in {PurchaseReturnStatus.CANCELLED.value, PurchaseReturnStatus.CLOSED.value}:
-            raise ValidationError("Cancelled/closed purchase returns cannot be completed.")
+        if row.status in {
+            PurchaseReturnStatus.CANCELLED.value,
+            PurchaseReturnStatus.CLOSED.value,
+        }:
+            raise ValidationError(
+                "Cancelled/closed purchase returns cannot be completed."
+            )
         if row.status != PurchaseReturnStatus.APPROVED.value:
             raise ValidationError("Only approved purchase returns can be completed.")
         lines = list(
@@ -398,12 +450,16 @@ class PurchaseReturnService:
             raise ValidationError("Purchase return must contain at least one line.")
         for line in lines:
             if line.warehouse_id is None:
-                raise ValidationError("Warehouse is required on all return lines before completion.")
+                raise ValidationError(
+                    "Warehouse is required on all return lines before completion."
+                )
             current_qty = line.current_return_quantity
             rejected_qty = line.rejected_quantity
             sellable_qty = self._q(current_qty - rejected_qty)
             if sellable_qty < ZERO:
-                raise ValidationError("Rejected quantity cannot exceed returned quantity.")
+                raise ValidationError(
+                    "Rejected quantity cannot exceed returned quantity."
+                )
             self._inventory.record_purchase_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
@@ -417,7 +473,9 @@ class PurchaseReturnService:
                 sellable_quantity=sellable_qty,
                 damaged_quantity=rejected_qty if line.is_damaged else ZERO,
                 scrap_quantity=rejected_qty if line.is_scrap else ZERO,
-                quarantine_quantity=rejected_qty if line.item_condition == "QUARANTINE" else ZERO,
+                quarantine_quantity=(
+                    rejected_qty if line.item_condition == "QUARANTINE" else ZERO
+                ),
                 entered_quantity=current_qty,
                 entered_uom_id=line.return_uom_id or line.purchase_uom_id,
                 conversion_version=line.conversion_version,
@@ -457,7 +515,10 @@ class PurchaseReturnService:
         reason: str | None = None,
     ) -> PurchaseReturn:
         row = self.get_return(return_id, firm_scope=firm_scope)
-        if row.status in {PurchaseReturnStatus.CANCELLED.value, PurchaseReturnStatus.CLOSED.value}:
+        if row.status in {
+            PurchaseReturnStatus.CANCELLED.value,
+            PurchaseReturnStatus.CLOSED.value,
+        }:
             raise ValidationError("This purchase return can no longer be cancelled.")
         before = row.status
         row.status = PurchaseReturnStatus.CANCELLED.value
@@ -546,10 +607,12 @@ class PurchaseReturnService:
         )
         lines = list(
             self._session.scalars(
-                select(PurchaseReturnLine).where(
+                select(PurchaseReturnLine)
+                .where(
                     PurchaseReturnLine.purchase_return_id == row.id,
                     PurchaseReturnLine.is_deleted.is_(False),
-                ).order_by(PurchaseReturnLine.line_number.asc())
+                )
+                .order_by(PurchaseReturnLine.line_number.asc())
             ).all()
         )
         attachments = list(
@@ -626,7 +689,9 @@ class PurchaseReturnService:
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
-            accounting_events=[self._accounting_event_response(item) for item in accounting_events],
+            accounting_events=[
+                self._accounting_event_response(item) for item in accounting_events
+            ],
             duplicate_warning=warning,
         )
 
@@ -660,18 +725,28 @@ class PurchaseReturnService:
                     PurchaseReturn.due_date.is_not(None),
                     PurchaseReturn.due_date < today,
                     PurchaseReturn.status.not_in(
-                        [PurchaseReturnStatus.CANCELLED.value, PurchaseReturnStatus.CLOSED.value]
+                        [
+                            PurchaseReturnStatus.CANCELLED.value,
+                            PurchaseReturnStatus.CLOSED.value,
+                        ]
                     ),
                 )
             ).all()
         )
 
-    def register_report(self, *, firm_scope: UUID) -> list[PurchaseReturnRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseReturnRegisterRecord]:
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn)
-                .where(PurchaseReturn.firm_id == firm_scope, PurchaseReturn.is_deleted.is_(False))
-                .order_by(PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc())
+                .where(
+                    PurchaseReturn.firm_id == firm_scope,
+                    PurchaseReturn.is_deleted.is_(False),
+                )
+                .order_by(
+                    PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc()
+                )
             ).all()
         )
         return [
@@ -685,11 +760,13 @@ class PurchaseReturnService:
                 return_date=row.return_date,
                 grand_total=row.grand_total,
                 status=PurchaseReturnStatus(row.status),
-                )
+            )
             for row in rows
         ]
 
-    def outstanding_report(self, *, firm_scope: UUID) -> list[PurchaseReturnVendorOutstandingRecord]:
+    def outstanding_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseReturnVendorOutstandingRecord]:
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn).where(
@@ -728,7 +805,10 @@ class PurchaseReturnService:
         rows = list(
             self._session.scalars(
                 select(PurchaseReturnLine)
-                .join(PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id)
+                .join(
+                    PurchaseReturn,
+                    PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+                )
                 .where(
                     PurchaseReturn.firm_id == firm_scope,
                     PurchaseReturn.is_deleted.is_(False),
@@ -738,10 +818,16 @@ class PurchaseReturnService:
         )
         result: list[PurchaseReturnReconciliationRecord] = []
         for row in rows:
-            pending = self._q(row.received_quantity - row.already_returned_quantity - row.current_return_quantity)
+            pending = self._q(
+                row.received_quantity
+                - row.already_returned_quantity
+                - row.current_return_quantity
+            )
             result.append(
                 PurchaseReturnReconciliationRecord(
-                    source_document_type=PurchaseReturnSourceType(row.source_document_type),
+                    source_document_type=PurchaseReturnSourceType(
+                        row.source_document_type
+                    ),
                     source_document_id=row.source_document_id,
                     source_document_number=row.source_document_number,
                     source_document_line_id=row.source_document_line_id,
@@ -794,7 +880,10 @@ class PurchaseReturnService:
     def import_returns(
         self, data: PurchaseReturnImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseReturn]:
-        return [self.create_return(record, firm_id=firm_scope, actor_id=actor_id) for record in data.records]
+        return [
+            self.create_return(record, firm_id=firm_scope, actor_id=actor_id)
+            for record in data.records
+        ]
 
     def _replace_sources(
         self,
@@ -840,15 +929,21 @@ class PurchaseReturnService:
             source_type = self._source_type(spec["source_document_type"])
             if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
                 source_line = self._session.scalar(
-                    select(GoodsReceiptLine).where(GoodsReceiptLine.id == spec["source_document_line_id"])
+                    select(GoodsReceiptLine).where(
+                        GoodsReceiptLine.id == spec["source_document_line_id"]
+                    )
                 )
             elif source_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
                 source_line = self._session.scalar(
-                    select(PurchaseInvoiceLine).where(PurchaseInvoiceLine.id == spec["source_document_line_id"])
+                    select(PurchaseInvoiceLine).where(
+                        PurchaseInvoiceLine.id == spec["source_document_line_id"]
+                    )
                 )
             else:
                 source_line = self._session.scalar(
-                    select(PurchaseOrderLine).where(PurchaseOrderLine.id == spec["source_document_line_id"])
+                    select(PurchaseOrderLine).where(
+                        PurchaseOrderLine.id == spec["source_document_line_id"]
+                    )
                 )
             if source_line is None:
                 raise ResourceNotFoundError("Source document line not found.")
@@ -856,9 +951,15 @@ class PurchaseReturnService:
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
             return_uom_id = spec.get("return_uom_id")
-            conversion_factor = self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
+            conversion_factor = self._q(
+                Decimal(str(spec.get("conversion_factor", Decimal("1"))))
+            )
             return_quantity = requested_quantity
-            if source_uom_id is not None and return_uom_id is not None and return_uom_id != source_uom_id:
+            if (
+                source_uom_id is not None
+                and return_uom_id is not None
+                and return_uom_id != source_uom_id
+            ):
                 conversion = self._uom.convert_quantity(
                     ConversionRequest(
                         product_id=self._product_id(source_line),
@@ -875,8 +976,13 @@ class PurchaseReturnService:
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            if not row.allow_over_return and return_quantity + already_returned > source_quantity:
-                raise ValidationError("Return quantity exceeds the available source quantity.")
+            if (
+                not row.allow_over_return
+                and return_quantity + already_returned > source_quantity
+            ):
+                raise ValidationError(
+                    "Return quantity exceeds the available source quantity."
+                )
             tax_amount = self._tax_amount(
                 return_date=return_date,
                 firm_id=firm_id,
@@ -898,7 +1004,9 @@ class PurchaseReturnService:
             discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(return_quantity * unit_price)
-            net_amount = self._q(gross_amount - discount_amount + charges_amount + tax_amount)
+            net_amount = self._q(
+                gross_amount - discount_amount + charges_amount + tax_amount
+            )
             line = PurchaseReturnLine(
                 purchase_return_id=row.id,
                 firm_id=firm_id,
@@ -913,7 +1021,9 @@ class PurchaseReturnService:
                 received_quantity=source_quantity,
                 already_returned_quantity=already_returned,
                 current_return_quantity=return_quantity,
-                rejected_quantity=self._q(Decimal(str(spec.get("rejected_quantity", ZERO)))),
+                rejected_quantity=self._q(
+                    Decimal(str(spec.get("rejected_quantity", ZERO)))
+                ),
                 reason_code=spec.get("reason_code"),
                 item_condition=spec.get("item_condition"),
                 replacement_required=bool(spec.get("replacement_required", False)),
@@ -922,7 +1032,9 @@ class PurchaseReturnService:
                 is_damaged=bool(spec.get("is_damaged", False)),
                 is_expired=bool(spec.get("is_expired", False)),
                 unit_price=unit_price,
-                discount_percent=self._q(Decimal(str(spec.get("discount_percent", ZERO)))),
+                discount_percent=self._q(
+                    Decimal(str(spec.get("discount_percent", ZERO)))
+                ),
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
@@ -949,7 +1061,9 @@ class PurchaseReturnService:
             totals["total_already_returned_quantity"] += already_returned
             totals["total_current_return_quantity"] += return_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(gross_amount - discount_amount + charges_amount)
+            totals["subtotal"] += self._q(
+                gross_amount - discount_amount + charges_amount
+            )
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -994,7 +1108,11 @@ class PurchaseReturnService:
                 PurchaseReturnNote(
                     purchase_return_id=row.id,
                     firm_id=firm_id,
-                    note_type=note.note_type.value if hasattr(note.note_type, "value") else str(note.note_type),
+                    note_type=(
+                        note.note_type.value
+                        if hasattr(note.note_type, "value")
+                        else str(note.note_type)
+                    ),
                     note=note.note,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -1008,9 +1126,24 @@ class PurchaseReturnService:
             PurchaseReturnAccountingEvent.purchase_return_id == row.id
         ).delete(synchronize_session=False)
         events = [
-            (PurchaseReturnAccountingEventType.PURCHASE_RETURN.value, "Purchase Return", "CREDIT", row.subtotal),
-            (PurchaseReturnAccountingEventType.INPUT_TAX_REVERSAL.value, "Input Tax Reversal", "CREDIT", row.tax_total),
-            (PurchaseReturnAccountingEventType.VENDOR_RECEIVABLE.value, "Vendor Receivable", "DEBIT", row.grand_total),
+            (
+                PurchaseReturnAccountingEventType.PURCHASE_RETURN.value,
+                "Purchase Return",
+                "CREDIT",
+                row.subtotal,
+            ),
+            (
+                PurchaseReturnAccountingEventType.INPUT_TAX_REVERSAL.value,
+                "Input Tax Reversal",
+                "CREDIT",
+                row.tax_total,
+            ),
+            (
+                PurchaseReturnAccountingEventType.VENDOR_RECEIVABLE.value,
+                "Vendor Receivable",
+                "DEBIT",
+                row.grand_total,
+            ),
         ]
         for event_type, account_name, direction, amount in events:
             self._session.add(
@@ -1033,7 +1166,10 @@ class PurchaseReturnService:
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
-            (self._source_type(item["source_document_type"]), item["source_document_id"])
+            (
+                self._source_type(item["source_document_type"]),
+                item["source_document_id"],
+            )
             for item in lines
         }
         if not sources:
@@ -1116,9 +1252,16 @@ class PurchaseReturnService:
         header["vendor_id"] = first["vendor_id"]
         header["branch_id"] = first["branch_id"]
         for source in source_rows[1:]:
-            if source["vendor_id"] != header["vendor_id"] or source["branch_id"] != header["branch_id"]:
-                raise ValidationError("All source documents must belong to the same vendor and branch.")
-        self._validate_line_sources(lines, {row["source_document_id"] for row in source_rows})
+            if (
+                source["vendor_id"] != header["vendor_id"]
+                or source["branch_id"] != header["branch_id"]
+            ):
+                raise ValidationError(
+                    "All source documents must belong to the same vendor and branch."
+                )
+        self._validate_line_sources(
+            lines, {row["source_document_id"] for row in source_rows}
+        )
         return header, source_rows, lines
 
     def _validate_line_sources(
@@ -1126,7 +1269,9 @@ class PurchaseReturnService:
     ) -> None:
         for line in lines:
             if line["source_document_id"] not in source_ids:
-                raise ValidationError("Every return line must reference a selected source document.")
+                raise ValidationError(
+                    "Every return line must reference a selected source document."
+                )
 
     def _delete_children(self, return_id: UUID) -> None:
         self._session.query(PurchaseReturnAccountingEvent).filter(
@@ -1159,8 +1304,28 @@ class PurchaseReturnService:
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
     ) -> Decimal:
-        if tax_profile_id is None or invoice_value <= ZERO:
+        if invoice_value <= ZERO:
             return ZERO
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
+        if tax_profile_id is None:
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, return_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, return_date, firm_scope=firm_id
+            )
         request = TaxRuleSimulationRequest(
             transaction_type="PURCHASE_RETURN",
             transaction_date=return_date,
@@ -1184,10 +1349,19 @@ class PurchaseReturnService:
             return self._q(getattr(source_line, "current_invoice_quantity", ZERO))
         return self._q(getattr(source_line, "ordered_quantity", ZERO))
 
-    def _already_returned_quantity(self, *, firm_id: UUID, source_document_line_id: UUID) -> Decimal:
+    def _already_returned_quantity(
+        self, *, firm_id: UUID, source_document_line_id: UUID
+    ) -> Decimal:
         total = self._session.scalar(
-            select(func.coalesce(func.sum(PurchaseReturnLine.current_return_quantity), ZERO))
-            .join(PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id)
+            select(
+                func.coalesce(
+                    func.sum(PurchaseReturnLine.current_return_quantity), ZERO
+                )
+            )
+            .join(
+                PurchaseReturn,
+                PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+            )
             .where(
                 PurchaseReturn.firm_id == firm_id,
                 PurchaseReturn.is_deleted.is_(False),
@@ -1212,40 +1386,53 @@ class PurchaseReturnService:
         )
 
     def _source_line_number(self, source_line: object) -> int:
-        return int(getattr(source_line, "line_number"))
+        return int(source_line.line_number)
 
     def _source_description(self, source_line: object) -> str | None:
         return getattr(source_line, "description", None)
 
-    def _source_document_number(self, spec: dict[str, object], source_line: object) -> str:
+    def _source_document_number(
+        self, spec: dict[str, object], source_line: object
+    ) -> str:
         source_number = spec.get("source_document_number")
         if source_number:
             return str(source_number)
         source_type = self._source_type(spec["source_document_type"])
         if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
             document = self._session.scalar(
-                select(GoodsReceipt).where(GoodsReceipt.id == getattr(source_line, "goods_receipt_id"))
+                select(GoodsReceipt).where(
+                    GoodsReceipt.id == source_line.goods_receipt_id
+                )
             )
             if document is not None:
                 return document.grn_number
         if source_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
             document = self._session.scalar(
-                select(PurchaseInvoice).where(PurchaseInvoice.id == getattr(source_line, "purchase_invoice_id"))
+                select(PurchaseInvoice).where(
+                    PurchaseInvoice.id == source_line.purchase_invoice_id
+                )
             )
             if document is not None:
                 return document.invoice_number
         document = self._session.scalar(
-            select(PurchaseOrder).where(PurchaseOrder.id == getattr(source_line, "purchase_order_id"))
+            select(PurchaseOrder).where(
+                PurchaseOrder.id == source_line.purchase_order_id
+            )
         )
         if document is not None:
             return document.po_number
         return str(source_number or "")
 
     def _product_id(self, source_line: object) -> UUID:
-        return getattr(source_line, "product_id")
+        return source_line.product_id
 
     def _line_net_amount(
-        self, *, quantity: Decimal, unit_price: Decimal, discount_amount: Decimal, charges_amount: Decimal
+        self,
+        *,
+        quantity: Decimal,
+        unit_price: Decimal,
+        discount_amount: Decimal,
+        charges_amount: Decimal,
     ) -> Decimal:
         return self._q(quantity * unit_price - discount_amount + charges_amount)
 
@@ -1357,7 +1544,9 @@ class PurchaseReturnService:
             ("CANCELLED", "Cancelled", 4),
             ("CLOSED", "Closed", 5),
         ]:
-            if not self._state_exists(firm_id=firm_id, document_type_id=document_type.id, code=state_code):
+            if not self._state_exists(
+                firm_id=firm_id, document_type_id=document_type.id, code=state_code
+            ):
                 self._documents.create_state(
                     firm_id,
                     DocumentStateCreate(
@@ -1371,7 +1560,10 @@ class PurchaseReturnService:
                         allows_print=True,
                         allows_email=True,
                         allows_export_pdf=True,
-                        transition_rules={"module": "purchase_return", "state": state_code},
+                        transition_rules={
+                            "module": "purchase_return",
+                            "state": state_code,
+                        },
                         is_active=True,
                     ),
                     actor_id,
@@ -1408,7 +1600,9 @@ class PurchaseReturnService:
             )
         return document_type, numbering_rule
 
-    def _state_exists(self, *, firm_id: UUID, document_type_id: UUID, code: str) -> bool:
+    def _state_exists(
+        self, *, firm_id: UUID, document_type_id: UUID, code: str
+    ) -> bool:
         return (
             self._session.scalar(
                 select(DocumentStateDefinition.id).where(
@@ -1453,13 +1647,17 @@ class PurchaseReturnService:
             return ZERO
         return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
-    def _attachment_response(self, row: PurchaseReturnAttachment) -> PurchaseReturnAttachmentResponse:
+    def _attachment_response(
+        self, row: PurchaseReturnAttachment
+    ) -> PurchaseReturnAttachmentResponse:
         return PurchaseReturnAttachmentResponse.model_validate(row)
 
     def _note_response(self, row: PurchaseReturnNote) -> PurchaseReturnNoteResponse:
         return PurchaseReturnNoteResponse.model_validate(row)
 
-    def _source_response(self, row: PurchaseReturnSource) -> PurchaseReturnSourceResponse:
+    def _source_response(
+        self, row: PurchaseReturnSource
+    ) -> PurchaseReturnSourceResponse:
         return PurchaseReturnSourceResponse(
             id=row.id,
             source_document_type=PurchaseReturnSourceType(row.source_document_type),

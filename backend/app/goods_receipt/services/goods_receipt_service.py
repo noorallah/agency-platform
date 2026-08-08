@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -40,7 +39,6 @@ from app.goods_receipt.schemas import (
     GoodsReceiptAttachmentWrite,
     GoodsReceiptCreate,
     GoodsReceiptLineResponse,
-    GoodsReceiptLineWrite,
     GoodsReceiptListFilters,
     GoodsReceiptNoteResponse,
     GoodsReceiptNoteWrite,
@@ -54,10 +52,10 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
-from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 
@@ -91,15 +89,21 @@ class GoodsReceiptService:
             "updated_at": GoodsReceipt.updated_at,
         }
         statement = select(GoodsReceipt).where(GoodsReceipt.firm_id == firm_scope)
-        count = select(func.count()).select_from(GoodsReceipt).where(
-            GoodsReceipt.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(GoodsReceipt)
+            .where(GoodsReceipt.firm_id == firm_scope)
         )
         if not filters.include_deleted:
             statement = statement.where(GoodsReceipt.is_deleted.is_(False))
             count = count.where(GoodsReceipt.is_deleted.is_(False))
         if filters.purchase_order_id is not None:
-            statement = statement.where(GoodsReceipt.purchase_order_id == filters.purchase_order_id)
-            count = count.where(GoodsReceipt.purchase_order_id == filters.purchase_order_id)
+            statement = statement.where(
+                GoodsReceipt.purchase_order_id == filters.purchase_order_id
+            )
+            count = count.where(
+                GoodsReceipt.purchase_order_id == filters.purchase_order_id
+            )
         if filters.vendor_id is not None:
             statement = statement.where(GoodsReceipt.vendor_id == filters.vendor_id)
             count = count.where(GoodsReceipt.vendor_id == filters.vendor_id)
@@ -107,13 +111,17 @@ class GoodsReceiptService:
             statement = statement.where(GoodsReceipt.branch_id == filters.branch_id)
             count = count.where(GoodsReceipt.branch_id == filters.branch_id)
         if filters.warehouse_id is not None:
-            statement = statement.where(GoodsReceipt.warehouse_id == filters.warehouse_id)
+            statement = statement.where(
+                GoodsReceipt.warehouse_id == filters.warehouse_id
+            )
             count = count.where(GoodsReceipt.warehouse_id == filters.warehouse_id)
         if filters.status is not None:
             statement = statement.where(GoodsReceipt.status == filters.status.value)
             count = count.where(GoodsReceipt.status == filters.status.value)
         if filters.created_from is not None:
-            statement = statement.where(GoodsReceipt.receipt_date >= filters.created_from)
+            statement = statement.where(
+                GoodsReceipt.receipt_date >= filters.created_from
+            )
             count = count.where(GoodsReceipt.receipt_date >= filters.created_from)
         if filters.created_to is not None:
             statement = statement.where(GoodsReceipt.receipt_date <= filters.created_to)
@@ -166,14 +174,22 @@ class GoodsReceiptService:
         )
         return GoodsReceiptSummary(
             total=len(receipts),
-            draft=sum(1 for row in receipts if row.status == GoodsReceiptStatus.DRAFT.value),
+            draft=sum(
+                1 for row in receipts if row.status == GoodsReceiptStatus.DRAFT.value
+            ),
             completed=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.COMPLETED.value
+                1
+                for row in receipts
+                if row.status == GoodsReceiptStatus.COMPLETED.value
             ),
             cancelled=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.CANCELLED.value
+                1
+                for row in receipts
+                if row.status == GoodsReceiptStatus.CANCELLED.value
             ),
-            closed=sum(1 for row in receipts if row.status == GoodsReceiptStatus.CLOSED.value),
+            closed=sum(
+                1 for row in receipts if row.status == GoodsReceiptStatus.CLOSED.value
+            ),
             total_value=self._q(sum((row.grand_total for row in receipts), ZERO)),
             pending_purchase_orders=pending_po_count,
             partial_purchase_orders=partial_po_count,
@@ -182,9 +198,13 @@ class GoodsReceiptService:
     def create_receipt(
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
-        document_type, numbering_rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
+        document_type, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
         purchase_order = self._purchase_order(data.purchase_order_id, firm_id=firm_id)
-        branch_code, company_code = self._scope_codes(firm_id=firm_id, branch_id=purchase_order.branch_id)
+        branch_code, company_code = self._scope_codes(
+            firm_id=firm_id, branch_id=purchase_order.branch_id
+        )
         grn_number = (
             data.grn_number.strip().upper()
             if data.grn_number
@@ -273,7 +293,9 @@ class GoodsReceiptService:
         self._replace_attachments(row, data.attachments, actor_id=actor_id)
         self._replace_notes(row, data.notes, actor_id=actor_id)
         self._recalculate_totals(row)
-        document_type = self._ensure_document_setup(firm_id=firm_scope, actor_id=actor_id)[0]
+        document_type = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )[0]
         self._record_event(
             firm_id=firm_scope,
             document_type=document_type,
@@ -302,14 +324,23 @@ class GoodsReceiptService:
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
             return row
-        if row.status in {GoodsReceiptStatus.CANCELLED.value, GoodsReceiptStatus.CLOSED.value}:
-            raise ValidationError("Cancelled/closed goods receipts cannot be completed.")
-        document_type, _ = self._ensure_document_setup(firm_id=firm_scope, actor_id=actor_id)
+        if row.status in {
+            GoodsReceiptStatus.CANCELLED.value,
+            GoodsReceiptStatus.CLOSED.value,
+        }:
+            raise ValidationError(
+                "Cancelled/closed goods receipts cannot be completed."
+            )
+        document_type, _ = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )
         purchase_order = self._purchase_order(row.purchase_order_id, firm_id=firm_scope)
         previous_map = self._received_quantities_for_po(
             purchase_order.id, firm_id=firm_scope, exclude_receipt_id=row.id
         )
-        self._validate_lines(row, purchase_order=purchase_order, previous_map=previous_map)
+        self._validate_lines(
+            row, purchase_order=purchase_order, previous_map=previous_map
+        )
         self._post_inventory(row, purchase_order=purchase_order, actor_id=actor_id)
         before = row.status
         row.status = GoodsReceiptStatus.COMPLETED.value
@@ -341,13 +372,18 @@ class GoodsReceiptService:
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
-        if row.status in {GoodsReceiptStatus.CANCELLED.value, GoodsReceiptStatus.CLOSED.value}:
+        if row.status in {
+            GoodsReceiptStatus.CANCELLED.value,
+            GoodsReceiptStatus.CLOSED.value,
+        }:
             return row
         before = row.status
         row.status = GoodsReceiptStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
-        document_type = self._ensure_document_setup(firm_id=firm_scope, actor_id=actor_id)[0]
+        document_type = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )[0]
         self._record_event(
             firm_id=firm_scope,
             document_type=document_type,
@@ -381,7 +417,9 @@ class GoodsReceiptService:
         row.status = GoodsReceiptStatus.CLOSED.value
         row.closed_reason = reason
         row.updated_by = actor_id
-        document_type = self._ensure_document_setup(firm_id=firm_scope, actor_id=actor_id)[0]
+        document_type = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )[0]
         self._record_event(
             firm_id=firm_scope,
             document_type=document_type,
@@ -452,7 +490,9 @@ class GoodsReceiptService:
             for item in lines
         ]
         payload["attachments"] = [
-            GoodsReceiptAttachmentResponse.model_validate(item).model_dump(mode="python")
+            GoodsReceiptAttachmentResponse.model_validate(item).model_dump(
+                mode="python"
+            )
             for item in attachments
         ]
         payload["notes"] = [
@@ -499,7 +539,9 @@ class GoodsReceiptService:
         return list(
             self._session.scalars(
                 select(GoodsReceiptLine)
-                .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+                .join(
+                    GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id
+                )
                 .where(
                     GoodsReceipt.firm_id == firm_scope,
                     GoodsReceiptLine.rejected_quantity > ZERO,
@@ -513,7 +555,9 @@ class GoodsReceiptService:
         return list(
             self._session.scalars(
                 select(GoodsReceiptLine)
-                .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+                .join(
+                    GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id
+                )
                 .where(
                     GoodsReceipt.firm_id == firm_scope,
                     GoodsReceiptLine.damaged_quantity > ZERO,
@@ -523,12 +567,13 @@ class GoodsReceiptService:
             ).all()
         )
 
-    def partially_received_purchase_orders(self, *, firm_scope: UUID) -> list[GoodsReceiptPurchaseOrderReport]:
+    def partially_received_purchase_orders(
+        self, *, firm_scope: UUID
+    ) -> list[GoodsReceiptPurchaseOrderReport]:
         reports: list[GoodsReceiptPurchaseOrderReport] = []
         purchase_orders = list(
             self._session.scalars(
-                select(PurchaseOrder)
-                .where(
+                select(PurchaseOrder).where(
                     PurchaseOrder.firm_id == firm_scope,
                     PurchaseOrder.is_deleted.is_(False),
                 )
@@ -549,8 +594,15 @@ class GoodsReceiptService:
             received = sum(
                 (
                     self._session.scalar(
-                        select(func.coalesce(func.sum(GoodsReceiptLine.current_receipt_quantity), 0))
-                        .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+                        select(
+                            func.coalesce(
+                                func.sum(GoodsReceiptLine.current_receipt_quantity), 0
+                            )
+                        )
+                        .join(
+                            GoodsReceipt,
+                            GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id,
+                        )
                         .where(
                             GoodsReceipt.firm_id == firm_scope,
                             GoodsReceipt.purchase_order_id == purchase_order.id,
@@ -577,10 +629,13 @@ class GoodsReceiptService:
                         pending_quantity=self._q(ordered - received),
                         receipt_count=int(
                             self._session.scalar(
-                                select(func.count()).select_from(GoodsReceipt).where(
+                                select(func.count())
+                                .select_from(GoodsReceipt)
+                                .where(
                                     GoodsReceipt.firm_id == firm_scope,
                                     GoodsReceipt.purchase_order_id == purchase_order.id,
-                                    GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
+                                    GoodsReceipt.status
+                                    == GoodsReceiptStatus.COMPLETED.value,
                                     GoodsReceipt.is_deleted.is_(False),
                                 )
                             )
@@ -591,7 +646,9 @@ class GoodsReceiptService:
                 )
         return reports
 
-    def import_receipts(self, data: list[GoodsReceiptCreate], *, firm_scope: UUID, actor_id: UUID) -> list[GoodsReceipt]:
+    def import_receipts(
+        self, data: list[GoodsReceiptCreate], *, firm_scope: UUID, actor_id: UUID
+    ) -> list[GoodsReceipt]:
         return [
             self.create_receipt(item, firm_id=firm_scope, actor_id=actor_id)
             for item in data
@@ -671,13 +728,19 @@ class GoodsReceiptService:
             ordered_quantity = self._q(purchase_line.ordered_quantity)
             prev_received = previous_map.get(purchase_line.id, ZERO)
             total_sellable = self._q(line.current_receipt_quantity + line.free_quantity)
-            accepted = self._q(line.current_receipt_quantity - line.rejected_quantity - line.damaged_quantity)
+            accepted = self._q(
+                line.current_receipt_quantity
+                - line.rejected_quantity
+                - line.damaged_quantity
+            )
             if accepted < ZERO:
                 raise ValidationError("Accepted quantity cannot be negative.")
             if total_sellable < ZERO:
                 raise ValidationError("Receipt quantity cannot be negative.")
             if not receipt.allow_over_receipt:
-                limit = ordered_quantity + self._q(ordered_quantity * receipt.over_receipt_percent / Decimal("100"))
+                limit = ordered_quantity + self._q(
+                    ordered_quantity * receipt.over_receipt_percent / Decimal("100")
+                )
                 if prev_received + self._q(line.current_receipt_quantity) > limit:
                     raise ValidationError(
                         f"Goods receipt exceeds allowed quantity for PO line {purchase_line.line_number}."
@@ -685,7 +748,8 @@ class GoodsReceiptService:
             conversion = self._conversion(
                 quantity=total_sellable,
                 purchase_uom_id=line.purchase_uom_id or purchase_line.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id or purchase_line.inventory_uom_id,
+                inventory_uom_id=line.inventory_uom_id
+                or purchase_line.inventory_uom_id,
                 product_id=purchase_line.product_id,
                 receipt_date=receipt.receipt_date,
                 firm_id=firm_id,
@@ -734,7 +798,8 @@ class GoodsReceiptService:
                 free_quantity=self._q(line.free_quantity),
                 packaging_type_id=line.packaging_type_id,
                 purchase_uom_id=line.purchase_uom_id or purchase_line.purchase_uom_id,
-                inventory_uom_id=line.inventory_uom_id or purchase_line.inventory_uom_id,
+                inventory_uom_id=line.inventory_uom_id
+                or purchase_line.inventory_uom_id,
                 conversion_factor=conversion["factor"],
                 conversion_version=conversion["version"],
                 warehouse_id=line.warehouse_id or receipt.warehouse_id,
@@ -776,7 +841,11 @@ class GoodsReceiptService:
         receipt.additional_charges = ZERO
         receipt.round_off = ZERO
         receipt.grand_total = self._q(
-            subtotal - total_discount + tax_total + receipt.additional_charges + receipt.round_off
+            subtotal
+            - total_discount
+            + tax_total
+            + receipt.additional_charges
+            + receipt.round_off
         )
 
     def _replace_attachments(
@@ -825,7 +894,9 @@ class GoodsReceiptService:
                 )
             )
 
-    def _post_inventory(self, receipt: GoodsReceipt, *, purchase_order: PurchaseOrder, actor_id: UUID) -> None:
+    def _post_inventory(
+        self, receipt: GoodsReceipt, *, purchase_order: PurchaseOrder, actor_id: UUID
+    ) -> None:
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
@@ -881,12 +952,16 @@ class GoodsReceiptService:
         ).all():
             purchase_line = line_map.get(line.purchase_order_line_id)
             if purchase_line is None:
-                raise ValidationError("Receipt line references an invalid purchase order line.")
+                raise ValidationError(
+                    "Receipt line references an invalid purchase order line."
+                )
             expected = self._q(purchase_line.ordered_quantity)
             previous = previous_map.get(purchase_line.id, ZERO)
             allowed = expected
             if receipt.allow_over_receipt:
-                allowed += self._q(expected * receipt.over_receipt_percent / Decimal("100"))
+                allowed += self._q(
+                    expected * receipt.over_receipt_percent / Decimal("100")
+                )
             if previous + line.current_receipt_quantity > allowed:
                 raise ValidationError(
                     f"Receipt exceeds allowed quantity for purchase order line {purchase_line.line_number}."
@@ -916,7 +991,10 @@ class GoodsReceiptService:
         )
         if exclude_receipt_id is not None:
             statement = statement.where(GoodsReceipt.id != exclude_receipt_id)
-        return {row[0]: self._q(row[1] or 0) for row in self._session.execute(statement).all()}
+        return {
+            row[0]: self._q(row[1] or 0)
+            for row in self._session.execute(statement).all()
+        }
 
     def _duplicate_warning(self, row: GoodsReceipt) -> str | None:
         match = self._session.scalar(
@@ -931,7 +1009,9 @@ class GoodsReceiptService:
         )
         if match is None:
             return None
-        return "A completed receipt already exists for the same purchase order and date."
+        return (
+            "A completed receipt already exists for the same purchase order and date."
+        )
 
     def _record_event(
         self,
@@ -1046,7 +1126,9 @@ class GoodsReceiptService:
             )
         return document_type, numbering_rule
 
-    def _purchase_order(self, purchase_order_id: UUID, *, firm_id: UUID) -> PurchaseOrder:
+    def _purchase_order(
+        self, purchase_order_id: UUID, *, firm_id: UUID
+    ) -> PurchaseOrder:
         row = self._session.scalar(
             select(PurchaseOrder).where(
                 PurchaseOrder.id == purchase_order_id,
@@ -1058,7 +1140,9 @@ class GoodsReceiptService:
             raise ResourceNotFoundError("Purchase order not found.")
         return row
 
-    def _scope_codes(self, *, firm_id: UUID, branch_id: UUID) -> tuple[str | None, str | None]:
+    def _scope_codes(
+        self, *, firm_id: UUID, branch_id: UUID
+    ) -> tuple[str | None, str | None]:
         branch = self._session.scalar(
             select(Branch).where(
                 Branch.id == branch_id,
@@ -1096,9 +1180,13 @@ class GoodsReceiptService:
             )
         )
         if storage is None:
-            raise ValidationError("Storage area does not belong to the selected warehouse.")
+            raise ValidationError(
+                "Storage area does not belong to the selected warehouse."
+            )
         if not storage.is_active:
-            raise ValidationError("Inactive storage areas cannot be used for goods receipts.")
+            raise ValidationError(
+                "Inactive storage areas cannot be used for goods receipts."
+            )
 
     def _conversion(
         self,
@@ -1115,7 +1203,11 @@ class GoodsReceiptService:
             or inventory_uom_id is None
             or purchase_uom_id == inventory_uom_id
         ):
-            return {"factor": Decimal("1"), "converted": self._q(quantity), "version": None}
+            return {
+                "factor": Decimal("1"),
+                "converted": self._q(quantity),
+                "version": None,
+            }
         response = self._uom.convert_quantity(
             ConversionRequest(
                 quantity=quantity,
@@ -1142,8 +1234,26 @@ class GoodsReceiptService:
         receipt_date: date,
         taxable: Decimal,
     ) -> Decimal:
+        # A product names a tax group, not a version, so the rate is decided by
+        # the document date. An explicitly named profile must also have been in
+        # force then, or the document would carry a rate that never applied.
+        tax_service = TaxFrameworkService(self._session)
         if tax_profile_id is None:
-            return ZERO
+            product = self._session.get(Product, product_id)
+            resolved = (
+                tax_service.resolve_profile_for_product(
+                    product, receipt_date, firm_scope=firm_id
+                )
+                if product is not None
+                else None
+            )
+            if resolved is None:
+                return ZERO
+            tax_profile_id = resolved.id
+        else:
+            tax_service.assert_profile_effective_on(
+                tax_profile_id, receipt_date, firm_scope=firm_id
+            )
         simulation = self._tax.simulate(
             TaxRuleSimulationRequest(
                 transaction_type="GOODS_RECEIPT",
@@ -1165,7 +1275,9 @@ class GoodsReceiptService:
 
     @staticmethod
     def _financial_year_label(receipt_date: date) -> str:
-        start_year = receipt_date.year if receipt_date.month >= 4 else receipt_date.year - 1
+        start_year = (
+            receipt_date.year if receipt_date.month >= 4 else receipt_date.year - 1
+        )
         end_year = start_year + 1
         return f"{start_year}-{end_year}"
 
@@ -1178,7 +1290,9 @@ class GoodsReceiptService:
                 )
             ).all()
         )
-        receipt.subtotal = self._q(sum((line.net_amount - line.tax_amount for line in lines), ZERO))
+        receipt.subtotal = self._q(
+            sum((line.net_amount - line.tax_amount for line in lines), ZERO)
+        )
         receipt.tax_total = self._q(sum((line.tax_amount for line in lines), ZERO))
         receipt.grand_total = self._q(sum((line.net_amount for line in lines), ZERO))
 

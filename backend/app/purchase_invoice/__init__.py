@@ -1,2 +1,1 @@
 """Purchase invoice module."""
-

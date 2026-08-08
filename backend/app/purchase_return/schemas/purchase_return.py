@@ -37,7 +37,9 @@ class PurchaseReturnAttachmentWrite(PurchaseReturnSchema):
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
-    attachment_kind: str = Field(default="PURCHASE_RETURN_FILE", min_length=1, max_length=40)
+    attachment_kind: str = Field(
+        default="PURCHASE_RETURN_FILE", min_length=1, max_length=40
+    )
 
 
 class PurchaseReturnNoteWrite(PurchaseReturnSchema):
@@ -56,7 +58,9 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
     current_return_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    rejected_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    rejected_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     reason_code: str | None = Field(default=None, max_length=80)
     item_condition: str | None = Field(default=None, max_length=80)
     replacement_required: bool = False
@@ -64,10 +68,18 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     is_scrap: bool = False
     is_damaged: bool = False
     is_expired: bool = False
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    charges_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    charges_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -92,20 +104,30 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     reference_invoice_number: str | None = Field(default=None, max_length=80)
     return_reason: str | None = Field(default=None, max_length=80)
     currency_code: str | None = Field(default=None, max_length=10)
-    exchange_rate: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
     payment_terms: str | None = Field(default=None, max_length=200)
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_direct_purchase_order: bool = False
     allow_over_return: bool = False
-    over_return_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    over_return_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     return_number: str | None = Field(default=None, max_length=60)
-    source_documents: list[PurchaseReturnSourceWrite] = Field(default_factory=list, max_length=100)
+    source_documents: list[PurchaseReturnSourceWrite] = Field(
+        default_factory=list, max_length=100
+    )
     lines: list[PurchaseReturnLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[PurchaseReturnAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[PurchaseReturnAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[PurchaseReturnNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("return_number", mode="before")
@@ -258,7 +280,9 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     sources: list[PurchaseReturnSourceResponse] = Field(default_factory=list)
     attachments: list[PurchaseReturnAttachmentResponse] = Field(default_factory=list)
     notes: list[PurchaseReturnNoteResponse] = Field(default_factory=list)
-    accounting_events: list[PurchaseReturnAccountingEventResponse] = Field(default_factory=list)
+    accounting_events: list[PurchaseReturnAccountingEventResponse] = Field(
+        default_factory=list
+    )
     duplicate_warning: str | None = None
 
 

@@ -1,2 +1,1 @@
 """Purchase return module."""
-

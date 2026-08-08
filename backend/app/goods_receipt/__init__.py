@@ -1,2 +1,1 @@
 """Goods receipt note module."""
-

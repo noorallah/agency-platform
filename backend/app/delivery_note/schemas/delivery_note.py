@@ -25,7 +25,9 @@ class DeliveryNoteAttachmentWrite(DeliveryNoteSchema):
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
-    attachment_kind: str = Field(default="DELIVERY_NOTE_FILE", min_length=1, max_length=40)
+    attachment_kind: str = Field(
+        default="DELIVERY_NOTE_FILE", min_length=1, max_length=40
+    )
 
 
 class DeliveryNoteNoteWrite(DeliveryNoteSchema):
@@ -38,11 +40,21 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     line_number: int = Field(ge=1)
     description: str | None = Field(default=None, max_length=500)
     current_delivery_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    damaged_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    free_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    damaged_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
     sales_uom_id: UUID | None = None
@@ -63,12 +75,18 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     driver: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_over_delivery: bool = False
-    over_delivery_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    over_delivery_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     delivery_note_number: str | None = Field(default=None, max_length=60)
     lines: list[DeliveryNoteLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[DeliveryNoteAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[DeliveryNoteAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[DeliveryNoteNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("delivery_note_number", mode="before")
@@ -245,4 +263,3 @@ class DeliveryNoteOrderProgressRecord(DeliveryNoteSchema):
     delivered_quantity: Decimal
     pending_quantity: Decimal
     status: str
-

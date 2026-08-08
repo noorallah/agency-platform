@@ -35,7 +35,9 @@ class SalesInvoiceAttachmentWrite(SalesInvoiceSchema):
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
-    attachment_kind: str = Field(default="SALES_INVOICE_FILE", min_length=1, max_length=40)
+    attachment_kind: str = Field(
+        default="SALES_INVOICE_FILE", min_length=1, max_length=40
+    )
 
 
 class SalesInvoiceNoteWrite(SalesInvoiceSchema):
@@ -54,10 +56,18 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    charges_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    charges_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
     order_uom_id: UUID | None = None
@@ -80,20 +90,30 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     invoice_date: date
     customer_invoice_number: str | None = Field(default=None, max_length=120)
     currency_code: str | None = Field(default=None, max_length=10)
-    exchange_rate: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
     payment_terms: str | None = Field(default=None, max_length=200)
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_direct_sales_order: bool = False
     allow_over_invoice: bool = False
-    over_invoice_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    over_invoice_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     invoice_number: str | None = Field(default=None, max_length=60)
-    source_documents: list[SalesInvoiceSourceWrite] = Field(default_factory=list, max_length=100)
+    source_documents: list[SalesInvoiceSourceWrite] = Field(
+        default_factory=list, max_length=100
+    )
     lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[SalesInvoiceAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[SalesInvoiceAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[SalesInvoiceNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("invoice_number", mode="before")
@@ -236,7 +256,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     sources: list[SalesInvoiceSourceResponse] = Field(default_factory=list)
     attachments: list[SalesInvoiceAttachmentResponse] = Field(default_factory=list)
     notes: list[SalesInvoiceNoteResponse] = Field(default_factory=list)
-    accounting_events: list[SalesInvoiceAccountingEventResponse] = Field(default_factory=list)
+    accounting_events: list[SalesInvoiceAccountingEventResponse] = Field(
+        default_factory=list
+    )
     duplicate_warning: str | None = None
 
 

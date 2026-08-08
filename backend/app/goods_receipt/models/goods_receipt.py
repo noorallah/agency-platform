@@ -27,7 +27,9 @@ class GoodsReceipt(BaseEntity):
 
     __tablename__ = "goods_receipts"
     __table_args__ = (
-        UniqueConstraint("firm_id", "grn_number", name="UQ_goods_receipts_firm_grn_number"),
+        UniqueConstraint(
+            "firm_id", "grn_number", name="UQ_goods_receipts_firm_grn_number"
+        ),
         Index("IX_goods_receipts_firm_status", "firm_id", "status"),
         Index("IX_goods_receipts_firm_date", "firm_id", "receipt_date"),
         Index("IX_goods_receipts_firm_po", "firm_id", "purchase_order_id"),
@@ -38,7 +40,9 @@ class GoodsReceipt(BaseEntity):
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )
     purchase_order_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(),
+        ForeignKey("purchase_orders.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     purchase_order_number: Mapped[str] = mapped_column(String(60), nullable=False)
     vendor_id: Mapped[UUID] = mapped_column(
@@ -123,7 +127,9 @@ class GoodsReceiptLine(BaseEntity):
             name="UQ_goods_receipt_lines_receipt_line",
         ),
         Index("IX_goods_receipt_lines_receipt", "goods_receipt_id"),
-        Index("IX_goods_receipt_lines_firm_po_line", "firm_id", "purchase_order_line_id"),
+        Index(
+            "IX_goods_receipt_lines_firm_po_line", "firm_id", "purchase_order_line_id"
+        ),
         Index("IX_goods_receipt_lines_firm_product", "firm_id", "product_id"),
     )
 
@@ -138,7 +144,9 @@ class GoodsReceiptLine(BaseEntity):
     )
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     purchase_order_line_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("purchase_order_lines.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(),
+        ForeignKey("purchase_order_lines.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     purchase_order_line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     product_id: Mapped[UUID] = mapped_column(
@@ -217,7 +225,9 @@ class GoodsReceiptAttachment(BaseEntity):
     """Store goods receipt attachments."""
 
     __tablename__ = "goods_receipt_attachments"
-    __table_args__ = (Index("IX_goods_receipt_attachments_receipt", "goods_receipt_id"),)
+    __table_args__ = (
+        Index("IX_goods_receipt_attachments_receipt", "goods_receipt_id"),
+    )
 
     goods_receipt_id: Mapped[UUID] = mapped_column(
         UUIDType(),

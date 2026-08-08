@@ -23,7 +23,9 @@ class SalesOrderAttachmentWrite(SalesOrderSchema):
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
-    attachment_kind: str = Field(default="SALES_ORDER_FILE", min_length=1, max_length=40)
+    attachment_kind: str = Field(
+        default="SALES_ORDER_FILE", min_length=1, max_length=40
+    )
 
 
 class SalesOrderNoteWrite(SalesOrderSchema):
@@ -36,13 +38,21 @@ class SalesOrderLineWrite(SalesOrderSchema):
     product_id: UUID
     description: str | None = Field(default=None, max_length=500)
     quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    free_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     sales_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     packaging_type_id: UUID | None = None
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     warehouse_id: UUID | None = None
     storage_node_id: UUID | None = None
@@ -62,13 +72,19 @@ class SalesOrderCreate(SalesOrderSchema):
     customer_reference: str | None = Field(default=None, max_length=80)
     reference_number: str | None = Field(default=None, max_length=80)
     currency_code: str | None = Field(default=None, max_length=10)
-    exchange_rate: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
     remarks: str | None = None
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     order_number: str | None = Field(default=None, max_length=60)
     lines: list[SalesOrderLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[SalesOrderAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[SalesOrderAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[SalesOrderNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("order_number", mode="before")

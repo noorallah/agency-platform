@@ -35,7 +35,9 @@ class PurchaseInvoiceAttachmentWrite(PurchaseInvoiceSchema):
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
-    attachment_kind: str = Field(default="PURCHASE_INVOICE_FILE", min_length=1, max_length=40)
+    attachment_kind: str = Field(
+        default="PURCHASE_INVOICE_FILE", min_length=1, max_length=40
+    )
 
 
 class PurchaseInvoiceNoteWrite(PurchaseInvoiceSchema):
@@ -54,10 +56,18 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    charges_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    unit_price: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    charges_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -78,20 +88,30 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     supplier_invoice_number: str = Field(min_length=1, max_length=120)
     supplier_invoice_date: date
     currency_code: str | None = Field(default=None, max_length=10)
-    exchange_rate: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
     payment_terms: str | None = Field(default=None, max_length=200)
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_direct_purchase_order: bool = False
     allow_over_invoice: bool = False
-    over_invoice_percent: Decimal = Field(default=Decimal("0"), ge=0, max_digits=9, decimal_places=4)
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    over_invoice_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    )
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     invoice_number: str | None = Field(default=None, max_length=60)
-    source_documents: list[PurchaseInvoiceSourceWrite] = Field(default_factory=list, max_length=100)
+    source_documents: list[PurchaseInvoiceSourceWrite] = Field(
+        default_factory=list, max_length=100
+    )
     lines: list[PurchaseInvoiceLineWrite] = Field(min_length=1, max_length=1000)
-    attachments: list[PurchaseInvoiceAttachmentWrite] = Field(default_factory=list, max_length=500)
+    attachments: list[PurchaseInvoiceAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[PurchaseInvoiceNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("invoice_number", mode="before")
@@ -232,7 +252,9 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     sources: list[PurchaseInvoiceSourceResponse] = Field(default_factory=list)
     attachments: list[PurchaseInvoiceAttachmentResponse] = Field(default_factory=list)
     notes: list[PurchaseInvoiceNoteResponse] = Field(default_factory=list)
-    accounting_events: list[PurchaseInvoiceAccountingEventResponse] = Field(default_factory=list)
+    accounting_events: list[PurchaseInvoiceAccountingEventResponse] = Field(
+        default_factory=list
+    )
     duplicate_warning: str | None = None
 
 
@@ -287,4 +309,3 @@ class PurchaseInvoiceVendorOutstandingRecord(PurchaseInvoiceSchema):
     vendor_name: str
     outstanding_amount: Decimal
     invoice_count: int
-

@@ -1,20 +1,26 @@
 """Firm-scoped REST endpoints for enterprise sales invoices."""
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    Query,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
-from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.responses.models import PaginatedResponse
 from app.core.security.authorization import (
     Principal,
     get_current_principal,
@@ -199,7 +205,9 @@ def update_sales_invoice(
 ) -> SalesInvoiceResponse:
     """Update an existing sales invoice."""
     service = SalesInvoiceService(db)
-    row = service.update_invoice(invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.update_invoice(
+        invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     db.commit()
     return service.invoice_response(row)
 
@@ -217,7 +225,9 @@ def approve_sales_invoice(
 ) -> SalesInvoiceResponse:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
-    row = service.approve_invoice(invoice_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.approve_invoice(
+        invoice_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     db.commit()
     return service.invoice_response(row)
 
@@ -279,9 +289,14 @@ def get_sales_invoice_timeline(
     """Get timeline events for a sales invoice."""
     service = SalesInvoiceService(db)
     rows, total = service.timeline(
-        invoice_id=invoice_id, firm_id=scope.firm_id, page=pagination.page, page_size=pagination.page_size
+        invoice_id=invoice_id,
+        firm_id=scope.firm_id,
+        page=pagination.page,
+        page_size=pagination.page_size,
     )
-    return PaginatedResponse(data=rows, total=total, page=pagination.page, page_size=pagination.page_size)
+    return PaginatedResponse(
+        data=rows, total=total, page=pagination.page, page_size=pagination.page_size
+    )
 
 
 @router.get(
