@@ -195,7 +195,7 @@ As of 2026-08-09, branch `backend/finance-audit-platform-hardening`.
 | Feature checks in products | `BARCODE` and `QR_CODE` reject a disabled field |
 | Attribute catalogue with entity targeting | `entity_type` on `AttributeDefinition`, exposed on the API, `data_type` validated against the enum |
 | Attribute storage and validation | `AttributeService` plus `AttributeValueBase`; typed, indexed columns |
-| Product custom fields | `product_attribute_values`, wired end to end at the API |
+| Product custom fields | `product_attribute_values`, wired end to end including the desktop Attributes tab |
 | Category-scoped mandatory rules | `category_attribute_rules`, read at save time and by `/products/metadata` |
 
 ### Not built
@@ -204,7 +204,7 @@ Ordered by what blocks the most.
 
 | # | Gap | Why it matters |
 | --- | --- | --- |
-| 1 | **Desktop cannot capture custom fields** | The product form renders no inputs for them. Seeded rules already make `BATCH_NUMBER`, `EXPIRY_DATE` and `MANUFACTURER` mandatory for PHARMACY/MEDICINE, and mandatory attributes are enforced server-side — so creating a medicine from the desktop for MEDI01 will fail. This is live, not hypothetical. |
+| 1 | **Desktop attribute inputs are untyped** | The product form *does* render an Attributes tab with a field per applicable attribute and required-field validation. But every field is a plain text box regardless of `data_type`, and the payload always sends a string. Harmless today because all 13 seeded definitions are `TEXT`; the moment a DATE, NUMBER or BOOLEAN definition is created the user gets a free-text box and must type exact ISO format or a lowercase boolean, or the backend rejects it. Needs type-aware inputs: date picker, checkbox, numeric field. |
 | 2 | **`require_module` is defined but applied nowhere** | Module gating exists as a mechanism only. A firm whose profile disables a module can still call its endpoints. |
 | 3 | **18 of 21 features have no enforcement** | Only `BARCODE`, `QR_CODE` and `TERRITORY` are read outside `app/business`. Each remaining feature needs a product decision about what it actually does before it can be wired. |
 | 4 | **Only products have custom fields** | `CUSTOMER`, `VENDOR`, `BRANCH` and `WAREHOUSE` are declared in `AttributeEntityType` but have no value table. See the coverage table below. |
@@ -219,8 +219,13 @@ Ordered by what blocks the most.
   now compute overlapping things. Both are correct and both are used; they
   should converge on the service when `/products/metadata` is next touched.
 - `data_type` supports TEXT, NUMBER, DATE and BOOLEAN. A list-of-allowed-values
-  type is the obvious next gap and is best identified while building the form
-  renderer rather than after.
+  type is the obvious next gap.
+- **All 13 seeded definitions are `TEXT`, including `EXPIRY_DATE`,
+  `SHELF_LIFE_DAYS`, `WARRANTY_MONTHS` and `WEIGHT`.** That defeats the typed
+  columns: an expiry date held as text cannot answer "what expires in 30 days",
+  which is the reason typed storage was chosen over JSON. Retyping them should
+  happen together with the type-aware form inputs, since one without the other
+  breaks data entry.
 
 ## Planned coverage — which modules should get custom fields
 
