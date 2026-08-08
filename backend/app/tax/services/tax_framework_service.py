@@ -1,7 +1,7 @@
 """Transactional service for enterprise tax framework operations."""
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from typing import Any
 from uuid import UUID
@@ -61,8 +61,10 @@ class TaxFrameworkService:
         include_deleted: bool,
     ) -> tuple[list[TaxSystem], int]:
         statement = select(TaxSystem).where(TaxSystem.firm_id == firm_scope)
-        count = select(func.count()).select_from(TaxSystem).where(
-            TaxSystem.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(TaxSystem)
+            .where(TaxSystem.firm_id == firm_scope)
         )
         if not include_deleted:
             statement = statement.where(TaxSystem.is_deleted.is_(False))
@@ -89,8 +91,7 @@ class TaxFrameworkService:
             statement = statement.where(condition)
             count = count.where(condition)
         rows = self._session.scalars(
-            statement
-            .order_by(TaxSystem.display_order.asc(), TaxSystem.code.asc())
+            statement.order_by(TaxSystem.display_order.asc(), TaxSystem.code.asc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
@@ -108,8 +109,10 @@ class TaxFrameworkService:
         include_deleted: bool,
     ) -> tuple[list[TaxComponent], int]:
         statement = select(TaxComponent).where(TaxComponent.firm_id == firm_scope)
-        count = select(func.count()).select_from(TaxComponent).where(
-            TaxComponent.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(TaxComponent)
+            .where(TaxComponent.firm_id == firm_scope)
         )
         if not include_deleted:
             statement = statement.where(TaxComponent.is_deleted.is_(False))
@@ -130,8 +133,9 @@ class TaxFrameworkService:
             statement = statement.where(condition)
             count = count.where(condition)
         rows = self._session.scalars(
-            statement
-            .order_by(TaxComponent.calculation_order.asc(), TaxComponent.code.asc())
+            statement.order_by(
+                TaxComponent.calculation_order.asc(), TaxComponent.code.asc()
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
@@ -154,8 +158,10 @@ class TaxFrameworkService:
             .where(TaxProfile.firm_id == firm_scope)
             .options(selectinload(TaxProfile.components))
         )
-        count = select(func.count()).select_from(TaxProfile).where(
-            TaxProfile.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(TaxProfile)
+            .where(TaxProfile.firm_id == firm_scope)
         )
         if not include_deleted:
             statement = statement.where(TaxProfile.is_deleted.is_(False))
@@ -182,8 +188,7 @@ class TaxFrameworkService:
             statement = statement.where(condition)
             count = count.where(condition)
         rows = self._session.scalars(
-            statement
-            .order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
+            statement.order_by(TaxProfile.display_order.asc(), TaxProfile.code.asc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
@@ -192,7 +197,9 @@ class TaxFrameworkService:
     def list_country_mappings(
         self, *, firm_scope: UUID, include_deleted: bool
     ) -> list[TaxCountryMapping]:
-        statement = select(TaxCountryMapping).where(TaxCountryMapping.firm_id == firm_scope)
+        statement = select(TaxCountryMapping).where(
+            TaxCountryMapping.firm_id == firm_scope
+        )
         if not include_deleted:
             statement = statement.where(TaxCountryMapping.is_deleted.is_(False))
         return list(
@@ -218,7 +225,9 @@ class TaxFrameworkService:
             ).all()
         )
 
-    def create_system(self, data: TaxSystemWrite, *, firm_id: UUID, actor_id: UUID) -> TaxSystem:
+    def create_system(
+        self, data: TaxSystemWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> TaxSystem:
         now = utc_now()
         row = TaxSystem(
             firm_id=firm_id,
@@ -322,7 +331,9 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxComponent:
-        row = self.get_component(component_id, firm_scope=firm_scope, include_deleted=True)
+        row = self.get_component(
+            component_id, firm_scope=firm_scope, include_deleted=True
+        )
         self._assert_system_exists(data.tax_system_id, firm_scope)
         before = {"code": row.code, "status": row.status}
         row.tax_system_id = data.tax_system_id
@@ -351,8 +362,17 @@ class TaxFrameworkService:
         self._commit()
         return row
 
-    def create_profile(self, data: TaxProfileWrite, *, firm_id: UUID, actor_id: UUID) -> TaxProfile:
+    def create_profile(
+        self, data: TaxProfileWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> TaxProfile:
         self._assert_system_exists(data.tax_system_id, firm_id)
+        if data.status == TaxStatus.ACTIVE:
+            self.assert_no_overlapping_version(
+                data.group_code or data.code,
+                data.effective_from,
+                data.effective_to,
+                firm_scope=firm_id,
+            )
         now = utc_now()
         row = TaxProfile(
             firm_id=firm_id,
@@ -396,7 +416,12 @@ class TaxFrameworkService:
         return row
 
     def update_profile(
-        self, profile_id: UUID, data: TaxProfileWrite, *, firm_scope: UUID, actor_id: UUID
+        self,
+        profile_id: UUID,
+        data: TaxProfileWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
     ) -> TaxProfile:
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
         self._assert_system_exists(data.tax_system_id, firm_scope)
@@ -476,7 +501,9 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxCountryMapping:
-        row = self.get_country_mapping(mapping_id, firm_scope=firm_scope, include_deleted=True)
+        row = self.get_country_mapping(
+            mapping_id, firm_scope=firm_scope, include_deleted=True
+        )
         self._assert_system_exists(data.tax_system_id, firm_scope)
         row.country_id = data.country_id
         row.business_profile_id = data.business_profile_id
@@ -512,7 +539,9 @@ class TaxFrameworkService:
             updated_at=now,
         )
         self._session.add(row)
-        self._flush_conflicts("Legacy mapping already exists for this tax code and name.")
+        self._flush_conflicts(
+            "Legacy mapping already exists for this tax code and name."
+        )
         record_audit(
             self._session,
             action="tax.migration_mapping.created",
@@ -532,7 +561,9 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxMigrationMapping:
-        row = self.get_migration_mapping(mapping_id, firm_scope=firm_scope, include_deleted=True)
+        row = self.get_migration_mapping(
+            mapping_id, firm_scope=firm_scope, include_deleted=True
+        )
         if data.target_tax_profile_id is not None:
             self.get_profile(data.target_tax_profile_id, firm_scope=firm_scope)
         row.legacy_tax_code = data.legacy_tax_code
@@ -544,7 +575,9 @@ class TaxFrameworkService:
         row.status = data.status.value
         row.notes = data.notes
         row.updated_by = actor_id
-        self._flush_conflicts("Legacy mapping already exists for this tax code and name.")
+        self._flush_conflicts(
+            "Legacy mapping already exists for this tax code and name."
+        )
         self._commit()
         return row
 
@@ -597,9 +630,7 @@ class TaxFrameworkService:
             include_deleted=False,
         )
         output = StringIO()
-        output.write(
-            "Code,Name,DisplayName,Status,DisplayOrder\n"
-        )
+        output.write("Code,Name,DisplayName,Status,DisplayOrder\n")
         for row in rows:
             output.write(
                 f"{row.code},{row.name},{row.display_name},{row.status},{row.display_order}\n"
@@ -611,7 +642,9 @@ class TaxFrameworkService:
     ) -> list[TaxSystem]:
         created: list[TaxSystem] = []
         for entry in systems:
-            created.append(self.create_system(entry, firm_id=firm_scope, actor_id=actor_id))
+            created.append(
+                self.create_system(entry, firm_id=firm_scope, actor_id=actor_id)
+            )
         return created
 
     def bulk_delete_systems(
@@ -628,12 +661,16 @@ class TaxFrameworkService:
     def bulk_restore_systems(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
-        return self._bulk_restore(TaxSystem, ids, firm_scope=firm_scope, actor_id=actor_id)
+        return self._bulk_restore(
+            TaxSystem, ids, firm_scope=firm_scope, actor_id=actor_id
+        )
 
     def bulk_delete_components(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
-        return self._bulk_mark_deleted(TaxComponent, ids, firm_scope=firm_scope, actor_id=actor_id)
+        return self._bulk_mark_deleted(
+            TaxComponent, ids, firm_scope=firm_scope, actor_id=actor_id
+        )
 
     def bulk_restore_components(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
@@ -656,10 +693,17 @@ class TaxFrameworkService:
     def bulk_restore_profiles(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
-        return self._bulk_restore(TaxProfile, ids, firm_scope=firm_scope, actor_id=actor_id)
+        return self._bulk_restore(
+            TaxProfile, ids, firm_scope=firm_scope, actor_id=actor_id
+        )
 
     def bulk_profile_status(
-        self, ids: Iterable[UUID], status: TaxStatus, *, firm_scope: UUID, actor_id: UUID
+        self,
+        ids: Iterable[UUID],
+        status: TaxStatus,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
     ) -> int:
         rows = self._session.scalars(
             select(TaxProfile).where(
@@ -697,6 +741,97 @@ class TaxFrameworkService:
             )
         result.sort(key=lambda item: item.code)
         return result
+
+    def assert_no_overlapping_version(
+        self,
+        group_code: str,
+        effective_from: date | None,
+        effective_to: date | None,
+        *,
+        firm_scope: UUID,
+        exclude_id: UUID | None = None,
+    ) -> None:
+        """Reject a profile version whose dates collide with another in its group.
+
+        Two active versions covering the same day make the rate ambiguous:
+        resolution would pick one by effective_from and silently apply it to
+        every document in the overlap. Catching it at write time is the only
+        point where the administrator can still tell which one they meant.
+        """
+        statement = select(TaxProfile).where(
+            TaxProfile.firm_id == firm_scope,
+            TaxProfile.group_code == group_code,
+            TaxProfile.is_deleted.is_(False),
+            TaxProfile.status == TaxStatus.ACTIVE.value,
+        )
+        if exclude_id is not None:
+            statement = statement.where(TaxProfile.id != exclude_id)
+        for existing in self._session.scalars(statement).all():
+            if _ranges_overlap(
+                effective_from,
+                effective_to,
+                existing.effective_from,
+                existing.effective_to,
+            ):
+                raise ValidationError(
+                    f"Tax profile dates overlap {existing.code} in group "
+                    f"{group_code}.",
+                    details={
+                        "conflicting_profile_code": existing.code,
+                        "conflicting_effective_from": (
+                            str(existing.effective_from)
+                            if existing.effective_from
+                            else None
+                        ),
+                        "conflicting_effective_to": (
+                            str(existing.effective_to)
+                            if existing.effective_to
+                            else None
+                        ),
+                    },
+                )
+
+    def supersede_profile(
+        self,
+        profile_id: UUID,
+        data: TaxProfileWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> TaxProfile:
+        """Close an existing version and create its replacement in one step.
+
+        A rate change is two edits that must agree: the old version has to stop
+        the day before the new one starts. Doing it by hand leaves a gap or an
+        overlap whenever someone sets only one of the two dates.
+        """
+        previous = self._session.scalar(
+            select(TaxProfile).where(
+                TaxProfile.id == profile_id,
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.is_deleted.is_(False),
+            )
+        )
+        if previous is None:
+            raise ResourceNotFoundError("Tax profile not found.")
+        if data.effective_from is None:
+            raise ValidationError("A replacement version needs an effective_from date.")
+        if previous.effective_from is not None and (
+            data.effective_from <= previous.effective_from
+        ):
+            raise ValidationError(
+                "A replacement version must start after the version it replaces."
+            )
+
+        previous.effective_to = data.effective_from - timedelta(days=1)
+        previous.is_historical = True
+        previous.updated_by = actor_id
+        self._session.flush()
+
+        payload = data.model_copy(
+            update={"group_code": data.group_code or previous.group_code}
+        )
+        return self.create_profile(payload, firm_id=firm_scope, actor_id=actor_id)
 
     def resolve_profile_for_product(
         self,
@@ -807,9 +942,16 @@ class TaxFrameworkService:
             for row in rows
         ]
 
-    def get_system(self, system_id: UUID, *, firm_scope: UUID, include_deleted: bool = False) -> TaxSystem:
+    def get_system(
+        self, system_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
+    ) -> TaxSystem:
         row = self._session.scalar(
-            self._by_id(TaxSystem, system_id, firm_scope=firm_scope, include_deleted=include_deleted)
+            self._by_id(
+                TaxSystem,
+                system_id,
+                firm_scope=firm_scope,
+                include_deleted=include_deleted,
+            )
         )
         if row is None:
             raise ResourceNotFoundError("Tax system not found.")
@@ -830,7 +972,9 @@ class TaxFrameworkService:
             raise ResourceNotFoundError("Tax component not found.")
         return row
 
-    def get_profile(self, profile_id: UUID, *, firm_scope: UUID, include_deleted: bool = False) -> TaxProfile:
+    def get_profile(
+        self, profile_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
+    ) -> TaxProfile:
         row = self._session.scalar(
             self._by_id(
                 TaxProfile,
@@ -874,19 +1018,25 @@ class TaxFrameworkService:
             raise ResourceNotFoundError("Tax migration mapping not found.")
         return row
 
-    def delete_system(self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
+    def delete_system(
+        self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
         row = self.get_system(system_id, firm_scope=firm_scope)
         self._ensure_system_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
 
-    def restore_system(self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> TaxSystem:
+    def restore_system(
+        self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> TaxSystem:
         row = self.get_system(system_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         self._commit()
         return row
 
-    def delete_component(self, component_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
+    def delete_component(
+        self, component_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
         row = self.get_component(component_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
@@ -894,18 +1044,24 @@ class TaxFrameworkService:
     def restore_component(
         self, component_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxComponent:
-        row = self.get_component(component_id, firm_scope=firm_scope, include_deleted=True)
+        row = self.get_component(
+            component_id, firm_scope=firm_scope, include_deleted=True
+        )
         self._restore_row(row, actor_id=actor_id)
         self._commit()
         return row
 
-    def delete_profile(self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
+    def delete_profile(
+        self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
         row = self.get_profile(profile_id, firm_scope=firm_scope)
         self._ensure_profile_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
 
-    def restore_profile(self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> TaxProfile:
+    def restore_profile(
+        self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> TaxProfile:
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         self._commit()
@@ -1030,7 +1186,9 @@ class TaxFrameworkService:
     ) -> int:
         count = 0
         for row_id in ids:
-            row = self._session.scalar(self._by_id(model, row_id, firm_scope=firm_scope))
+            row = self._session.scalar(
+                self._by_id(model, row_id, firm_scope=firm_scope)
+            )
             if row is None or row.is_deleted:
                 continue
             if checker is not None:
@@ -1057,7 +1215,9 @@ class TaxFrameworkService:
             self._commit()
         return count
 
-    def _ensure_system_can_be_deleted(self, system_id: UUID, *, firm_scope: UUID) -> None:
+    def _ensure_system_can_be_deleted(
+        self, system_id: UUID, *, firm_scope: UUID
+    ) -> None:
         has_component = self._session.scalar(
             select(TaxComponent.id).where(
                 TaxComponent.firm_id == firm_scope,
@@ -1066,7 +1226,9 @@ class TaxFrameworkService:
             )
         )
         if has_component is not None:
-            raise ValidationError("Tax systems with active components cannot be deleted.")
+            raise ValidationError(
+                "Tax systems with active components cannot be deleted."
+            )
         has_profile = self._session.scalar(
             select(TaxProfile.id).where(
                 TaxProfile.firm_id == firm_scope,
@@ -1077,7 +1239,9 @@ class TaxFrameworkService:
         if has_profile is not None:
             raise ValidationError("Tax systems with active profiles cannot be deleted.")
 
-    def _ensure_profile_can_be_deleted(self, profile_id: UUID, *, firm_scope: UUID) -> None:
+    def _ensure_profile_can_be_deleted(
+        self, profile_id: UUID, *, firm_scope: UUID
+    ) -> None:
         profile = self.get_profile(profile_id, firm_scope=firm_scope)
         if profile.group_code:
             in_use = self._session.scalar(
@@ -1088,7 +1252,9 @@ class TaxFrameworkService:
                 )
             )
             if in_use is not None:
-                raise ValidationError("Tax profile group assigned to active products cannot be deleted.")
+                raise ValidationError(
+                    "Tax profile group assigned to active products cannot be deleted."
+                )
 
     @staticmethod
     def _soft_delete(row: Any, *, actor_id: UUID) -> None:
@@ -1195,7 +1361,9 @@ class TaxFrameworkService:
         - Components/profiles not mentioned → left untouched (soft-delete manually if needed)
         """
         # 1. Update system
-        system = self.get_system(system_id, firm_scope=firm_scope, include_deleted=False)
+        system = self.get_system(
+            system_id, firm_scope=firm_scope, include_deleted=False
+        )
         before = {"code": system.code, "status": system.status}
         system.country_id = data.country_id
         system.business_profile_id = data.business_profile_id
@@ -1213,7 +1381,9 @@ class TaxFrameworkService:
         code_to_component: dict[str, TaxComponent] = {}
         for comp_input in data.components:
             if comp_input.id is not None:
-                comp = self.get_component(comp_input.id, firm_scope=firm_scope, include_deleted=False)
+                comp = self.get_component(
+                    comp_input.id, firm_scope=firm_scope, include_deleted=False
+                )
                 comp.code = comp_input.code
                 comp.name = comp_input.name
                 comp.label = comp_input.label or comp_input.name
@@ -1240,7 +1410,9 @@ class TaxFrameworkService:
         profiles: list[TaxProfile] = []
         for prof_input in data.profiles:
             if prof_input.id is not None:
-                prof = self.get_profile(prof_input.id, firm_scope=firm_scope, include_deleted=False)
+                prof = self.get_profile(
+                    prof_input.id, firm_scope=firm_scope, include_deleted=False
+                )
                 prof.code = prof_input.code
                 prof.name = prof_input.name
                 prof.label = prof_input.label or prof_input.name
@@ -1254,8 +1426,11 @@ class TaxFrameworkService:
                 prof.business_profile_id = prof_input.business_profile_id
                 prof.updated_by = actor_id
                 self._reconcile_profile_components_from_setup(
-                    prof, prof_input.components, code_to_component,
-                    actor_id=actor_id, firm_id=firm_scope,
+                    prof,
+                    prof_input.components,
+                    code_to_component,
+                    actor_id=actor_id,
+                    firm_id=firm_scope,
                 )
             else:
                 prof = self._create_profile_no_commit(
@@ -1297,7 +1472,9 @@ class TaxFrameworkService:
         firm_scope: UUID,
     ) -> tuple[TaxSystem, list[TaxComponent], list[TaxProfile]]:
         """Fetch full setup (system + all components + all profiles) for one system."""
-        system = self.get_system(system_id, firm_scope=firm_scope, include_deleted=False)
+        system = self.get_system(
+            system_id, firm_scope=firm_scope, include_deleted=False
+        )
         components = list(
             self._session.scalars(
                 select(TaxComponent)
@@ -1438,8 +1615,13 @@ class TaxFrameworkService:
         firm_id: UUID,
     ) -> None:
         now = utc_now()
-        existing = {pc.tax_component_id: pc for pc in profile.components if not pc.is_deleted}
-        wanted = {code_to_component[pc_input.component_code].id: pc_input for pc_input in inputs}
+        existing = {
+            pc.tax_component_id: pc for pc in profile.components if not pc.is_deleted
+        }
+        wanted = {
+            code_to_component[pc_input.component_code].id: pc_input
+            for pc_input in inputs
+        }
 
         # Remove components not in the new list
         for comp_id, pc in existing.items():
@@ -1485,3 +1667,21 @@ class TaxFrameworkService:
 
     def _commit(self) -> None:
         self._session.commit()
+
+
+def _ranges_overlap(
+    left_from: date | None,
+    left_to: date | None,
+    right_from: date | None,
+    right_to: date | None,
+) -> bool:
+    """Return whether two effective-date windows share any day.
+
+    A missing bound is open-ended: no start means "always applied until", no end
+    means "still in force".
+    """
+    if left_to is not None and right_from is not None and left_to < right_from:
+        return False
+    if right_to is not None and left_from is not None and right_to < left_from:
+        return False
+    return True

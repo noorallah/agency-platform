@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.business.models import BusinessProfile
-from app.tax.models import TaxProfile
+from app.tax.models import TaxComponent, TaxProfile, TaxSystem
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.firms.models import Firm
@@ -516,3 +516,177 @@ def test_a_product_without_a_tax_group_resolves_to_nothing() -> None:
         product, date(2026, 6, 1), firm_scope=firm.id
     )
     assert resolved is None
+
+
+def _rate_setup(session: Session) -> tuple[Firm, UUID, TaxSystem, TaxComponent]:
+    """Create the firm, system and component a rate-version test needs."""
+    firm = _firm(session)
+    actor_id = uuid4()
+    _profile(session, actor_id)
+    service = TaxFrameworkService(session)
+    country = _country(session, actor_id)
+    system = service.create_system(
+        TaxSystemWrite(
+            country_id=country.id,
+            code="GST",
+            name="GST",
+            display_name="GST",
+            status="ACTIVE",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    component = service.create_component(
+        TaxComponentWrite(
+            tax_system_id=system.id,
+            code="GST_STD",
+            name="GST standard",
+            label="GST",
+            percentage="5",
+            status="ACTIVE",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return firm, actor_id, system, component
+
+
+def _profile_write(
+    system: TaxSystem,
+    component: TaxComponent,
+    code: str,
+    percent: str,
+    starts: date | None,
+    ends: date | None,
+) -> TaxProfileWrite:
+    return TaxProfileWrite(
+        tax_system_id=system.id,
+        code=code,
+        name=code,
+        label=code,
+        status="ACTIVE",
+        group_code="GST_STANDARD",
+        effective_from=starts,
+        effective_to=ends,
+        components=[
+            {
+                "tax_component_id": component.id,
+                "percentage": percent,
+                "calculation_order": 1,
+                "included_in_price": False,
+                "recoverable": False,
+            }
+        ],
+    )
+
+
+def test_overlapping_rate_versions_are_rejected() -> None:
+    """Two active versions covering one day would make the rate ambiguous."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+
+    service.create_profile(
+        _profile_write(
+            system, component, "GST_5", "5", date(2020, 1, 1), date(2026, 3, 31)
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    with pytest.raises(ValidationError, match="overlap"):
+        service.create_profile(
+            _profile_write(system, component, "GST_8", "8", date(2026, 3, 1), None),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    # Starting the day after the previous one ends is fine.
+    service.create_profile(
+        _profile_write(system, component, "GST_8", "8", date(2026, 4, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+
+def test_an_open_ended_version_blocks_any_later_one() -> None:
+    """A version with no end date runs forever, so nothing may follow it."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+
+    service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    with pytest.raises(ValidationError, match="overlap"):
+        service.create_profile(
+            _profile_write(system, component, "GST_8", "8", date(2030, 1, 1), None),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_superseding_closes_the_previous_version_without_a_gap() -> None:
+    """A rate change is two edits that must agree; doing it in one step is safe."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+
+    old = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    new = service.supersede_profile(
+        old.id,
+        _profile_write(system, component, "GST_8", "8", date(2026, 4, 1), None),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    session.refresh(old)
+    assert old.effective_to == date(2026, 3, 31), "the day before the successor"
+    assert old.is_historical is True
+    assert new.effective_from == date(2026, 4, 1)
+    assert new.group_code == old.group_code
+
+    # No gap and no overlap: every date resolves to exactly one version.
+    assert (
+        service.resolve_active_profile(
+            "GST_STANDARD", date(2026, 3, 31), firm_scope=firm.id
+        ).id
+        == old.id
+    )
+    assert (
+        service.resolve_active_profile(
+            "GST_STANDARD", date(2026, 4, 1), firm_scope=firm.id
+        ).id
+        == new.id
+    )
+
+
+def test_a_replacement_must_start_after_the_version_it_replaces() -> None:
+    """Otherwise the closing date would land before the version even began."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+
+    old = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2026, 4, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    with pytest.raises(ValidationError, match="must start after"):
+        service.supersede_profile(
+            old.id,
+            _profile_write(system, component, "GST_8", "8", date(2026, 1, 1), None),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+    with pytest.raises(ValidationError, match="needs an effective_from"):
+        service.supersede_profile(
+            old.id,
+            _profile_write(system, component, "GST_8", "8", None, None),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
