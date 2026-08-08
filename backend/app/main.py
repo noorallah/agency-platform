@@ -12,6 +12,7 @@ from app.api.routers.health import router as health_router
 from app.batch_serial.api import router as batch_serial_router
 from app.branches.api import router as branch_warehouse_router
 from app.business.api import router as business_framework_router
+from app.common.audit.api import router as audit_logs_router
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
@@ -28,6 +29,7 @@ from app.core.tenancy import (
 from app.customers.api import router as customers_router
 from app.delivery_note.api import router as delivery_notes_router
 from app.document_framework.api import router as document_framework_router
+from app.finance.api import router as finance_router
 from app.firms.api import router as firms_router
 from app.goods_receipt.api import router as goods_receipt_router
 from app.identity.api import router as identity_router
@@ -123,6 +125,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(batch_serial_router)
     application.include_router(document_framework_router)
     application.include_router(uom_framework_router)
+    application.include_router(finance_router)
+    application.include_router(audit_logs_router)
     register_exception_handlers(application)
     return application
 

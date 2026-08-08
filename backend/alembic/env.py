@@ -1,7 +1,7 @@
 """Alembic environment for the application's SQLAlchemy metadata."""
 
-from logging.config import fileConfig
 import re
+from logging.config import fileConfig
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -17,17 +17,18 @@ from app.core.database.engine import EngineFactory
 from app.customers.models import customer  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401
+from app.finance.models import finance  # noqa: F401
 from app.firms.models import firm  # noqa: F401
+from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.identity.models import identity  # noqa: F401
 from app.inventory.models import inventory  # noqa: F401
-from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.products.models import product  # noqa: F401
 from app.purchase.models import purchase  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
 from app.purchase_return.models import purchase_return  # noqa: F401
+from app.sales.models import territory  # noqa: F401
 from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
-from app.sales.models import territory  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.uom.models import uom  # noqa: F401
 from app.vendors.models import vendor  # noqa: F401
