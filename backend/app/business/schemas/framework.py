@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.business.models import AttributeDataType, AttributeEntityType
+
 _BUSINESS_PROFILE_STATUSES = frozenset({"ACTIVE", "INACTIVE", "ARCHIVED"})
 
 
@@ -137,7 +139,10 @@ class AttributeDefinitionCreate(BusinessFrameworkSchema):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[A-Z0-9_-]+$")
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
-    data_type: str = Field(min_length=2, max_length=50)
+    # Which record this field extends. Defaults to PRODUCT so definitions
+    # created before entity targeting existed keep their meaning.
+    entity_type: AttributeEntityType = AttributeEntityType.PRODUCT
+    data_type: AttributeDataType
     mandatory: bool = False
     default_value: str | None = None
     validation_rule: dict[str, object] | None = None
@@ -162,7 +167,8 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     code: str
     name: str
     description: str | None
-    data_type: str
+    entity_type: AttributeEntityType
+    data_type: AttributeDataType
     mandatory: bool
     default_value: str | None
     validation_rule: dict[str, object] | None

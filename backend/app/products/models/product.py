@@ -1,16 +1,13 @@
 """Firm-scoped product, category, and dynamic-attribute persistence models."""
 
-from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
-    Date,
     ForeignKey,
     Index,
-    JSON,
     Numeric,
     String,
     Text,
@@ -20,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
@@ -140,7 +138,9 @@ class Product(BaseEntity):
     )
     minimum_sales_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_products_minimum_sales_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_products_minimum_sales_uoms", ondelete="RESTRICT"
+        ),
     )
     weight: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     volume: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
@@ -158,33 +158,40 @@ class Product(BaseEntity):
     mrp: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     remarks: Mapped[str | None] = mapped_column(Text)
-    track_batch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    track_lot: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    track_serial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    track_expiry: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    track_manufacturing_date: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    track_warranty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    allow_negative_stock: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    require_batch_on_receipt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    require_batch_on_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    require_serial_on_receipt: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    require_serial_on_issue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
-    category_attribute_values: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSON,
-        nullable=False,
-        default=list,
+    track_batch: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    track_lot: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    track_serial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    track_expiry: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    track_manufacturing_date: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    track_warranty: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    allow_negative_stock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_batch_on_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_batch_on_issue: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_serial_on_receipt: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_serial_on_issue: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
-    attributes: Mapped[list["ProductAttributeValue"]] = relationship(
-        back_populates="product",
-        cascade="save-update, merge",
-        primaryjoin=lambda: and_(
-            Product.id == ProductAttributeValue.product_id,
-            ProductAttributeValue.is_deleted.is_(False),
-        ),
-        lazy="selectin",
-        order_by="ProductAttributeValue.created_at",
-    )
     media: Mapped[list["ProductMedia"]] = relationship(
         back_populates="product",
         cascade="save-update, merge",
@@ -195,44 +202,6 @@ class Product(BaseEntity):
         lazy="selectin",
         order_by="ProductMedia.created_at",
     )
-
-
-class ProductAttributeValue(BaseEntity):
-    """Store one dynamic attribute value assigned to a product."""
-
-    __tablename__ = "product_attribute_values"
-    __table_args__ = (
-        UniqueConstraint(
-            "product_id",
-            "attribute_definition_id",
-            name="UQ_product_attribute_values_product_attribute",
-        ),
-        Index("IX_product_attribute_values_firm_text", "firm_id", "value_text"),
-        Index("IX_product_attribute_values_firm_number", "firm_id", "value_number"),
-        Index("IX_product_attribute_values_firm_date", "firm_id", "value_date"),
-    )
-
-    firm_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
-    )
-    product_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("products.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    attribute_definition_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("attribute_definitions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    value_text: Mapped[str | None] = mapped_column(Text)
-    value_number: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
-    value_date: Mapped[date | None] = mapped_column(Date)
-    value_boolean: Mapped[bool | None] = mapped_column(Boolean)
-
-    product: Mapped[Product] = relationship(back_populates="attributes")
 
 
 class ProductMedia(BaseEntity):
@@ -263,3 +232,29 @@ class ProductMedia(BaseEntity):
     file_size_bytes: Mapped[int | None] = mapped_column()
 
     product: Mapped[Product] = relationship(back_populates="media")
+
+
+class ProductAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a product."""
+
+    __tablename__ = "product_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id",
+            "attribute_definition_id",
+            name="UQ_product_attribute_values_product_attribute",
+        ),
+        Index("IX_product_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_product_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_product_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.PRODUCT
+    OWNER_COLUMN: ClassVar[str] = "product_id"
+
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )

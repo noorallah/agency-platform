@@ -111,7 +111,9 @@ class ProductWrite(ProductSchema):
     brand: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
     hsn_sac: str | None = Field(default=None, max_length=20)
-    tax_profile_group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
+    tax_profile_group_code: str | None = Field(
+        default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
     base_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     purchase_uom_id: UUID | None = None
@@ -264,7 +266,8 @@ class ProductResponse(ProductSchema):
     created_at: datetime
     updated_by: UUID | None
     updated_at: datetime
-    attributes: list[ProductAttributeResponse]
+    # Resolved from the shared attribute store by the router, not the ORM row.
+    attributes: list[ProductAttributeResponse] = Field(default_factory=list)
     media: list[ProductMediaResponse]
 
 

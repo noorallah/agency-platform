@@ -1,13 +1,18 @@
 """SQLAlchemy models for the multi-industry business profile framework."""
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
+from enum import StrEnum
+from typing import ClassVar, cast
 from uuid import UUID
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -114,14 +119,49 @@ class ProfileModule(BaseEntity):
     configuration: Mapped[dict[str, object] | None] = mapped_column(JSON)
 
 
+class AttributeEntityType(StrEnum):
+    """Name the records a custom attribute can extend.
+
+    Adding a member here plus a call to ``AttributeService`` is all a module
+    needs to gain configurable fields; no schema change is required.
+    """
+
+    PRODUCT = "PRODUCT"
+    CUSTOMER = "CUSTOMER"
+    VENDOR = "VENDOR"
+    BRANCH = "BRANCH"
+    WAREHOUSE = "WAREHOUSE"
+
+
+class AttributeDataType(StrEnum):
+    """Supported value types for a custom attribute."""
+
+    TEXT = "TEXT"
+    NUMBER = "NUMBER"
+    DATE = "DATE"
+    BOOLEAN = "BOOLEAN"
+
+
 class AttributeDefinition(BaseEntity):
-    """Define reusable product-extension attributes for future modules."""
+    """Define one configurable field that extends a record for some industry.
+
+    A definition is scoped by ``entity_type`` (which record it extends) and
+    optionally by ``applicable_business_profile_id`` (which industries see it),
+    so a pharmacy firm can carry a drug-licence field that a food firm does not.
+    """
 
     __tablename__ = "attribute_definitions"
 
     code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    entity_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default=AttributeEntityType.PRODUCT.value,
+        server_default=AttributeEntityType.PRODUCT.value,
+        index=True,
+    )
     data_type: Mapped[str] = mapped_column(String(50), nullable=False)
     mandatory: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
@@ -179,3 +219,43 @@ class FirmBusinessProfile(BaseEntity):
     )
     effective_from: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class AttributeValueBase(BaseEntity):
+    """Shared columns for a module's custom attribute values.
+
+    Each module owns a small concrete table (``product_attribute_values``,
+    ``customer_attribute_values``, …) so the value carries a real foreign key to
+    its record and gets its own indexes. The behaviour stays generic:
+    ``AttributeService`` is parameterised by the model, so there is still one
+    implementation, one set of tests, and one form renderer.
+
+    Values live in typed columns rather than a serialized blob so that list
+    filters and reports can index and query them.
+    """
+
+    __abstract__ = True
+
+    #: Which catalogue entries apply to this table.
+    ENTITY_TYPE: ClassVar[AttributeEntityType]
+    #: Name of the foreign-key column pointing at the owning record.
+    OWNER_COLUMN: ClassVar[str]
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    attribute_definition_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("attribute_definitions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    value_text: Mapped[str | None] = mapped_column(Text)
+    value_number: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    value_date: Mapped[date | None] = mapped_column(Date)
+    value_boolean: Mapped[bool | None] = mapped_column(Boolean)
+
+    @classmethod
+    def owner_column(cls) -> Mapped[UUID]:
+        """Return the mapped foreign-key column pointing at the owning record."""
+        return cast("Mapped[UUID]", getattr(cls, cls.OWNER_COLUMN))

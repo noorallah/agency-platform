@@ -16,6 +16,7 @@ from app.business.models import (
     CategoryAttributeRule,
     ProfileFeature,
 )
+from app.business.services import AttributeService
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -31,6 +32,7 @@ from app.products.api.router import (
     product_scope,
     restore_product,
 )
+from app.products.models import ProductAttributeValue
 from app.products.schemas import (
     ProductAttributeInput,
     ProductCategoryCreate,
@@ -174,7 +176,7 @@ def test_product_service_enforces_category_attribute_rules() -> None:
 
     missing = _base_payload()
     missing.category_id = category.id
-    with pytest.raises(ValidationError, match="Required category attributes"):
+    with pytest.raises(ValidationError, match="Required attributes are missing"):
         service.create_product(missing, firm_id=firm.id, actor_id=actor_id)
 
     valid = _base_payload("PROD-002")
@@ -187,8 +189,11 @@ def test_product_service_enforces_category_attribute_rules() -> None:
     ]
     created = service.create_product(valid, firm_id=firm.id, actor_id=actor_id)
     assert created.code == "PROD-002"
-    assert created.category_attribute_values[0]["value_type"] == "date"
-    assert created.category_attribute_values[0]["value"] == "2028-12-31"
+    # Values now live in the shared, typed attribute store rather than on the row.
+    stored = AttributeService(session).values_for(ProductAttributeValue, created.id)
+    assert len(stored) == 1
+    assert stored[0].definition.id == definition.id
+    assert stored[0].value == date(2028, 12, 31)
 
 
 def test_product_service_enforces_feature_gated_fields() -> None:

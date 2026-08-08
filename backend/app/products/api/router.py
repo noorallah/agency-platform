@@ -184,7 +184,7 @@ def list_products(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_response(row, can_view_cost=scope.can_view_cost) for row in rows],
+        data=[_response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -225,7 +225,7 @@ def create_product(
     row = ProductService(db).create_product(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost))
+    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
 
 
 @router.post(
@@ -249,7 +249,9 @@ async def import_products(
             records, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
         return ApiResponse(
-            data=[_response(row, can_view_cost=scope.can_view_cost) for row in rows]
+            data=[
+                _response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows
+            ]
         )
     if file is None:
         raise ValidationError("file is required for CSV/XLSX import.")
@@ -263,7 +265,7 @@ async def import_products(
             content, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
     return ApiResponse(
-        data=[_response(row, can_view_cost=scope.can_view_cost) for row in rows]
+        data=[_response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows]
     )
 
 
@@ -361,7 +363,7 @@ def get_product(
     row = ProductService(db).get_product(
         product_id, firm_scope=scope.firm_id, include_deleted=include_deleted
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost))
+    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
 
 
 @router.put("/{product_id}", response_model=ApiResponse[ProductResponse])
@@ -374,7 +376,7 @@ def update_product(
     row = ProductService(db).update_product(
         product_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost))
+    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
 
 
 @router.post(
@@ -390,7 +392,7 @@ def duplicate_product(
     row = ProductService(db).duplicate_product(
         product_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost))
+    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -414,7 +416,7 @@ def restore_product(
     row = ProductService(db).restore_product(
         product_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost))
+    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
 
 
 @router.post("/bulk-delete", response_model=ApiResponse[dict[str, int]])
@@ -441,9 +443,10 @@ def bulk_restore_products(
     return ApiResponse(data={"affected": count})
 
 
-def _response(row: Product, *, can_view_cost: bool) -> ProductResponse:
+def _response(row: Product, *, can_view_cost: bool, db: Session) -> ProductResponse:
+    """Build one product response with its configurable attributes."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
-    payload["attributes"] = ProductService.build_attribute_responses(row)
+    payload["attributes"] = ProductService(db).attribute_responses(row)
     if not can_view_cost:
         payload["purchase_price"] = None
     return ProductResponse.model_validate(payload)
