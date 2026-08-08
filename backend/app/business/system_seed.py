@@ -98,10 +98,8 @@ SEED_BUSINESS_PROFILES = (
 
 def seed_business_profiles(session: Session) -> None:
     """Create or restore baseline business profiles without touching custom rows."""
-
     existing = {
-        profile.code: profile
-        for profile in session.scalars(select(BusinessProfile))
+        profile.code: profile for profile in session.scalars(select(BusinessProfile))
     }
     for seed in SEED_BUSINESS_PROFILES:
         profile = existing.get(seed["code"])

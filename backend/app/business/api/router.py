@@ -451,9 +451,7 @@ def get_active_features(
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveFeatureResponse]]:
-    resolved_firm = _resolve_firm_scope(
-        principal, platform_db, x_firm_id, firm_id
-    )
+    resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
     rows = _service(db).active_features(resolved_firm)
     return ApiResponse(
         data=[
@@ -477,9 +475,7 @@ def get_active_modules(
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
-    resolved_firm = _resolve_firm_scope(
-        principal, platform_db, x_firm_id, firm_id
-    )
+    resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
     rows = _service(db).active_modules(resolved_firm)
     return ApiResponse(
         data=[

@@ -604,9 +604,7 @@ def get_permission(
     """Retrieve a visible permission."""
     return ApiResponse(
         data=PermissionResponse.model_validate(
-            _service(db, settings).get_permission(
-                permission_id, _firm_scope(principal)
-            )
+            _service(db, settings).get_permission(permission_id, _firm_scope(principal))
         )
     )
 
