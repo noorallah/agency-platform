@@ -119,9 +119,10 @@ Be precise here — the framework is wired into more places than it *drives*.
 
 **Enforced (behaviour changes):**
 
-- `app/business/gating.py` — `require_feature` / `require_module` block writes
-  when a profile disables the capability. Currently applied only to
-  `batch_serial` (`BATCH_TRACKING`, `SERIAL_NUMBER`) as the reference.
+- `app/business/gating.py` — `require_feature` blocks writes when a profile
+  disables the capability. Applied only to `batch_serial` (`BATCH_TRACKING`,
+  `SERIAL_NUMBER`) as the reference. `require_module` exists alongside it but is
+  **not yet applied to any route**.
 - `app/products` — `_validate_feature_gated_fields` rejects a barcode or QR code
   when `BARCODE` / `QR_CODE` are disabled, and resolves which custom attributes
   apply via profile + category.
@@ -177,6 +178,49 @@ menu entries; it is not a security boundary.
 Definitions are configured at runtime through
 `/api/v1/business-framework/attribute-definitions` — adding a *field* needs no
 code, only adding a new *module* does.
+
+## Status — what is built and what is not
+
+As of 2026-08-09, branch `backend/finance-audit-platform-hardening`.
+
+### Built
+
+| Capability | State |
+| --- | --- |
+| Profile catalogue | 12 profiles, 21 features, 14 modules seeded |
+| Profile → feature/module mappings | Populated for every industry by `20260809_0046`. Previously only GENERIC had a real configuration. |
+| Firm → profile assignment | `firm_business_profiles`, one profile per firm, default-profile fallback |
+| Capability resolution | `resolve_capabilities` in `app/business/gating.py` |
+| `require_feature` gate | Built and applied to `batch_serial` (`BATCH_TRACKING`, `SERIAL_NUMBER`) |
+| Feature checks in products | `BARCODE` and `QR_CODE` reject a disabled field |
+| Attribute catalogue with entity targeting | `entity_type` on `AttributeDefinition`, exposed on the API, `data_type` validated against the enum |
+| Attribute storage and validation | `AttributeService` plus `AttributeValueBase`; typed, indexed columns |
+| Product custom fields | `product_attribute_values`, wired end to end at the API |
+| Category-scoped mandatory rules | `category_attribute_rules`, read at save time and by `/products/metadata` |
+
+### Not built
+
+Ordered by what blocks the most.
+
+| # | Gap | Why it matters |
+| --- | --- | --- |
+| 1 | **Desktop cannot capture custom fields** | The product form renders no inputs for them. Seeded rules already make `BATCH_NUMBER`, `EXPIRY_DATE` and `MANUFACTURER` mandatory for PHARMACY/MEDICINE, and mandatory attributes are enforced server-side — so creating a medicine from the desktop for MEDI01 will fail. This is live, not hypothetical. |
+| 2 | **`require_module` is defined but applied nowhere** | Module gating exists as a mechanism only. A firm whose profile disables a module can still call its endpoints. |
+| 3 | **18 of 21 features have no enforcement** | Only `BARCODE`, `QR_CODE` and `TERRITORY` are read outside `app/business`. Each remaining feature needs a product decision about what it actually does before it can be wired. |
+| 4 | **Only products have custom fields** | `CUSTOMER`, `VENDOR`, `BRANCH` and `WAREHOUSE` are declared in `AttributeEntityType` but have no value table. See the coverage table below. |
+| 5 | **`vendors.business_attributes` is an untyped JSON blob** | Unvalidated, unlinked to the catalogue, looks like this feature but is not. Should migrate onto the framework before anyone stores data in it. |
+| 6 | **UOM defaults are not applied** | `business_profile_uom_defaults` is readable and editable but nothing consumes it when a product is created. |
+| 7 | **ELEC01 and WHOLE01 have no profile** | Both fall back to GENERIC, so neither gets the electronics or wholesale capabilities its business implies. A data gap, not a code one. |
+| 8 | **Line-level attributes undecided** | See the note in the coverage table; needs its own design round. |
+
+### Smaller follow-ups
+
+- `ProductService._category_attribute_ids` and `AttributeService.mandatory_ids`
+  now compute overlapping things. Both are correct and both are used; they
+  should converge on the service when `/products/metadata` is next touched.
+- `data_type` supports TEXT, NUMBER, DATE and BOOLEAN. A list-of-allowed-values
+  type is the obvious next gap and is best identified while building the form
+  renderer rather than after.
 
 ## Planned coverage — which modules should get custom fields
 
