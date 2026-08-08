@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,8 +25,21 @@ class User(BaseEntity):
     """Represent an interactive platform user."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        # Uniqueness applies to live accounts only, so an address is released
+        # when its user is soft deleted and a leaver can be re-onboarded.
+        # PostgreSQL and SQLite honour the predicate; MySQL ignores it, so
+        # IdentityService.create_user remains the authoritative check.
+        Index(
+            "UQ_users_email_active",
+            "email",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+    )
 
-    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     is_active: Mapped[bool] = mapped_column(

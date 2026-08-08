@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
@@ -82,6 +82,11 @@ class IdentityService:
         )
         now = utc_now()
         if user is None:
+            # Verify against a throwaway hash so an unknown address costs the same
+            # as a known one. Without this the Argon2 work factor makes the two
+            # cases trivially distinguishable by response time, which turns an
+            # otherwise-uniform error message into a user-enumeration oracle.
+            self._passwords.verify_password(password, _DUMMY_PASSWORD_HASH)
             self._record_login(
                 None,
                 normalized_email,
@@ -178,6 +183,7 @@ class IdentityService:
         )
         if result.rowcount != 1:
             self._session.rollback()
+            self._handle_refresh_reuse(token_hash, user_id=user.id)
             raise AuthenticationError("The refresh token is invalid or expired.")
         stored = self._session.scalar(
             select(RefreshToken).where(RefreshToken.token_hash == token_hash)
@@ -361,7 +367,12 @@ class IdentityService:
     ) -> User:
         """Provision a user with a policy-compliant initial password."""
         email = validate_email(data.email)
-        if self._session.scalar(select(User.id).where(User.email == email)):
+        # Only live accounts hold an address; soft-deleted users release theirs so
+        # a leaver can be re-onboarded. This mirrors UQ_users_email_active and is
+        # the authoritative check on backends without partial indexes.
+        if self._session.scalar(
+            select(User.id).where(User.email == email, User.is_deleted.is_(False))
+        ):
             raise ConflictError("A user with this email already exists.")
         validate_password_policy(data.password)
         user = User(
@@ -765,10 +776,7 @@ class IdentityService:
     ) -> Permission:
         """Return one visible permission."""
         permission = self._get_permission(permission_id)
-        if (
-            firm_scope is not None
-            and permission.code in PLATFORM_PERMISSION_CODES
-        ):
+        if firm_scope is not None and permission.code in PLATFORM_PERMISSION_CODES:
             raise ResourceNotFoundError("Permission not found.")
         return permission
 
@@ -783,13 +791,7 @@ class IdentityService:
         ]
         if firm_scope is not None:
             conditions.append(UserRole.firm_id == firm_scope)
-        return list(
-            self._session.scalars(
-                select(UserRole.role_id).where(
-                    *conditions
-                )
-            )
-        )
+        return list(self._session.scalars(select(UserRole.role_id).where(*conditions)))
 
     def list_role_permission_ids(
         self, role_id: UUID, firm_scope: UUID | None = None
@@ -878,9 +880,7 @@ class IdentityService:
                 raise BusinessRuleError(
                     "Platform or cross-firm roles cannot be assigned."
                 )
-            self._replace_scoped_user_roles(
-                user.id, role_ids, actor_id, firm_scope
-            )
+            self._replace_scoped_user_roles(user.id, role_ids, actor_id, firm_scope)
         self._revoke_user_tokens(user.id)
         record_audit(
             self._session,
@@ -1107,6 +1107,35 @@ class IdentityService:
             must_change_password=user.force_password_change,
         )
 
+    def _handle_refresh_reuse(self, token_hash: str, *, user_id: UUID) -> None:
+        """Revoke every session when an already-rotated token is presented again.
+
+        A refresh token is single use. Seeing one that was previously rotated
+        means either the holder replayed a stale token or an attacker captured
+        it, and the two are indistinguishable from here. Revoking the whole
+        family is the safe reading: a legitimate user re-authenticates, while a
+        stolen token loses the session it was rotated into.
+        """
+        replayed = self._session.scalar(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_not(None),
+            )
+        )
+        if replayed is None:
+            return
+        self._revoke_user_tokens(user_id)
+        record_audit(
+            self._session,
+            action="identity.refresh_token_reuse_detected",
+            entity_type="user",
+            entity_id=user_id,
+            actor_id=user_id,
+            after_data={"revoked_token_id": str(replayed.id)},
+        )
+        self._session.commit()
+
     def _register_failed_login(
         self, user: User, client_ip: str | None, user_agent: str | None
     ) -> None:
@@ -1174,12 +1203,8 @@ class IdentityService:
         for role_id in set(role_ids):
             self._revoke_role_users(role_id)
 
-    def _get_user(
-        self, user_id: UUID, firm_scope: UUID | None = None
-    ) -> User:
-        statement = select(User).where(
-            User.id == user_id, User.is_deleted.is_(False)
-        )
+    def _get_user(self, user_id: UUID, firm_scope: UUID | None = None) -> User:
+        statement = select(User).where(User.id == user_id, User.is_deleted.is_(False))
         if firm_scope is not None:
             statement = statement.where(
                 User.id.in_(
@@ -1225,12 +1250,8 @@ class IdentityService:
                 "Users assigned to multiple firms require platform administration."
             )
 
-    def _get_role(
-        self, role_id: UUID, firm_scope: UUID | None = None
-    ) -> Role:
-        statement = select(Role).where(
-            Role.id == role_id, Role.is_deleted.is_(False)
-        )
+    def _get_role(self, role_id: UUID, firm_scope: UUID | None = None) -> Role:
+        statement = select(Role).where(Role.id == role_id, Role.is_deleted.is_(False))
         if firm_scope is not None:
             statement = statement.where(
                 or_(Role.firm_id == firm_scope, Role.code.in_(FIRM_ROLE_CODES))
@@ -1347,6 +1368,7 @@ class IdentityService:
                 existing.deleted_at = now
                 existing.deleted_by = actor_id
                 existing.updated_by = actor_id
+
     def _is_platform_admin(self, user_id: UUID) -> bool:
         return (
             self._session.scalar(
@@ -1362,3 +1384,16 @@ class IdentityService:
 def _hash_token(token: str) -> str:
     """Hash a bearer refresh token before persistence lookup."""
     return sha256(token.encode("utf-8")).hexdigest()
+
+
+def _build_dummy_password_hash() -> str:
+    """Return a hash used only to equalise login timing for unknown accounts.
+
+    The plaintext is a generated UUID that is discarded, so nothing can ever
+    verify against it.
+    """
+    return PasswordSecurity().hash_password(str(uuid4()))
+
+
+#: Computed once at import so the equalising verify costs the same as a real one.
+_DUMMY_PASSWORD_HASH = _build_dummy_password_hash()

@@ -43,9 +43,8 @@ class Principal:
         """Check global or selected-firm permission grants."""
         if self.is_platform_admin or permission in self.permissions:
             return True
-        return (
-            self.firm_id is not None
-            and permission in self.firm_permissions.get(self.firm_id, frozenset())
+        return self.firm_id is not None and permission in self.firm_permissions.get(
+            self.firm_id, frozenset()
         )
 
 
@@ -68,9 +67,7 @@ def get_current_principal(
     subject = _parse_subject(claims.subject)
     if not isinstance(subject, UUID):
         raise AuthenticationError()
-    user = db.scalar(
-        select(User).where(User.id == subject, User.is_deleted.is_(False))
-    )
+    user = db.scalar(select(User).where(User.id == subject, User.is_deleted.is_(False)))
     now = utc_now()
     if (
         user is None
@@ -87,9 +84,7 @@ def get_current_principal(
         permissions=frozenset(_string_claims(extra_claims.get("permissions"))),
         claims=claims,
         firm_id=firm_id,
-        firm_permissions=_firm_permission_claims(
-            extra_claims.get("firm_permissions")
-        ),
+        firm_permissions=_firm_permission_claims(extra_claims.get("firm_permissions")),
     )
 
 
@@ -113,7 +108,7 @@ def require_role(*required_roles: str) -> Callable[[Principal], Principal]:
     def dependency(
         principal: Principal = Depends(get_current_principal),
     ) -> Principal:
-        if principal.roles.isdisjoint(required):
+        if _requires_password_change(principal) or principal.roles.isdisjoint(required):
             raise AuthorizationError()
         return principal
 
