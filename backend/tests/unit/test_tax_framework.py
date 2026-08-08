@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.business.models import BusinessProfile
+from app.tax.models import TaxProfile
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.firms.models import Firm
@@ -256,7 +257,13 @@ def test_tax_rule_engine_applies_highest_priority_matching_rule() -> None:
             name="Default Rule",
             priority=50,
             status="ACTIVE",
-            actions=[{"sequence": 1, "action_type": "APPLY_TAX_PROFILE", "target_tax_profile_id": profile.id}],
+            actions=[
+                {
+                    "sequence": 1,
+                    "action_type": "APPLY_TAX_PROFILE",
+                    "target_tax_profile_id": profile.id,
+                }
+            ],
         ),
         firm_id=firm.id,
         actor_id=actor_id,
@@ -375,3 +382,137 @@ def test_tax_framework_settings_can_be_created_on_first_update() -> None:
     assert settings.firm_id == firm.id
     assert settings.report_label == "Tax Report"
     assert settings.additional_settings["country_independent"] is True
+
+
+def test_profile_version_is_resolved_from_the_document_date() -> None:
+    """A product names a tax group; the document's date picks the rate version.
+
+    This is what makes "the rate changed on 1 April" expressible: a back-dated
+    document keeps the rate that applied when it was supplied, and a rate change
+    takes effect without touching any product.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    _profile(session, actor_id)
+    service = TaxFrameworkService(session)
+    country = _country(session, actor_id)
+    system = service.create_system(
+        TaxSystemWrite(
+            country_id=country.id,
+            code="GST",
+            name="GST",
+            display_name="GST",
+            status="ACTIVE",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    component = service.create_component(
+        TaxComponentWrite(
+            tax_system_id=system.id,
+            code="GST_STD",
+            name="GST standard",
+            label="GST",
+            percentage="5",
+            status="ACTIVE",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def _version(
+        code: str, percent: str, starts: date | None, ends: date | None
+    ) -> TaxProfile:
+        return service.create_profile(
+            TaxProfileWrite(
+                tax_system_id=system.id,
+                code=code,
+                name=code,
+                label=code,
+                status="ACTIVE",
+                group_code="GST_STANDARD",
+                effective_from=starts,
+                effective_to=ends,
+                components=[
+                    {
+                        "tax_component_id": component.id,
+                        "percentage": percent,
+                        "calculation_order": 1,
+                        "included_in_price": False,
+                        "recoverable": False,
+                    }
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    old = _version("GST_5", "5", date(2020, 1, 1), date(2026, 3, 31))
+    new = _version("GST_8", "8", date(2026, 4, 1), None)
+
+    product = ProductService(session).create_product(
+        ProductCreate.model_validate(
+            {
+                "code": "SKU-RATE",
+                "name": "Rated item",
+                "product_type": "STOCK_ITEM",
+                "status": "ACTIVE",
+                "tax_profile_group_code": "GST_STANDARD",
+                "selling_price": "100",
+                "attributes": [],
+                "media": [],
+            }
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    before = service.resolve_profile_for_product(
+        product, date(2026, 3, 15), firm_scope=firm.id
+    )
+    after = service.resolve_profile_for_product(
+        product, date(2026, 6, 1), firm_scope=firm.id
+    )
+    assert before is not None and before.id == old.id
+    assert after is not None and after.id == new.id
+
+    # A profile named explicitly must have been in force on that date.
+    service.assert_profile_effective_on(old.id, date(2026, 3, 15), firm_scope=firm.id)
+    with pytest.raises(ValidationError, match="was not in effect"):
+        service.assert_profile_effective_on(
+            new.id, date(2026, 3, 15), firm_scope=firm.id
+        )
+    with pytest.raises(ValidationError, match="was not in effect"):
+        service.assert_profile_effective_on(
+            old.id, date(2026, 6, 1), firm_scope=firm.id
+        )
+
+
+def test_a_product_without_a_tax_group_resolves_to_nothing() -> None:
+    """No tax group means no profile, rather than an arbitrary one."""
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    _profile(session, actor_id)
+    product = ProductService(session).create_product(
+        ProductCreate.model_validate(
+            {
+                "code": "SKU-NOTAX",
+                "name": "Untaxed item",
+                "product_type": "STOCK_ITEM",
+                "status": "ACTIVE",
+                "selling_price": "10",
+                "attributes": [],
+                "media": [],
+            }
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    resolved = TaxFrameworkService(session).resolve_profile_for_product(
+        product, date(2026, 6, 1), firm_scope=firm.id
+    )
+    assert resolved is None

@@ -5,9 +5,9 @@ from __future__ import annotations
 import csv
 import io
 import json
-from io import BytesIO
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
+from io import BytesIO
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -48,15 +48,17 @@ from app.purchase.schemas import (
     PurchaseDeliveryScheduleResponse,
     PurchaseNoteResponse,
     PurchaseOrderCreate,
-    PurchaseOrderLineResponse,
     PurchaseOrderImportRequest,
+    PurchaseOrderLineResponse,
     PurchaseOrderListFilters,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
     PurchaseSummary,
 )
+from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
@@ -887,7 +889,18 @@ class PurchaseService:
                 else self._q(line.discount_amount)
             )
             taxable = self._q(gross_amount - discount_amount)
-            tax_profile_id = line.tax_profile_id or order.tax_profile_id or product.tax_profile_id
+            # A product names its tax group, not a version, so the rate is
+            # resolved from the document date. product.tax_profile_id has not
+            # existed since the group_code refactor and raised AttributeError
+            # whenever neither the line nor the order named a profile.
+            tax_profile_id = line.tax_profile_id or order.tax_profile_id
+            if tax_profile_id is None:
+                resolved = TaxFrameworkService(
+                    self._session
+                ).resolve_profile_for_product(
+                    product, order.purchase_date, firm_scope=order.firm_id
+                )
+                tax_profile_id = resolved.id if resolved else None
             tax_amount = self._line_tax_amount(
                 firm_id=order.firm_id,
                 actor_id=actor_id,
@@ -1372,20 +1385,31 @@ class PurchaseService:
         )
         return f"PO-{total + 1:06d}"
 
-    def _assert_tax_profile_available(self, profile_id: UUID, *, firm_id: UUID) -> None:
-        from app.tax.models import TaxProfile
-
-        profile = self._session.scalar(
-            select(TaxProfile).where(
-                TaxProfile.id == profile_id,
-                TaxProfile.firm_id == firm_id,
-                TaxProfile.is_deleted.is_(False),
+    def _assert_tax_profile_available(
+        self, profile_id: UUID, *, firm_id: UUID, document_date: date | None = None
+    ) -> None:
+        """Reject a profile that is unavailable, or not in force on the document."""
+        service = TaxFrameworkService(self._session)
+        if document_date is None:
+            profile = self._session.scalar(
+                select(TaxProfile).where(
+                    TaxProfile.id == profile_id,
+                    TaxProfile.firm_id == firm_id,
+                    TaxProfile.is_deleted.is_(False),
+                )
             )
+            if profile is None:
+                raise ValidationError(
+                    "Selected tax profile is not available in this firm."
+                )
+            if profile.status != "ACTIVE":
+                raise ValidationError(
+                    "Inactive tax profiles cannot be used in purchases."
+                )
+            return
+        service.assert_profile_effective_on(
+            profile_id, document_date, firm_scope=firm_id
         )
-        if profile is None:
-            raise ValidationError("Selected tax profile is not available in this firm.")
-        if profile.status != "ACTIVE":
-            raise ValidationError("Inactive tax profiles cannot be used in purchases.")
 
     def _validate_import_records(
         self, records: list[PurchaseOrderCreate], *, firm_scope: UUID

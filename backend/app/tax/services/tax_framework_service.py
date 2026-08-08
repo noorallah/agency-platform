@@ -698,6 +698,60 @@ class TaxFrameworkService:
         result.sort(key=lambda item: item.code)
         return result
 
+    def resolve_profile_for_product(
+        self,
+        product: Product,
+        document_date: date,
+        *,
+        firm_scope: UUID,
+    ) -> TaxProfile | None:
+        """Return the tax profile version a product attracts on a document date.
+
+        Products reference a tax group by its version-stable ``group_code``, so
+        the rate a document carries is decided by the document's own date. That
+        keeps a back-dated document on the rate that applied when it was
+        supplied, and lets a rate change take effect without touching products.
+        """
+        if not product.tax_profile_group_code:
+            return None
+        return self.resolve_active_profile(
+            product.tax_profile_group_code, document_date, firm_scope=firm_scope
+        )
+
+    def assert_profile_effective_on(
+        self, profile_id: UUID, document_date: date, *, firm_scope: UUID
+    ) -> TaxProfile:
+        """Return a profile only when it was in effect on the document date.
+
+        A caller may name a profile version explicitly. Accepting one whose
+        effective window does not cover the document would post a rate that was
+        never in force, so the window is checked rather than assumed.
+        """
+        profile = self._session.scalar(
+            select(TaxProfile).where(
+                TaxProfile.id == profile_id,
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.is_deleted.is_(False),
+            )
+        )
+        if profile is None:
+            raise ValidationError("Selected tax profile is not available in this firm.")
+        if profile.status != TaxStatus.ACTIVE.value:
+            raise ValidationError("Inactive tax profiles cannot be used.")
+        starts = profile.effective_from
+        ends = profile.effective_to
+        if (starts is not None and document_date < starts) or (
+            ends is not None and document_date > ends
+        ):
+            raise ValidationError(
+                f"Tax profile {profile.code} was not in effect on {document_date}.",
+                details={
+                    "effective_from": str(starts) if starts else None,
+                    "effective_to": str(ends) if ends else None,
+                },
+            )
+        return profile
+
     def resolve_active_profile(
         self, group_code: str, transaction_date: date, *, firm_scope: UUID
     ) -> TaxProfile | None:
