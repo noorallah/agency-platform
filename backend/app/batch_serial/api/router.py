@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.business.gating import require_feature
 from app.core.database.dependencies import get_db
 from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -121,13 +122,16 @@ SerialDeleteScope = Annotated[BatchSerialScope, _permission("SERIAL_DELETE")]
 
 # ── Batch endpoints ──────────────────────────────────────────────────────────
 
+
 @router.get("/batches", response_model=PaginatedResponse[BatchResponse])
 def list_batches(
     scope: BatchViewScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["created_at", "updated_at", "batch_number", "expiry_date", "status"] = "updated_at",
+    sort_by: Literal[
+        "created_at", "updated_at", "batch_number", "expiry_date", "status"
+    ] = "updated_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     product_id: UUID | None = None,
     warehouse_id: UUID | None = None,
@@ -138,6 +142,7 @@ def list_batches(
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[BatchResponse]:
     from datetime import date as _date
+
     params = PaginationParams(page=page, page_size=page_size)
     filters = BatchListFilters(
         product_id=product_id,
@@ -187,11 +192,18 @@ def get_batch(
     scope: BatchViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
-    record = BatchSerialService(db).get_batch(firm_scope=scope.firm_id, batch_id=batch_id)
+    record = BatchSerialService(db).get_batch(
+        firm_scope=scope.firm_id, batch_id=batch_id
+    )
     return ApiResponse(data=BatchResponse.model_validate(record))
 
 
-@router.post("/batches", response_model=ApiResponse[BatchResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/batches",
+    response_model=ApiResponse[BatchResponse],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def create_batch(
     data: BatchCreate,
     scope: BatchCreateScope,
@@ -203,7 +215,11 @@ def create_batch(
     return ApiResponse(data=BatchResponse.model_validate(record))
 
 
-@router.put("/batches/{batch_id}", response_model=ApiResponse[BatchResponse])
+@router.put(
+    "/batches/{batch_id}",
+    response_model=ApiResponse[BatchResponse],
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def update_batch(
     batch_id: UUID,
     data: BatchUpdate,
@@ -216,7 +232,11 @@ def update_batch(
     return ApiResponse(data=BatchResponse.model_validate(record))
 
 
-@router.delete("/batches/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/batches/{batch_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def delete_batch(
     batch_id: UUID,
     scope: BatchDeleteScope,
@@ -229,6 +249,7 @@ def delete_batch(
 
 
 # ── Lot endpoints ────────────────────────────────────────────────────────────
+
 
 @router.get("/lots", response_model=PaginatedResponse[LotResponse])
 def list_lots(
@@ -269,7 +290,12 @@ def list_lots(
     )
 
 
-@router.post("/lots", response_model=ApiResponse[LotResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/lots",
+    response_model=ApiResponse[LotResponse],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def create_lot(
     data: LotCreate,
     scope: BatchCreateScope,
@@ -291,7 +317,11 @@ def get_lot(
     return ApiResponse(data=LotResponse.model_validate(record))
 
 
-@router.put("/lots/{lot_id}", response_model=ApiResponse[LotResponse])
+@router.put(
+    "/lots/{lot_id}",
+    response_model=ApiResponse[LotResponse],
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def update_lot(
     lot_id: UUID,
     data: LotUpdate,
@@ -304,7 +334,11 @@ def update_lot(
     return ApiResponse(data=LotResponse.model_validate(record))
 
 
-@router.delete("/lots/{lot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/lots/{lot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[require_feature("BATCH_TRACKING")],
+)
 def delete_lot(
     lot_id: UUID,
     scope: BatchDeleteScope,
@@ -318,13 +352,16 @@ def delete_lot(
 
 # ── Serial endpoints ──────────────────────────────────────────────────────────
 
+
 @router.get("/serials", response_model=PaginatedResponse[SerialResponse])
 def list_serials(
     scope: SerialViewScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["created_at", "updated_at", "serial_number", "status"] = "updated_at",
+    sort_by: Literal[
+        "created_at", "updated_at", "serial_number", "status"
+    ] = "updated_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     product_id: UUID | None = None,
     warehouse_id: UUID | None = None,
@@ -357,7 +394,12 @@ def list_serials(
     )
 
 
-@router.post("/serials", response_model=ApiResponse[SerialResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/serials",
+    response_model=ApiResponse[SerialResponse],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_feature("SERIAL_NUMBER")],
+)
 def create_serial(
     data: SerialCreate,
     scope: SerialCreateScope,
@@ -375,11 +417,17 @@ def get_serial(
     scope: SerialViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SerialResponse]:
-    record = BatchSerialService(db).get_serial(firm_scope=scope.firm_id, serial_id=serial_id)
+    record = BatchSerialService(db).get_serial(
+        firm_scope=scope.firm_id, serial_id=serial_id
+    )
     return ApiResponse(data=SerialResponse.model_validate(record))
 
 
-@router.put("/serials/{serial_id}", response_model=ApiResponse[SerialResponse])
+@router.put(
+    "/serials/{serial_id}",
+    response_model=ApiResponse[SerialResponse],
+    dependencies=[require_feature("SERIAL_NUMBER")],
+)
 def update_serial(
     serial_id: UUID,
     data: SerialUpdate,
@@ -387,12 +435,19 @@ def update_serial(
     db: Session = Depends(get_db),
 ) -> ApiResponse[SerialResponse]:
     record = BatchSerialService(db).update_serial(
-        firm_scope=scope.firm_id, actor_id=scope.actor_id, serial_id=serial_id, data=data
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        serial_id=serial_id,
+        data=data,
     )
     return ApiResponse(data=SerialResponse.model_validate(record))
 
 
-@router.delete("/serials/{serial_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/serials/{serial_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[require_feature("SERIAL_NUMBER")],
+)
 def delete_serial(
     serial_id: UUID,
     scope: SerialDeleteScope,
