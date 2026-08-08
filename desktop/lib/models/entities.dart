@@ -396,6 +396,12 @@ class AttributeDefinitionRecord {
   final String id, code, name, dataType, applicableCategory;
   final bool mandatory, isActive;
 
+  String get _type => dataType.toUpperCase();
+
+  bool get isNumber => _type == 'NUMBER';
+  bool get isDate => _type == 'DATE';
+  bool get isBoolean => _type == 'BOOLEAN';
+
   factory AttributeDefinitionRecord.fromJson(Json json) =>
       AttributeDefinitionRecord(
         id: stringValue(json['id']),

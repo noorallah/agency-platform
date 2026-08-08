@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/uom_packaging.dart';
+import '../workspace/attribute_form_fields.dart';
 import '../workspace/workspace_components.dart';
 import '../workspace/workspace_interactions.dart';
 
@@ -1440,7 +1441,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late bool _requireSerialOnIssue;
   late ProductMetadataRecord _metadata;
   late String _tab;
-  final Map<String, TextEditingController> _attributeControllers = {};
+  final Map<String, AttributeFieldController> _attributeControllers = {};
   final List<Map<String, String>> _imageRows = [];
   final List<Map<String, String>> _attachmentRows = [];
   bool _saving = false;
@@ -1561,18 +1562,31 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         ..._metadata.optionalAttributeDefinitionIds
       }.toList();
 
+  AttributeDefinitionRecord? _definitionFor(String id) => widget.definitions
+      .cast<AttributeDefinitionRecord?>()
+      .firstWhere((entry) => entry?.id == id, orElse: () => null);
+
+  /// Read a stored value out of whichever typed column holds it.
+  String _storedValue(ProductAttributeValueRecord value) {
+    if (value.valueBoolean != null) return value.valueBoolean! ? 'true' : 'false';
+    if (value.valueDate.isNotEmpty) return value.valueDate;
+    if (value.valueNumber.isNotEmpty) return value.valueNumber;
+    return value.valueText;
+  }
+
   void _syncAttributeControllers() {
+    final Map<String, String> stored = {
+      for (final ProductAttributeValueRecord value
+          in widget.product?.attributes ?? const [])
+        value.attributeDefinitionId: _storedValue(value),
+    };
     for (final String id in _allowedAttributeIds) {
-      _attributeControllers.putIfAbsent(id, () => TextEditingController());
-    }
-    for (final ProductAttributeValueRecord value
-        in widget.product?.attributes ?? const []) {
-      final TextEditingController? controller =
-          _attributeControllers[value.attributeDefinitionId];
-      if (controller != null) {
-        controller.text =
-            value.valueText.isNotEmpty ? value.valueText : value.valueDate;
-      }
+      final AttributeDefinitionRecord? definition = _definitionFor(id);
+      if (definition == null) continue;
+      _attributeControllers.putIfAbsent(
+        id,
+        () => AttributeFieldController(definition, initialValue: stored[id]),
+      );
     }
   }
 
@@ -1581,7 +1595,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     for (final TextEditingController controller in _allControllers) {
       controller.dispose();
     }
-    for (final TextEditingController controller
+    for (final AttributeFieldController controller
         in _attributeControllers.values) {
       controller.dispose();
     }
@@ -2128,17 +2142,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           spacing: 16,
           runSpacing: 12,
           children: _allowedAttributeIds.map((id) {
-            final AttributeDefinitionRecord? definition = widget.definitions
-                .cast<AttributeDefinitionRecord?>()
-                .firstWhere((entry) => entry?.id == id, orElse: () => null);
-            final bool required = requiredIds.contains(id);
-            return _field(
-              _attributeControllers[id]!,
-              '${definition?.name ?? id}${required ? ' *' : ''}',
-              helper: definition == null
-                  ? 'Unknown attribute definition.'
-                  : 'Type: ${definition.dataType}',
-              width: 280,
+            final AttributeFieldController? controller =
+                _attributeControllers[id];
+            if (controller == null) {
+              return SizedBox(
+                width: 280,
+                child: Text('Unknown attribute definition: $id'),
+              );
+            }
+            return AttributeFormField(
+              controller: controller,
+              required: requiredIds.contains(id),
+              readOnly: _readOnly,
+              onChanged: () => setState(() => _dirty = true),
             );
           }).toList(),
         ),
@@ -2415,10 +2431,16 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       issues.add('Product name is required.');
     }
     for (final String id in _metadata.requiredAttributeDefinitionIds) {
-      if ((_attributeControllers[id]?.text.trim() ?? '').isEmpty) {
+      if (_attributeControllers[id]?.isEmpty ?? true) {
         issues.add('Required business attributes are missing.');
         break;
       }
+    }
+    // Catch a mistyped attribute here rather than as a 422 after saving.
+    for (final AttributeFieldController controller
+        in _attributeControllers.values) {
+      final String? problem = controller.validate();
+      if (problem != null) issues.add(problem);
     }
     if (!_barcodeEnabled && _barcode.text.trim().isNotEmpty) {
       issues.add('Barcode is disabled by the current profile feature flags.');
@@ -2436,12 +2458,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
 
   Json _payload() {
     final List<Json> attributes = _allowedAttributeIds
-        .where(
-            (id) => (_attributeControllers[id]?.text.trim() ?? '').isNotEmpty)
+        .where((id) => !(_attributeControllers[id]?.isEmpty ?? true))
         .map(
           (id) => {
             'attribute_definition_id': id,
-            'value': _attributeControllers[id]!.text.trim(),
+            'value': _attributeControllers[id]!.payloadValue,
           },
         )
         .toList();
@@ -2562,7 +2583,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _sellingPrice.clear();
       _mrp.clear();
       _remarks.clear();
-      for (final TextEditingController controller
+      for (final AttributeFieldController controller
           in _attributeControllers.values) {
         controller.clear();
       }
