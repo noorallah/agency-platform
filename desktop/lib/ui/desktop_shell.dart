@@ -1401,7 +1401,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
     final Widget content = switch (tabId) {
       'firms' => ResourceManagementPage<Firm>(
           api: widget.api,
-          definition: _firmDefinition(
+          definition: firmDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -2227,7 +2227,7 @@ bool _canUseResourceAction(
         false,
     };
 
-ResourceDefinition<Firm> _firmDefinition(
+ResourceDefinition<Firm> firmDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
@@ -2342,9 +2342,25 @@ ResourceDefinition<Firm> _firmDefinition(
           helperText: 'Required for SCHEMA and DATABASE modes.',
           section: 'Storage Mapping',
         ),
+        FieldSpec(
+          key: 'business_profile_id',
+          label: 'Business profile',
+          optionsResource: 'business-framework/profiles',
+          singleSelection: true,
+          requiredOnCreate: true,
+          helperText: 'Decides which features and modules this firm operates. '
+              'A firm without one falls back to the platform default.',
+        ),
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
         FieldSpec(key: 'notes', label: 'Notes', multiline: true),
       ],
+      loadAssignments: api.firmBusinessProfileAssignmentValues,
+      saveAssignments: (id, values) async {
+        final String profileId =
+            stringValue(values['business_profile_id']).split(',').first.trim();
+        if (profileId.isEmpty) return;
+        await api.assignBusinessProfileToFirm(id, profileId);
+      },
       initialValues: (firm) => firm == null
           ? {
               'is_active': true,
@@ -2379,13 +2395,18 @@ ResourceDefinition<Firm> _firmDefinition(
             stringValue(values['deployment_mode']).toUpperCase();
         final String normalizedMode = mode.isEmpty ? 'SHARED' : mode;
         final bool shared = normalizedMode == 'SHARED';
-        return {
+        final Map<String, dynamic> body = {
           ...values,
           'deployment_mode': normalizedMode,
           'database_type': stringValue(values['database_type']).toLowerCase(),
           'database_name': shared ? null : _orNull(values['database_name']),
           'schema_name': shared ? null : _orNull(values['schema_name']),
         };
+        // The profile lives in the firm-owned schema and is assigned through the
+        // business-framework API. /api/v1/firms forbids unknown fields, so it
+        // must not travel in the firm body.
+        body.remove('business_profile_id');
+        return body;
       },
     );
 
