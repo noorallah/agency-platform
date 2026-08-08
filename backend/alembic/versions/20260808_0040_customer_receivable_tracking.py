@@ -21,33 +21,48 @@ def upgrade() -> None:
     inspector = sa.inspect(bind)
     if not inspector.has_table("customers"):
         return
-    op.add_column(
-        "customers",
-        sa.Column(
-            "current_outstanding",
-            sa.Numeric(18, 2),
-            nullable=False,
-            server_default="0",
-        ),
-    )
-    op.add_column(
-        "customers",
-        sa.Column(
-            "unapplied_advance_balance",
-            sa.Numeric(18, 2),
-            nullable=False,
-            server_default="0",
-        ),
-    )
+    # Firm schemas may already carry these objects: they are created directly by
+    # Base.metadata.create_all in the sample-data and tenancy-reset scripts. Guard
+    # each step so replaying this revision against such a schema is a no-op
+    # instead of a DuplicateColumn / DuplicateTable failure.
+    columns = {column["name"] for column in inspector.get_columns("customers")}
+    if "current_outstanding" not in columns:
+        op.add_column(
+            "customers",
+            sa.Column(
+                "current_outstanding",
+                sa.Numeric(18, 2),
+                nullable=False,
+                server_default="0",
+            ),
+        )
+    if "unapplied_advance_balance" not in columns:
+        op.add_column(
+            "customers",
+            sa.Column(
+                "unapplied_advance_balance",
+                sa.Numeric(18, 2),
+                nullable=False,
+                server_default="0",
+            ),
+        )
+    # Seed only rows that are still at their defaults. On a fresh column that is
+    # every row; on a schema where the columns already existed it leaves any
+    # balance the application has since computed untouched.
     op.execute(
         sa.text(
             """
             UPDATE customers
             SET current_outstanding = CASE WHEN opening_balance > 0 THEN opening_balance ELSE 0 END,
                 unapplied_advance_balance = CASE WHEN opening_balance < 0 THEN ABS(opening_balance) ELSE 0 END
+            WHERE current_outstanding = 0
+              AND unapplied_advance_balance = 0
+              AND opening_balance <> 0
             """
         )
     )
+    if inspector.has_table("customer_receivable_transactions"):
+        return
     op.create_table(
         "customer_receivable_transactions",
         sa.Column("id", UUIDType(), nullable=False),
