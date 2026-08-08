@@ -1677,18 +1677,34 @@ class ApiClient {
         },
       );
 
+  /// Load every option for an assignment selector, following pagination.
+  ///
+  /// The API caps page_size at 100. Fetching a single page silently truncated
+  /// any catalogue larger than that: with 163 permissions, 63 of them could not
+  /// be granted to a role because the selector never showed them.
   Future<List<AssignmentOption>> options(String resource) async {
-    final PagedResult<AssignmentOption> result = await _list(
-      '/api/v1/$resource',
-      (json) => AssignmentOption(
-        id: stringValue(json['id']),
-        label: stringValue(json['code'] ?? json['name'] ?? json['email']),
-      ),
-      1,
-      '',
-      pageSize: 100,
-    );
-    return result.items;
+    const int pageSize = 100;
+    // A catalogue this large is already unusual; the ceiling stops a bad
+    // total_records from looping forever.
+    const int maxPages = 50;
+    final List<AssignmentOption> collected = [];
+    for (int page = 1; page <= maxPages; page++) {
+      final PagedResult<AssignmentOption> result = await _list(
+        '/api/v1/$resource',
+        (json) => AssignmentOption(
+          id: stringValue(json['id']),
+          label: stringValue(json['code'] ?? json['name'] ?? json['email']),
+        ),
+        page,
+        '',
+        pageSize: pageSize,
+      );
+      collected.addAll(result.items);
+      if (result.items.length < pageSize || collected.length >= result.total) {
+        break;
+      }
+    }
+    return collected;
   }
 
   Future<PagedResult<PurchaseOrder>> purchases({
