@@ -215,7 +215,9 @@ def delete_tax_system(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/systems/{system_id}/restore", response_model=ApiResponse[TaxSystemResponse])
+@router.post(
+    "/systems/{system_id}/restore", response_model=ApiResponse[TaxSystemResponse]
+)
 def restore_tax_system(
     system_id: UUID,
     scope: TaxRestoreScope,
@@ -293,6 +295,7 @@ def import_tax_systems(
 
 
 # ─── Composite Setup Endpoints ────────────────────────────────────────────────
+
 
 @router.post(
     "/setup",
@@ -425,7 +428,9 @@ def create_tax_component(
     return ApiResponse(data=TaxComponentResponse.model_validate(row))
 
 
-@router.put("/components/{component_id}", response_model=ApiResponse[TaxComponentResponse])
+@router.put(
+    "/components/{component_id}", response_model=ApiResponse[TaxComponentResponse]
+)
 def update_tax_component(
     component_id: UUID,
     data: TaxComponentWrite,
@@ -577,7 +582,9 @@ def delete_tax_profile(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/profiles/{profile_id}/restore", response_model=ApiResponse[TaxProfileResponse])
+@router.post(
+    "/profiles/{profile_id}/restore", response_model=ApiResponse[TaxProfileResponse]
+)
 def restore_tax_profile(
     profile_id: UUID,
     scope: TaxRestoreScope,
@@ -634,7 +641,9 @@ def bulk_profile_status(
     return ApiResponse(data={"affected": affected})
 
 
-@router.get("/country-mappings", response_model=ApiResponse[list[TaxCountryMappingResponse]])
+@router.get(
+    "/country-mappings", response_model=ApiResponse[list[TaxCountryMappingResponse]]
+)
 def list_country_mappings(
     scope: TaxViewScope,
     include_deleted: bool = False,
@@ -644,7 +653,9 @@ def list_country_mappings(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
     )
-    return ApiResponse(data=[TaxCountryMappingResponse.model_validate(row) for row in rows])
+    return ApiResponse(
+        data=[TaxCountryMappingResponse.model_validate(row) for row in rows]
+    )
 
 
 @router.post(
@@ -753,7 +764,9 @@ def update_migration_mapping(
     return ApiResponse(data=TaxMigrationMappingResponse.model_validate(row))
 
 
-@router.delete("/migration-mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/migration-mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_migration_mapping(
     mapping_id: UUID,
     scope: TaxDeleteScope,
@@ -904,14 +917,18 @@ def restore_tax_rule(
     return ApiResponse(data=TaxRuleResponse.model_validate(row))
 
 
-@router.get("/rule-conditions", response_model=ApiResponse[list[TaxRuleConditionResponse]])
+@router.get(
+    "/rule-conditions", response_model=ApiResponse[list[TaxRuleConditionResponse]]
+)
 def list_tax_rule_conditions(
     scope: TaxRuleViewScope,
     rule_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRuleConditionResponse]]:
     rows = TaxRuleService(db).list_conditions(firm_scope=scope.firm_id, rule_id=rule_id)
-    return ApiResponse(data=[TaxRuleConditionResponse.model_validate(row) for row in rows])
+    return ApiResponse(
+        data=[TaxRuleConditionResponse.model_validate(row) for row in rows]
+    )
 
 
 @router.get("/rule-priorities", response_model=ApiResponse[list[TaxRulePriorityRecord]])
@@ -919,7 +936,9 @@ def list_tax_rule_priorities(
     scope: TaxRuleViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRulePriorityRecord]]:
-    return ApiResponse(data=TaxRuleService(db).list_priorities(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=TaxRuleService(db).list_priorities(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/rule-history", response_model=ApiResponse[list[TaxRuleResponse]])
@@ -937,7 +956,9 @@ def list_tax_rule_history(
     return ApiResponse(data=[TaxRuleResponse.model_validate(row) for row in rows])
 
 
-@router.get("/execution-logs", response_model=ApiResponse[list[TaxRuleExecutionLogResponse]])
+@router.get(
+    "/execution-logs", response_model=ApiResponse[list[TaxRuleExecutionLogResponse]]
+)
 def list_tax_rule_execution_logs(
     scope: TaxRuleViewScope,
     limit: int = Query(default=200, ge=1, le=2000),
@@ -1025,9 +1046,7 @@ def import_legacy_tax_mapping_csv(
                 legacy_tax_code=(record.get("LegacyTaxCode") or "").strip(),
                 legacy_tax_name=(record.get("LegacyTaxName") or "").strip(),
                 source_system=(record.get("SourceSystem") or "").strip() or None,
-                legacy_rate=(
-                    (record.get("LegacyRate") or "").strip() or None
-                ),
+                legacy_rate=((record.get("LegacyRate") or "").strip() or None),
                 target_tax_profile_id=(
                     UUID(record["TargetTaxProfileId"])
                     if (record.get("TargetTaxProfileId") or "").strip()

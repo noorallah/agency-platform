@@ -64,7 +64,11 @@ class TaxRuleService:
         include_deleted: bool,
     ) -> tuple[list[TaxRule], int]:
         statement = self._base_rule_query(firm_scope=firm_scope)
-        count = select(func.count()).select_from(TaxRule).where(TaxRule.firm_id == firm_scope)
+        count = (
+            select(func.count())
+            .select_from(TaxRule)
+            .where(TaxRule.firm_id == firm_scope)
+        )
         if not include_deleted:
             statement = statement.where(TaxRule.is_deleted.is_(False))
             count = count.where(TaxRule.is_deleted.is_(False))
@@ -72,7 +76,9 @@ class TaxRuleService:
             statement = statement.where(TaxRule.country_id == country_id)
             count = count.where(TaxRule.country_id == country_id)
         if business_profile_id is not None:
-            statement = statement.where(TaxRule.business_profile_id == business_profile_id)
+            statement = statement.where(
+                TaxRule.business_profile_id == business_profile_id
+            )
             count = count.where(TaxRule.business_profile_id == business_profile_id)
         if tax_profile_id is not None:
             statement = statement.where(TaxRule.tax_profile_id == tax_profile_id)
@@ -106,8 +112,7 @@ class TaxRuleService:
                 )
             )
         rows = self._session.scalars(
-            statement
-            .order_by(
+            statement.order_by(
                 TaxRule.priority.asc(),
                 TaxRule.code.asc(),
                 TaxRule.version_number.desc(),
@@ -193,14 +198,18 @@ class TaxRuleService:
             TaxRuleExecutionLog.firm_id == firm_scope
         )
         if matched_rule_id is not None:
-            statement = statement.where(TaxRuleExecutionLog.matched_rule_id == matched_rule_id)
+            statement = statement.where(
+                TaxRuleExecutionLog.matched_rule_id == matched_rule_id
+            )
         return list(
             self._session.scalars(
                 statement.order_by(TaxRuleExecutionLog.created_at.desc()).limit(limit)
             ).all()
         )
 
-    def create_rule(self, data: TaxRuleWrite, *, firm_id: UUID, actor_id: UUID) -> TaxRule:
+    def create_rule(
+        self, data: TaxRuleWrite, *, firm_id: UUID, actor_id: UUID
+    ) -> TaxRule:
         self._validate_rule_references(data, firm_scope=firm_id)
         now = utc_now()
         row = TaxRule(
@@ -222,8 +231,12 @@ class TaxRuleService:
             updated_by=actor_id,
             updated_at=now,
         )
-        row.conditions = self._build_conditions(data.conditions, firm_id=firm_id, actor_id=actor_id)
-        row.actions = self._build_actions(data.actions, firm_id=firm_id, actor_id=actor_id)
+        row.conditions = self._build_conditions(
+            data.conditions, firm_id=firm_id, actor_id=actor_id
+        )
+        row.actions = self._build_actions(
+            data.actions, firm_id=firm_id, actor_id=actor_id
+        )
         self._session.add(row)
         self._flush_conflicts("Tax rule code already exists for this version.")
         record_audit(
@@ -345,7 +358,9 @@ class TaxRuleService:
         )
         self._commit()
 
-    def restore_rule(self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> TaxRule:
+    def restore_rule(
+        self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> TaxRule:
         row = self.get_rule(rule_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         record_audit(
@@ -415,7 +430,9 @@ class TaxRuleService:
     ) -> list[TaxRule]:
         created: list[TaxRule] = []
         for payload in rules:
-            created.append(self.create_rule(payload, firm_id=firm_scope, actor_id=actor_id))
+            created.append(
+                self.create_rule(payload, firm_id=firm_scope, actor_id=actor_id)
+            )
         return created
 
     def simulate(
@@ -463,7 +480,9 @@ class TaxRuleService:
                 break
 
         applied_profile_id: UUID | None = context.get("tax_profile_id")
-        components = self._components_for_profile(applied_profile_id, firm_scope=firm_scope)
+        components = self._components_for_profile(
+            applied_profile_id, firm_scope=firm_scope
+        )
         exempt = False
         zero_rated = False
         reverse_charge = False
@@ -530,7 +549,9 @@ class TaxRuleService:
             matched_rule_id=matched_rule.id if matched_rule is not None else None,
             applied_tax_profile_id=applied_profile_id,
             input_payload=data.model_dump(mode="json", exclude_none=False),
-            evaluation_trace={"decisions": [item.model_dump(mode="json") for item in decisions]},
+            evaluation_trace={
+                "decisions": [item.model_dump(mode="json") for item in decisions]
+            },
             result_payload=response.model_dump(mode="json"),
             created_by=actor_id,
             created_at=now,
@@ -570,8 +591,12 @@ class TaxRuleService:
             .where(TaxRule.firm_id == firm_scope)
             .options(
                 selectinload(TaxRule.conditions),
-                selectinload(TaxRule.actions).selectinload(TaxRuleAction.target_tax_component),
-                selectinload(TaxRule.actions).selectinload(TaxRuleAction.target_tax_profile),
+                selectinload(TaxRule.actions).selectinload(
+                    TaxRuleAction.target_tax_component
+                ),
+                selectinload(TaxRule.actions).selectinload(
+                    TaxRuleAction.target_tax_profile
+                ),
             )
         )
 
@@ -630,7 +655,9 @@ class TaxRuleService:
     ) -> None:
         for existing in row.conditions:
             self._soft_delete(existing, actor_id=actor_id)
-        row.conditions = self._build_conditions(items, firm_id=row.firm_id, actor_id=actor_id)
+        row.conditions = self._build_conditions(
+            items, firm_id=row.firm_id, actor_id=actor_id
+        )
 
     def _replace_actions(
         self, row: TaxRule, items: list[TaxRuleActionWrite], *, actor_id: UUID
@@ -639,12 +666,16 @@ class TaxRuleService:
             self._soft_delete(existing, actor_id=actor_id)
         row.actions = self._build_actions(items, firm_id=row.firm_id, actor_id=actor_id)
 
-    def _validate_rule_references(self, data: TaxRuleWrite, *, firm_scope: UUID) -> None:
+    def _validate_rule_references(
+        self, data: TaxRuleWrite, *, firm_scope: UUID
+    ) -> None:
         if data.tax_profile_id is not None:
             self._assert_profile_exists(data.tax_profile_id, firm_scope=firm_scope)
         for action in data.actions:
             if action.target_tax_profile_id is not None:
-                self._assert_profile_exists(action.target_tax_profile_id, firm_scope=firm_scope)
+                self._assert_profile_exists(
+                    action.target_tax_profile_id, firm_scope=firm_scope
+                )
             if action.target_tax_component_id is not None:
                 self._assert_component_exists(
                     action.target_tax_component_id,
@@ -708,19 +739,26 @@ class TaxRuleService:
             and context.get("business_profile_id") != rule.business_profile_id
         ):
             return False, ["Business profile did not match the rule scope."]
-        if rule.tax_profile_id is not None and context.get("tax_profile_id") != rule.tax_profile_id:
+        if (
+            rule.tax_profile_id is not None
+            and context.get("tax_profile_id") != rule.tax_profile_id
+        ):
             return False, ["Tax profile did not match the rule scope."]
         if rule.effective_from is not None and transaction_date < rule.effective_from:
             return False, ["Transaction date is before the rule effective date."]
         if rule.effective_to is not None and transaction_date > rule.effective_to:
             return False, ["Transaction date is after the rule effective date."]
         for condition in rule.conditions:
-            matched, reason = self._condition_matches(condition, context, transaction_date)
+            matched, reason = self._condition_matches(
+                condition, context, transaction_date
+            )
             if not matched:
                 return False, [reason]
             reasons.append(reason)
         if not reasons:
-            reasons.append("Rule matched because its scope and effective window were valid.")
+            reasons.append(
+                "Rule matched because its scope and effective window were valid."
+            )
         return True, reasons
 
     def _condition_matches(
@@ -739,9 +777,13 @@ class TaxRuleService:
         elif operator == TaxRuleConditionOperator.NOT_EXISTS:
             matched = actual is None or str(actual) == ""
         elif operator == TaxRuleConditionOperator.EQUALS:
-            matched = self._normalize_compare(actual) == self._normalize_compare(expected)
+            matched = self._normalize_compare(actual) == self._normalize_compare(
+                expected
+            )
         elif operator == TaxRuleConditionOperator.NOT_EQUALS:
-            matched = self._normalize_compare(actual) != self._normalize_compare(expected)
+            matched = self._normalize_compare(actual) != self._normalize_compare(
+                expected
+            )
         elif operator == TaxRuleConditionOperator.IN:
             values = expected if isinstance(expected, list) else [expected]
             matched = self._normalize_compare(actual) in {
@@ -764,8 +806,10 @@ class TaxRuleService:
             if not isinstance(expected, list) or len(expected) != 2:
                 raise ValidationError("BETWEEN requires exactly two comparison values.")
             actual_decimal = self._as_decimal(actual)
-            matched = self._as_decimal(expected[0]) <= actual_decimal <= self._as_decimal(
-                expected[1]
+            matched = (
+                self._as_decimal(expected[0])
+                <= actual_decimal
+                <= self._as_decimal(expected[1])
             )
         else:
             matched = False
@@ -845,7 +889,9 @@ class TaxRuleService:
             action_type = TaxRuleActionType(action.action_type)
             if action_type == TaxRuleActionType.APPLY_TAX_PROFILE:
                 applied_profile_id = action.target_tax_profile_id
-                components = self._components_for_profile(applied_profile_id, firm_scope=firm_scope)
+                components = self._components_for_profile(
+                    applied_profile_id, firm_scope=firm_scope
+                )
             elif action_type == TaxRuleActionType.APPLY_TAX_COMPONENT:
                 if action.target_tax_component is None:
                     continue

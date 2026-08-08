@@ -158,8 +158,12 @@ class TaxProfileWrite(EffectiveDatedSchema):
     status: TaxStatus = TaxStatus.ACTIVE
     display_order: int = Field(default=0, ge=0, le=100000)
     is_historical: bool = False
-    group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
-    components: list[TaxProfileComponentInput] = Field(default_factory=list, max_length=50)
+    group_code: str | None = Field(
+        default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+    components: list[TaxProfileComponentInput] = Field(
+        default_factory=list, max_length=50
+    )
 
     @field_validator("code", mode="before")
     @classmethod
@@ -273,7 +277,9 @@ class TaxRuleWrite(EffectiveDatedSchema):
     description: str | None = None
     priority: int = Field(default=100, ge=1, le=100000)
     status: TaxStatus = TaxStatus.DRAFT
-    conditions: list[TaxRuleConditionWrite] = Field(default_factory=list, max_length=100)
+    conditions: list[TaxRuleConditionWrite] = Field(
+        default_factory=list, max_length=100
+    )
     actions: list[TaxRuleActionWrite] = Field(default_factory=list, max_length=50)
 
     @field_validator("code", mode="before")
@@ -610,9 +616,11 @@ class TaxImportSystemsRequest(TaxFrameworkSchema):
 
 # ─── Composite Setup Schemas ─────────────────────────────────────────────────
 
+
 class TaxComponentSetupInput(TaxFrameworkSchema):
     """Component input inside a composite tax setup — no tax_system_id needed (derived)."""
-    id: UUID | None = None          # None = create new, UUID = update existing
+
+    id: UUID | None = None  # None = create new, UUID = update existing
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     name: str = Field(min_length=1, max_length=120)
     label: str | None = Field(default=None, max_length=120)
@@ -648,7 +656,8 @@ class TaxComponentSetupInput(TaxFrameworkSchema):
 
 class TaxProfileComponentSetupInput(TaxFrameworkSchema):
     """Profile component referencing a component by CODE (resolved at save time)."""
-    component_code: str        # references TaxComponentSetupInput.code
+
+    component_code: str  # references TaxComponentSetupInput.code
     label: str | None = Field(default=None, max_length=120)
     short_label: str | None = Field(default=None, max_length=40)
     calculation_order: int = Field(default=0, ge=0, le=100000)
@@ -664,7 +673,8 @@ class TaxProfileComponentSetupInput(TaxFrameworkSchema):
 
 class TaxProfileSetupInput(TaxFrameworkSchema):
     """Profile input inside a composite tax setup — no tax_system_id needed (derived)."""
-    id: UUID | None = None          # None = create new, UUID = update existing
+
+    id: UUID | None = None  # None = create new, UUID = update existing
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     name: str = Field(min_length=1, max_length=120)
     label: str | None = Field(default=None, max_length=120)
@@ -672,11 +682,15 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
     status: TaxStatus = TaxStatus.ACTIVE
     display_order: int = Field(default=0, ge=0, le=100000)
     is_historical: bool = False
-    group_code: str | None = Field(default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$")
+    group_code: str | None = Field(
+        default=None, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
     effective_from: date | None = None
     effective_to: date | None = None
     business_profile_id: UUID | None = None
-    components: list[TaxProfileComponentSetupInput] = Field(default_factory=list, max_length=50)
+    components: list[TaxProfileComponentSetupInput] = Field(
+        default_factory=list, max_length=50
+    )
 
     @field_validator("code", mode="before")
     @classmethod
@@ -702,6 +716,7 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
 
 class TaxSetupWrite(TaxFrameworkSchema):
     """Composite payload: create or update a full tax system with components and profiles in one call."""
+
     # System fields
     country_id: UUID | None = None
     business_profile_id: UUID | None = None
@@ -712,7 +727,9 @@ class TaxSetupWrite(TaxFrameworkSchema):
     status: TaxStatus = TaxStatus.ACTIVE
     display_order: int = Field(default=0, ge=0, le=100000)
     # Children
-    components: list[TaxComponentSetupInput] = Field(default_factory=list, max_length=50)
+    components: list[TaxComponentSetupInput] = Field(
+        default_factory=list, max_length=50
+    )
     profiles: list[TaxProfileSetupInput] = Field(default_factory=list, max_length=100)
 
     @field_validator("code", mode="before")
@@ -749,6 +766,7 @@ class TaxSetupWrite(TaxFrameworkSchema):
 
 class TaxSetupResponse(TaxFrameworkSchema):
     """Full tax setup response including system, components, and profiles."""
+
     system: TaxSystemResponse
     components: list[TaxComponentResponse]
     profiles: list[TaxProfileResponse]

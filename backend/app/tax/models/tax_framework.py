@@ -265,7 +265,9 @@ class TaxMigrationMapping(BaseEntity):
             "legacy_tax_name",
             name="UQ_tax_migration_mappings_legacy",
         ),
-        Index("IX_tax_migration_mappings_firm_historical", "firm_id", "keep_historical"),
+        Index(
+            "IX_tax_migration_mappings_firm_historical", "firm_id", "keep_historical"
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
