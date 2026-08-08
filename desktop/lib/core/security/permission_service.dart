@@ -3,35 +3,70 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 /// Decodes access-token claims for UI visibility only; the API remains authoritative.
+///
+/// Grants are resolved the same way the backend resolves them: the global
+/// permissions carried by firm-independent roles, plus the permissions the user
+/// holds **in the active firm**. Merging every firm's grants together would show
+/// a user actions they only hold elsewhere, and the API would then reject them.
 class PermissionService extends ChangeNotifier {
-  Set<String> _permissions = const {};
+  Set<String> _global = const {};
+  Map<String, Set<String>> _byFirm = const {};
+  String? _activeFirmId;
+  Set<String> _effective = const {};
 
-  Set<String> get permissions => Set.unmodifiable(_permissions);
+  /// Permissions that apply right now, for the firm currently selected.
+  Set<String> get permissions => Set.unmodifiable(_effective);
 
-  void applyAccessToken(String? token) {
+  /// The firm whose grants are currently in effect, if any.
+  String? get activeFirmId => _activeFirmId;
+
+  /// Permissions the user holds in a firm they are not currently working in.
+  ///
+  /// Exposed so a screen can explain *why* an action is unavailable rather than
+  /// simply hiding it.
+  Set<String> permissionsForFirm(String firmId) =>
+      Set.unmodifiable(_byFirm[firmId] ?? const <String>{});
+
+  void applyAccessToken(String? token, {String? activeFirmId}) {
     final Map<String, dynamic>? claims = _decodePayload(token);
-    final Set<String> permissions =
-        _stringClaims(claims?['permissions']).toSet();
+    _global = _stringClaims(claims?['permissions']).toSet();
+
     final Object? firmClaims = claims?['firm_permissions'];
+    final Map<String, Set<String>> byFirm = {};
     if (firmClaims is Map) {
-      for (final Object? value in firmClaims.values) {
-        permissions.addAll(_stringClaims(value));
-      }
+      firmClaims.forEach((key, value) {
+        if (key is String) byFirm[key] = _stringClaims(value).toSet();
+      });
     }
-    if (setEquals(_permissions, permissions)) {
-      return;
-    }
-    _permissions = permissions;
+    _byFirm = byFirm;
+    _activeFirmId = activeFirmId;
+    _recompute();
+  }
+
+  /// Re-resolve grants after the user switches firm, without a new token.
+  void setActiveFirm(String? firmId) {
+    if (_activeFirmId == firmId) return;
+    _activeFirmId = firmId;
+    _recompute();
+  }
+
+  void _recompute() {
+    final Set<String> next = {
+      ..._global,
+      if (_activeFirmId != null) ...?_byFirm[_activeFirmId],
+    };
+    if (setEquals(_effective, next)) return;
+    _effective = next;
     notifyListeners();
   }
 
-  bool hasPermission(String permission) => _permissions.contains(permission);
+  bool hasPermission(String permission) => _effective.contains(permission);
 
   bool hasAllPermissions(Iterable<String> permissions) =>
-      permissions.every(_permissions.contains);
+      permissions.every(_effective.contains);
 
   bool hasAnyPermission(Iterable<String> permissions) =>
-      permissions.any(_permissions.contains);
+      permissions.any(_effective.contains);
 
   bool canAccess(
     Iterable<String> permissions, {

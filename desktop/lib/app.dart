@@ -67,8 +67,14 @@ class _AgencyAppState extends State<AgencyApp> {
   Future<void> _applyServerPreferences(UserPreferences preferences) =>
       _themes.applyServerTheme(preferences.preferredTheme);
 
-  void _synchronizePermissions() =>
-      _permissions.applyAccessToken(_session.accessToken);
+  /// Re-resolve grants whenever the token or the selected firm changes.
+  ///
+  /// switchFirm notifies without issuing a new token, so the active firm has to
+  /// be passed through here or the UI would keep the previous firm's grants.
+  void _synchronizePermissions() => _permissions.applyAccessToken(
+        _session.accessToken,
+        activeFirmId: _session.currentFirm?.id,
+      );
 
   @override
   void dispose() {
