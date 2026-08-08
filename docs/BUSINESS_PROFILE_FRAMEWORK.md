@@ -218,8 +218,23 @@ Ordered by what blocks the most.
 - `ProductService._category_attribute_ids` and `AttributeService.mandatory_ids`
   now compute overlapping things. Both are correct and both are used; they
   should converge on the service when `/products/metadata` is next touched.
-- `data_type` supports TEXT, NUMBER, DATE and BOOLEAN. A list-of-allowed-values
-  type is the obvious next gap.
+- `data_type` supports TEXT, NUMBER, DATE and BOOLEAN, each stored in its own
+  indexed column so reports can filter on it:
+
+  | Type | Column | Notes |
+  | --- | --- | --- |
+  | `TEXT` | `value_text` | |
+  | `NUMBER` | `value_number` | `NUMERIC(18, 6)` — signed, decimals to six places, **silently rounded beyond that**. Returned as `Decimal`, never float. |
+  | `DATE` | `value_date` | Desktop always sends ISO-8601 from a picker. |
+  | `BOOLEAN` | `value_boolean` | Tristate: unset is distinct from false. |
+
+  An unrecognised type falls back to text rather than failing, so a new type can
+  be added without breaking existing screens.
+- **A list of allowed values is not supported** — a fixed dropdown such as
+  storage temperature (Ambient / Chilled / Frozen) has to be modelled as TEXT
+  today, which will not hold up for reporting. `validation_rule` is an unused
+  JSON column on the definition and is the natural home for an allowed-values
+  list.
 - **All 13 seeded definitions are `TEXT`, including `EXPIRY_DATE`,
   `SHELF_LIFE_DAYS`, `WARRANTY_MONTHS` and `WEIGHT`.** That defeats the typed
   columns: an expiry date held as text cannot answer "what expires in 30 days",

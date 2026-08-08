@@ -474,3 +474,38 @@ def test_a_disabled_value_can_still_be_cleared() -> None:
     )
     session.commit()
     assert service.values_for(ProductAttributeValue, product.id) == []
+
+
+def test_number_attributes_keep_six_decimal_places() -> None:
+    """Pin the numeric contract: Decimal, signed, six decimal places.
+
+    Values are NUMERIC(18, 6), so they round rather than reject beyond six
+    places. Anything needing finer resolution — a conversion factor, a unit rate
+    — must not be modelled as a custom attribute without widening the column.
+    """
+    session = _session()
+    firm = _firm(session)
+    definition = _definition(session, "WEIGHT", data_type=AttributeDataType.NUMBER)
+    service = AttributeService(session)
+
+    cases = {
+        "7.5": Decimal("7.500000"),
+        "0.125": Decimal("0.125000"),
+        "-3.75": Decimal("-3.750000"),
+        "1234.567891": Decimal("1234.567891"),
+        # Silently rounded, not rejected.
+        "1.23456789": Decimal("1.234568"),
+    }
+    for index, (raw, expected) in enumerate(cases.items()):
+        product = _product(session, firm, f"SKU-N{index}")
+        service.replace_values(
+            ProductAttributeValue,
+            product.id,
+            [AttributeInput(attribute_definition_id=definition.id, value=raw)],
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+        session.commit()
+        stored = service.values_for(ProductAttributeValue, product.id)[0].value
+        assert stored == expected, raw
+        assert isinstance(stored, Decimal), "floats would drift on money maths"
