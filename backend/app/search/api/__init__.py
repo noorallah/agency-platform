@@ -3,4 +3,3 @@
 from app.search.api.router import router
 
 __all__ = ["router"]
-

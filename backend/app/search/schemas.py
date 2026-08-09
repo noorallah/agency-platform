@@ -38,4 +38,3 @@ class SearchResultPage(BaseModel):
     page_size: int
     total: int
     results: list[SearchResultItem]
-

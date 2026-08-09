@@ -1,2 +1,1 @@
 """Enterprise global search package."""
-
