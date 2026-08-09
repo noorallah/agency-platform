@@ -1,0 +1,92 @@
+name: CI
+
+# The repository had no CI. Several tests exist specifically to stop a past
+# defect recurring — test_identity_hardening guards unseeded permission codes,
+# for example — and without a pipeline they only run when someone remembers to.
+#
+# Gates are set to what actually passes today. `ruff` and `mypy` still report
+# thousands of pre-existing findings repo-wide, so they run for visibility but
+# do not fail the build; tighten them per package as modules are cleaned up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Every test file passes standalone
+        # tests/conftest.py imports all model modules so create_all sees the
+        # whole schema regardless of order. This catches that list drifting.
+        run: |
+          status=0
+          for file in tests/unit/test_*.py; do
+            echo "::group::$file"
+            uv run pytest "$file" -q || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Application composes
+        run: uv run python -c "from app.main import create_app; create_app().openapi()"
+
+      - name: Migrations have a single head
+        run: |
+          heads=$(uv run python -m alembic heads | grep -c '(head)')
+          test "$heads" -eq 1 || { uv run python -m alembic heads; exit 1; }
+
+      - name: Lint (informational)
+        continue-on-error: true
+        run: |
+          uv run ruff check . || true
+          uv run black --check . || true
+          uv run mypy app || true
+
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        # Warnings and lints are pre-existing; errors are not tolerated.
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Tests
+        run: flutter test
