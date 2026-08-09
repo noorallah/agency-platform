@@ -911,3 +911,60 @@ def test_a_conflict_leaves_earlier_work_in_the_transaction() -> None:
         firm_id=firm.id,
         actor_id=actor_id,
     )
+
+
+def test_goods_issue_posts_cost_of_goods_sold_against_inventory() -> None:
+    """Dispatched stock moves its cost from inventory into expense.
+
+    The amount comes from what the stock ledger released at the moving average,
+    not from the selling price on the invoice — which is why inventory had to be
+    given a cost before any of this could mean anything.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    posting = DocumentPostingService(session)
+    note_id = uuid4()
+
+    entry = posting.post_goods_issue(
+        firm_id=firm.id,
+        document_id=note_id,
+        document_number="DN-1",
+        issue_date=date(2026, 8, 5),
+        cost_amount=Decimal("550"),
+        source_module="delivery_note",
+        actor_id=actor_id,
+    )
+    assert entry is not None
+    assert entry.status == JournalStatus.POSTED.value
+    assert entry.source_module == "delivery_note"
+
+    accounts = ControlAccountService(session).mapping(firm.id)
+    legs = {
+        line.ledger_account_id: (line.debit_amount, line.credit_amount)
+        for line in session.scalars(
+            select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+        ).all()
+    }
+    cogs = accounts[ControlAccountPurpose.COST_OF_GOODS_SOLD.value]
+    inventory = accounts[ControlAccountPurpose.INVENTORY.value]
+    assert legs[cogs][0] == Decimal("550.00"), "cost of goods sold is debited"
+    assert legs[inventory][1] == Decimal("550.00"), "inventory is credited"
+
+    # Stock carrying no cost — received before valuation existed — writes no
+    # journal rather than an empty one.
+    assert (
+        posting.post_goods_issue(
+            firm_id=firm.id,
+            document_id=uuid4(),
+            document_number="DN-2",
+            issue_date=date(2026, 8, 5),
+            cost_amount=Decimal("0"),
+            source_module="delivery_note",
+            actor_id=actor_id,
+        )
+        is None
+    )

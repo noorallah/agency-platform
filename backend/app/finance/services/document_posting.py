@@ -214,3 +214,72 @@ class DocumentPostingService:
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_goods_issue(
+        self,
+        *,
+        firm_id: UUID,
+        document_id: UUID,
+        document_number: str,
+        issue_date: date,
+        cost_amount: Decimal,
+        source_module: str,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Move the cost of dispatched goods from inventory into expense.
+
+        Goods leave stock when they are dispatched, not when they are invoiced,
+        so this is where cost of goods sold belongs. The amount is what the
+        stock ledger actually released at the moving average — the invoice's
+        selling price has nothing to do with it.
+
+        Args:
+            firm_id: The owning firm.
+            document_id: The dispatching document.
+            document_number: Its number, used as the journal reference.
+            issue_date: The date the journal carries.
+            cost_amount: Total cost released by the movement.
+            source_module: The module raising the posting.
+            actor_id: The dispatching user.
+
+        Returns:
+            The posted entry, or None when the movement released no value —
+            stock received before valuation existed still has no cost, and a
+            zero journal is not worth writing.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        cost = quantize_money(cost_amount)
+        if cost == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, GOODS_ISSUE_PURPOSES)
+        context = self.context_for(firm_id, issue_date)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=issue_date,
+            reference_number=document_number,
+            description=f"Cost of goods issued on {document_number}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.COST_OF_GOODS_SOLD
+                    ],
+                    debit_amount=cost,
+                    description=f"Cost of goods sold {document_number}",
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                    credit_amount=cost,
+                    description=f"Stock released on {document_number}",
+                ),
+            ],
+            source_module=source_module,
+            source_id=document_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

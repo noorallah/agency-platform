@@ -51,8 +51,9 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
-from app.inventory.models import InventoryRecord
+from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -1086,6 +1087,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             raise ValidationError(
                 "Delivery note must contain at least one line before dispatch."
             )
+        issued_cost = ZERO
         for line in lines:
             if line.inventory_transaction_id is not None:
                 continue
@@ -1159,7 +1161,33 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
+            issued_cost += self._issue_cost(dispatched.id)
         self._session.flush()
+        # Goods leave stock here, not when the invoice is raised, so this is
+        # where cost of goods sold belongs. Posting fails the dispatch for the
+        # same reason it fails an invoice approval: stock that has moved with no
+        # accounting entry behind it is the gap this closes.
+        DocumentPostingService(self._session).post_goods_issue(
+            firm_id=row.firm_id,
+            document_id=row.id,
+            document_number=row.delivery_note_number,
+            issue_date=row.delivery_date,
+            cost_amount=issued_cost,
+            source_module="delivery_note",
+            actor_id=actor_id,
+        )
+
+    def _issue_cost(self, transaction_id: UUID) -> Decimal:
+        """Return what the stock ledger released for one movement.
+
+        The moving average decides this, not the selling price on the invoice.
+        """
+        total = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost)).where(
+                StockLedgerEntry.transaction_id == transaction_id
+            )
+        )
+        return self._q(total)
 
     def _delete_children(self, note_id: UUID) -> None:
         self._session.query(DeliveryNoteAttachment).filter(
