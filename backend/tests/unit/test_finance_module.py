@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -32,6 +32,8 @@ from app.finance.api.router import (
 )
 from app.finance.models import (
     AccountingPeriod,
+    CostCenter,
+    FinancialYear,
     GLPosting,
     JournalLine,
     JournalStatus,
@@ -851,3 +853,61 @@ def test_seed_finance_setup_is_complete_and_idempotent() -> None:
         "mappings": 0,
         "types": 0,
     }
+
+
+def test_a_conflict_leaves_earlier_work_in_the_transaction() -> None:
+    """A duplicate key rolls back the clashing row, not the caller's work.
+
+    FinanceService used to commit after every operation, so its rollback-on-
+    conflict only ever discarded the failed insert. Once the router owns the
+    transaction that same rollback would throw away everything done since the
+    last commit — a financial year created moments earlier would vanish because
+    an unrelated cost centre clashed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = FinanceService(session)
+
+    year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2026",
+            name="Financial Year 2026-2027",
+            starts_on=date(2026, 4, 1),
+            ends_on=date(2027, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.create_cost_center(
+        CostCenterCreate(code="CC1", name="First"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ConflictError):
+        service.create_cost_center(
+            CostCenterCreate(code="CC1", name="Duplicate"),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    # The year and the first cost centre survive the conflict.
+    assert (
+        session.scalar(select(FinancialYear.id).where(FinancialYear.id == year.id))
+        is not None
+    )
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(CostCenter)
+            .where(CostCenter.firm_id == firm.id, CostCenter.is_deleted.is_(False))
+        )
+        == 1
+    )
+    # And the session is still usable rather than needing a rollback.
+    service.create_cost_center(
+        CostCenterCreate(code="CC2", name="After the conflict"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )

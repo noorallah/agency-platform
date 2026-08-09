@@ -103,6 +103,7 @@ def create_financial_year(
     row = FinanceService(db).create_financial_year(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=FinancialYearResponse.model_validate(row))
 
 
@@ -128,6 +129,7 @@ def update_financial_year(
     row = FinanceService(db).update_financial_year(
         year_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=FinancialYearResponse.model_validate(row))
 
 
@@ -139,6 +141,7 @@ def delete_financial_year(
     FinanceService(db).delete_financial_year(
         year_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
 
 
 @router.post(
@@ -155,6 +158,7 @@ def create_accounting_period(
     row = FinanceService(db).create_accounting_period(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=AccountingPeriodResponse.model_validate(row))
 
 
@@ -189,6 +193,7 @@ def update_accounting_period(
     row = FinanceService(db).update_accounting_period(
         period_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=AccountingPeriodResponse.model_validate(row))
 
 
@@ -211,6 +216,7 @@ def create_account_group(
     row = FinanceService(db).create_account_group(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=AccountGroupResponse.model_validate(row))
 
 
@@ -236,6 +242,7 @@ def update_account_group(
     row = FinanceService(db).update_account_group(
         group_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=AccountGroupResponse.model_validate(row))
 
 
@@ -253,6 +260,7 @@ def create_ledger_account(
     row = FinanceService(db).create_ledger_account(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=LedgerAccountResponse.model_validate(row))
 
 
@@ -286,6 +294,7 @@ def update_ledger_account(
     row = FinanceService(db).update_ledger_account(
         account_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=LedgerAccountResponse.model_validate(row))
 
 
@@ -308,6 +317,7 @@ def create_cost_center(
     row = FinanceService(db).create_cost_center(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=CostCenterResponse.model_validate(row))
 
 
@@ -333,6 +343,7 @@ def update_cost_center(
     row = FinanceService(db).update_cost_center(
         centre_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=CostCenterResponse.model_validate(row))
 
 
@@ -350,6 +361,7 @@ def create_profit_center(
     row = FinanceService(db).create_profit_center(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=ProfitCenterResponse.model_validate(row))
 
 
@@ -375,6 +387,7 @@ def update_profit_center(
     row = FinanceService(db).update_profit_center(
         centre_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=ProfitCenterResponse.model_validate(row))
 
 
@@ -392,6 +405,7 @@ def create_journal_type(
     row = FinanceService(db).create_journal_type(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=JournalTypeResponse.model_validate(row))
 
 
@@ -418,6 +432,7 @@ def create_voucher_type(
     row = FinanceService(db).create_voucher_type(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    db.commit()
     return ApiResponse(data=VoucherTypeResponse.model_validate(row))
 
 

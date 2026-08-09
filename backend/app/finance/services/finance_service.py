@@ -73,8 +73,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(year)
-        self._commit(ConflictError("A financial year with this code already exists."))
+        self._add_or_conflict(
+            year, ConflictError("A financial year with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.financial_year.created",
@@ -84,7 +85,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": year.code, "name": year.name},
         )
-        self._session.commit()
+        self._session.flush()
         return year
 
     def list_financial_years(self, *, firm_id: UUID) -> Sequence[FinancialYear]:
@@ -152,7 +153,7 @@ class FinanceService:
             before_data=before,
             after_data={"name": year.name, "is_active": year.is_active},
         )
-        self._session.commit()
+        self._session.flush()
         return year
 
     def delete_financial_year(
@@ -184,7 +185,7 @@ class FinanceService:
             firm_id=firm_id,
             before_data={"code": year.code},
         )
-        self._session.commit()
+        self._session.flush()
 
     # ------------------------------------------------------------------
     # Accounting periods
@@ -212,9 +213,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(period)
-        self._commit(
-            ConflictError("An accounting period with this code or number exists.")
+        self._add_or_conflict(
+            period,
+            ConflictError("An accounting period with this code or number exists."),
         )
         record_audit(
             self._session,
@@ -225,7 +226,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": period.code, "period_number": period.period_number},
         )
-        self._session.commit()
+        self._session.flush()
         return period
 
     def list_accounting_periods(
@@ -297,7 +298,7 @@ class FinanceService:
             before_data=before,
             after_data={"status": period.status, "name": period.name},
         )
-        self._session.commit()
+        self._session.flush()
         return period
 
     # ------------------------------------------------------------------
@@ -326,8 +327,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(group)
-        self._commit(ConflictError("An account group with this code already exists."))
+        self._add_or_conflict(
+            group, ConflictError("An account group with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.account_group.created",
@@ -337,7 +339,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": group.code, "account_type": group.account_type},
         )
-        self._session.commit()
+        self._session.flush()
         return group
 
     def list_account_groups(self, *, firm_id: UUID) -> Sequence[AccountGroup]:
@@ -395,7 +397,7 @@ class FinanceService:
             before_data=before,
             after_data={"name": group.name, "is_active": group.is_active},
         )
-        self._session.commit()
+        self._session.flush()
         return group
 
     # ------------------------------------------------------------------
@@ -426,8 +428,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(account)
-        self._commit(ConflictError("A ledger account with this code already exists."))
+        self._add_or_conflict(
+            account, ConflictError("A ledger account with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.ledger_account.created",
@@ -437,7 +440,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": account.code, "account_type": account.account_type},
         )
-        self._session.commit()
+        self._session.flush()
         return account
 
     def list_ledger_accounts(
@@ -512,7 +515,7 @@ class FinanceService:
             before_data=before,
             after_data={"name": account.name, "is_active": account.is_active},
         )
-        self._session.commit()
+        self._session.flush()
         return account
 
     # ------------------------------------------------------------------
@@ -532,8 +535,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(centre)
-        self._commit(ConflictError("A cost centre with this code already exists."))
+        self._add_or_conflict(
+            centre, ConflictError("A cost centre with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.cost_center.created",
@@ -543,7 +547,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": centre.code},
         )
-        self._session.commit()
+        self._session.flush()
         return centre
 
     def list_cost_centers(self, *, firm_id: UUID) -> Sequence[CostCenter]:
@@ -587,7 +591,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"name": centre.name, "is_active": centre.is_active},
         )
-        self._session.commit()
+        self._session.flush()
         return centre
 
     def create_profit_center(
@@ -603,8 +607,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(centre)
-        self._commit(ConflictError("A profit centre with this code already exists."))
+        self._add_or_conflict(
+            centre, ConflictError("A profit centre with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.profit_center.created",
@@ -614,7 +619,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": centre.code},
         )
-        self._session.commit()
+        self._session.flush()
         return centre
 
     def list_profit_centers(self, *, firm_id: UUID) -> Sequence[ProfitCenter]:
@@ -658,7 +663,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"name": centre.name, "is_active": centre.is_active},
         )
-        self._session.commit()
+        self._session.flush()
         return centre
 
     # ------------------------------------------------------------------
@@ -678,8 +683,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(row)
-        self._commit(ConflictError("A journal type with this code already exists."))
+        self._add_or_conflict(
+            row, ConflictError("A journal type with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.journal_type.created",
@@ -689,7 +695,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": row.code},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def list_journal_types(self, *, firm_id: UUID) -> Sequence[JournalType]:
@@ -713,8 +719,9 @@ class FinanceService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        self._session.add(row)
-        self._commit(ConflictError("A voucher type with this code already exists."))
+        self._add_or_conflict(
+            row, ConflictError("A voucher type with this code already exists.")
+        )
         record_audit(
             self._session,
             action="finance.voucher_type.created",
@@ -724,7 +731,7 @@ class FinanceService:
             firm_id=firm_id,
             after_data={"code": row.code},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def list_voucher_types(self, *, firm_id: UUID) -> Sequence[VoucherType]:
@@ -775,10 +782,32 @@ class FinanceService:
         entity.deleted_by = actor_id  # type: ignore[attr-defined]
         entity.updated_by = actor_id  # type: ignore[attr-defined]
 
-    def _commit(self, conflict: ConflictError) -> None:
-        """Flush pending work and translate uniqueness violations."""
+    def _add_or_conflict(self, instance: object, conflict: ConflictError) -> None:
+        """Insert one row, translating a uniqueness violation into a conflict.
+
+        The savepoint is opened *before* the row is added. ``begin_nested()``
+        flushes pending work before emitting the SAVEPOINT, so adding first
+        would push the failing INSERT outside the savepoint and defeat it —
+        which is exactly what happened on the first two attempts at this.
+
+        Rolling back only to the savepoint matters because this service no
+        longer commits after every operation: its router owns the transaction,
+        so the bare ``rollback()`` this used to do would discard everything the
+        caller had done since its last commit, not just the row that clashed.
+
+        Args:
+            instance: The row to insert.
+            conflict: The error to raise in place of the database's.
+
+        Raises:
+            ConflictError: If the insert violates a uniqueness constraint.
+
+        """
+        savepoint = self._session.begin_nested()
+        self._session.add(instance)
         try:
             self._session.flush()
         except IntegrityError as error:
-            self._session.rollback()
+            savepoint.rollback()
             raise conflict from error
+        savepoint.commit()
