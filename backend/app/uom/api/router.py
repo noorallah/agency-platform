@@ -64,6 +64,7 @@ def list_uoms(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[UomResponse]]:
+    """List the unit catalogue."""
     rows = UomService(db).list_uoms(include_inactive=include_inactive)
     return ApiResponse(data=[UomResponse.model_validate(row) for row in rows])
 
@@ -78,6 +79,7 @@ def create_uom(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomResponse]:
+    """Add a unit to the catalogue."""
     row = UomService(db).create_uom(data, actor_id=scope.actor_id)
     return ApiResponse(data=UomResponse.model_validate(row))
 
@@ -89,6 +91,7 @@ def update_uom(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomResponse]:
+    """Change a unit in the catalogue."""
     row = UomService(db).update_uom(uom_id, data, actor_id=scope.actor_id)
     return ApiResponse(data=UomResponse.model_validate(row))
 
@@ -99,6 +102,7 @@ def delete_uom(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Remove a unit that nothing references."""
     UomService(db).delete_uom(uom_id, actor_id=scope.actor_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -107,6 +111,7 @@ def delete_uom(
 def list_uom_groups(
     scope: UomViewScope, db: Session = Depends(get_db)
 ) -> ApiResponse[list[UomGroupResponse]]:
+    """List the unit groups."""
     rows = UomService(db).list_uom_groups()
     return ApiResponse(data=[UomGroupResponse.model_validate(row) for row in rows])
 
@@ -121,6 +126,7 @@ def create_uom_group(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomGroupResponse]:
+    """Add a unit group."""
     row = UomService(db).create_uom_group(data, actor_id=scope.actor_id)
     return ApiResponse(data=UomGroupResponse.model_validate(row))
 
@@ -132,6 +138,7 @@ def update_uom_group(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomGroupResponse]:
+    """Change a unit group."""
     row = UomService(db).update_uom_group(group_id, data, actor_id=scope.actor_id)
     return ApiResponse(data=UomGroupResponse.model_validate(row))
 
@@ -142,6 +149,7 @@ def delete_uom_group(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Remove a unit group that holds no units."""
     UomService(db).delete_uom_group(group_id, actor_id=scope.actor_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -150,6 +158,7 @@ def delete_uom_group(
 def list_packaging_types(
     scope: UomViewScope, db: Session = Depends(get_db)
 ) -> ApiResponse[list[PackagingTypeResponse]]:
+    """List the packaging types."""
     rows = UomService(db).list_packaging_types()
     return ApiResponse(data=[PackagingTypeResponse.model_validate(row) for row in rows])
 
@@ -164,6 +173,7 @@ def create_packaging_type(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PackagingTypeResponse]:
+    """Add a packaging type."""
     row = UomService(db).create_packaging_type(data, actor_id=scope.actor_id)
     return ApiResponse(data=PackagingTypeResponse.model_validate(row))
 
@@ -178,6 +188,7 @@ def update_packaging_type(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PackagingTypeResponse]:
+    """Change a packaging type."""
     row = UomService(db).update_packaging_type(
         packaging_type_id, data, actor_id=scope.actor_id
     )
@@ -192,6 +203,7 @@ def delete_packaging_type(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Remove a packaging type no packaging level uses."""
     UomService(db).delete_packaging_type(packaging_type_id, actor_id=scope.actor_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -211,6 +223,7 @@ def list_conversion_rules(
     effective_on: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[ConversionRuleResponse]:
+    """List this firm's conversion rules."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = ConversionRuleListFilters(
         product_id=product_id,
@@ -242,6 +255,7 @@ def create_conversion_rule(
     scope: ConversionManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ConversionRuleResponse]:
+    """Publish a conversion rule version for a unit pair."""
     row = UomService(db).create_conversion_rule(
         data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -257,6 +271,7 @@ def update_conversion_rule(
     scope: ConversionManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ConversionRuleResponse]:
+    """Change a conversion rule."""
     row = UomService(db).update_conversion_rule(
         rule_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -269,6 +284,7 @@ def delete_conversion_rule(
     scope: ConversionManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Retire a conversion rule."""
     UomService(db).delete_conversion_rule(
         rule_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -281,6 +297,7 @@ def convert(
     scope: UomViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ConversionResponse]:
+    """Convert a quantity using the rule in force on the given date."""
     response = UomService(db).convert_quantity(request, firm_scope=scope.firm_id)
     return ApiResponse(data=response)
 
@@ -294,6 +311,7 @@ def get_profile_defaults(
     scope: UomViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BusinessProfileUomDefaultResponse | None]:
+    """Read a business profile's default unit behaviour."""
     row = UomService(db).get_profile_default(
         firm_scope=scope.firm_id, profile_id=profile_id
     )
@@ -312,6 +330,7 @@ def upsert_profile_defaults(
     scope: ConversionManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BusinessProfileUomDefaultResponse]:
+    """Store a business profile's default unit behaviour."""
     row = UomService(db).upsert_profile_default(
         firm_scope=scope.firm_id,
         profile_id=profile_id,
@@ -330,6 +349,7 @@ def get_product_config(
     scope: UomViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductUomConfigResponse | None]:
+    """Read one product's unit configuration."""
     row = UomService(db).get_product_config(
         firm_scope=scope.firm_id, product_id=product_id
     )
@@ -348,6 +368,7 @@ def upsert_product_config(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductUomConfigResponse]:
+    """Store one product's unit configuration."""
     row = UomService(db).upsert_product_config(
         firm_scope=scope.firm_id,
         product_id=product_id,
@@ -366,6 +387,7 @@ def list_packaging_levels(
     scope: UomViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PackagingLevelResponse]]:
+    """List a product's packaging hierarchy."""
     rows = UomService(db).list_packaging_levels(
         firm_scope=scope.firm_id, product_id=product_id
     )
@@ -385,6 +407,7 @@ def create_packaging_level(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PackagingLevelResponse]:
+    """Add a level to a product's packaging hierarchy."""
     row = UomService(db).create_packaging_level(
         firm_scope=scope.firm_id,
         product_id=product_id,
@@ -405,6 +428,7 @@ def update_packaging_level(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PackagingLevelResponse]:
+    """Change a packaging level."""
     row = UomService(db).update_packaging_level(
         firm_scope=scope.firm_id,
         product_id=product_id,
@@ -425,6 +449,7 @@ def delete_packaging_level(
     scope: PackagingManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Remove a packaging level."""
     UomService(db).delete_packaging_level(
         firm_scope=scope.firm_id,
         product_id=product_id,
@@ -442,6 +467,7 @@ def list_industry_templates(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[IndustryTemplateResponse]]:
+    """List the industry UOM templates."""
     rows = UomService(db).list_industry_templates(include_inactive=include_inactive)
     return ApiResponse(
         data=[IndustryTemplateResponse.model_validate(row) for row in rows]
@@ -458,6 +484,7 @@ def create_industry_template(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[IndustryTemplateResponse]:
+    """Add an industry UOM template."""
     row = UomService(db).create_industry_template(data, actor_id=scope.actor_id)
     return ApiResponse(data=IndustryTemplateResponse.model_validate(row))
 
@@ -472,6 +499,7 @@ def update_industry_template(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[IndustryTemplateResponse]:
+    """Change an industry UOM template."""
     row = UomService(db).update_industry_template(
         template_id, data, actor_id=scope.actor_id
     )
@@ -486,5 +514,6 @@ def delete_industry_template(
     scope: UomManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Remove an industry UOM template."""
     UomService(db).delete_industry_template(template_id, actor_id=scope.actor_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
