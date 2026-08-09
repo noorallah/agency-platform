@@ -325,6 +325,7 @@ class ProductService:
             product.deleted_at = utc_now()
             product.deleted_by = actor_id
             product.updated_by = actor_id
+            self._audit_bulk(product, action="product.deleted", actor_id=actor_id)
             count += 1
         if count > 0:
             self._commit()
@@ -344,10 +345,29 @@ class ProductService:
             product.deleted_at = None
             product.deleted_by = None
             product.updated_by = actor_id
+            self._audit_bulk(product, action="product.restored", actor_id=actor_id)
             count += 1
         if count > 0:
             self._commit()
         return count
+
+    def _audit_bulk(self, product: Product, *, action: str, actor_id: UUID) -> None:
+        """Record a bulk mutation the way the single-row endpoint records it.
+
+        The bulk delete and restore endpoints wrote nothing, so removing a
+        hundred products from the toolbar left no trace while removing one from
+        the row menu was recorded.
+        """
+        record_audit(
+            self._session,
+            action=action,
+            entity_type="product",
+            entity_id=product.id,
+            actor_id=actor_id,
+            firm_id=product.firm_id,
+            before_data={"code": product.code},
+            after_data={"is_deleted": product.is_deleted},
+        )
 
     def metadata(
         self, *, firm_scope: UUID, category_id: UUID | None = None
@@ -476,6 +496,16 @@ class ProductService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="product.category.deleted",
+            entity_type="product_category",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"code": row.code, "name": row.name},
+            after_data={"is_deleted": True},
+        )
         self._commit()
 
     def export_products_csv(self, *, firm_scope: UUID, search: str | None) -> str:
