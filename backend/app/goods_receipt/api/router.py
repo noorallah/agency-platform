@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -175,8 +176,13 @@ def update_goods_receipt(
     data: GoodsReceiptUpdate,
     scope: GoodsReceiptUpdateScope,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GoodsReceiptResponse]:
     service = GoodsReceiptService(db)
+    assert_version(
+        service.get_receipt(receipt_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_receipt(
         receipt_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )

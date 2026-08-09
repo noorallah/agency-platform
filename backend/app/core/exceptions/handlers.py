@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.error_codes import ErrorCode
 from app.core.exceptions.base import ApplicationError
@@ -88,6 +89,16 @@ async def database_error_handler(_: Request, exception: Exception) -> JSONRespon
     """Log database failures without exposing database implementation details."""
     if not isinstance(exception, SQLAlchemyError):
         raise TypeError("Database handler received an unexpected exception.")
+
+    if isinstance(exception, StaleDataError):
+        # The optimistic-concurrency counter rejected the write: another
+        # transaction changed the row after this one loaded it.
+        logger.warning("Concurrent update rejected", exc_info=exception)
+        return _error_response(
+            status_code=status.HTTP_409_CONFLICT,
+            code=ErrorCode.RESOURCE_CONFLICT,
+            message="This record changed since you loaded it. Reload and try again.",
+        )
 
     if isinstance(exception, IntegrityError):
         # A losing race on a unique key — two concurrent creates allocating the

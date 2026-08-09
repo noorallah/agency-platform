@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -12,7 +13,13 @@ from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa
 from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
+from app.common.scope import ResolvedFirmScope
+from app.core.concurrency import parse_if_match
 from app.core.database.base import Base
+from app.core.enums import TokenType
+from app.core.exceptions import ConflictError, ValidationError
+from app.core.security.authorization import Principal
+from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
@@ -22,6 +29,7 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_order.api.router import update_sales_order
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import (
     SalesOrderCreate,
@@ -42,6 +50,18 @@ def _session_factory() -> sessionmaker[Session]:
     )
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def _principal(user_id: UUID, permissions: set[str]) -> Principal:
+    """Build a principal holding the given permissions."""
+    return Principal(
+        subject=user_id,
+        roles=frozenset(),
+        permissions=frozenset(permissions),
+        claims=TokenClaims(
+            sub=str(user_id), type=TokenType.ACCESS, iat=1, exp=4_102_444_800
+        ),
+    )
 
 
 def _firm(session: Session) -> Firm:
@@ -381,3 +401,81 @@ def test_editing_a_sales_order_keeps_its_line_identities() -> None:
     ).all()
     assert [line.line_number for line in remaining] == [1]
     assert remaining[0].id == before[1]
+
+
+def test_update_rejects_a_stale_if_match_version() -> None:
+    """An edit aimed at a superseded version is refused, not silently applied.
+
+    BaseEntity carried a version column from the start that nothing incremented
+    or checked, so concurrent edits were last-writer-wins — and because an update
+    rebuilt the whole line collection, the loser lost every line they entered.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    scope = ResolvedFirmScope(
+        principal=_principal(uuid4(), {"SALES_VIEW", "SALES_UPDATE"}),
+        firm_id=firm.id,
+    )
+
+    def _payload(quantity: str) -> SalesOrderCreate:
+        return SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal(quantity),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        )
+
+    service = SalesOrderService(session)
+    order = service.create_order(_payload("4"), firm_id=firm.id, actor_id=uuid4())
+    loaded_version = order.version
+
+    # No precondition: accepted, so existing clients keep working.
+    update_sales_order(order_id=order.id, data=_payload("5"), scope=scope, db=session)
+    bumped = service.get_order(order.id, firm_scope=firm.id).version
+    assert bumped > loaded_version, "an update must advance the version"
+
+    # The version we first read is now stale.
+    with pytest.raises(ConflictError):
+        update_sales_order(
+            order_id=order.id,
+            data=_payload("6"),
+            scope=scope,
+            db=session,
+            expected_version=loaded_version,
+        )
+
+    # The current version is accepted.
+    update_sales_order(
+        order_id=order.id,
+        data=_payload("7"),
+        scope=scope,
+        db=session,
+        expected_version=bumped,
+    )
+    final = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert final is not None
+    assert final.quantity == Decimal("7.0000")
+
+
+def test_if_match_header_parsing() -> None:
+    """A quoted ETag, a bare version, and * are all understood."""
+    assert parse_if_match(None) is None
+    assert parse_if_match("*") is None
+    assert parse_if_match("3") == 3
+    assert parse_if_match('"7"') == 7
+    with pytest.raises(ValidationError):
+        parse_if_match("not-a-version")

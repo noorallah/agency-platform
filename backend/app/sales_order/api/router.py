@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -185,8 +186,12 @@ def update_sales_order(
     data: SalesOrderCreate,
     scope: SalesOrderUpdateScope,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesOrderResponse]:
     service = SalesOrderService(db)
+    assert_version(
+        service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
+    )
     row = service.update_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
