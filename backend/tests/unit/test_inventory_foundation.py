@@ -52,6 +52,7 @@ def _firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
 
+
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
         "sqlite://",
@@ -321,4 +322,72 @@ def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
     assert listed.pagination.total_records == 1
 
     with pytest.raises(AuthorizationError):
-        require_permission("INVENTORY_VIEW")(_principal(user_id, {"OPENING_STOCK_CREATE"}))
+        require_permission("INVENTORY_VIEW")(
+            _principal(user_id, {"OPENING_STOCK_CREATE"})
+        )
+
+
+def test_moving_average_cost_tracks_receipts_and_issues() -> None:
+    """Stock carries a value, and issues consume it at the running average.
+
+    stock_ledger_entries had no cost column of any kind, so stock could not be
+    valued and cost of goods sold did not exist.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "VAL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    service = InventoryService(session)
+    actor_id = uuid4()
+
+    def _receive(quantity: str, unit_cost: str) -> None:
+        service.record_goods_receipt(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            storage_node_id=None,
+            product_id=product.id,
+            reference_number="GRN-VAL",
+            transaction_date=date(2026, 8, 4),
+            total_quantity=Decimal(quantity),
+            unit_cost=Decimal(unit_cost),
+        )
+
+    # 10 @ 100 then 10 @ 120 averages to 110.
+    _receive("10", "100")
+    valuation = service.valuation_for(firm_scope=firm.id, product_id=product.id)
+    assert valuation.quantity_on_hand == Decimal("10.0000")
+    assert valuation.average_cost == Decimal("100.000000")
+    assert valuation.total_value == Decimal("1000.0000")
+
+    _receive("10", "120")
+    session.refresh(valuation)
+    assert valuation.quantity_on_hand == Decimal("20.0000")
+    assert valuation.average_cost == Decimal("110.000000")
+    assert valuation.total_value == Decimal("2200.0000")
+
+    # Issuing consumes at the average and leaves it unchanged.
+    service.record_delivery_note_dispatch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="DN-VAL",
+        transaction_date=date(2026, 8, 5),
+        dispatch_quantity=Decimal("5"),
+    )
+    session.refresh(valuation)
+    assert valuation.quantity_on_hand == Decimal("15.0000")
+    assert valuation.average_cost == Decimal("110.000000"), "issues must not move it"
+    assert valuation.total_value == Decimal("1650.0000")
+
+    # The cost of that issue is on the ledger: 5 x 110 is the cost of goods sold.
+    issue = session.scalar(
+        select(StockLedgerEntry).where(StockLedgerEntry.reference_number == "DN-VAL")
+    )
+    assert issue is not None
+    assert issue.unit_cost == Decimal("110.000000")
+    assert issue.total_cost == Decimal("550.0000")

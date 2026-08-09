@@ -5,6 +5,7 @@ from app.inventory.models.inventory import (
     InventoryTransaction,
     OpeningStockBatch,
     OpeningStockLine,
+    ProductValuation,
     StockLedgerEntry,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "InventoryTransaction",
     "OpeningStockBatch",
     "OpeningStockLine",
+    "ProductValuation",
     "StockLedgerEntry",
 ]

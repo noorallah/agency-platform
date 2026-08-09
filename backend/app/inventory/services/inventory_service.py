@@ -19,11 +19,13 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.money import quantize_money
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
     OpeningStockBatch,
     OpeningStockLine,
+    ProductValuation,
     StockLedgerEntry,
 )
 from app.inventory.schemas import (
@@ -69,6 +71,7 @@ class _Movement:
     entered_uom_id: UUID | None = None
     conversion_version: int | None = None
     remarks: str | None = None
+    unit_cost: Decimal | None = None
 
 
 class InventoryService:
@@ -179,9 +182,7 @@ class InventoryService:
                     0,
                 ),
                 func.coalesce(
-                    func.sum(
-                        case((InventoryRecord.current_quantity <= 0, 1), else_=0)
-                    ),
+                    func.sum(case((InventoryRecord.current_quantity <= 0, 1), else_=0)),
                     0,
                 ),
                 func.coalesce(
@@ -233,8 +234,7 @@ class InventoryService:
                 func.coalesce(func.sum(InventoryRecord.damaged_quantity), 0),
                 func.coalesce(func.sum(InventoryRecord.quarantine_quantity), 0),
                 func.coalesce(func.sum(InventoryRecord.in_transit_quantity), 0),
-            )
-            .where(
+            ).where(
                 InventoryRecord.firm_id == firm_scope,
                 InventoryRecord.is_deleted.is_(False),
             )
@@ -345,13 +345,16 @@ class InventoryService:
             product_id=data.product_id,
         )
         locator = self._storage_locator(storage_node.id if storage_node else None)
-        if self._find_inventory_row(
-            firm_id=firm_id,
-            branch_id=branch.id,
-            warehouse_id=warehouse.id,
-            storage_locator=locator,
-            product_id=product.id,
-        ) is not None:
+        if (
+            self._find_inventory_row(
+                firm_id=firm_id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                storage_locator=locator,
+                product_id=product.id,
+            )
+            is not None
+        ):
             raise ConflictError("An inventory record already exists for this location.")
         row = InventoryRecord(
             firm_id=firm_id,
@@ -385,7 +388,10 @@ class InventoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"product_id": str(product.id), "warehouse_id": str(warehouse.id)},
+            after_data={
+                "product_id": str(product.id),
+                "warehouse_id": str(warehouse.id),
+            },
         )
         self._commit()
         self._session.refresh(row)
@@ -653,7 +659,10 @@ class InventoryService:
     ) -> OpeningStockBatch:
         statement = (
             select(OpeningStockBatch)
-            .where(OpeningStockBatch.id == batch_id, OpeningStockBatch.firm_id == firm_scope)
+            .where(
+                OpeningStockBatch.id == batch_id,
+                OpeningStockBatch.firm_id == firm_scope,
+            )
             .options(selectinload(OpeningStockBatch.lines))
         )
         if not include_deleted:
@@ -664,7 +673,12 @@ class InventoryService:
         return row
 
     def create_opening_stock_batch(
-        self, data: OpeningStockBatchCreate, *, firm_id: UUID, actor_id: UUID, source_format: str = "MANUAL"
+        self,
+        data: OpeningStockBatchCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        source_format: str = "MANUAL",
     ) -> OpeningStockBatch:
         self._validate_branch_warehouse_scope(
             firm_id=firm_id, branch_id=data.branch_id, warehouse_id=data.warehouse_id
@@ -697,7 +711,10 @@ class InventoryService:
             entity_id=batch.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"reference_number": batch.reference_number, "line_count": len(batch.lines)},
+            after_data={
+                "reference_number": batch.reference_number,
+                "line_count": len(batch.lines),
+            },
         )
         self._commit()
         self._session.refresh(batch)
@@ -745,7 +762,10 @@ class InventoryService:
             actor_id=actor_id,
             firm_id=firm_scope,
             before_data=before,
-            after_data={"reference_number": batch.reference_number, "line_count": len(batch.lines)},
+            after_data={
+                "reference_number": batch.reference_number,
+                "line_count": len(batch.lines),
+            },
         )
         self._commit()
         self._session.refresh(batch)
@@ -817,7 +837,10 @@ class InventoryService:
             entity_id=batch.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"reference_number": batch.reference_number, "line_count": len(batch.lines)},
+            after_data={
+                "reference_number": batch.reference_number,
+                "line_count": len(batch.lines),
+            },
         )
         self._commit()
         self._session.refresh(batch)
@@ -844,7 +867,9 @@ class InventoryService:
             source_format="JSON",
         )
         if payload.auto_post:
-            return self.post_opening_stock_batch(batch.id, firm_scope=firm_scope, actor_id=actor_id)
+            return self.post_opening_stock_batch(
+                batch.id, firm_scope=firm_scope, actor_id=actor_id
+            )
         return batch
 
     def import_opening_stock_csv(
@@ -879,18 +904,26 @@ class InventoryService:
                         else None
                     ),
                     quantity=Decimal(quantity),
-                    minimum_level=Decimal(str(row["MinimumLevel"]))
-                    if row.get("MinimumLevel")
-                    else None,
-                    maximum_level=Decimal(str(row["MaximumLevel"]))
-                    if row.get("MaximumLevel")
-                    else None,
-                    reorder_level=Decimal(str(row["ReorderLevel"]))
-                    if row.get("ReorderLevel")
-                    else None,
-                    safety_stock=Decimal(str(row["SafetyStock"]))
-                    if row.get("SafetyStock")
-                    else None,
+                    minimum_level=(
+                        Decimal(str(row["MinimumLevel"]))
+                        if row.get("MinimumLevel")
+                        else None
+                    ),
+                    maximum_level=(
+                        Decimal(str(row["MaximumLevel"]))
+                        if row.get("MaximumLevel")
+                        else None
+                    ),
+                    reorder_level=(
+                        Decimal(str(row["ReorderLevel"]))
+                        if row.get("ReorderLevel")
+                        else None
+                    ),
+                    safety_stock=(
+                        Decimal(str(row["SafetyStock"]))
+                        if row.get("SafetyStock")
+                        else None
+                    ),
                     remarks=(row.get("Remarks") or "").strip() or None,
                 )
             )
@@ -1011,7 +1044,11 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=data.product_id,
-            quantity=data.entered_quantity if data.entered_quantity is not None else data.quantity,
+            quantity=(
+                data.entered_quantity
+                if data.entered_quantity is not None
+                else data.quantity
+            ),
             entered_uom_id=data.entered_uom_id,
             conversion_version=None,
             on_date=data.transaction_date,
@@ -1064,6 +1101,7 @@ class InventoryService:
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
         remarks: str | None = None,
+        unit_cost: Decimal | None = None,
     ) -> InventoryTransaction:
         (
             base_quantity,
@@ -1073,13 +1111,17 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=product_id,
-            quantity=entered_quantity if entered_quantity is not None else total_quantity,
+            quantity=(
+                entered_quantity if entered_quantity is not None else total_quantity
+            ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
         )
         conversion_factor = (
-            base_quantity / entered_quantity if entered_quantity not in {None, ZERO} else Decimal("1")
+            base_quantity / entered_quantity
+            if entered_quantity not in {None, ZERO}
+            else Decimal("1")
         )
         blocked_base = Decimal(str(blocked_quantity)) * conversion_factor
         damaged_base = Decimal(str(damaged_quantity)) * conversion_factor
@@ -1096,6 +1138,7 @@ class InventoryService:
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type="GOODS_RECEIPT",
+                unit_cost=unit_cost,
                 reference_number=reference_number.strip().upper(),
                 reference_type="GOODS_RECEIPT",
                 transaction_date=transaction_date,
@@ -1111,6 +1154,82 @@ class InventoryService:
         )
         self._session.flush()
         return transaction
+
+    def valuation_for(self, *, firm_scope: UUID, product_id: UUID) -> ProductValuation:
+        """Return a product's running valuation, creating it on first use.
+
+        Args:
+            firm_scope: The owning firm.
+            product_id: The product being valued.
+
+        Returns:
+            The valuation state row.
+
+        """
+        row = self._session.scalar(
+            select(ProductValuation).where(
+                ProductValuation.firm_id == firm_scope,
+                ProductValuation.product_id == product_id,
+                ProductValuation.is_deleted.is_(False),
+            )
+        )
+        if row is None:
+            row = ProductValuation(firm_id=firm_scope, product_id=product_id)
+            self._session.add(row)
+            self._session.flush()
+        return row
+
+    def _apply_valuation(
+        self, inventory: InventoryRecord, movement: _Movement, actor_id: UUID
+    ) -> tuple[Decimal | None, Decimal | None, Decimal]:
+        """Roll the moving weighted average forward for one movement.
+
+        Receipts move the average toward the price paid; issues leave it alone
+        and consume at it, which is what makes the value released equal the cost
+        of goods sold. A receipt with no stated cost is valued at the current
+        average rather than at zero, so an unpriced movement cannot silently
+        destroy the average.
+
+        Args:
+            inventory: The projection the movement applies to.
+            movement: The staged movement.
+            actor_id: The user responsible.
+
+        Returns:
+            The unit cost applied, the total cost of the movement, and the
+            average cost after it.
+
+        """
+        valuation = self.valuation_for(
+            firm_scope=inventory.firm_id, product_id=inventory.product_id
+        )
+        delta = movement.current_delta
+        average = Decimal(str(valuation.average_cost))
+        on_hand = Decimal(str(valuation.quantity_on_hand))
+
+        if delta == ZERO:
+            # Reservations and status moves shift no goods and no value.
+            return None, None, average
+
+        if delta > ZERO:
+            unit_cost = average if movement.unit_cost is None else movement.unit_cost
+            new_quantity = on_hand + delta
+            new_value = Decimal(str(valuation.total_value)) + (delta * unit_cost)
+            average = (new_value / new_quantity) if new_quantity != ZERO else ZERO
+        else:
+            unit_cost = average
+            new_quantity = on_hand + delta
+            new_value = Decimal(str(valuation.total_value)) + (delta * average)
+            if new_quantity <= ZERO:
+                # Stock fully issued: hold no residual value on nothing.
+                new_quantity = new_quantity if new_quantity < ZERO else ZERO
+                new_value = ZERO if new_quantity == ZERO else new_value
+
+        valuation.quantity_on_hand = new_quantity
+        valuation.total_value = quantize_money(new_value)
+        valuation.average_cost = average
+        valuation.updated_by = actor_id
+        return unit_cost, quantize_money(abs(delta) * unit_cost), average
 
     def reverse_transaction(
         self,
@@ -1219,13 +1338,17 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=product_id,
-            quantity=entered_quantity if entered_quantity is not None else return_quantity,
+            quantity=(
+                entered_quantity if entered_quantity is not None else return_quantity
+            ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
         )
         conversion_factor = (
-            base_quantity / entered_quantity if entered_quantity not in {None, ZERO} else Decimal("1")
+            base_quantity / entered_quantity
+            if entered_quantity not in {None, ZERO}
+            else Decimal("1")
         )
         sellable_base = Decimal(str(sellable_quantity)) * conversion_factor
         damaged_base = Decimal(str(damaged_quantity)) * conversion_factor
@@ -1263,7 +1386,9 @@ class InventoryService:
             ),
         )
         if sellable_base > base_quantity:
-            raise ValidationError("Sellable return quantity cannot exceed return quantity.")
+            raise ValidationError(
+                "Sellable return quantity cannot exceed return quantity."
+            )
         self._session.flush()
         return transaction
 
@@ -1292,7 +1417,9 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=product_id,
-            quantity=entered_quantity if entered_quantity is not None else reserve_quantity,
+            quantity=(
+                entered_quantity if entered_quantity is not None else reserve_quantity
+            ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
@@ -1349,7 +1476,9 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=product_id,
-            quantity=entered_quantity if entered_quantity is not None else release_quantity,
+            quantity=(
+                entered_quantity if entered_quantity is not None else release_quantity
+            ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
@@ -1406,7 +1535,9 @@ class InventoryService:
         ) = self._resolve_base_quantity(
             firm_scope=firm_scope,
             product_id=product_id,
-            quantity=entered_quantity if entered_quantity is not None else dispatch_quantity,
+            quantity=(
+                entered_quantity if entered_quantity is not None else dispatch_quantity
+            ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
@@ -1648,7 +1779,9 @@ class InventoryService:
                 "product_code": self._lookup_product_code(row.product_id),
                 "product_name": self._lookup_product_name(row.product_id),
                 "business_profile_id": row.business_profile_id,
-                "business_profile_code": self._lookup_profile_code(row.business_profile_id),
+                "business_profile_code": self._lookup_profile_code(
+                    row.business_profile_id
+                ),
                 "current_quantity": row.current_quantity,
                 "reserved_quantity": row.reserved_quantity,
                 "available_quantity": row.available_quantity,
@@ -1748,7 +1881,11 @@ class InventoryService:
                 "status": row.status,
                 "remarks": row.remarks,
                 "posted_at": row.posted_at,
-                "lines": [self._opening_stock_line_response(line) for line in row.lines if not line.is_deleted],
+                "lines": [
+                    self._opening_stock_line_response(line)
+                    for line in row.lines
+                    if not line.is_deleted
+                ],
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
             }
@@ -1856,10 +1993,12 @@ class InventoryService:
             )
         if filters.reference_type:
             statement = statement.where(
-                InventoryTransaction.reference_type == filters.reference_type.strip().upper()
+                InventoryTransaction.reference_type
+                == filters.reference_type.strip().upper()
             )
             count = count.where(
-                InventoryTransaction.reference_type == filters.reference_type.strip().upper()
+                InventoryTransaction.reference_type
+                == filters.reference_type.strip().upper()
             )
         if filters.transaction_from is not None:
             statement = statement.where(
@@ -1912,21 +2051,27 @@ class InventoryService:
             )
         if filters.reference_type:
             statement = statement.where(
-                StockLedgerEntry.reference_type == filters.reference_type.strip().upper()
+                StockLedgerEntry.reference_type
+                == filters.reference_type.strip().upper()
             )
             count = count.where(
-                StockLedgerEntry.reference_type == filters.reference_type.strip().upper()
+                StockLedgerEntry.reference_type
+                == filters.reference_type.strip().upper()
             )
         if filters.transaction_from is not None:
             statement = statement.where(
                 StockLedgerEntry.transaction_date >= filters.transaction_from
             )
-            count = count.where(StockLedgerEntry.transaction_date >= filters.transaction_from)
+            count = count.where(
+                StockLedgerEntry.transaction_date >= filters.transaction_from
+            )
         if filters.transaction_to is not None:
             statement = statement.where(
                 StockLedgerEntry.transaction_date <= filters.transaction_to
             )
-            count = count.where(StockLedgerEntry.transaction_date <= filters.transaction_to)
+            count = count.where(
+                StockLedgerEntry.transaction_date <= filters.transaction_to
+            )
         return statement, count
 
     def _apply_opening_stock_filters(
@@ -1939,10 +2084,14 @@ class InventoryService:
             statement = statement.where(OpeningStockBatch.is_deleted.is_(False))
             count = count.where(OpeningStockBatch.is_deleted.is_(False))
         if filters.status is not None:
-            statement = statement.where(OpeningStockBatch.status == filters.status.value)
+            statement = statement.where(
+                OpeningStockBatch.status == filters.status.value
+            )
             count = count.where(OpeningStockBatch.status == filters.status.value)
         if filters.branch_id is not None:
-            statement = statement.where(OpeningStockBatch.branch_id == filters.branch_id)
+            statement = statement.where(
+                OpeningStockBatch.branch_id == filters.branch_id
+            )
             count = count.where(OpeningStockBatch.branch_id == filters.branch_id)
         if filters.warehouse_id is not None:
             statement = statement.where(
@@ -1950,10 +2099,14 @@ class InventoryService:
             )
             count = count.where(OpeningStockBatch.warehouse_id == filters.warehouse_id)
         if filters.posting_from is not None:
-            statement = statement.where(OpeningStockBatch.posting_date >= filters.posting_from)
+            statement = statement.where(
+                OpeningStockBatch.posting_date >= filters.posting_from
+            )
             count = count.where(OpeningStockBatch.posting_date >= filters.posting_from)
         if filters.posting_to is not None:
-            statement = statement.where(OpeningStockBatch.posting_date <= filters.posting_to)
+            statement = statement.where(
+                OpeningStockBatch.posting_date <= filters.posting_to
+            )
             count = count.where(OpeningStockBatch.posting_date <= filters.posting_to)
         return statement, count
 
@@ -2049,10 +2202,15 @@ class InventoryService:
         if movement.entered_uom_id is not None:
             inventory.display_uom_id = movement.entered_uom_id
         elif inventory.display_uom_id is None:
-            inventory.display_uom_id = self._default_display_uom_id(inventory.product_id)
+            inventory.display_uom_id = self._default_display_uom_id(
+                inventory.product_id
+            )
         inventory.last_transaction_at = movement.transaction_date
         inventory.updated_by = actor_id
 
+        unit_cost, total_cost, average_after = self._apply_valuation(
+            inventory, movement, actor_id
+        )
         transaction = InventoryTransaction(
             inventory_id=inventory.id,
             firm_id=inventory.firm_id,
@@ -2131,6 +2289,9 @@ class InventoryService:
                 previous_in_transit_quantity=transaction.previous_in_transit_quantity,
                 new_in_transit_quantity=transaction.new_in_transit_quantity,
                 remarks=transaction.remarks,
+                unit_cost=unit_cost,
+                total_cost=total_cost,
+                average_cost_after=average_after,
                 original_quantity=transaction.entered_quantity or transaction.quantity,
                 original_uom_id=transaction.entered_uom_id,
                 base_quantity=transaction.quantity,
@@ -2175,7 +2336,9 @@ class InventoryService:
                 )
             )
             if product is None:
-                raise ValidationError("Opening stock line references an unknown product.")
+                raise ValidationError(
+                    "Opening stock line references an unknown product."
+                )
             storage_node = None
             if line.storage_node_id is not None:
                 storage_node = self._session.scalar(
@@ -2246,7 +2409,9 @@ class InventoryService:
         warehouse_id: UUID,
         storage_node_id: UUID | None,
         product_id: UUID,
-    ) -> tuple[Branch, Warehouse, WarehouseStorageNode | None, Product, BusinessProfile | None]:
+    ) -> tuple[
+        Branch, Warehouse, WarehouseStorageNode | None, Product, BusinessProfile | None
+    ]:
         branch = self._session.scalar(
             select(Branch).where(
                 Branch.id == branch_id,
@@ -2357,7 +2522,9 @@ class InventoryService:
 
     def _default_display_uom_id(self, product_id: UUID) -> UUID | None:
         product = self._session.scalar(
-            select(Product).where(Product.id == product_id, Product.is_deleted.is_(False))
+            select(Product).where(
+                Product.id == product_id, Product.is_deleted.is_(False)
+            )
         )
         if product is None:
             return None
@@ -2395,16 +2562,26 @@ class InventoryService:
             ConversionRule.from_uom_id == entered_uom_id,
             ConversionRule.to_uom_id == target_uom_id,
             ConversionRule.effective_from <= on_date,
-            or_(ConversionRule.effective_to.is_(None), ConversionRule.effective_to >= on_date),
-            or_(ConversionRule.product_id == product_id, ConversionRule.product_id.is_(None)),
+            or_(
+                ConversionRule.effective_to.is_(None),
+                ConversionRule.effective_to >= on_date,
+            ),
+            or_(
+                ConversionRule.product_id == product_id,
+                ConversionRule.product_id.is_(None),
+            ),
         )
         if conversion_version is not None:
             statement = statement.where(ConversionRule.version == conversion_version)
         rule = self._session.scalars(
-            statement.order_by(ConversionRule.product_id.desc(), ConversionRule.version.desc())
+            statement.order_by(
+                ConversionRule.product_id.desc(), ConversionRule.version.desc()
+            )
         ).first()
         if rule is None:
-            raise ValidationError("No active conversion rule is configured for the selected UOM.")
+            raise ValidationError(
+                "No active conversion rule is configured for the selected UOM."
+            )
         base_quantity = entered * rule.conversion_factor
         return base_quantity, entered, entered_uom_id, rule.version
 
@@ -2443,23 +2620,29 @@ class InventoryService:
 
     def _lookup_branch_code(self, branch_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Branch.code).where(Branch.id == branch_id)) or ""
+            self._session.scalar(select(Branch.code).where(Branch.id == branch_id))
+            or ""
         )
 
     def _lookup_branch_name(self, branch_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Branch.name).where(Branch.id == branch_id)) or ""
+            self._session.scalar(select(Branch.name).where(Branch.id == branch_id))
+            or ""
         )
 
     def _lookup_warehouse_code(self, warehouse_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Warehouse.code).where(Warehouse.id == warehouse_id))
+            self._session.scalar(
+                select(Warehouse.code).where(Warehouse.id == warehouse_id)
+            )
             or ""
         )
 
     def _lookup_warehouse_name(self, warehouse_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Warehouse.name).where(Warehouse.id == warehouse_id))
+            self._session.scalar(
+                select(Warehouse.name).where(Warehouse.id == warehouse_id)
+            )
             or ""
         )
 
@@ -2467,7 +2650,9 @@ class InventoryService:
         if storage_node_id is None:
             return None
         value = self._session.scalar(
-            select(WarehouseStorageNode.code).where(WarehouseStorageNode.id == storage_node_id)
+            select(WarehouseStorageNode.code).where(
+                WarehouseStorageNode.id == storage_node_id
+            )
         )
         return str(value) if value is not None else None
 
@@ -2475,18 +2660,22 @@ class InventoryService:
         if storage_node_id is None:
             return None
         value = self._session.scalar(
-            select(WarehouseStorageNode.name).where(WarehouseStorageNode.id == storage_node_id)
+            select(WarehouseStorageNode.name).where(
+                WarehouseStorageNode.id == storage_node_id
+            )
         )
         return str(value) if value is not None else None
 
     def _lookup_product_code(self, product_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Product.code).where(Product.id == product_id)) or ""
+            self._session.scalar(select(Product.code).where(Product.id == product_id))
+            or ""
         )
 
     def _lookup_product_name(self, product_id: UUID) -> str:
         return str(
-            self._session.scalar(select(Product.name).where(Product.id == product_id)) or ""
+            self._session.scalar(select(Product.name).where(Product.id == product_id))
+            or ""
         )
 
     def _lookup_profile_code(self, profile_id: UUID | None) -> str | None:
@@ -2507,4 +2696,6 @@ class InventoryService:
             self._session.commit()
         except IntegrityError as error:
             self._session.rollback()
-            raise ConflictError("The operation violates inventory uniqueness constraints.") from error
+            raise ConflictError(
+                "The operation violates inventory uniqueness constraints."
+            ) from error

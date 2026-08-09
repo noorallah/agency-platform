@@ -431,6 +431,26 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def _receipt_unit_cost(self, line: GoodsReceiptLine) -> Decimal:
+        """Return what one received unit actually cost.
+
+        Free quantity is received but not paid for, so the line's net value is
+        spread across everything that lands on the shelf. Charging the invoice
+        price to free goods would overstate the stock value.
+
+        Args:
+            line: The receipt line being posted.
+
+        Returns:
+            The cost per received unit, or zero when nothing was received.
+
+        """
+        received = self._q(line.accepted_quantity + line.free_quantity)
+        if received <= ZERO:
+            return ZERO
+        net = self._q(line.net_amount - line.tax_amount)
+        return net / received
+
     def _reverse_inventory(
         self,
         receipt: GoodsReceipt,
@@ -997,6 +1017,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 reference_number=receipt.grn_number,
                 transaction_date=receipt.receipt_date,
                 total_quantity=self._q(line.accepted_quantity + line.free_quantity),
+                unit_cost=self._receipt_unit_cost(line),
                 blocked_quantity=self._q(line.rejected_quantity),
                 damaged_quantity=self._q(line.damaged_quantity),
                 entered_quantity=self._q(

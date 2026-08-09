@@ -68,7 +68,9 @@ class InventoryWrite(InventorySchema):
             and self.minimum_level is not None
             and self.maximum_level < self.minimum_level
         ):
-            raise ValueError("Maximum level must be greater than or equal to minimum level.")
+            raise ValueError(
+                "Maximum level must be greater than or equal to minimum level."
+            )
         if (
             self.reorder_level is not None
             and self.maximum_level is not None
