@@ -67,6 +67,69 @@ jobs:
           uv run black --check . || true
           uv run mypy app || true
 
+  integration:
+    # Multi-schema tenancy, cross-schema foreign keys, the audit trigger and
+    # numbering concurrency are all invisible to the SQLite unit suite. This job
+    # is what catches them.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: agency
+          POSTGRES_PASSWORD: agency
+          POSTGRES_DB: agency_platform
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AGENCY_DATABASE_DIALECT: postgresql
+      AGENCY_DATABASE_HOST: localhost
+      AGENCY_DATABASE_PORT: "5432"
+      AGENCY_DATABASE_NAME: agency_platform
+      AGENCY_DATABASE_USERNAME: agency
+      AGENCY_DATABASE_PASSWORD: agency
+      AGENCY_JWT_SECRET_KEY: ci-only-secret-not-used-for-signing-anything
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Create the shared firm schema
+        run: |
+          PGPASSWORD=agency psql -h localhost -U agency -d agency_platform \
+            -c 'CREATE SCHEMA IF NOT EXISTS firm_shared'
+
+      - name: Migrate every schema, not just the default
+        # A bare `alembic upgrade head` advances only the platform schema and
+        # silently leaves firm stores behind.
+        run: |
+          uv run python -m alembic upgrade head
+          AGENCY_DATABASE_SCHEMA=firm_shared uv run python -m alembic upgrade head
+
+      - name: Migrations reverse cleanly
+        run: |
+          AGENCY_DATABASE_SCHEMA=firm_shared uv run python -m alembic downgrade -1
+          AGENCY_DATABASE_SCHEMA=firm_shared uv run python -m alembic upgrade head
+
+      - name: Integration tests
+        run: uv run pytest tests/integration -q
+
   desktop:
     runs-on: ubuntu-latest
     defaults:
