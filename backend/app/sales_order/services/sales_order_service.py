@@ -10,30 +10,24 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import financial_year_label, utc_now
-from app.core.utils.money import quantize_money
+from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService
@@ -74,12 +68,27 @@ from app.uom.services import UomService
 ZERO = Decimal("0")
 
 
-class SalesOrderService:
+class SalesOrderService(TransactionalDocumentService):
     """Coordinate sales order lifecycle, totals, and stock reservation."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="SALES_ORDER",
+        name="Sales Order",
+        description="Customer sales order document",
+        category="SALES",
+        module="sales_order",
+        prefix="SO",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("CANCELLED", "Cancelled", 3, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 4, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
@@ -204,7 +213,9 @@ class SalesOrderService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.order_date, firm_id),
+                financial_year_label=self._financial_year_label(
+                    data.order_date, firm_id
+                ),
                 branch_code=self._scope_code(data.branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.order_date,
@@ -1221,164 +1232,6 @@ class SalesOrderService:
             ),
             actor_id=actor_id,
         )
-
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "SALES_ORDER",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="SALES_ORDER",
-                    name="Sales Order",
-                    description="Customer sales order document",
-                    category="SALES",
-                    is_active=True,
-                    configuration={"module": "sales_order"},
-                ),
-                actor_id,
-            )
-        for code, name, sort_order, terminal in [
-            ("DRAFT", "Draft", 1, False),
-            ("APPROVED", "Approved", 2, False),
-            ("CANCELLED", "Cancelled", 3, True),
-            ("CLOSED", "Closed", 4, True),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=code == "DRAFT",
-                        is_terminal=terminal,
-                        allows_edit=code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={"module": "sales_order", "state": code},
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering is None:
-            numbering = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="SALES_ORDER_DEFAULT",
-                    name="Sales Order Default",
-                    prefix="SO",
-                    suffix=None,
-                    separator="-",
-                    include_financial_year=True,
-                    include_branch_code=False,
-                    include_company_code=False,
-                    auto_reset=True,
-                    manual_allowed=False,
-                    sequence_padding=6,
-                    next_sequence=1,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "sales_order"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "SALES_ORDER",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            raise ResourceNotFoundError("Sales order document type is not configured.")
-        return document_type
-
-    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
-        """Return the firm's financial-year label for a document date.
-
-        Args:
-            on: The document date.
-            firm_id: The owning firm, whose ``financial_year_start`` decides
-                when the year begins.
-
-        Returns:
-            The shared ``YYYY-YYYY`` label.
-
-        """
-        start_month = self._session.scalar(
-            select(Firm.financial_year_start).where(Firm.id == firm_id)
-        )
-        return financial_year_label(
-            on, start_month=start_month.month if start_month is not None else 4
-        )
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        if branch_id is None:
-            return None
-        row = self._session.scalar(select(Branch.code).where(Branch.id == branch_id))
-        return row.upper() if row else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        row = self._session.scalar(select(Firm.code).where(Firm.id == firm_id))
-        return row.upper() if row else None
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
-
-    @staticmethod
-    def _q(value: Decimal | int | str | None) -> Decimal:
-        """Round a monetary amount to the shared storage scale.
-
-        Args:
-            value: The amount to round; ``None`` is treated as zero.
-
-        Returns:
-            The amount quantized by :func:`quantize_money`.
-
-        """
-        return quantize_money(value)
 
     def _attachment_response(
         self, row: SalesOrderAttachment

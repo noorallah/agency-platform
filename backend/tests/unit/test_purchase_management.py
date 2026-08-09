@@ -85,6 +85,7 @@ def _firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
 
+
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
         "sqlite://",
@@ -566,7 +567,9 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
                         header_discount_amount="2",
                         additional_charges="1",
                         round_off="0.5",
-                    ).model_dump(mode="json").items()
+                    )
+                    .model_dump(mode="json")
+                    .items()
                     if key != "po_number"
                 }
             },
@@ -642,7 +645,9 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
                         product_id=product.id,
                         tax_profile_id=tax_profile_id,
                         po_number="IGNORED",
-                    ).model_dump(mode="json").items()
+                    )
+                    .model_dump(mode="json")
+                    .items()
                     if key != "po_number"
                 }
             ),
@@ -1047,7 +1052,9 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
                     free_quantity="0",
                     unit_price="11",
                     discount_percent="5",
-                ).model_dump(mode="json").items()
+                )
+                .model_dump(mode="json")
+                .items()
                 if key != "po_number"
             }
         ),
@@ -1164,7 +1171,10 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     csv_export = export_purchase_orders(scope, "csv", "PO-API", session)
     csv_bytes = asyncio.run(_read_stream(csv_export))
     csv_text = csv_bytes.decode("utf-8")
-    assert "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total" in csv_text
+    assert (
+        "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total"
+        in csv_text
+    )
     assert "PO-API-001" in csv_text
 
     xlsx_export = export_purchase_orders(scope, "xlsx", "PO-API", session)
@@ -1237,3 +1247,43 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         require_permission("PURCHASE_DELETE")(
             _principal(actor_id, {"PURCHASE_VIEW"}, firm_id=firm.id)
         )
+
+
+def test_generated_purchase_order_number_carries_firm_branch_and_year() -> None:
+    """Auto-generated numbers keep their composed shape.
+
+    Every purchase test supplied an explicit po_number, so the generated format
+    was asserted nowhere. Extracting the shared document base silently dropped
+    the company code from it, and nothing failed.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "NUM")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+
+    row = PurchaseService(session).create_order(
+        PurchaseOrderCreate(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            purchase_date=date(2026, 8, 4),
+            status=PurchaseOrderStatus.DRAFT,
+            lines=[
+                {
+                    "product_id": str(product.id),
+                    "ordered_quantity": "5",
+                    "unit_price": "10",
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    # prefix - company - branch - financial year - sequence
+    assert row.po_number == f"PO-{firm.code}-{branch.code}-2026-2027-000001"

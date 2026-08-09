@@ -67,6 +67,7 @@ class DocumentTypeSpec:
     prefix: str
     states: tuple[DocumentStateSpec, ...]
     include_branch_code: bool = False
+    include_company_code: bool = False
     sequence_padding: int = 6
     rule_code: str = field(default="")
     rule_name: str = field(default="")
@@ -156,6 +157,34 @@ class TransactionalDocumentService:
         """Return the firm's own code for document numbering."""
         code = self._session.scalar(select(Firm.code).where(Firm.id == firm_id))
         return code.upper() if code else None
+
+    def _scope_codes(
+        self, *, firm_id: UUID, branch_id: UUID | None
+    ) -> tuple[str | None, str | None]:
+        """Return the branch and company codes, checking branch ownership.
+
+        The branch must belong to the firm: a document number must never be
+        stamped with another firm's branch code.
+
+        Args:
+            firm_id: The owning firm.
+            branch_id: The branch to resolve, if any.
+
+        Returns:
+            A ``(branch_code, company_code)`` pair, either of which may be None.
+
+        """
+        branch_code: str | None = None
+        if branch_id is not None:
+            code = self._session.scalar(
+                select(Branch.code).where(
+                    Branch.id == branch_id,
+                    Branch.firm_id == firm_id,
+                    Branch.is_deleted.is_(False),
+                )
+            )
+            branch_code = code.upper() if code else None
+        return branch_code, self._company_code(firm_id)
 
     # ---- persistence helpers ---------------------------------------------
 
@@ -297,7 +326,7 @@ class TransactionalDocumentService:
                     separator="-",
                     include_financial_year=True,
                     include_branch_code=spec.include_branch_code,
-                    include_company_code=False,
+                    include_company_code=spec.include_company_code,
                     auto_reset=True,
                     manual_allowed=False,
                     sequence_padding=spec.sequence_padding,

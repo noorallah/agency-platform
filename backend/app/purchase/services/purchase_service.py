@@ -11,30 +11,24 @@ from io import BytesIO
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import financial_year_label, utc_now
-from app.core.utils.money import quantize_money
+from app.core.utils.dates import utc_now
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
 from app.products.models import Product
 from app.purchase.models import (
     PurchaseAttachment,
@@ -66,14 +60,33 @@ from app.uom.services import UomService
 from app.vendors.models import Vendor
 
 
-class PurchaseService:
+class PurchaseService(TransactionalDocumentService):
     """Coordinate purchase order lifecycle, calculations, and integrations."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="PURCHASE_ORDER",
+        name="Purchase Order",
+        description="Reusable purchase document type.",
+        category="PURCHASE",
+        module="purchase",
+        prefix="PO",
+        include_branch_code=True,
+        include_company_code=True,
+        rule_code="PURCHASE_ORDER_DEFAULT",
+        rule_name="Purchase Order Default Numbering",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 10, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 20, allows_edit=True),
+            DocumentStateSpec("CANCELLED", "Cancelled", 90, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 100, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._uom = UomService(session)
         self._tax = TaxRuleService(session)
-        self._documents = DocumentFrameworkService(session)
 
     def list_orders(
         self,
@@ -87,8 +100,10 @@ class PurchaseService:
         descending: bool,
     ) -> tuple[list[PurchaseOrder], int]:
         statement = select(PurchaseOrder).where(PurchaseOrder.firm_id == firm_scope)
-        count = select(func.count()).select_from(PurchaseOrder).where(
-            PurchaseOrder.firm_id == firm_scope
+        count = (
+            select(func.count())
+            .select_from(PurchaseOrder)
+            .where(PurchaseOrder.firm_id == firm_scope)
         )
         if not filters.include_deleted:
             statement = statement.where(PurchaseOrder.is_deleted.is_(False))
@@ -103,19 +118,29 @@ class PurchaseService:
             statement = statement.where(PurchaseOrder.branch_id == filters.branch_id)
             count = count.where(PurchaseOrder.branch_id == filters.branch_id)
         if filters.warehouse_id is not None:
-            statement = statement.where(PurchaseOrder.warehouse_id == filters.warehouse_id)
+            statement = statement.where(
+                PurchaseOrder.warehouse_id == filters.warehouse_id
+            )
             count = count.where(PurchaseOrder.warehouse_id == filters.warehouse_id)
         if filters.buyer_id is not None:
             statement = statement.where(PurchaseOrder.buyer_id == filters.buyer_id)
             count = count.where(PurchaseOrder.buyer_id == filters.buyer_id)
         if filters.purchase_type is not None:
-            statement = statement.where(PurchaseOrder.purchase_type == filters.purchase_type.value)
-            count = count.where(PurchaseOrder.purchase_type == filters.purchase_type.value)
+            statement = statement.where(
+                PurchaseOrder.purchase_type == filters.purchase_type.value
+            )
+            count = count.where(
+                PurchaseOrder.purchase_type == filters.purchase_type.value
+            )
         if filters.created_from is not None:
-            statement = statement.where(PurchaseOrder.purchase_date >= filters.created_from)
+            statement = statement.where(
+                PurchaseOrder.purchase_date >= filters.created_from
+            )
             count = count.where(PurchaseOrder.purchase_date >= filters.created_from)
         if filters.created_to is not None:
-            statement = statement.where(PurchaseOrder.purchase_date <= filters.created_to)
+            statement = statement.where(
+                PurchaseOrder.purchase_date <= filters.created_to
+            )
             count = count.where(PurchaseOrder.purchase_date <= filters.created_to)
         if search:
             term = f"%{search.strip()}%"
@@ -162,7 +187,9 @@ class PurchaseService:
         total_value = sum((row.grand_total for row in rows), Decimal("0"))
         return PurchaseSummary(
             total=len(rows),
-            draft=sum(1 for row in rows if row.status == PurchaseOrderStatus.DRAFT.value),
+            draft=sum(
+                1 for row in rows if row.status == PurchaseOrderStatus.DRAFT.value
+            ),
             open=sum(
                 1
                 for row in rows
@@ -178,7 +205,9 @@ class PurchaseService:
             cancelled=sum(
                 1 for row in rows if row.status == PurchaseOrderStatus.CANCELLED.value
             ),
-            closed=sum(1 for row in rows if row.status == PurchaseOrderStatus.CLOSED.value),
+            closed=sum(
+                1 for row in rows if row.status == PurchaseOrderStatus.CLOSED.value
+            ),
             total_value=self._q(total_value),
             overdue_delivery=overdue,
         )
@@ -186,7 +215,7 @@ class PurchaseService:
     def create_order(
         self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        document_type, numbering_rule = self._ensure_purchase_document_setup(
+        document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
         self._validate_scope_references(
@@ -195,7 +224,7 @@ class PurchaseService:
             warehouse_id=data.warehouse_id,
             vendor_id=data.vendor_id,
         )
-        branch_code, company_code = self._document_scope_codes(
+        branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=data.branch_id
         )
         po_number = (
@@ -204,7 +233,9 @@ class PurchaseService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.purchase_date, firm_id),
+                financial_year_label=self._financial_year_label(
+                    data.purchase_date, firm_id
+                ),
                 branch_code=branch_code,
                 company_code=company_code,
                 document_date=data.purchase_date,
@@ -291,7 +322,10 @@ class PurchaseService:
         actor_id: UUID,
     ) -> PurchaseOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value}:
+        if row.status in {
+            PurchaseOrderStatus.CANCELLED.value,
+            PurchaseOrderStatus.CLOSED.value,
+        }:
             raise ValidationError("Cancelled/closed purchase orders cannot be updated.")
         self._validate_scope_references(
             firm_id=firm_scope,
@@ -343,7 +377,7 @@ class PurchaseService:
         )
         self._record_document_event(
             firm_id=firm_scope,
-            document_type=self._ensure_purchase_document_setup(
+            document_type=self._ensure_document_setup(
                 firm_id=firm_scope, actor_id=actor_id
             )[0],
             order=row,
@@ -387,7 +421,7 @@ class PurchaseService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
-        document_type = self._ensure_purchase_document_setup(
+        document_type = self._ensure_document_setup(
             firm_id=firm_scope, actor_id=actor_id
         )[0]
         self._history(
@@ -417,13 +451,15 @@ class PurchaseService:
         )
         self._session.commit()
 
-    def restore_order(self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> PurchaseOrder:
+    def restore_order(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
         row = self.get_order(order_id, firm_scope=firm_scope, include_deleted=True)
         row.is_deleted = False
         row.deleted_at = None
         row.deleted_by = None
         row.updated_by = actor_id
-        document_type = self._ensure_purchase_document_setup(
+        document_type = self._ensure_document_setup(
             firm_id=firm_scope, actor_id=actor_id
         )[0]
         self._history(
@@ -458,7 +494,10 @@ class PurchaseService:
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> PurchaseOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {PurchaseOrderStatus.CANCELLED.value, PurchaseOrderStatus.CLOSED.value}:
+        if row.status in {
+            PurchaseOrderStatus.CANCELLED.value,
+            PurchaseOrderStatus.CLOSED.value,
+        }:
             return row
         if row.status == PurchaseOrderStatus.RECEIVED.value:
             raise ValidationError("Received purchase orders cannot be cancelled.")
@@ -466,7 +505,7 @@ class PurchaseService:
         row.status = PurchaseOrderStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
-        document_type = self._ensure_purchase_document_setup(
+        document_type = self._ensure_document_setup(
             firm_id=firm_scope, actor_id=actor_id
         )[0]
         self._history(
@@ -513,7 +552,7 @@ class PurchaseService:
         row.status = PurchaseOrderStatus.CLOSED.value
         row.close_reason = reason
         row.updated_by = actor_id
-        document_type = self._ensure_purchase_document_setup(
+        document_type = self._ensure_document_setup(
             firm_id=firm_scope, actor_id=actor_id
         )[0]
         self._history(
@@ -628,6 +667,7 @@ class PurchaseService:
         index = {name: position for position, name in enumerate(header)}
         records: list[PurchaseOrderCreate] = []
         for values in rows[1:]:
+
             def _cell(name: str) -> str:
                 position = index.get(name, -1)
                 if position < 0 or position >= len(values):
@@ -788,9 +828,13 @@ class PurchaseService:
                 .where(
                     PurchaseDeliverySchedule.firm_id == row.firm_id,
                     PurchaseDeliverySchedule.is_deleted.is_(False),
-                    PurchaseDeliverySchedule.purchase_order_line_id.in_([item.id for item in lines])
-                    if lines
-                    else False,
+                    (
+                        PurchaseDeliverySchedule.purchase_order_line_id.in_(
+                            [item.id for item in lines]
+                        )
+                        if lines
+                        else False
+                    ),
                 )
                 .order_by(PurchaseDeliverySchedule.delivery_date.asc())
             ).all()
@@ -821,7 +865,9 @@ class PurchaseService:
                 {
                     "id": entry.id,
                     "purchase_order_line_id": entry.purchase_order_line_id,
-                    "line_number": self._line_number(lines, entry.purchase_order_line_id),
+                    "line_number": self._line_number(
+                        lines, entry.purchase_order_line_id
+                    ),
                     "delivery_date": entry.delivery_date,
                     "quantity": entry.quantity,
                     "status": entry.status,
@@ -842,7 +888,9 @@ class PurchaseService:
         ]
         return PurchaseOrderResponse.model_validate(payload)
 
-    def order_history(self, *, order_id: UUID, firm_scope: UUID) -> list[PurchaseOrderHistory]:
+    def order_history(
+        self, *, order_id: UUID, firm_scope: UUID
+    ) -> list[PurchaseOrderHistory]:
         self.get_order(order_id, firm_scope=firm_scope, include_deleted=True)
         return list(
             self._session.scalars(
@@ -948,7 +996,9 @@ class PurchaseService:
                 updated_by=actor_id,
             )
             self._validate_line_dates(row)
-            self._validate_storage_scope(order.firm_id, row.warehouse_id, row.storage_node_id)
+            self._validate_storage_scope(
+                order.firm_id, row.warehouse_id, row.storage_node_id
+            )
             self._session.add(row)
             gross_total += gross_amount
             line_discount_total += discount_amount
@@ -982,14 +1032,20 @@ class PurchaseService:
         line_map = {
             item.line_number: item
             for item in self._session.scalars(
-                select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+                select(PurchaseOrderLine).where(
+                    PurchaseOrderLine.purchase_order_id == order.id
+                )
             ).all()
         }
         self._session.query(PurchaseDeliverySchedule).where(
             PurchaseDeliverySchedule.firm_id == order.firm_id,
-            PurchaseDeliverySchedule.purchase_order_line_id.in_([item.id for item in line_map.values()])
-            if line_map
-            else False,
+            (
+                PurchaseDeliverySchedule.purchase_order_line_id.in_(
+                    [item.id for item in line_map.values()]
+                )
+                if line_map
+                else False
+            ),
         ).delete(synchronize_session=False)
         for schedule in data.delivery_schedules:
             line = line_map.get(schedule.line_number)
@@ -1111,128 +1167,6 @@ class PurchaseService:
             actor_id,
         )
 
-    def _ensure_purchase_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_ORDER",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="PURCHASE_ORDER",
-                    name="Purchase Order",
-                    description="Reusable purchase document type.",
-                    category="PURCHASE",
-                    is_active=True,
-                ),
-                actor_id,
-            )
-
-        for code, name, order_index, is_default, is_terminal in (
-            ("DRAFT", "Draft", 10, True, False),
-            ("APPROVED", "Approved", 20, False, False),
-            ("CANCELLED", "Cancelled", 90, False, True),
-            ("CLOSED", "Closed", 100, False, True),
-        ):
-            existing_state = self._session.scalar(
-                select(DocumentStateDefinition).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type.id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            if existing_state is None:
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=code,
-                        name=name,
-                        sort_order=order_index,
-                        is_default=is_default,
-                        is_terminal=is_terminal,
-                        allows_edit=not is_terminal,
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-
-        numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.code == "PURCHASE_ORDER_DEFAULT",
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering_rule is None:
-            numbering_rule = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="PURCHASE_ORDER_DEFAULT",
-                    name="Purchase Order Default Numbering",
-                    prefix="PO",
-                    include_financial_year=True,
-                    include_branch_code=True,
-                    include_company_code=True,
-                    auto_reset=True,
-                    manual_allowed=True,
-                    sequence_padding=6,
-                    is_default=True,
-                    is_active=True,
-                ),
-                actor_id,
-            )
-        return document_type, numbering_rule
-
-    def _document_scope_codes(
-        self, *, firm_id: UUID, branch_id: UUID
-    ) -> tuple[str | None, str | None]:
-        branch = self._session.scalar(
-            select(Branch).where(
-                Branch.id == branch_id,
-                Branch.firm_id == firm_id,
-                Branch.is_deleted.is_(False),
-            )
-        )
-        firm = self._session.scalar(
-            select(Firm).where(Firm.id == firm_id, Firm.is_deleted.is_(False))
-        )
-        return (
-            branch.code if branch is not None else None,
-            firm.code if firm is not None else None,
-        )
-
-    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
-        """Return the firm's financial-year label for a document date.
-
-        Args:
-            on: The document date.
-            firm_id: The owning firm, whose ``financial_year_start`` decides
-                when the year begins.
-
-        Returns:
-            The shared ``YYYY-YYYY`` label.
-
-        """
-        start_month = self._session.scalar(
-            select(Firm.financial_year_start).where(Firm.id == firm_id)
-        )
-        return financial_year_label(
-            on, start_month=start_month.month if start_month is not None else 4
-        )
-
     def _validate_scope_references(
         self, *, firm_id: UUID, branch_id: UUID, warehouse_id: UUID, vendor_id: UUID
     ) -> None:
@@ -1270,7 +1204,9 @@ class PurchaseService:
         if vendor is None:
             raise ValidationError("Selected vendor is not available in this firm.")
         if vendor.status != "ACTIVE":
-            raise ValidationError("Inactive or blocked vendors cannot be used in purchases.")
+            raise ValidationError(
+                "Inactive or blocked vendors cannot be used in purchases."
+            )
 
     def _validate_storage_scope(
         self, firm_id: UUID, warehouse_id: UUID | None, storage_node_id: UUID | None
@@ -1294,7 +1230,9 @@ class PurchaseService:
             )
         )
         if storage is None:
-            raise ValidationError("Line storage area is unavailable for selected warehouse.")
+            raise ValidationError(
+                "Line storage area is unavailable for selected warehouse."
+            )
         if not storage.is_active:
             raise ValidationError("Inactive storage areas cannot be used in purchases.")
 
@@ -1355,7 +1293,11 @@ class PurchaseService:
             or inventory_uom_id is None
             or purchase_uom_id == inventory_uom_id
         ):
-            return {"factor": Decimal("1"), "converted": self._q(quantity), "version": None}
+            return {
+                "factor": Decimal("1"),
+                "converted": self._q(quantity),
+                "version": None,
+            }
         response = self._uom.convert_quantity(
             ConversionRequest(
                 quantity=quantity,
@@ -1374,7 +1316,9 @@ class PurchaseService:
 
     def _validate_line_dates(self, line: PurchaseOrderLine) -> None:
         if line.expiry_required and line.expiry_date is None:
-            raise ValidationError("Expiry date is required for lines marked as expiry-required.")
+            raise ValidationError(
+                "Expiry date is required for lines marked as expiry-required."
+            )
         if (
             line.manufacturing_date is not None
             and line.expiry_date is not None
@@ -1490,23 +1434,3 @@ class PurchaseService:
         if status:
             payload["status"] = status
         return PurchaseOrderCreate.model_validate(payload)
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
-
-    @staticmethod
-    def _q(value: Decimal | int | str | None) -> Decimal:
-        """Round a monetary amount to the shared storage scale.
-
-        Args:
-            value: The amount to round; ``None`` is treated as zero.
-
-        Returns:
-            The amount quantized by :func:`quantize_money`.
-
-        """
-        return quantize_money(value)

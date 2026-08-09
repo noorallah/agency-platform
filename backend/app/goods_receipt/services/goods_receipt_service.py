@@ -7,29 +7,23 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.branches.models import Branch, Warehouse, WarehouseStorageNode
+from app.branches.models import Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import financial_year_label, utc_now
-from app.core.utils.money import quantize_money
+from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
 from app.goods_receipt.models import (
     GoodsReceipt,
     GoodsReceiptAttachment,
@@ -62,12 +56,31 @@ from app.uom.services import UomService
 ZERO = Decimal("0")
 
 
-class GoodsReceiptService:
+class GoodsReceiptService(TransactionalDocumentService):
     """Coordinate goods receipt notes, inventory posting, and document history."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="GOODS_RECEIPT_NOTE",
+        name="Goods Receipt Note",
+        description="Reusable goods receipt document type.",
+        category="PURCHASE",
+        module="goods_receipt",
+        prefix="GRN",
+        include_branch_code=True,
+        include_company_code=True,
+        rule_code="GRN_DEFAULT",
+        rule_name="Goods Receipt Note Default Numbering",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 10, allows_edit=True),
+            DocumentStateSpec("COMPLETED", "Completed", 20, is_terminal=True),
+            DocumentStateSpec("CANCELLED", "Cancelled", 90, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 100, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._inventory = InventoryService(session)
         self._uom = UomService(session)
         self._tax = TaxRuleService(session)
@@ -213,7 +226,9 @@ class GoodsReceiptService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.receipt_date, firm_id),
+                financial_year_label=self._financial_year_label(
+                    data.receipt_date, firm_id
+                ),
                 branch_code=branch_code,
                 company_code=company_code,
                 document_date=data.receipt_date,
@@ -1090,89 +1105,6 @@ class GoodsReceiptService:
             actor_id,
         )
 
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "GOODS_RECEIPT_NOTE",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="GOODS_RECEIPT_NOTE",
-                    name="Goods Receipt Note",
-                    description="Reusable goods receipt document type.",
-                    category="PURCHASE",
-                    is_active=True,
-                ),
-                actor_id,
-            )
-        for code, name, order_index, is_default, is_terminal in (
-            ("DRAFT", "Draft", 10, True, False),
-            ("COMPLETED", "Completed", 20, False, True),
-            ("CANCELLED", "Cancelled", 90, False, True),
-            ("CLOSED", "Closed", 100, False, True),
-        ):
-            existing = self._session.scalar(
-                select(DocumentStateDefinition).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type.id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            if existing is None:
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=code,
-                        name=name,
-                        sort_order=order_index,
-                        is_default=is_default,
-                        is_terminal=is_terminal,
-                        allows_edit=not is_terminal,
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.code == "GRN_DEFAULT",
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering_rule is None:
-            numbering_rule = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="GRN_DEFAULT",
-                    name="Goods Receipt Note Default Numbering",
-                    prefix="GRN",
-                    include_financial_year=True,
-                    include_branch_code=True,
-                    include_company_code=True,
-                    auto_reset=True,
-                    manual_allowed=True,
-                    sequence_padding=6,
-                    is_default=True,
-                    is_active=True,
-                ),
-                actor_id,
-            )
-        return document_type, numbering_rule
-
     def _purchase_order(
         self, purchase_order_id: UUID, *, firm_id: UUID
     ) -> PurchaseOrder:
@@ -1186,24 +1118,6 @@ class GoodsReceiptService:
         if row is None:
             raise ResourceNotFoundError("Purchase order not found.")
         return row
-
-    def _scope_codes(
-        self, *, firm_id: UUID, branch_id: UUID
-    ) -> tuple[str | None, str | None]:
-        branch = self._session.scalar(
-            select(Branch).where(
-                Branch.id == branch_id,
-                Branch.firm_id == firm_id,
-                Branch.is_deleted.is_(False),
-            )
-        )
-        firm = self._session.scalar(
-            select(Firm).where(Firm.id == firm_id, Firm.is_deleted.is_(False))
-        )
-        return (
-            branch.code if branch is not None else None,
-            firm.code if firm is not None else None,
-        )
 
     def _validate_storage_scope(
         self, *, firm_id: UUID, warehouse_id: UUID, storage_node_id: UUID | None
@@ -1314,38 +1228,6 @@ class GoodsReceiptService:
         )
         return self._q(simulation.total_tax_amount)
 
-    @staticmethod
-    def _q(value: Decimal | int | str | None) -> Decimal:
-        """Round a monetary amount to the shared storage scale.
-
-        Args:
-            value: The amount to round; ``None`` is treated as zero.
-
-        Returns:
-            The amount quantized by :func:`quantize_money`.
-
-        """
-        return quantize_money(value)
-
-    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
-        """Return the firm's financial-year label for a document date.
-
-        Args:
-            on: The document date.
-            firm_id: The owning firm, whose ``financial_year_start`` decides
-                when the year begins.
-
-        Returns:
-            The shared ``YYYY-YYYY`` label.
-
-        """
-        start_month = self._session.scalar(
-            select(Firm.financial_year_start).where(Firm.id == firm_id)
-        )
-        return financial_year_label(
-            on, start_month=start_month.month if start_month is not None else 4
-        )
-
     def _recalculate_totals(self, receipt: GoodsReceipt) -> None:
         lines = list(
             self._session.scalars(
@@ -1360,22 +1242,3 @@ class GoodsReceiptService:
         )
         receipt.tax_total = self._q(sum((line.tax_amount for line in lines), ZERO))
         receipt.grand_total = self._q(sum((line.net_amount for line in lines), ZERO))
-
-    def _flush_or_conflict(self, message: str) -> None:
-        """Flush pending work, converting a unique-key clash into a conflict.
-
-        The rollback matters: without it a failed flush leaves the session
-        unusable for every statement that follows.
-
-        Args:
-            message: The conflict message surfaced to the caller.
-
-        Raises:
-            ConflictError: If the flush violates a database constraint.
-
-        """
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
