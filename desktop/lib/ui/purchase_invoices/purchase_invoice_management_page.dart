@@ -70,17 +70,14 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.request('GET', '/api/v1/purchase-invoices/summary'),
-        widget.api.request(
-          'GET',
-          '/api/v1/purchase-invoices',
-          query: {
-            'page': '$_page',
-            'page_size': '$_rowsPerPage',
-            'search': _search.text.trim(),
-            'sort_by': 'invoice_date',
-            'sort_direction': 'desc',
-          },
+        widget.api.documentSummary('purchase-invoices'),
+        widget.api.documentPage(
+          'purchase-invoices',
+          page: _page,
+          pageSize: _rowsPerPage,
+          search: _search.text.trim(),
+          sortBy: 'invoice_date',
+          descending: true,
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -99,10 +96,7 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         try {
-          final Map<String, dynamic> timeline = _unwrap(await widget.api.request(
-            'GET',
-            '/api/v1/purchase-invoices/${selected.id}/history',
-          ));
+          final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-invoices', selected.id));
           history = _timelineFromResponse(timeline);
         } on ApiException {
           history = const [];
@@ -333,7 +327,7 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       return;
     }
     try {
-      await widget.api.request('POST', '/api/v1/purchase-invoices/${selected.id}$suffix');
+      await widget.api.documentAction('purchase-invoices', selected.id, suffix);
       await _load();
     } on ApiException catch (error) {
       if (!mounted) {
@@ -350,10 +344,7 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
   Future<void> _selectInvoice(_PurchaseInvoiceRecord row) async {
     setState(() => _selected = row);
     try {
-      final Map<String, dynamic> timeline = _unwrap(await widget.api.request(
-        'GET',
-        '/api/v1/purchase-invoices/${row.id}/history',
-      ));
+      final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-invoices', row.id));
       if (!mounted) {
         return;
       }

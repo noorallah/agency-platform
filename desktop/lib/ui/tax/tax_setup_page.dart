@@ -221,12 +221,13 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
   }
 
   Future<void> _loadExisting() async {
+    final String? systemId = widget.systemId;
+    if (systemId == null) {
+      return;
+    }
     setState(() => _isLoading = true);
     try {
-      final response = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/setup/${widget.systemId}',
-      );
+      final response = await widget.api.taxSetup(systemId);
       final data = response['data'] as Map<String, dynamic>;
       final system = data['system'] as Map<String, dynamic>;
       final rawComponents = (data['components'] as List).cast<Map<String, dynamic>>();
@@ -318,11 +319,7 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
 
     try {
       if (_isEditMode) {
-        await widget.api.request(
-          'PUT',
-          '/api/v1/tax-framework/setup/$_activeSystemId',
-          body: payload,
-        );
+        await widget.api.updateTaxSetup(_activeSystemId!, payload);
         if (mounted) {
           setState(() => _saveSuccess = true);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -334,11 +331,7 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
           );
         }
       } else {
-        final response = await widget.api.request(
-          'POST',
-          '/api/v1/tax-framework/setup',
-          body: payload,
-        );
+        final response = await widget.api.createTaxSetup(payload);
         // Extract the created system id so subsequent saves use PUT
         final systemId = (response['data']?['system']?['id'] as String?);
         if (mounted) {

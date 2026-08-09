@@ -70,17 +70,14 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.request('GET', '/api/v1/purchase-returns/summary'),
-        widget.api.request(
-          'GET',
-          '/api/v1/purchase-returns',
-          query: {
-            'page': '$_page',
-            'page_size': '$_rowsPerPage',
-            'search': _search.text.trim(),
-            'sort_by': 'return_date',
-            'sort_direction': 'desc',
-          },
+        widget.api.documentSummary('purchase-returns'),
+        widget.api.documentPage(
+          'purchase-returns',
+          page: _page,
+          pageSize: _rowsPerPage,
+          search: _search.text.trim(),
+          sortBy: 'return_date',
+          descending: true,
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -99,10 +96,7 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         try {
-          final Map<String, dynamic> timeline = _unwrap(await widget.api.request(
-            'GET',
-            '/api/v1/purchase-returns/${selected.id}/history',
-          ));
+          final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-returns', selected.id));
           history = _timelineFromResponse(timeline);
         } on ApiException {
           history = const [];
@@ -334,7 +328,7 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
       return;
     }
     try {
-      await widget.api.request('POST', '/api/v1/purchase-returns/${selected.id}$suffix');
+      await widget.api.documentAction('purchase-returns', selected.id, suffix);
       await _load();
     } on ApiException catch (error) {
       if (!mounted) {
@@ -351,10 +345,7 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
   Future<void> _selectReturn(_PurchaseReturnRecord row) async {
     setState(() => _selected = row);
     try {
-      final Map<String, dynamic> timeline = _unwrap(await widget.api.request(
-        'GET',
-        '/api/v1/purchase-returns/${row.id}/history',
-      ));
+      final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-returns', row.id));
       if (!mounted) {
         return;
       }

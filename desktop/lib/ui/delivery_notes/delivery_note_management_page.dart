@@ -72,18 +72,15 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.request('GET', '/api/v1/delivery-notes/summary'),
-        widget.api.request(
-          'GET',
-          '/api/v1/delivery-notes',
-          query: {
-            'page': '$_page',
-            'page_size': '$_rowsPerPage',
-            'search': _search.text.trim(),
-            'sort_by': 'delivery_date',
-            'sort_direction': 'desc',
-            ..._filtersForTab(),
-          },
+        widget.api.documentSummary('delivery-notes'),
+        widget.api.documentPage(
+          'delivery-notes',
+          page: _page,
+          pageSize: _rowsPerPage,
+          search: _search.text.trim(),
+          sortBy: 'delivery_date',
+          descending: true,
+          additionalQuery: _filtersForTab(),
         ),
       ]);
       final Json summary = _unwrap(responses[0]);
@@ -100,10 +97,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         try {
-          final Json timeline = _unwrap(await widget.api.request(
-            'GET',
-            '/api/v1/delivery-notes/${selected.id}/history',
-          ));
+          final Json timeline = _unwrap(await widget.api.documentHistory('delivery-notes', selected.id));
           history = _timelineFromResponse(timeline);
         } on ApiException {
           history = const [];
@@ -330,17 +324,14 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   Future<void> _act(String suffix) async {
     final _DeliveryNoteRecord? selected = _selected;
     if (selected == null) return;
-    await widget.api.request('POST', '/api/v1/delivery-notes/${selected.id}$suffix');
+    await widget.api.documentAction('delivery-notes', selected.id, suffix);
     await _load();
   }
 
   Future<void> _selectNote(_DeliveryNoteRecord row) async {
     setState(() => _selected = row);
     try {
-      final Json timeline = _unwrap(await widget.api.request(
-        'GET',
-        '/api/v1/delivery-notes/${row.id}/history',
-      ));
+      final Json timeline = _unwrap(await widget.api.documentHistory('delivery-notes', row.id));
       if (!mounted) return;
       setState(() => _history = _timelineFromResponse(timeline));
     } on ApiException {

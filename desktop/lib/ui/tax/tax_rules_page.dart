@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
-import '../../models/entities.dart';
 import '../../models/tax_framework.dart';
 
 // ─── Helper: Condition Draft ──────────────────────────────────────────────────
@@ -264,20 +263,9 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       _listError = null;
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/rules',
-        query: {'page': '1', 'page_size': '100'},
-      );
+      final result = await widget.api.taxRules(page: 1, pageSize: 100);
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxRuleRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxRuleRecord>[];
+      final list = result.items;
       setState(() {
         _rules = list;
         _applyFilter();
@@ -292,20 +280,9 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
 
   Future<void> _loadProfiles() async {
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/profiles',
-        query: {'page': '1', 'page_size': '100'},
-      );
+      final result = await widget.api.taxProfiles(page: 1, pageSize: 100);
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxProfileRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxProfileRecord>[];
+      final list = result.items;
       if (mounted) setState(() => _profiles = list);
     } on ApiException catch (_) {
       // silent
@@ -314,20 +291,9 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
 
   Future<void> _loadComponents() async {
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/components',
-        query: {'page': '1', 'page_size': '100'},
-      );
+      final result = await widget.api.taxComponents(page: 1, pageSize: 100);
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxComponentRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxComponentRecord>[];
+      final list = result.items;
       if (mounted) setState(() => _components = list);
     } on ApiException catch (_) {
       // silent
@@ -517,13 +483,8 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
 
     try {
       if (_isNew) {
-        final resp = await widget.api.request(
-          'POST',
-          '/api/v1/tax-framework/rules',
-          body: payload,
-        );
-        final newId =
-            stringValue(resp['data'] is Map ? resp['data']['id'] : null);
+        final created = await widget.api.createTaxRule(payload);
+        final newId = created.id;
         if (!mounted) return;
         await _loadRules();
         if (!mounted) return;
@@ -537,11 +498,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
         });
       } else {
         final id = _selected!.id;
-        await widget.api.request(
-          'PUT',
-          '/api/v1/tax-framework/rules/$id',
-          body: payload,
-        );
+        await widget.api.updateTaxRule(id, payload);
         if (!mounted) return;
         await _loadRules();
         if (!mounted) return;
@@ -566,7 +523,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       // Restore
       try {
         await widget.api
-            .request('POST', '/api/v1/tax-framework/rules/${rule.id}/restore');
+            .restoreTaxRule(rule.id);
         if (!mounted) return;
         await _loadRules();
         if (!mounted) return;
@@ -603,7 +560,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
       if (confirmed != true || !mounted) return;
       try {
         await widget.api
-            .request('DELETE', '/api/v1/tax-framework/rules/${rule.id}');
+            .deleteTaxRule(rule.id);
         if (!mounted) return;
         await _loadRules();
         if (!mounted) return;
@@ -1733,19 +1690,10 @@ class _TaxPriorityTabState extends State<_TaxPriorityTab> {
       _error = null;
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/rule-priorities',
+      final list = List<TaxRulePriorityRecord>.from(
+        await widget.api.taxRulePriorities(),
       );
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxRulePriorityRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxRulePriorityRecord>[];
       list.sort((a, b) => a.priority.compareTo(b.priority));
       for (final item in _items) {
         item.dispose();
@@ -1787,10 +1735,9 @@ class _TaxPriorityTabState extends State<_TaxPriorityTab> {
       _success = null;
     });
     try {
-      await Future.wait(dirty.map((item) => widget.api.request(
-            'PUT',
-            '/api/v1/tax-framework/rules/${item.record.id}',
-            body: {
+      await Future.wait(dirty.map((item) => widget.api.updateTaxRule(
+            item.record.id,
+            {
               'code': item.record.code,
               'name': item.record.name,
               'priority': item.currentPriority,

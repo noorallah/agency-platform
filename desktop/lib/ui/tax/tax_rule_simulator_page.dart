@@ -119,11 +119,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
         if (_vendorCategoryCtrl.text.trim().isNotEmpty)
           'vendor_category': _vendorCategoryCtrl.text.trim(),
       };
-      final resp = await widget.api.request(
-        'POST',
-        '/api/v1/tax-framework/simulate',
-        body: body,
-      );
+      final resp = await widget.api.taxSimulation(body);
       if (!mounted) return;
       setState(() => _result = resp['data'] as Map<String, dynamic>?);
     } on ApiException catch (e) {

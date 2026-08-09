@@ -264,17 +264,21 @@ class ApiClient {
 
   Future<PagedResult<TaxSystemRecord>> taxSystems({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
+    String? status,
   }) =>
       _list(
         '/api/v1/tax-framework/systems',
         TaxSystemRecord.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
+        additionalQuery: {if (status != null) 'status': status},
       );
 
   Future<TaxSystemRecord> createTaxSystem(Json data) async =>
@@ -300,6 +304,7 @@ class ApiClient {
 
   Future<PagedResult<TaxComponentRecord>> taxComponents({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -310,6 +315,7 @@ class ApiClient {
         TaxComponentRecord.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
         additionalQuery: {
@@ -341,6 +347,7 @@ class ApiClient {
 
   Future<PagedResult<TaxProfileRecord>> taxProfiles({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -351,6 +358,7 @@ class ApiClient {
         TaxProfileRecord.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
         additionalQuery: {
@@ -484,6 +492,7 @@ class ApiClient {
 
   Future<PagedResult<TaxRuleRecord>> taxRules({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -493,6 +502,7 @@ class ApiClient {
         TaxRuleRecord.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
       );
@@ -507,6 +517,12 @@ class ApiClient {
       TaxRuleRecord.fromJson(
         _unwrapMap(await request('PUT', '/api/v1/tax-framework/rules/$id',
             body: data)),
+      );
+
+  Future<TaxRuleRecord> restoreTaxRule(String id) async =>
+      TaxRuleRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/tax-framework/rules/$id/restore')),
       );
 
   Future<void> deleteTaxRule(String id) =>
@@ -571,6 +587,22 @@ class ApiClient {
             TaxRuleExecutionLogRecord.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
+
+  /// Reads the whole configuration of one tax system: the system, its
+  /// components and its profiles in a single call.
+  Future<Json> taxSetup(String systemId) =>
+      request('GET', '/api/v1/tax-framework/setup/$systemId');
+
+  Future<Json> createTaxSetup(Json body) =>
+      request('POST', '/api/v1/tax-framework/setup', body: body);
+
+  Future<Json> updateTaxSetup(String systemId, Json body) =>
+      request('PUT', '/api/v1/tax-framework/setup/$systemId', body: body);
+
+  /// Returns the raw simulation envelope, for the simulator screen that
+  /// renders every field the engine reports rather than a parsed subset.
+  Future<Json> taxSimulation(Json body) =>
+      request('POST', '/api/v1/tax-framework/simulate', body: body);
 
   Future<TaxRuleSimulationResultRecord> simulateTaxRule(Json data) async =>
       TaxRuleSimulationResultRecord.fromJson(
@@ -1933,6 +1965,44 @@ class ApiClient {
         .map((item) => PurchaseOrder.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
+
+  // ── Transactional documents ────────────────────────────────────────────
+  // The five document workspaces share one shape, so they share these four
+  // methods rather than each page spelling out its own paths. `resource` is
+  // the collection segment: 'purchase-returns', 'delivery-notes', and so on.
+
+  Future<Json> documentSummary(String resource, {String path = 'summary'}) =>
+      request('GET', '/api/v1/$resource/$path');
+
+  Future<Json> documentPage(
+    String resource, {
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    Map<String, String> additionalQuery = const {},
+  }) =>
+      request('GET', '/api/v1/$resource', query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        'search': search,
+        'sort_by': sortBy,
+        'sort_direction': descending ? 'desc' : 'asc',
+        ...additionalQuery,
+      });
+
+  Future<Json> documentHistory(String resource, String id) =>
+      request('GET', '/api/v1/$resource/$id/history');
+
+  /// Runs a lifecycle action such as approve, cancel or post.
+  ///
+  /// `action` may be given with or without a leading slash.
+  Future<Json> documentAction(String resource, String id, String action) =>
+      request(
+        'POST',
+        '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
+      );
 
   Future<Json> create(String resource, Json body) =>
       request('POST', '/api/v1/$resource', body: body);

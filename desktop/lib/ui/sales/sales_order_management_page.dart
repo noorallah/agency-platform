@@ -62,11 +62,14 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.request('GET', '/api/v1/sales-orders/summary'),
-        widget.api.request(
-          'GET',
-          '/api/v1/sales-orders',
-          query: {'page': '1', 'page_size': '50', 'search': _search.text.trim(), 'sort_by': 'order_date', 'sort_direction': 'desc'},
+        widget.api.documentSummary('sales-orders'),
+        widget.api.documentPage(
+          'sales-orders',
+          page: 1,
+          pageSize: 50,
+          search: _search.text.trim(),
+          sortBy: 'order_date',
+          descending: true,
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -86,7 +89,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         final Map<String, dynamic> timeline = _unwrap(
-          await widget.api.request('GET', '/api/v1/sales-orders/${selected['id']}/history'),
+          await widget.api.documentHistory('sales-orders', selected['id']),
         );
         history = ((timeline['data'] as List?) ?? const [])
             .whereType<Map>()
@@ -111,7 +114,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   Future<void> _act(String suffix) async {
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
-    await widget.api.request('POST', '/api/v1/sales-orders/${selected['id']}$suffix');
+    await widget.api.documentAction('sales-orders', selected['id'] as String, suffix);
     await _load();
   }
 

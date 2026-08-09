@@ -62,11 +62,14 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
-        widget.api.request('GET', '/api/v1/sales-invoices/reports/summary'),
-        widget.api.request(
-          'GET',
-          '/api/v1/sales-invoices',
-          query: {'page': '1', 'page_size': '50', 'search': _search.text.trim(), 'sort_by': 'invoice_date', 'sort_direction': 'desc'},
+        widget.api.documentSummary('sales-invoices', path: 'reports/summary'),
+        widget.api.documentPage(
+          'sales-invoices',
+          page: 1,
+          pageSize: 50,
+          search: _search.text.trim(),
+          sortBy: 'invoice_date',
+          descending: true,
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -101,7 +104,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
     try {
-      await widget.api.request('POST', '/api/v1/sales-invoices/${selected['id']}$suffix');
+      await widget.api.documentAction('sales-invoices', selected['id'] as String, suffix);
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;

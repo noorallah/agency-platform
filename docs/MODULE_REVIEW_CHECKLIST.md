@@ -256,16 +256,18 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
-| `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | **untyped** |
-| `sales_invoice` | 16 | 185 | 34 | **none** | **untyped** |
-| `purchase_invoice` | 16 | 208 | 15 | `test_purchase_invoice_module` | **untyped** |
-| `delivery_note` | 19 | 210 | 6 | `test_delivery_note_module` | **untyped** |
-| `purchase_return` | 18 | 212 | 22 | `test_purchase_return_module` | **untyped** |
-| `tax` | 52 | 184 | 14 | `test_tax_framework` | typed + untyped |
+| `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | typed |
+| `sales_invoice` | 16 | 185 | 34 | `test_sales_invoice_module` | typed |
+| `purchase_invoice` | 16 | 208 | 15 | `test_purchase_invoice_module` | typed |
+| `delivery_note` | 19 | 210 | 6 | `test_delivery_note_module` | typed |
+| `purchase_return` | 18 | 212 | 22 | `test_purchase_return_module` | typed |
+| `tax` | 52 | 0 | 0 | `test_tax_framework` | typed |
 
-"untyped" means the desktop reaches those endpoints through
-`api.request('GET', '/api/v1/...')` inside page widgets rather than through
-`api_client.dart`, which the desktop README says is the only place paths belong.
+As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
+matches only `api_client.dart`. The five document workspaces share
+`documentSummary`/`documentPage`/`documentHistory`/`documentAction`, and the tax
+screens use the typed client that already existed — they had simply never been
+wired to it.
 
 ## Suggested order
 

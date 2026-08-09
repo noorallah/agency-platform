@@ -220,19 +220,9 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
       _listError = null;
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/systems',
-        query: {'page': '1', 'page_size': '100'},
-      );
+      final result = await widget.api.taxSystems(page: 1, pageSize: 100);
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) => TaxSystemRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxSystemRecord>[];
+      final list = result.items;
       setState(() {
         _systems = list;
         _applyFilter();
@@ -254,10 +244,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
       _detailSuccess = null;
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/setup/${system.id}',
-      );
+      final resp = await widget.api.taxSetup(system.id);
       if (!mounted) return;
       final data = resp['data'] as Map<String, dynamic>? ?? {};
       final sys = data['system'] as Map<String, dynamic>? ?? {};
@@ -368,8 +355,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
     };
     try {
       if (_isNew) {
-        final resp = await widget.api
-            .request('POST', '/api/v1/tax-framework/setup', body: payload);
+        final resp = await widget.api.createTaxSetup(payload);
         final sysData = resp['data'] is Map
             ? (resp['data'] as Map<dynamic, dynamic>)['system']
             : null;
@@ -389,11 +375,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
         });
       } else {
         final id = _selected!.id;
-        await widget.api.request(
-          'PUT',
-          '/api/v1/tax-framework/setup/$id',
-          body: payload,
-        );
+        await widget.api.updateTaxSetup(id, payload);
         if (!mounted) return;
         await _loadSystems();
         if (!mounted) return;
@@ -434,7 +416,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
     if (confirmed != true || !mounted) return;
     try {
       await widget.api
-          .request('DELETE', '/api/v1/tax-framework/systems/${system.id}');
+          .deleteTaxSystem(system.id);
       if (!mounted) return;
       _cancel();
       await _loadSystems();
@@ -1190,20 +1172,9 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
       _listError = null;
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/profiles',
-        query: {'page': '1', 'page_size': '100'},
-      );
+      final result = await widget.api.taxProfiles(page: 1, pageSize: 100);
       if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxProfileRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxProfileRecord>[];
+      final list = result.items;
       setState(() {
         _profiles = list;
         _applyFilter();
@@ -1218,21 +1189,9 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
 
   Future<void> _loadSystems() async {
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/systems',
-        query: {'page': '1', 'page_size': '100', 'status': 'ACTIVE'},
-      );
-      if (!mounted) return;
-      final raw = resp['data'];
-      final list = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxSystemRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxSystemRecord>[];
-      if (mounted) setState(() => _systems = list);
+      final result = await widget.api
+          .taxSystems(page: 1, pageSize: 100, status: 'ACTIVE');
+      if (mounted) setState(() => _systems = result.items);
     } on ApiException catch (_) {
       // silent — list may be empty
     }
@@ -1247,24 +1206,10 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
       _assignments = [];
     });
     try {
-      final resp = await widget.api.request(
-        'GET',
-        '/api/v1/tax-framework/components',
-        query: {
-          'tax_system_id': systemId,
-          'page': '1',
-          'page_size': '100',
-        },
-      );
+      final result = await widget.api
+          .taxComponents(page: 1, pageSize: 100, taxSystemId: systemId);
       if (!mounted) return;
-      final raw = resp['data'];
-      final comps = raw is List
-          ? raw
-              .whereType<Map>()
-              .map((e) =>
-                  TaxComponentRecord.fromJson(Map<String, dynamic>.from(e)))
-              .toList()
-          : <TaxComponentRecord>[];
+      final comps = result.items;
 
       // If editing, pre-fill from selected profile's components
       final profileComps = _selected?.components ?? [];
@@ -1399,13 +1344,8 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
 
     try {
       if (_isNew) {
-        final resp = await widget.api.request(
-          'POST',
-          '/api/v1/tax-framework/profiles',
-          body: payload,
-        );
-        final newId = stringValue(
-            resp['data'] is Map ? resp['data']['id'] : null);
+        final created = await widget.api.createTaxProfile(payload);
+        final newId = created.id;
         if (!mounted) return;
         await _loadProfiles();
         if (!mounted) return;
@@ -1420,11 +1360,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
         });
       } else {
         final id = _selected!.id;
-        await widget.api.request(
-          'PUT',
-          '/api/v1/tax-framework/profiles/$id',
-          body: payload,
-        );
+        await widget.api.updateTaxProfile(id, payload);
         if (!mounted) return;
         await _loadProfiles();
         if (!mounted) return;
@@ -1464,8 +1400,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
     );
     if (confirmed != true || !mounted) return;
     try {
-      await widget.api
-          .request('DELETE', '/api/v1/tax-framework/profiles/${profile.id}');
+      await widget.api.deleteTaxProfile(profile.id);
       if (!mounted) return;
       _cancel();
       await _loadProfiles();
