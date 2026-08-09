@@ -8,8 +8,7 @@ import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
 import 'workspace/enterprise_form_kit.dart';
-import 'workspace/workspace_components.dart';
-import 'workspace/workspace_interactions.dart';
+import 'workspace/desktop_framework.dart';
 
 /// Field "kind" for composite/specialized enterprise widgets that go beyond
 /// a plain text/boolean/options control. Plain fields (the historical

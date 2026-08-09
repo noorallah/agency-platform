@@ -9,8 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_templates.dart';
+import '../workspace/desktop_framework.dart';
 
 class PurchaseReturnManagementPage extends StatefulWidget {
   const PurchaseReturnManagementPage({

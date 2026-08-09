@@ -7,7 +7,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/tax_framework.dart';
-import '../workspace/workspace_components.dart';
+import '../workspace/desktop_framework.dart';
 import 'tax_setup_page.dart';
 
 enum TaxManagementSection {

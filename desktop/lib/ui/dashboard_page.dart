@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api/api_client.dart';
 import '../core/security/permission_service.dart';
 import '../models/entities.dart';
-import 'workspace/workspace_components.dart';
+import 'workspace/desktop_framework.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({

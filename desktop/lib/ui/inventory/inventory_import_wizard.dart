@@ -14,7 +14,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
-import '../workspace/workspace_components.dart';
+import '../workspace/desktop_framework.dart';
 
 enum InventoryImportType {
   openingStock,
@@ -713,28 +713,42 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
     return 0;
   }
 
+  void _selectImportType(InventoryImportType? value) {
+    if (value == null || _busy) return;
+    setState(() {
+      _type = value;
+      _preview = null;
+      _execution = null;
+      _step = 0;
+    });
+    _persistPreferences();
+  }
+
   Widget _buildTypeStep() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final InventoryImportType type in InventoryImportType.values)
-            RadioListTile<InventoryImportType>(
-              value: type,
+          // groupValue and onChanged moved onto RadioGroup in Flutter 3.32.
+          // RadioGroup.onChanged is not nullable, so "disabled while busy" is
+          // expressed by absorbing the gesture rather than by passing null.
+          AbsorbPointer(
+            absorbing: _busy,
+            child: RadioGroup<InventoryImportType>(
               groupValue: _type,
-              title: Text(type.label),
-              subtitle: Text(type.description),
-              onChanged: _busy
-                  ? null
-                  : (value) {
-                      if (value == null) return;
-                      setState(() {
-                        _type = value;
-                        _preview = null;
-                        _execution = null;
-                        _step = 0;
-                      });
-                      _persistPreferences();
-                    },
+              onChanged: _selectImportType,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final InventoryImportType type
+                      in InventoryImportType.values)
+                    RadioListTile<InventoryImportType>(
+                      value: type,
+                      title: Text(type.label),
+                      subtitle: Text(type.description),
+                    ),
+                ],
+              ),
             ),
+          ),
           if (_type == InventoryImportType.openingStock) ...[
             const SizedBox(height: 12),
             Row(
@@ -1584,8 +1598,11 @@ _ValidatedImportRow _validateRow({
     duplicateKey: switch (type) {
       InventoryImportType.openingStock =>
         '${branch?.id}|${warehouse?.id}|${storage?.id}|${product?.id}|$postingDate|$reference',
-      InventoryImportType.inventoryUpdate =>
-        inventoryId ?? '${branch?.id}|${warehouse?.id}|${storage?.id}|${product?.id}',
+      // _value returns '' rather than null for a missing column, and a row that
+      // resolves gets the real id assigned above, so the composite fallback
+      // that used to sit here could never run. An unresolved row is already an
+      // error and its empty key is skipped by the duplicate check.
+      InventoryImportType.inventoryUpdate => inventoryId,
       InventoryImportType.inventoryAdjustment =>
         '$reference|$transactionDate|${branch?.id}|${warehouse?.id}|${storage?.id}|${product?.id}|$quantity',
     },

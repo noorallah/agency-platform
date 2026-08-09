@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/inventory.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 Future<void> showInventoryDetailsDialog(
   BuildContext context, {

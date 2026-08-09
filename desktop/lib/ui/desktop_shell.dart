@@ -37,10 +37,7 @@ import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/enterprise_sidebar.dart';
-import 'workspace/workspace_components.dart';
-import 'workspace/global_search.dart';
-import 'workspace/workspace_interactions.dart';
-import 'workspace/workspace_templates.dart';
+import 'workspace/desktop_framework.dart';
 
 class DesktopShell extends StatefulWidget {
   const DesktopShell({

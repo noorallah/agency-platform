@@ -286,7 +286,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   DropdownButtonFormField<AppTheme>(
-                    value: selectedTheme,
+                    initialValue: selectedTheme,
                     decoration: const InputDecoration(labelText: 'Theme'),
                     items: AppTheme.values
                         .map(
@@ -314,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (widget.preferences.current.recentServers.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: widget.preferences.current.recentServers.first,
+                      initialValue: widget.preferences.current.recentServers.first,
                       decoration:
                           const InputDecoration(labelText: 'Recent Servers'),
                       items: widget.preferences.current.recentServers

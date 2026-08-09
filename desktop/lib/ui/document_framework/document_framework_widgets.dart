@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../models/document_framework.dart';
-import '../workspace/workspace_components.dart';
+import '../workspace/desktop_framework.dart';
 
 enum DocumentToolbarAction {
   newDocument,

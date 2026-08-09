@@ -10,9 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/uom_packaging.dart';
-import '../workspace/attribute_form_fields.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 class ProductController extends ChangeNotifier {
   ProductController(this._api);

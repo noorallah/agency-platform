@@ -5,8 +5,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/uom_packaging.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 enum UomManagementSection {
   uoms,

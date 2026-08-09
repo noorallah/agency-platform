@@ -9,7 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
 import '../document_framework/document_framework_widgets.dart';
-import '../workspace/workspace_components.dart';
+import '../workspace/desktop_framework.dart';
 
 class DeliveryNoteManagementPage extends StatefulWidget {
   const DeliveryNoteManagementPage({

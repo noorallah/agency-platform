@@ -13,8 +13,7 @@ import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 enum InventorySection {
   inventory,

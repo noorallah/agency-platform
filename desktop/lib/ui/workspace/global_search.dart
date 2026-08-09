@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 enum GlobalSearchCategory {
   all,

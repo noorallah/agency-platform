@@ -7,8 +7,7 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 
 enum BatchSerialSection {
   batches,
@@ -1115,7 +1114,7 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _status,
+                    initialValue: _status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [
                       DropdownMenuItem(
@@ -1250,7 +1249,7 @@ class _LotFormDialogState extends State<_LotFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _lotType,
+                    initialValue: _lotType,
                     decoration: const InputDecoration(labelText: 'Type'),
                     items: const [
                       DropdownMenuItem(
@@ -1412,7 +1411,7 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _status,
+                    initialValue: _status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [
                       DropdownMenuItem(

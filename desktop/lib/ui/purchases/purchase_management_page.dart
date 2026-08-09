@@ -21,8 +21,7 @@ import '../../models/tax_framework.dart';
 import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import '../document_framework/document_framework_widgets.dart';
-import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
+import '../workspace/desktop_framework.dart';
 import '../../models/document_framework.dart';
 
 enum PurchaseSection {
