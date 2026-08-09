@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PurchaseSchema(BaseModel):
+    """Purchase Schema contract."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class PurchaseOrderStatus(StrEnum):
+    """Purchase Order Status contract."""
+
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     APPROVED = "APPROVED"
@@ -25,6 +29,8 @@ class PurchaseOrderStatus(StrEnum):
 
 
 class PurchaseType(StrEnum):
+    """Purchase Type contract."""
+
     STANDARD_PURCHASE = "STANDARD_PURCHASE"
     LOCAL_PURCHASE = "LOCAL_PURCHASE"
     IMPORT_PURCHASE = "IMPORT_PURCHASE"
@@ -36,12 +42,16 @@ class PurchaseType(StrEnum):
 
 
 class PurchaseNoteType(StrEnum):
+    """Purchase Note Type contract."""
+
     INTERNAL = "INTERNAL"
     VENDOR = "VENDOR"
     SYSTEM = "SYSTEM"
 
 
 class PurchaseLineWrite(PurchaseSchema):
+    """Purchase Line Write contract."""
+
     product_id: UUID
     description: str | None = Field(default=None, max_length=500)
     vendor_product_code: str | None = Field(default=None, max_length=120)
@@ -70,6 +80,8 @@ class PurchaseLineWrite(PurchaseSchema):
 
 
 class PurchaseDeliveryScheduleWrite(PurchaseSchema):
+    """Purchase Delivery Schedule Write contract."""
+
     line_number: int = Field(ge=1, le=100000)
     delivery_date: date
     quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
@@ -77,6 +89,8 @@ class PurchaseDeliveryScheduleWrite(PurchaseSchema):
 
 
 class PurchaseAttachmentWrite(PurchaseSchema):
+    """Purchase Attachment Write contract."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -84,11 +98,15 @@ class PurchaseAttachmentWrite(PurchaseSchema):
 
 
 class PurchaseNoteWrite(PurchaseSchema):
+    """Purchase Note Write contract."""
+
     note_type: PurchaseNoteType = PurchaseNoteType.INTERNAL
     note: str = Field(min_length=1)
 
 
 class PurchaseOrderWrite(PurchaseSchema):
+    """Purchase Order Write contract."""
+
     branch_id: UUID
     warehouse_id: UUID
     vendor_id: UUID
@@ -131,27 +149,37 @@ class PurchaseOrderWrite(PurchaseSchema):
     @field_validator("purchase_type", mode="before")
     @classmethod
     def normalize_type(cls, value: str | PurchaseType) -> str | PurchaseType:
+        """Normalize type."""
         return value.strip().upper() if isinstance(value, str) else value
 
     @field_validator("priority", mode="before")
     @classmethod
     def normalize_priority(cls, value: str) -> str:
+        """Normalize priority."""
         return value.strip().upper()
 
 
 class PurchaseOrderCreate(PurchaseOrderWrite):
+    """Purchase Order Create contract."""
+
     po_number: str | None = Field(default=None, max_length=60)
 
 
 class PurchaseOrderUpdate(PurchaseOrderWrite):
+    """Purchase Order Update contract."""
+
     pass
 
 
 class PurchaseOrderImportRequest(PurchaseSchema):
+    """Purchase Order Import Request contract."""
+
     records: list[PurchaseOrderCreate] = Field(min_length=1, max_length=500)
 
 
 class PurchaseOrderLineResponse(PurchaseSchema):
+    """Purchase Order Line Response contract."""
+
     id: UUID
     purchase_order_id: UUID
     line_number: int
@@ -186,6 +214,8 @@ class PurchaseOrderLineResponse(PurchaseSchema):
 
 
 class PurchaseDeliveryScheduleResponse(PurchaseSchema):
+    """Purchase Delivery Schedule Response contract."""
+
     id: UUID
     purchase_order_line_id: UUID
     line_number: int
@@ -198,6 +228,8 @@ class PurchaseDeliveryScheduleResponse(PurchaseSchema):
 
 
 class PurchaseAttachmentResponse(PurchaseSchema):
+    """Purchase Attachment Response contract."""
+
     id: UUID
     file_name: str
     mime_type: str | None
@@ -208,6 +240,8 @@ class PurchaseAttachmentResponse(PurchaseSchema):
 
 
 class PurchaseNoteResponse(PurchaseSchema):
+    """Purchase Note Response contract."""
+
     id: UUID
     note_type: PurchaseNoteType
     note: str
@@ -216,6 +250,8 @@ class PurchaseNoteResponse(PurchaseSchema):
 
 
 class PurchaseOrderHistoryResponse(PurchaseSchema):
+    """Purchase Order History Response contract."""
+
     id: UUID
     action: str
     from_status: str | None
@@ -227,6 +263,8 @@ class PurchaseOrderHistoryResponse(PurchaseSchema):
 
 
 class PurchaseOrderResponse(PurchaseSchema):
+    """Purchase Order Response contract."""
+
     id: UUID
     firm_id: UUID
     branch_id: UUID
@@ -272,6 +310,8 @@ class PurchaseOrderResponse(PurchaseSchema):
 
 
 class PurchaseOrderListFilters(PurchaseSchema):
+    """Purchase Order List Filters contract."""
+
     vendor_id: UUID | None = None
     status: PurchaseOrderStatus | None = None
     branch_id: UUID | None = None
@@ -284,6 +324,8 @@ class PurchaseOrderListFilters(PurchaseSchema):
 
 
 class PurchaseSummary(PurchaseSchema):
+    """Purchase Summary contract."""
+
     total: int
     draft: int
     open: int

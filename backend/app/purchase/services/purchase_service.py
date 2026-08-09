@@ -10,7 +10,7 @@ from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
@@ -29,6 +29,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.goods_receipt.models import GoodsReceipt
 from app.products.models import Product
 from app.purchase.models import (
     PurchaseAttachment,
@@ -112,6 +113,7 @@ class PurchaseService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[PurchaseOrder], int]:
+        """List orders."""
         statement = select(PurchaseOrder).where(PurchaseOrder.firm_id == firm_scope)
         count = (
             select(func.count())
@@ -177,6 +179,7 @@ class PurchaseService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseSummary:
+        """Summarize ."""
         rows = list(
             self._session.scalars(
                 select(PurchaseOrder).where(
@@ -228,6 +231,7 @@ class PurchaseService(TransactionalDocumentService):
     def create_order(
         self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseOrder:
+        """Create order."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -334,6 +338,7 @@ class PurchaseService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> PurchaseOrder:
+        """Change order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseOrderStatus.CANCELLED.value,
@@ -417,6 +422,7 @@ class PurchaseService(TransactionalDocumentService):
     def get_order(
         self, order_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> PurchaseOrder:
+        """Return order."""
         statement = select(PurchaseOrder).where(
             PurchaseOrder.id == order_id,
             PurchaseOrder.firm_id == firm_scope,
@@ -428,8 +434,33 @@ class PurchaseService(TransactionalDocumentService):
             raise ResourceNotFoundError("Purchase order not found.")
         return row
 
+    def _assert_order_removable(self, order: PurchaseOrder) -> None:
+        """Refuse to delete an order goods have already been received against.
+
+        Cancelling a received order was refused; deleting one was not, and
+        delete is the more destructive of the two. A receipt records its
+        purchase_order_id, so removing the order leaves the receipt pointing at
+        a document no listing shows.
+        """
+        if order.status == PurchaseOrderStatus.RECEIVED.value:
+            raise ValidationError("Received purchase orders cannot be deleted.")
+        received = self._session.scalar(
+            select(GoodsReceipt.id)
+            .where(
+                GoodsReceipt.purchase_order_id == order.id,
+                GoodsReceipt.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if received is not None:
+            raise ValidationError(
+                "Goods have been received against this order; cancel it instead."
+            )
+
     def delete_order(self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
+        """Soft delete a purchase order nothing has been received against."""
         row = self.get_order(order_id, firm_scope=firm_scope)
+        self._assert_order_removable(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -467,6 +498,7 @@ class PurchaseService(TransactionalDocumentService):
     def restore_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseOrder:
+        """Restore order."""
         row = self.get_order(order_id, firm_scope=firm_scope, include_deleted=True)
         row.is_deleted = False
         row.deleted_at = None
@@ -506,6 +538,7 @@ class PurchaseService(TransactionalDocumentService):
     def cancel_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> PurchaseOrder:
+        """Cancel order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseOrderStatus.CANCELLED.value,
@@ -556,6 +589,7 @@ class PurchaseService(TransactionalDocumentService):
     def close_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> PurchaseOrder:
+        """Close order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status == PurchaseOrderStatus.CLOSED.value:
             return row
@@ -607,6 +641,7 @@ class PurchaseService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> list[PurchaseOrder]:
+        """Import orders."""
         self._validate_import_records(data.records, firm_scope=firm_scope)
         return [
             self.create_order(record, firm_id=firm_scope, actor_id=actor_id)
@@ -616,6 +651,7 @@ class PurchaseService(TransactionalDocumentService):
     def import_orders_csv(
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseOrder]:
+        """Import orders csv."""
         reader = csv.DictReader(io.StringIO(csv_content))
         records: list[PurchaseOrderCreate] = []
         for row in reader:
@@ -665,8 +701,9 @@ class PurchaseService(TransactionalDocumentService):
     def import_orders_xlsx(
         self, workbook_bytes: bytes, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseOrder]:
+        """Import orders xlsx."""
         try:
-            from openpyxl import load_workbook
+            from openpyxl import load_workbook  # type: ignore[import-untyped]
         except ImportError as error:
             raise ValidationError(
                 "XLSX import dependency is unavailable. Install openpyxl."
@@ -681,12 +718,17 @@ class PurchaseService(TransactionalDocumentService):
         records: list[PurchaseOrderCreate] = []
         for values in rows[1:]:
 
-            def _cell(name: str) -> str:
+            def _cell(name: str, row: tuple[object, ...] = tuple(values)) -> str:
+                """Read one named cell from this row.
+
+                ``row`` is bound at definition time on purpose: without it the
+                closure would read whichever row the loop had reached by the
+                time it was called.
+                """
                 position = index.get(name, -1)
-                if position < 0 or position >= len(values):
+                if position < 0 or position >= len(row):
                     return ""
-                value = values[position]
-                return str(value or "").strip()
+                return str(row[position] or "").strip()
 
             branch_id = _cell("BranchId")
             warehouse_id = _cell("WarehouseId")
@@ -730,6 +772,7 @@ class PurchaseService(TransactionalDocumentService):
         )
 
     def export_orders_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Export orders csv."""
         rows, _ = self.list_orders(
             firm_scope=firm_scope,
             filters=PurchaseOrderListFilters(include_deleted=False),
@@ -771,8 +814,9 @@ class PurchaseService(TransactionalDocumentService):
         return output.getvalue()
 
     def export_orders_xlsx(self, *, firm_scope: UUID, search: str | None) -> bytes:
+        """Export orders xlsx."""
         try:
-            from openpyxl import Workbook  # type: ignore[import-untyped]
+            from openpyxl import Workbook
         except ImportError as error:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
@@ -825,6 +869,7 @@ class PurchaseService(TransactionalDocumentService):
         return buffer.getvalue()
 
     def order_response(self, row: PurchaseOrder) -> PurchaseOrderResponse:
+        """Order response."""
         lines = list(
             self._session.scalars(
                 select(PurchaseOrderLine)
@@ -846,7 +891,7 @@ class PurchaseService(TransactionalDocumentService):
                             [item.id for item in lines]
                         )
                         if lines
-                        else False
+                        else false()
                     ),
                 )
                 .order_by(PurchaseDeliverySchedule.delivery_date.asc())
@@ -904,6 +949,7 @@ class PurchaseService(TransactionalDocumentService):
     def order_history(
         self, *, order_id: UUID, firm_scope: UUID
     ) -> list[PurchaseOrderHistory]:
+        """Order history."""
         self.get_order(order_id, firm_scope=firm_scope, include_deleted=True)
         return list(
             self._session.scalars(
@@ -918,6 +964,7 @@ class PurchaseService(TransactionalDocumentService):
         )
 
     def _line_number(self, lines: list[PurchaseOrderLine], line_id: UUID) -> int:
+        """Line number."""
         for line in lines:
             if line.id == line_id:
                 return line.line_number
@@ -930,6 +977,7 @@ class PurchaseService(TransactionalDocumentService):
         data: PurchaseOrderCreate | PurchaseOrderUpdate,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
+        """Replace lines."""
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
         # downstream documents reference those ids with no foreign key.
@@ -1064,6 +1112,7 @@ class PurchaseService(TransactionalDocumentService):
         data: PurchaseOrderCreate | PurchaseOrderUpdate,
         actor_id: UUID,
     ) -> None:
+        """Replace schedules."""
         line_map = {
             item.line_number: item
             for item in self._session.scalars(
@@ -1079,7 +1128,7 @@ class PurchaseService(TransactionalDocumentService):
                     [item.id for item in line_map.values()]
                 )
                 if line_map
-                else False
+                else false()
             ),
         ).delete(synchronize_session=False)
         for schedule in data.delivery_schedules:
@@ -1108,6 +1157,7 @@ class PurchaseService(TransactionalDocumentService):
         data: PurchaseOrderCreate | PurchaseOrderUpdate,
         actor_id: UUID,
     ) -> None:
+        """Replace attachments."""
         self._session.query(PurchaseAttachment).filter(
             PurchaseAttachment.purchase_order_id == order.id
         ).delete(synchronize_session=False)
@@ -1132,6 +1182,7 @@ class PurchaseService(TransactionalDocumentService):
         data: PurchaseOrderCreate | PurchaseOrderUpdate,
         actor_id: UUID,
     ) -> None:
+        """Replace notes."""
         self._session.query(PurchaseNote).filter(
             PurchaseNote.purchase_order_id == order.id
         ).delete(synchronize_session=False)
@@ -1158,6 +1209,7 @@ class PurchaseService(TransactionalDocumentService):
         details: dict[str, object] | None = None,
         remarks: str | None = None,
     ) -> None:
+        """History ."""
         self._session.add(
             PurchaseOrderHistory(
                 purchase_order_id=order.id,
@@ -1185,6 +1237,7 @@ class PurchaseService(TransactionalDocumentService):
         details: dict[str, object] | None = None,
         remarks: str | None = None,
     ) -> None:
+        """Record document event."""
         self._documents.record_event(
             firm_id,
             DocumentLifecycleEventCreate(
@@ -1205,6 +1258,7 @@ class PurchaseService(TransactionalDocumentService):
     def _validate_scope_references(
         self, *, firm_id: UUID, branch_id: UUID, warehouse_id: UUID, vendor_id: UUID
     ) -> None:
+        """Validate scope references."""
         branch = self._session.scalar(
             select(Branch).where(
                 Branch.id == branch_id,
@@ -1246,6 +1300,7 @@ class PurchaseService(TransactionalDocumentService):
     def _validate_storage_scope(
         self, firm_id: UUID, warehouse_id: UUID | None, storage_node_id: UUID | None
     ) -> None:
+        """Validate storage scope."""
         if warehouse_id is None or storage_node_id is None:
             return
         warehouse = self._session.scalar(
@@ -1272,6 +1327,7 @@ class PurchaseService(TransactionalDocumentService):
             raise ValidationError("Inactive storage areas cannot be used in purchases.")
 
     def _active_product(self, firm_id: UUID, product_id: UUID) -> Product:
+        """Active product."""
         row = self._session.scalar(
             select(Product).where(
                 Product.id == product_id,
@@ -1296,6 +1352,7 @@ class PurchaseService(TransactionalDocumentService):
         purchase_date: date,
         taxable: Decimal,
     ) -> Decimal:
+        """Line tax amount."""
         if tax_profile_id is None:
             return Decimal("0")
         self._assert_tax_profile_available(tax_profile_id, firm_id=firm_id)
@@ -1323,6 +1380,7 @@ class PurchaseService(TransactionalDocumentService):
         purchase_date: date,
         firm_id: UUID,
     ) -> dict[str, Decimal | int | None]:
+        """Conversion ."""
         if (
             purchase_uom_id is None
             or inventory_uom_id is None
@@ -1350,6 +1408,7 @@ class PurchaseService(TransactionalDocumentService):
         }
 
     def _validate_line_dates(self, line: PurchaseOrderLine) -> None:
+        """Validate line dates."""
         if line.expiry_required and line.expiry_date is None:
             raise ValidationError(
                 "Expiry date is required for lines marked as expiry-required."
@@ -1401,6 +1460,7 @@ class PurchaseService(TransactionalDocumentService):
     def _validate_import_records(
         self, records: list[PurchaseOrderCreate], *, firm_scope: UUID
     ) -> None:
+        """Validate import records."""
         explicit_numbers = [
             record.po_number.strip().upper()
             for record in records
@@ -1412,7 +1472,8 @@ class PurchaseService(TransactionalDocumentService):
         if duplicate_numbers:
             duplicate_list = ", ".join(sorted(duplicate_numbers))
             raise ConflictError(
-                f"Duplicate purchase order numbers found in import payload: {duplicate_list}."
+                "Duplicate purchase order numbers found in import payload: "
+                f"{duplicate_list}."
             )
         if not explicit_numbers:
             return
@@ -1446,6 +1507,7 @@ class PurchaseService(TransactionalDocumentService):
         expected_delivery_date: str | None,
         status: str | None,
     ) -> PurchaseOrderCreate:
+        """Import record."""
         payload: dict[str, object] = {
             "po_number": po_number,
             "branch_id": branch_id,
