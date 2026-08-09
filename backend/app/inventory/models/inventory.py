@@ -199,6 +199,11 @@ class InventoryTransaction(BaseEntity):
     batch_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True)
     lot_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("lots.id", ondelete="RESTRICT"), index=True)
     serial_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("serial_numbers.id", ondelete="RESTRICT"), index=True)
+    reversal_of_transaction_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("inventory_transactions.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
     inventory: Mapped[InventoryRecord] = relationship(back_populates="transactions")
     ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(

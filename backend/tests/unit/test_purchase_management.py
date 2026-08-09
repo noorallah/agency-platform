@@ -494,9 +494,12 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
     )
     response = service.order_response(created)
     assert response.po_number == "PO-VAL-001"
-    assert response.subtotal == Decimal("20.0000")
+    # subtotal is the taxable base: gross 20.00 less the 2.00 line discount.
+    # It previously reported gross before discount, which no other document did.
+    assert response.subtotal == Decimal("18.0000")
     assert response.line_discount_total == Decimal("2.0000")
     assert response.tax_total == Decimal("0.9000")
+    # grand_total is unchanged by the redefinition; only the name's meaning was.
     assert response.grand_total == Decimal("20.4000")
     assert response.lines[0].base_quantity == Decimal("30.0000")
     assert response.lines[0].conversion_factor == Decimal("10")

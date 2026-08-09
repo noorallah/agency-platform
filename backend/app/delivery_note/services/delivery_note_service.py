@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import financial_year_label, utc_now
+from app.core.utils.money import quantize_money
 from app.customers.models import Customer
 from app.delivery_note.models import (
     DeliveryNote,
@@ -231,7 +232,7 @@ class DeliveryNoteService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.delivery_date),
+                financial_year_label=self._financial_year_label(data.delivery_date, firm_id),
                 branch_code=self._scope_code(order.branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.delivery_date,
@@ -1606,11 +1607,23 @@ class DeliveryNoteService:
             "Potential duplicate dispatch detected for this sales order/date/vehicle."
         )
 
-    def _financial_year_label(self, on: date) -> str:
-        return (
-            f"{on.year}-{str(on.year + 1)[-2:]}"
-            if on.month >= 4
-            else f"{on.year - 1}-{str(on.year)[-2:]}"
+    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
+        """Return the firm's financial-year label for a document date.
+
+        Args:
+            on: The document date.
+            firm_id: The owning firm, whose ``financial_year_start`` decides
+                when the year begins.
+
+        Returns:
+            The shared ``YYYY-YYYY`` label.
+
+        """
+        start_month = self._session.scalar(
+            select(Firm.financial_year_start).where(Firm.id == firm_id)
+        )
+        return financial_year_label(
+            on, start_month=start_month.month if start_month is not None else 4
         )
 
     def _scope_code(self, branch_id: UUID | None) -> str | None:
@@ -1630,10 +1643,18 @@ class DeliveryNoteService:
             self._session.rollback()
             raise ConflictError(message) from error
 
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        return Decimal("0" if value is None else str(value)).quantize(
-            Decimal("0.0001"), rounding=ROUND_HALF_UP
-        )
+    @staticmethod
+    def _q(value: Decimal | int | str | None) -> Decimal:
+        """Round a monetary amount to the shared storage scale.
+
+        Args:
+            value: The amount to round; ``None`` is treated as zero.
+
+        Returns:
+            The amount quantized by :func:`quantize_money`.
+
+        """
+        return quantize_money(value)
 
     def _attachment_response(
         self, row: DeliveryNoteAttachment

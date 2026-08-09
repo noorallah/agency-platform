@@ -949,22 +949,31 @@ def delete_warehouse_type(
 
 
 class BranchWarehouseSettingsResponse(BranchWarehouseSchema):
-    """Expose branch-warehouse future-ready settings stub."""
+    """Report which branch-warehouse capabilities this deployment actually has.
+
+    Every flag here was hardcoded ``True``, including five capabilities with no
+    implementation anywhere in the backend. A client that trusts this response
+    offers its users features that cannot work, so each flag now states the
+    truth and must be flipped by the change that builds the capability.
+    """
 
     stock_ledger_ready: bool = True
     inventory_ready: bool = True
     batch_tracking_ready: bool = True
     serial_number_ready: bool = True
     expiry_ready: bool = True
-    stock_transfer_ready: bool = True
-    inter_branch_transfer_ready: bool = True
+    # No transfer service or endpoint exists: TRANSFER_IN/TRANSFER_OUT are enum
+    # members and `in_transit_quantity` is an unused column.
+    stock_transfer_ready: bool = False
+    inter_branch_transfer_ready: bool = False
     purchase_receipt_ready: bool = True
     sales_dispatch_ready: bool = True
     barcode_ready: bool = True
     qr_ready: bool = True
-    rfid_ready: bool = True
-    iot_ready: bool = True
-    warehouse_automation_ready: bool = True
+    # No RFID, IoT or warehouse-automation code exists in the backend.
+    rfid_ready: bool = False
+    iot_ready: bool = False
+    warehouse_automation_ready: bool = False
 
 
 @router.get(

@@ -11,3 +11,30 @@ def utc_now() -> datetime:
 def parse_iso_date(value: str) -> date:
     """Parse a strict ISO-8601 calendar date."""
     return date.fromisoformat(value)
+
+
+def financial_year_label(on: date, *, start_month: int = 4) -> str:
+    """Return the ``YYYY-YYYY`` financial year that a date falls in.
+
+    Document numbers embed this label, and the transactional modules disagreed
+    on it three ways: ``2025-2026``, ``2025-26`` and a plain calendar ``2026``.
+    Documents from the same period therefore carried incomparable numbers. Four
+    of them also hardcoded an April start instead of reading the firm's own
+    financial year.
+
+    Args:
+        on: The document date.
+        start_month: First month of the financial year, 1-12. Callers pass the
+            month from the firm's ``financial_year_start``.
+
+    Returns:
+        The label, for example ``"2025-2026"``.
+
+    Raises:
+        ValueError: If ``start_month`` is not a calendar month.
+
+    """
+    if not 1 <= start_month <= 12:
+        raise ValueError("start_month must be between 1 and 12.")
+    start_year = on.year if on.month >= start_month else on.year - 1
+    return f"{start_year}-{start_year + 1}"

@@ -122,6 +122,10 @@ CustomerDeleteScope = Annotated[CustomerScope, _permission("CUSTOMER_DELETE")]
 CustomerRestoreScope = Annotated[CustomerScope, _permission("CUSTOMER_RESTORE")]
 CustomerExportScope = Annotated[CustomerScope, _permission("CUSTOMER_EXPORT")]
 CustomerImportScope = Annotated[CustomerScope, _permission("CUSTOMER_IMPORT")]
+# Posting a receivable moves money, so it needs the accounting grant rather than
+# the master-data one. Under CUSTOMER_UPDATE anyone who could edit a customer's
+# phone number could also post a receipt against their balance.
+CustomerReceiptScope = Annotated[CustomerScope, _permission("RECEIPT_CREATE")]
 
 
 def _filters(
@@ -439,7 +443,7 @@ def list_customer_receivable_transactions(
 def post_customer_receivable_transaction(
     customer_id: UUID,
     data: CustomerReceivableTransactionCreate,
-    scope: CustomerUpdateScope,
+    scope: CustomerReceiptScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerReceivableTransactionResponse]:
     """Post one receivable transaction for a visible customer."""

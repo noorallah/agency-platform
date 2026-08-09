@@ -6,7 +6,7 @@ import csv
 import io
 import json
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
 
@@ -18,7 +18,8 @@ from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import financial_year_label, utc_now
+from app.core.utils.money import quantize_money
 from app.document_framework.models import (
     DocumentNumberingRule,
     DocumentStateDefinition,
@@ -203,7 +204,7 @@ class PurchaseService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.purchase_date),
+                financial_year_label=self._financial_year_label(data.purchase_date, firm_id),
                 branch_code=branch_code,
                 company_code=company_code,
                 document_date=data.purchase_date,
@@ -759,9 +760,11 @@ class PurchaseService:
                     str(row.branch_id),
                     str(row.warehouse_id),
                     row.status,
-                    float(row.subtotal),
-                    float(row.tax_total),
-                    float(row.grand_total),
+                    # openpyxl writes Decimal natively, so there is no reason to
+                    # round-trip money through binary floating point here.
+                    self._q(row.subtotal),
+                    self._q(row.tax_total),
+                    self._q(row.grand_total),
                 ]
             )
         buffer = BytesIO()
@@ -869,7 +872,7 @@ class PurchaseService:
         self._session.query(PurchaseOrderLine).filter(
             PurchaseOrderLine.purchase_order_id == order.id
         ).delete(synchronize_session=False)
-        subtotal = Decimal("0")
+        gross_total = Decimal("0")
         line_discount_total = Decimal("0")
         tax_total = Decimal("0")
         for idx, line in enumerate(data.lines, start=1):
@@ -947,20 +950,23 @@ class PurchaseService:
             self._validate_line_dates(row)
             self._validate_storage_scope(order.firm_id, row.warehouse_id, row.storage_node_id)
             self._session.add(row)
-            subtotal += gross_amount
+            gross_total += gross_amount
             line_discount_total += discount_amount
             tax_total += tax_amount
         self._session.flush()
+        # subtotal is the taxable base — gross less line discount, before tax —
+        # which is what every other transactional document reports. This module
+        # used to report gross before discount under the same name.
+        subtotal = self._q(gross_total - line_discount_total)
         grand_total = self._q(
             subtotal
-            - line_discount_total
             - data.header_discount_amount
             + tax_total
             + data.additional_charges
             + data.round_off
         )
         return {
-            "subtotal": self._q(subtotal),
+            "subtotal": subtotal,
             "line_discount_total": self._q(line_discount_total),
             "tax_total": self._q(tax_total),
             "grand_total": grand_total,
@@ -1208,11 +1214,24 @@ class PurchaseService:
             firm.code if firm is not None else None,
         )
 
-    @staticmethod
-    def _financial_year_label(purchase_date: date) -> str:
-        start_year = purchase_date.year if purchase_date.month >= 4 else purchase_date.year - 1
-        end_year = start_year + 1
-        return f"{start_year}-{end_year}"
+    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
+        """Return the firm's financial-year label for a document date.
+
+        Args:
+            on: The document date.
+            firm_id: The owning firm, whose ``financial_year_start`` decides
+                when the year begins.
+
+        Returns:
+            The shared ``YYYY-YYYY`` label.
+
+        """
+        start_month = self._session.scalar(
+            select(Firm.financial_year_start).where(Firm.id == firm_id)
+        )
+        return financial_year_label(
+            on, start_month=start_month.month if start_month is not None else 4
+        )
 
     def _validate_scope_references(
         self, *, firm_id: UUID, branch_id: UUID, warehouse_id: UUID, vendor_id: UUID
@@ -1491,5 +1510,14 @@ class PurchaseService:
             raise ConflictError(message) from error
 
     @staticmethod
-    def _q(value: Decimal) -> Decimal:
-        return value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    def _q(value: Decimal | int | str | None) -> Decimal:
+        """Round a monetary amount to the shared storage scale.
+
+        Args:
+            value: The amount to round; ``None`` is treated as zero.
+
+        Returns:
+            The amount quantized by :func:`quantize_money`.
+
+        """
+        return quantize_money(value)

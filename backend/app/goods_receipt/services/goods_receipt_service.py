@@ -7,12 +7,14 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import financial_year_label, utc_now
+from app.core.utils.money import quantize_money
 from app.document_framework.models import (
     DocumentNumberingRule,
     DocumentStateDefinition,
@@ -211,7 +213,7 @@ class GoodsReceiptService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.receipt_date),
+                financial_year_label=self._financial_year_label(data.receipt_date, firm_id),
                 branch_code=branch_code,
                 company_code=company_code,
                 document_date=data.receipt_date,
@@ -378,6 +380,9 @@ class GoodsReceiptService:
         }:
             return row
         before = row.status
+        reversed_lines = self._reverse_inventory(
+            row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
         row.status = GoodsReceiptStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
@@ -402,10 +407,59 @@ class GoodsReceiptService:
             actor_id=actor_id,
             firm_id=firm_scope,
             before_data={"status": before},
-            after_data={"status": row.status, "reason": reason or ""},
+            after_data={
+                "status": row.status,
+                "reason": reason or "",
+                "reversed_inventory_lines": reversed_lines,
+            },
         )
         self._session.commit()
         return row
+
+    def _reverse_inventory(
+        self,
+        receipt: GoodsReceipt,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None,
+    ) -> int:
+        """Undo the stock this receipt posted, if it had already been completed.
+
+        A cancelled receipt that keeps its goods-receipt movements leaves stock
+        the firm never accepted, so cancellation has to reverse each posted line
+        and forget its movement.
+
+        Args:
+            receipt: The receipt being cancelled.
+            firm_scope: The owning firm.
+            actor_id: The user cancelling the receipt.
+            reason: Optional cancellation reason, stored on the reversal.
+
+        Returns:
+            The number of lines whose stock movement was reversed.
+
+        """
+        reversed_lines = 0
+        for line in self._session.scalars(
+            select(GoodsReceiptLine).where(
+                GoodsReceiptLine.goods_receipt_id == receipt.id,
+                GoodsReceiptLine.inventory_transaction_id.is_not(None),
+                GoodsReceiptLine.is_deleted.is_(False),
+            )
+        ).all():
+            if line.inventory_transaction_id is None:
+                continue
+            self._inventory.reverse_transaction(
+                line.inventory_transaction_id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=reason or f"Goods receipt {receipt.grn_number} cancelled.",
+            )
+            line.inventory_transaction_id = None
+            line.updated_by = actor_id
+            reversed_lines += 1
+        return reversed_lines
 
     def close_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
@@ -709,8 +763,6 @@ class GoodsReceiptService:
         previous_map = self._received_quantities_for_po(
             receipt.purchase_order_id, firm_id=firm_id, exclude_receipt_id=receipt.id
         )
-        subtotal = ZERO
-        tax_total = ZERO
         total_ordered = ZERO
         total_previous = ZERO
         total_current = ZERO
@@ -816,8 +868,6 @@ class GoodsReceiptService:
                 warehouse_id=row.warehouse_id,
                 storage_node_id=row.storage_node_id,
             )
-            subtotal += gross_amount
-            tax_total += tax_amount
             total_discount += discount_amount
             total_ordered += ordered_quantity
             total_previous += prev_received
@@ -836,17 +886,14 @@ class GoodsReceiptService:
         receipt.total_damaged_quantity = self._q(total_damaged)
         receipt.total_free_quantity = self._q(total_free)
         receipt.line_discount_total = self._q(total_discount)
-        receipt.subtotal = self._q(subtotal)
-        receipt.tax_total = self._q(tax_total)
+        # A goods receipt carries no charges or round-off: neither is accepted on
+        # create, so both stay zero.
         receipt.additional_charges = ZERO
         receipt.round_off = ZERO
-        receipt.grand_total = self._q(
-            subtotal
-            - total_discount
-            + tax_total
-            + receipt.additional_charges
-            + receipt.round_off
-        )
+        # subtotal / tax_total / grand_total are deliberately not set here.
+        # _recalculate_totals runs immediately after every caller of this method
+        # and recomputed all three with a *different* formula, so anything
+        # written here was dead and only served to suggest two answers existed.
 
     def _replace_attachments(
         self,
@@ -1268,18 +1315,36 @@ class GoodsReceiptService:
         return self._q(simulation.total_tax_amount)
 
     @staticmethod
-    def _q(value: Decimal | int | float | str | None) -> Decimal:
-        if value is None:
-            return ZERO
-        return Decimal(str(value)).quantize(Decimal("0.0000"))
+    def _q(value: Decimal | int | str | None) -> Decimal:
+        """Round a monetary amount to the shared storage scale.
 
-    @staticmethod
-    def _financial_year_label(receipt_date: date) -> str:
-        start_year = (
-            receipt_date.year if receipt_date.month >= 4 else receipt_date.year - 1
+        Args:
+            value: The amount to round; ``None`` is treated as zero.
+
+        Returns:
+            The amount quantized by :func:`quantize_money`.
+
+        """
+        return quantize_money(value)
+
+    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
+        """Return the firm's financial-year label for a document date.
+
+        Args:
+            on: The document date.
+            firm_id: The owning firm, whose ``financial_year_start`` decides
+                when the year begins.
+
+        Returns:
+            The shared ``YYYY-YYYY`` label.
+
+        """
+        start_month = self._session.scalar(
+            select(Firm.financial_year_start).where(Firm.id == firm_id)
         )
-        end_year = start_year + 1
-        return f"{start_year}-{end_year}"
+        return financial_year_label(
+            on, start_month=start_month.month if start_month is not None else 4
+        )
 
     def _recalculate_totals(self, receipt: GoodsReceipt) -> None:
         lines = list(
@@ -1297,8 +1362,20 @@ class GoodsReceiptService:
         receipt.grand_total = self._q(sum((line.net_amount for line in lines), ZERO))
 
     def _flush_or_conflict(self, message: str) -> None:
+        """Flush pending work, converting a unique-key clash into a conflict.
+
+        The rollback matters: without it a failed flush leaves the session
+        unusable for every statement that follows.
+
+        Args:
+            message: The conflict message surfaced to the caller.
+
+        Raises:
+            ConflictError: If the flush violates a database constraint.
+
+        """
         try:
             self._session.flush()
-        except Exception as error:  # pragma: no cover - narrow DB conflict handling
+        except IntegrityError as error:
             self._session.rollback()
             raise ConflictError(message) from error

@@ -46,25 +46,58 @@ def _user(service: IdentityService, email: str = "person@example.com") -> User:
     )
 
 
+def _enforced_permission_codes() -> dict[str, str]:
+    """Collect every literal permission code enforced anywhere under ``app``.
+
+    The pattern deliberately accepts *any* string literal rather than only
+    upper-snake-case ones. An earlier version matched ``[A-Z0-9_]+``, which made
+    the lowercase ``sales_invoice:read`` codes in the sales-invoice router
+    invisible to this guard while they silently locked the whole module to
+    platform administrators.
+
+    Returns:
+        A mapping of permission code to the first file that enforces it.
+
+    """
+    used: dict[str, str] = {}
+    for path in Path("app").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r'require_(?:any_)?permission\(\s*((?:"[^"]*"\s*,?\s*)+)\)', source
+        ):
+            for code in re.findall(r'"([^"]*)"', match.group(1)):
+                used.setdefault(code, str(path))
+        for match in re.finditer(r'_permission\(\s*"([^"]*)"\s*\)', source):
+            used.setdefault(match.group(1), str(path))
+    return used
+
+
+def test_enforced_permission_codes_follow_the_naming_convention() -> None:
+    """Permission codes are upper snake case ``DOMAIN_ACTION`` identifiers.
+
+    A code in any other shape cannot match the seeded catalogue, so the
+    endpoint enforcing it becomes platform-admin-only.
+    """
+    malformed = {
+        code: where
+        for code, where in _enforced_permission_codes().items()
+        if re.fullmatch(r"[A-Z][A-Z0-9_]*", code) is None
+    }
+    assert not malformed, f"permission codes must be upper snake case: {malformed}"
+
+
 def test_every_enforced_permission_code_is_seeded() -> None:
     """No router may enforce a permission the catalogue does not define.
 
     An unseeded code cannot be attached to a role, so the endpoint silently
     becomes platform-admin-only.
     """
-    used: dict[str, str] = {}
-    for path in Path("app").rglob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        for match in re.finditer(
-            r'require_(?:any_)?permission\(\s*((?:"[A-Z0-9_]+"\s*,?\s*)+)', source
-        ):
-            for code in re.findall(r'"([A-Z0-9_]+)"', match.group(1)):
-                used.setdefault(code, str(path))
-        for match in re.finditer(r'_permission\(\s*"([A-Z0-9_]+)"\s*\)', source):
-            used.setdefault(match.group(1), str(path))
-
     catalogue = set(SYSTEM_PERMISSION_CODES)
-    missing = {code: where for code, where in used.items() if code not in catalogue}
+    missing = {
+        code: where
+        for code, where in _enforced_permission_codes().items()
+        if code not in catalogue
+    }
     assert not missing, f"permission codes enforced but never seeded: {missing}"
 
 

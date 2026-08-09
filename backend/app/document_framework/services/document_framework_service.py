@@ -133,7 +133,6 @@ class DocumentFrameworkService:
             firm_id=firm_id,
             after_data={"code": row.code, "name": row.name},
         )
-        self._session.commit()
         return row
 
     def get_type(self, firm_id: UUID, type_id: UUID) -> DocumentTypeDefinition:
@@ -166,7 +165,6 @@ class DocumentFrameworkService:
             firm_id=firm_id,
             before_data=before,
         )
-        self._session.commit()
         return row
 
     def delete_type(self, firm_id: UUID, type_id: UUID, actor_id: UUID) -> None:
@@ -183,7 +181,6 @@ class DocumentFrameworkService:
             actor_id=actor_id,
             firm_id=firm_id,
         )
-        self._session.commit()
 
     def list_states(
         self,
@@ -259,7 +256,6 @@ class DocumentFrameworkService:
                 "document_type_id": str(row.document_type_id),
             },
         )
-        self._session.commit()
         return row
 
     def get_state(self, firm_id: UUID, state_id: UUID) -> DocumentStateDefinition:
@@ -294,7 +290,6 @@ class DocumentFrameworkService:
             firm_id=firm_id,
             before_data=before,
         )
-        self._session.commit()
         return row
 
     def delete_state(self, firm_id: UUID, state_id: UUID, actor_id: UUID) -> None:
@@ -311,7 +306,6 @@ class DocumentFrameworkService:
             actor_id=actor_id,
             firm_id=firm_id,
         )
-        self._session.commit()
 
     def list_numbering_rules(
         self,
@@ -388,17 +382,35 @@ class DocumentFrameworkService:
                 "document_type_id": str(row.document_type_id),
             },
         )
-        self._session.commit()
         return row
 
-    def get_numbering_rule(self, firm_id: UUID, rule_id: UUID) -> DocumentNumberingRule:
-        row = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.id == rule_id,
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
+    def get_numbering_rule(
+        self, firm_id: UUID, rule_id: UUID, *, for_update: bool = False
+    ) -> DocumentNumberingRule:
+        """Load one numbering rule, optionally locking it for allocation.
+
+        Args:
+            firm_id: The owning firm.
+            rule_id: The rule to load.
+            for_update: Take a row lock, so two concurrent allocations of the
+                next sequence cannot read the same value. SQLite ignores the
+                clause, which is why the unit suite cannot catch a collision.
+
+        Returns:
+            The numbering rule.
+
+        Raises:
+            ResourceNotFoundError: If no such rule exists for the firm.
+
+        """
+        statement = select(DocumentNumberingRule).where(
+            DocumentNumberingRule.id == rule_id,
+            DocumentNumberingRule.firm_id == firm_id,
+            DocumentNumberingRule.is_deleted.is_(False),
         )
+        if for_update:
+            statement = statement.with_for_update()
+        row = self._session.scalar(statement)
         if row is None:
             raise ResourceNotFoundError("Document numbering rule not found.")
         return row
@@ -431,7 +443,6 @@ class DocumentFrameworkService:
             firm_id=firm_id,
             before_data=before,
         )
-        self._session.commit()
         return row
 
     def delete_numbering_rule(
@@ -450,7 +461,6 @@ class DocumentFrameworkService:
             actor_id=actor_id,
             firm_id=firm_id,
         )
-        self._session.commit()
 
     def preview_number(
         self,
@@ -485,7 +495,7 @@ class DocumentFrameworkService:
         manual_number: str | None = None,
         actor_id: UUID | None = None,
     ) -> str:
-        rule = self.get_numbering_rule(firm_id, rule_id)
+        rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
         scope_signature = self._scope_signature(
             financial_year_label=financial_year_label,
             branch_code=branch_code,
@@ -509,7 +519,6 @@ class DocumentFrameworkService:
         rule.last_scope_signature = scope_signature
         if actor_id is not None:
             rule.updated_by = actor_id
-        self._session.commit()
         return number
 
     def record_event(
@@ -526,7 +535,6 @@ class DocumentFrameworkService:
         )
         self._session.add(row)
         self._session.flush()
-        self._session.commit()
         return row
 
     def list_timeline(

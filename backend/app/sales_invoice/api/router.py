@@ -104,14 +104,32 @@ def sales_invoice_scope(
     return SalesInvoiceScope(principal=principal, firm_id=x_firm_id)
 
 
+def _permission(code: str) -> object:
+    def dependency(
+        _: Annotated[Principal, Depends(require_permission(code))],
+        scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    ) -> SalesInvoiceScope:
+        return scope
+
+    return Depends(dependency)
+
+
+SalesInvoiceViewScope = Annotated[SalesInvoiceScope, _permission("SALES_VIEW")]
+SalesInvoiceCreateScope = Annotated[SalesInvoiceScope, _permission("SALES_CREATE")]
+SalesInvoiceUpdateScope = Annotated[SalesInvoiceScope, _permission("SALES_UPDATE")]
+SalesInvoiceApproveScope = Annotated[SalesInvoiceScope, _permission("SALES_APPROVE")]
+SalesInvoiceCancelScope = Annotated[SalesInvoiceScope, _permission("SALES_CANCEL")]
+SalesInvoiceExportScope = Annotated[SalesInvoiceScope, _permission("SALES_EXPORT")]
+SalesInvoiceImportScope = Annotated[SalesInvoiceScope, _permission("SALES_IMPORT")]
+
+
 @router.get(
     "/",
     response_model=PaginatedResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def list_sales_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     pagination: Annotated[PaginationParams, Depends()],
     customer_id: Annotated[UUID | None, Query()] = None,
@@ -150,9 +168,7 @@ def list_sales_invoices(
     )
     return PaginatedResponse(
         data=[service.invoice_response(row) for row in rows],
-        total=total,
-        page=pagination.page,
-        page_size=pagination.page_size,
+        pagination=pagination.metadata(total),
     )
 
 
@@ -160,17 +176,15 @@ def list_sales_invoices(
     "/",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def create_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceCreateScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceCreate,
 ) -> SalesInvoiceResponse:
     """Create a new sales invoice."""
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -178,10 +192,9 @@ def create_sales_invoice(
     "/{invoice_id}",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
 ) -> SalesInvoiceResponse:
@@ -195,10 +208,9 @@ def get_sales_invoice(
     "/{invoice_id}",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def update_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceUpdateScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: SalesInvoiceCreate,
@@ -208,7 +220,6 @@ def update_sales_invoice(
     row = service.update_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -216,19 +227,17 @@ def update_sales_invoice(
     "/{invoice_id}/approve",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:approve"))],
 )
 def approve_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
 ) -> SalesInvoiceResponse:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.approve_invoice(
-        invoice_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -236,10 +245,9 @@ def approve_sales_invoice(
     "/{invoice_id}/cancel",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def cancel_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceCancelScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
@@ -247,9 +255,11 @@ def cancel_sales_invoice(
     """Cancel a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.cancel_invoice(
-        invoice_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=data.reason,
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -257,10 +267,9 @@ def cancel_sales_invoice(
     "/{invoice_id}/close",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def close_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
@@ -268,9 +277,11 @@ def close_sales_invoice(
     """Close a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.close_invoice(
-        invoice_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=data.reason,
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -278,10 +289,9 @@ def close_sales_invoice(
     "/{invoice_id}/timeline",
     response_model=PaginatedResponse[DocumentLifecycleEventResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_timeline(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     pagination: Annotated[PaginationParams, Depends()],
@@ -290,12 +300,13 @@ def get_sales_invoice_timeline(
     service = SalesInvoiceService(db)
     rows, total = service.timeline(
         invoice_id=invoice_id,
-        firm_id=scope.firm_id,
+        firm_scope=scope.firm_id,
         page=pagination.page,
         page_size=pagination.page_size,
     )
     return PaginatedResponse(
-        data=rows, total=total, page=pagination.page, page_size=pagination.page_size
+        data=[DocumentLifecycleEventResponse.model_validate(row) for row in rows],
+        pagination=pagination.metadata(total),
     )
 
 
@@ -303,10 +314,9 @@ def get_sales_invoice_timeline(
     "/reports/pending",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_pending_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceResponse]:
     """Get pending (draft) sales invoices."""
@@ -319,10 +329,9 @@ def get_pending_invoices(
     "/reports/overdue",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_overdue_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceResponse]:
     """Get overdue sales invoices."""
@@ -335,10 +344,9 @@ def get_overdue_invoices(
     "/reports/summary",
     response_model=SalesInvoiceSummary,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_summary(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> SalesInvoiceSummary:
     """Get sales invoice summary."""
@@ -350,10 +358,9 @@ def get_sales_invoice_summary(
     "/reports/register",
     response_model=list[SalesInvoiceRegisterRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_register(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceRegisterRecord]:
     """Get sales invoice register report."""
@@ -365,25 +372,23 @@ def get_sales_invoice_register(
     "/reports/customer-outstanding",
     response_model=list[SalesInvoiceCustomerOutstandingRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_customer_outstanding(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceCustomerOutstandingRecord]:
     """Get customer outstanding amounts report."""
     service = SalesInvoiceService(db)
-    return service.customer_outstanding_report(firm_scope=scope.firm_id)
+    return service.outstanding_report(firm_scope=scope.firm_id)
 
 
 @router.get(
     "/reports/reconciliation",
     response_model=list[SalesInvoiceReconciliationRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_reconciliation(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceReconciliationRecord]:
     """Get sales invoice vs delivery note reconciliation report."""
@@ -395,10 +400,9 @@ def get_sales_invoice_reconciliation(
     "/import",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def import_sales_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceImportScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceImportRequest,
 ) -> list[SalesInvoiceResponse]:
@@ -413,10 +417,9 @@ def import_sales_invoices(
     "/export/csv",
     response_class=StreamingResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def export_sales_invoices_csv(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceExportScope,
     db: Annotated[Session, Depends(get_db)],
     search: Annotated[str | None, Query(max_length=100)] = None,
 ) -> StreamingResponse:

@@ -254,6 +254,9 @@ class PurchaseReturnLine(BaseEntity):
     batch_number: Mapped[str | None] = mapped_column(String(120))
     expiry_date: Mapped[date | None] = mapped_column(Date)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
+    inventory_transaction_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("inventory_transactions.id", ondelete="SET NULL")
+    )
     remarks: Mapped[str | None] = mapped_column(Text)
     accounting_event_reference: Mapped[str | None] = mapped_column(String(120))
 

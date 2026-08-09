@@ -148,6 +148,7 @@ def create_document_type(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentTypeResponse]:
     row = _service(db).create_type(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentTypeResponse.model_validate(row))
 
 
@@ -165,6 +166,7 @@ def update_document_type(
     row = _service(db).update_type(
         scope.firm_id, document_type_id, data, _actor_id(principal)
     )
+    db.commit()
     return ApiResponse(data=DocumentTypeResponse.model_validate(row))
 
 
@@ -178,6 +180,7 @@ def delete_document_type(
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_type(scope.firm_id, document_type_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -220,6 +223,7 @@ def create_document_state(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentStateResponse]:
     row = _service(db).create_state(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentStateResponse.model_validate(row))
 
 
@@ -235,6 +239,7 @@ def update_document_state(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentStateResponse]:
     row = _service(db).update_state(scope.firm_id, state_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentStateResponse.model_validate(row))
 
 
@@ -246,6 +251,7 @@ def delete_document_state(
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_state(scope.firm_id, state_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -291,6 +297,7 @@ def create_numbering_rule(
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentNumberingRuleResponse]:
     row = _service(db).create_numbering_rule(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
 
 
@@ -308,6 +315,7 @@ def update_numbering_rule(
     row = _service(db).update_numbering_rule(
         scope.firm_id, rule_id, data, _actor_id(principal)
     )
+    db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
 
 
@@ -319,6 +327,7 @@ def delete_numbering_rule(
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_numbering_rule(scope.firm_id, rule_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -389,4 +398,5 @@ def create_document_event(
     if data.source_document_id != document_id:
         raise ConflictError("The document identifier does not match the request body.")
     row = _service(db).record_event(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentLifecycleEventResponse.model_validate(row))

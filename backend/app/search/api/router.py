@@ -5,10 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.common.scope import OptionalFirmScope
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
-from app.core.security.authorization import Principal, require_authenticated
 from app.search.schemas import SearchCategory, SearchResultPage
 from app.search.services import SearchService
 
@@ -18,13 +18,11 @@ router = APIRouter(
     responses=STANDARD_ERROR_RESPONSES,
 )
 
-SearchPrincipal = Annotated[Principal, Depends(require_authenticated())]
-
 
 @router.get("", response_model=ApiResponse[SearchResultPage])
 def global_search(
     query: str,
-    principal: SearchPrincipal,
+    scope: OptionalFirmScope,
     category: SearchCategory = "all",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -32,6 +30,13 @@ def global_search(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SearchResultPage]:
+    """Search across entities the caller may see in the selected firm.
+
+    The firm scope is validated for active membership before any query runs.
+    Without that check a caller holding a globally-assigned permission could set
+    ``X-Firm-ID`` to any active firm and read its data, because every entity
+    filter here narrows *to* the requested firm.
+    """
     requested_types = (
         {entry.strip() for entry in entity_types.split(",") if entry.strip()}
         if entity_types
@@ -40,7 +45,7 @@ def global_search(
     return ApiResponse(
         data=SearchService(db).search(
             query=query,
-            principal=principal,
+            principal=scope.principal,
             category=category,
             page=page,
             page_size=page_size,

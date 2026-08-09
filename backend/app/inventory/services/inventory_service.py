@@ -1113,6 +1113,84 @@ class InventoryService:
         self._session.flush()
         return transaction
 
+    def reverse_transaction(
+        self,
+        transaction_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
+    ) -> InventoryTransaction:
+        """Post the exact inverse of an existing movement.
+
+        Cancelling a document that already moved stock must put the stock back,
+        otherwise a cancelled goods receipt or purchase return leaves phantom
+        quantities behind. The reversal is itself an immutable movement linked to
+        the original, so the ledger keeps both halves and cannot be replayed.
+
+        Args:
+            transaction_id: The movement to reverse.
+            firm_scope: The firm that owns the movement.
+            actor_id: The user performing the reversal.
+            reason: Optional narration stored on the reversing movement.
+
+        Returns:
+            The reversing inventory transaction.
+
+        Raises:
+            ResourceNotFoundError: If the movement or its projection is missing.
+            ValidationError: If the movement was already reversed.
+
+        """
+        original = self._session.scalar(
+            select(InventoryTransaction).where(
+                InventoryTransaction.id == transaction_id,
+                InventoryTransaction.firm_id == firm_scope,
+                InventoryTransaction.is_deleted.is_(False),
+            )
+        )
+        if original is None:
+            raise ResourceNotFoundError("Inventory transaction not found.")
+        already_reversed = self._session.scalar(
+            select(InventoryTransaction.id).where(
+                InventoryTransaction.reversal_of_transaction_id == original.id,
+                InventoryTransaction.is_deleted.is_(False),
+            )
+        )
+        if already_reversed is not None:
+            raise ValidationError("This inventory movement was already reversed.")
+        inventory = self._session.get(InventoryRecord, original.inventory_id)
+        if inventory is None:
+            raise ResourceNotFoundError("Inventory record not found.")
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=f"{original.transaction_type}_REVERSAL"[:40],
+                reference_number=original.reference_number,
+                reference_type=original.reference_type,
+                transaction_date=original.transaction_date,
+                quantity=-original.quantity,
+                current_delta=-original.current_quantity_delta,
+                reserved_delta=-original.reserved_quantity_delta,
+                blocked_delta=-original.blocked_quantity_delta,
+                damaged_delta=-original.damaged_quantity_delta,
+                quarantine_delta=-original.quarantine_quantity_delta,
+                in_transit_delta=-original.in_transit_quantity_delta,
+                entered_quantity=(
+                    -original.entered_quantity
+                    if original.entered_quantity is not None
+                    else None
+                ),
+                entered_uom_id=original.entered_uom_id,
+                conversion_version=original.conversion_version,
+                remarks=reason,
+            ),
+        )
+        transaction.reversal_of_transaction_id = original.id
+        self._session.flush()
+        return transaction
+
     def record_purchase_return(
         self,
         *,
@@ -1442,14 +1520,14 @@ class InventoryService:
                     self._lookup_branch_code(item.branch_id),
                     self._lookup_warehouse_code(item.warehouse_id),
                     self._lookup_storage_code(item.storage_node_id),
-                    float(item.current_quantity),
-                    float(item.available_quantity),
-                    float(item.reserved_quantity),
-                    float(item.blocked_quantity),
-                    float(item.damaged_quantity),
-                    float(item.quarantine_quantity),
-                    float(item.in_transit_quantity),
-                    float(item.reorder_level or 0),
+                    item.current_quantity,
+                    item.available_quantity,
+                    item.reserved_quantity,
+                    item.blocked_quantity,
+                    item.damaged_quantity,
+                    item.quarantine_quantity,
+                    item.in_transit_quantity,
+                    item.reorder_level or 0,
                     item.status,
                 ]
             )
@@ -1538,15 +1616,15 @@ class InventoryService:
                     item.reference_number,
                     self._lookup_product_code(item.product_id),
                     self._lookup_warehouse_code(item.warehouse_id),
-                    float(item.quantity),
-                    float(item.current_quantity_delta),
-                    float(item.reserved_quantity_delta),
-                    float(item.blocked_quantity_delta),
-                    float(item.damaged_quantity_delta),
-                    float(item.quarantine_quantity_delta),
-                    float(item.in_transit_quantity_delta),
-                    float(item.new_current_quantity),
-                    float(item.new_available_quantity),
+                    item.quantity,
+                    item.current_quantity_delta,
+                    item.reserved_quantity_delta,
+                    item.blocked_quantity_delta,
+                    item.damaged_quantity_delta,
+                    item.quarantine_quantity_delta,
+                    item.in_transit_quantity_delta,
+                    item.new_current_quantity,
+                    item.new_available_quantity,
                 ]
             )
         buffer = BytesIO()

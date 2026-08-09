@@ -6,15 +6,17 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import financial_year_label, utc_now
+from app.core.utils.money import quantize_money
 from app.document_framework.models import (
     DocumentNumberingRule,
     DocumentStateDefinition,
@@ -29,6 +31,7 @@ from app.document_framework.schemas import (
 from app.document_framework.services.document_framework_service import (
     DocumentFrameworkService,
 )
+from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -223,7 +226,7 @@ class PurchaseInvoiceService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.invoice_date),
+                financial_year_label=self._financial_year_label(data.invoice_date, firm_id),
                 branch_code=self._scope_code(branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.invoice_date,
@@ -278,7 +281,11 @@ class PurchaseInvoiceService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
@@ -368,7 +375,11 @@ class PurchaseInvoiceService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
@@ -965,9 +976,12 @@ class PurchaseInvoiceService:
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(
-                gross_amount - discount_amount + charges_amount
-            )
+            # subtotal is the taxable base: gross less discount, before tax and
+            # before charges. Line charges used to be folded in here, which made
+            # this module's subtotal mean something different from every other
+            # document's; they are carried separately and added to grand_total.
+            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -1500,8 +1514,24 @@ class PurchaseInvoiceService:
             raise ResourceNotFoundError("Purchase invoice document type not found.")
         return row
 
-    def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}"
+    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
+        """Return the firm's financial-year label for a document date.
+
+        Args:
+            on: The document date.
+            firm_id: The owning firm, whose ``financial_year_start`` decides
+                when the year begins.
+
+        Returns:
+            The shared ``YYYY-YYYY`` label.
+
+        """
+        start_month = self._session.scalar(
+            select(Firm.financial_year_start).where(Firm.id == firm_id)
+        )
+        return financial_year_label(
+            on, start_month=start_month.month if start_month is not None else 4
+        )
 
     def _scope_code(self, branch_id: UUID | None) -> str | None:
         return str(branch_id)[:8].upper() if branch_id is not None else None
@@ -1510,15 +1540,36 @@ class PurchaseInvoiceService:
         return str(firm_id)[:8].upper()
 
     def _flush_or_conflict(self, message: str) -> None:
+        """Flush pending work, converting a unique-key clash into a conflict.
+
+        The rollback matters: without it a failed flush leaves the session
+        unusable for every statement that follows.
+
+        Args:
+            message: The conflict message surfaced to the caller.
+
+        Raises:
+            ConflictError: If the flush violates a database constraint.
+
+        """
         try:
             self._session.flush()
-        except Exception as error:
+        except IntegrityError as error:
+            self._session.rollback()
             raise ConflictError(message) from error
 
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        if value is None:
-            return ZERO
-        return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    @staticmethod
+    def _q(value: Decimal | int | str | None) -> Decimal:
+        """Round a monetary amount to the shared storage scale.
+
+        Args:
+            value: The amount to round; ``None`` is treated as zero.
+
+        Returns:
+            The amount quantized by :func:`quantize_money`.
+
+        """
+        return quantize_money(value)
 
     def _attachment_response(
         self, row: PurchaseInvoiceAttachment

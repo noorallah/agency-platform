@@ -6,15 +6,17 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import financial_year_label, utc_now
+from app.core.utils.money import quantize_money
 from app.document_framework.models import (
     DocumentNumberingRule,
     DocumentStateDefinition,
@@ -29,6 +31,7 @@ from app.document_framework.schemas import (
 from app.document_framework.services.document_framework_service import (
     DocumentFrameworkService,
 )
+from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.services import InventoryService
 from app.products.models import Product
@@ -212,7 +215,7 @@ class PurchaseReturnService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.return_date),
+                financial_year_label=self._financial_year_label(data.return_date, firm_id),
                 branch_code=self._scope_code(branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.return_date,
@@ -273,7 +276,11 @@ class PurchaseReturnService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
@@ -366,7 +373,11 @@ class PurchaseReturnService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
@@ -460,7 +471,7 @@ class PurchaseReturnService:
                 raise ValidationError(
                     "Rejected quantity cannot exceed returned quantity."
                 )
-            self._inventory.record_purchase_return(
+            transaction = self._inventory.record_purchase_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 branch_id=row.branch_id,
@@ -481,6 +492,8 @@ class PurchaseReturnService:
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
             )
+            line.inventory_transaction_id = transaction.id
+            line.updated_by = actor_id
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
         row.updated_by = actor_id
@@ -521,6 +534,9 @@ class PurchaseReturnService:
         }:
             raise ValidationError("This purchase return can no longer be cancelled.")
         before = row.status
+        reversed_lines = self._reverse_inventory(
+            row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
@@ -541,10 +557,57 @@ class PurchaseReturnService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"reason": reason},
+            after_data={
+                "reason": reason,
+                "reversed_inventory_lines": reversed_lines,
+            },
         )
         self._session.commit()
         return row
+
+    def _reverse_inventory(
+        self,
+        document: PurchaseReturn,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None,
+    ) -> int:
+        """Undo the stock this return moved out, if it had already completed.
+
+        Completing a return takes goods off the shelf. Cancelling it afterwards
+        must put them back, otherwise the firm loses stock it still holds.
+
+        Args:
+            document: The return being cancelled.
+            firm_scope: The owning firm.
+            actor_id: The user cancelling the return.
+            reason: Optional cancellation reason, stored on the reversal.
+
+        Returns:
+            The number of lines whose stock movement was reversed.
+
+        """
+        reversed_lines = 0
+        for line in self._session.scalars(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == document.id,
+                PurchaseReturnLine.inventory_transaction_id.is_not(None),
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+        ).all():
+            if line.inventory_transaction_id is None:
+                continue
+            self._inventory.reverse_transaction(
+                line.inventory_transaction_id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=reason or f"Purchase return {document.return_number} cancelled.",
+            )
+            line.inventory_transaction_id = None
+            line.updated_by = actor_id
+            reversed_lines += 1
+        return reversed_lines
 
     def close_return(
         self,
@@ -1061,9 +1124,12 @@ class PurchaseReturnService:
             totals["total_already_returned_quantity"] += already_returned
             totals["total_current_return_quantity"] += return_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(
-                gross_amount - discount_amount + charges_amount
-            )
+            # subtotal is the taxable base: gross less discount, before tax and
+            # before charges. Line charges used to be folded in here, which made
+            # this module's subtotal mean something different from every other
+            # document's; they are carried separately and added to grand_total.
+            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -1627,8 +1693,24 @@ class PurchaseReturnService:
             raise ResourceNotFoundError("Purchase return document type not found.")
         return row
 
-    def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}"
+    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
+        """Return the firm's financial-year label for a document date.
+
+        Args:
+            on: The document date.
+            firm_id: The owning firm, whose ``financial_year_start`` decides
+                when the year begins.
+
+        Returns:
+            The shared ``YYYY-YYYY`` label.
+
+        """
+        start_month = self._session.scalar(
+            select(Firm.financial_year_start).where(Firm.id == firm_id)
+        )
+        return financial_year_label(
+            on, start_month=start_month.month if start_month is not None else 4
+        )
 
     def _scope_code(self, branch_id: UUID | None) -> str | None:
         return str(branch_id)[:8].upper() if branch_id is not None else None
@@ -1637,15 +1719,36 @@ class PurchaseReturnService:
         return str(firm_id)[:8].upper()
 
     def _flush_or_conflict(self, message: str) -> None:
+        """Flush pending work, converting a unique-key clash into a conflict.
+
+        The rollback matters: without it a failed flush leaves the session
+        unusable for every statement that follows.
+
+        Args:
+            message: The conflict message surfaced to the caller.
+
+        Raises:
+            ConflictError: If the flush violates a database constraint.
+
+        """
         try:
             self._session.flush()
-        except Exception as error:
+        except IntegrityError as error:
+            self._session.rollback()
             raise ConflictError(message) from error
 
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        if value is None:
-            return ZERO
-        return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    @staticmethod
+    def _q(value: Decimal | int | str | None) -> Decimal:
+        """Round a monetary amount to the shared storage scale.
+
+        Args:
+            value: The amount to round; ``None`` is treated as zero.
+
+        Returns:
+            The amount quantized by :func:`quantize_money`.
+
+        """
+        return quantize_money(value)
 
     def _attachment_response(
         self, row: PurchaseReturnAttachment
