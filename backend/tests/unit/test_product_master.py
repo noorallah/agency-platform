@@ -17,6 +17,7 @@ from app.business.models import (
     ProfileFeature,
 )
 from app.business.services import AttributeService
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -56,6 +57,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for product tests."""
@@ -295,9 +297,44 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
         firm.id,
     )
     created = create_product(_base_payload("PROD-COST"), creator_scope, session)
-    viewer_scope = _firm_scope(
-        _principal(user_id, {"PRODUCT_VIEW"}), session, firm.id
-    )
+    viewer_scope = _firm_scope(_principal(user_id, {"PRODUCT_VIEW"}), session, firm.id)
     fetched = get_product(created.data.id, viewer_scope, False, session)
     assert fetched.data.purchase_price is None
     assert fetched.data.selling_price == Decimal("120.00")
+
+
+def test_bulk_product_operations_are_audited() -> None:
+    """Removing a hundred products from the toolbar left no trace at all.
+
+    The single-row delete records ``product.deleted``; the bulk endpoints
+    recorded nothing, so the audit trail depended on which button was used.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "PBULK")
+    _seed_profile(session, with_barcode_feature=False)
+    actor_id = uuid4()
+    service = ProductService(session)
+    first = service.create_product(
+        _base_payload("PROD-B1"), firm_id=firm.id, actor_id=actor_id
+    )
+    second = service.create_product(
+        _base_payload("PROD-B2"), firm_id=firm.id, actor_id=actor_id
+    )
+
+    assert (
+        service.bulk_delete(
+            [first.id, second.id], firm_scope=firm.id, actor_id=actor_id
+        )
+        == 2
+    )
+    deleted = session.scalars(
+        select(AuditLog).where(AuditLog.action == "product.deleted")
+    ).all()
+    assert {row.entity_id for row in deleted} == {first.id, second.id}
+    assert all(row.firm_id == firm.id for row in deleted)
+
+    assert service.bulk_restore([first.id], firm_scope=firm.id, actor_id=actor_id) == 1
+    restored = session.scalars(
+        select(AuditLog).where(AuditLog.action == "product.restored")
+    ).all()
+    assert [row.entity_id for row in restored] == [first.id]
