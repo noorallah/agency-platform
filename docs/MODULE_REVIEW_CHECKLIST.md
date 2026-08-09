@@ -241,7 +241,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 55 | 1 | `test_global_search` | typed |
 | `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
-| `purchase` | 12 | 105 | 5 | `test_purchase_management` | typed |
+| `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 134 | 1 | **none** | typed |
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
@@ -303,7 +303,7 @@ and typed; mostly cleanup.
 | 13 | `customers` | 2026-08-10 | none — receivable arithmetic, address/contact reconciliation and firm scoping all hold; `credit_limit` is snapshotted onto sales orders but never compared against `current_outstanding`, which needs a product decision on warn versus block | gates only: ruff 14, mypy 6 and black cleared |
 | 14 | `products` | 2026-08-10 | bulk delete and restore wrote no audit entries, the same gap found in `branches`; deleting a category was unaudited too | yes |
 | 15 | `vendors` | 2026-08-10 | all five bulk endpoints wrote no audit entries — the third module with this gap | yes — module is now clean under ruff, black and mypy |
-| 16 | `purchase` | | | |
+| 16 | `purchase` | 2026-08-10 | a purchase order with goods receipts against it could be deleted, though cancelling the same order was refused; a CSV import helper closed over its loop variable | yes — module is now clean under ruff, black and mypy |
 | 17 | `business` | | | |
 | 18 | `sales` (territory) | | | |
 | 19 | `search` | | | |

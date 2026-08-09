@@ -37,6 +37,7 @@ from app.document_framework.models import (
     DocumentTypeDefinition,
 )
 from app.firms.models import Firm
+from app.goods_receipt.models import GoodsReceipt
 from app.identity.models import UserFirm
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
@@ -1085,7 +1086,7 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
                         "OrderedQty,UnitPrice,PurchaseUomId,InventoryUomId,TaxProfileId,Remarks\n"
                         f"PO-API-CSV-001,{branch.id},{warehouse.id},{vendor.id},{product.id},2026-08-02,"
                         f"3,9,{purchase_uom_id},{inventory_uom_id},{tax_profile_id},CSV import\n"
-                    ).encode("utf-8")
+                    ).encode()
                 ),
             ),
         )
@@ -1345,3 +1346,53 @@ def test_editing_a_purchase_order_keeps_its_line_identities() -> None:
     assert len(rows) == 1
     assert rows[0].id == before, "the line must keep its identity across an edit"
     assert rows[0].ordered_quantity == Decimal("8.0000")
+
+
+def test_an_order_with_receipts_against_it_cannot_be_deleted() -> None:
+    """Cancelling a received order was refused; deleting one was not.
+
+    A goods receipt records the purchase_order_id it came from, so removing the
+    order leaves the receipt pointing at a document no listing shows -- and
+    delete is the more destructive of the two operations.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "PODEL")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+    service = PurchaseService(session)
+
+    order = service.create_order(
+        _purchase_data(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    session.add(
+        GoodsReceipt(
+            firm_id=firm.id,
+            purchase_order_id=order.id,
+            purchase_order_number=order.po_number,
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            grn_number="GRN-PODEL-1",
+            receipt_date=date(2026, 8, 5),
+            status="DRAFT",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="Goods have been received"):
+        service.delete_order(order.id, firm_scope=firm.id, actor_id=actor_id)

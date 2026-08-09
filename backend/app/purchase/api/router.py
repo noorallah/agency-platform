@@ -90,6 +90,7 @@ def _filters(
     created_to: date | None,
     include_deleted: bool,
 ) -> PurchaseOrderListFilters:
+    """Collect the purchase order list filters from the query string."""
     try:
         return PurchaseOrderListFilters.model_validate(
             {
@@ -129,6 +130,7 @@ def list_purchase_orders(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PurchaseOrderResponse]:
+    """List purchase orders."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = PurchaseService(db).list_orders(
         firm_scope=scope.firm_id,
@@ -161,6 +163,7 @@ def purchase_summary(
     scope: PurchaseViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseSummary]:
+    """Purchase summary."""
     return ApiResponse(data=PurchaseService(db).summary(firm_scope=scope.firm_id))
 
 
@@ -174,6 +177,7 @@ def create_purchase_order(
     scope: PurchaseCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Create purchase order."""
     service = PurchaseService(db)
     row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.order_response(row))
@@ -191,6 +195,7 @@ async def import_purchase_orders(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[PurchaseOrderResponse]]:
+    """Create several purchase orders from an upload or JSON body."""
     service = PurchaseService(db)
     if format == "json":
         if payload is None:
@@ -223,6 +228,7 @@ def export_purchase_orders(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Export purchase orders."""
     service = PurchaseService(db)
     if format == "xlsx":
         content = service.export_orders_xlsx(firm_scope=scope.firm_id, search=search)
@@ -248,6 +254,7 @@ def get_purchase_order(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Return purchase order."""
     service = PurchaseService(db)
     row = service.get_order(
         order_id, firm_scope=scope.firm_id, include_deleted=include_deleted
@@ -263,6 +270,7 @@ def update_purchase_order(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Change purchase order."""
     service = PurchaseService(db)
     assert_version(
         service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
@@ -279,6 +287,7 @@ def delete_purchase_order(
     scope: PurchaseDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete purchase order."""
     PurchaseService(db).delete_order(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -291,6 +300,7 @@ def restore_purchase_order(
     scope: PurchaseRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Restore purchase order."""
     service = PurchaseService(db)
     row = service.restore_order(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -305,6 +315,7 @@ def cancel_purchase_order(
     scope: PurchaseCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Cancel purchase order."""
     service = PurchaseService(db)
     row = service.cancel_order(
         order_id,
@@ -322,6 +333,7 @@ def close_purchase_order(
     scope: PurchaseApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
+    """Close purchase order."""
     service = PurchaseService(db)
     row = service.close_order(
         order_id,
@@ -341,6 +353,7 @@ def purchase_order_history(
     scope: PurchaseViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderHistoryResponse]]:
+    """Purchase order history."""
     rows = PurchaseService(db).order_history(
         order_id=order_id, firm_scope=scope.firm_id
     )
