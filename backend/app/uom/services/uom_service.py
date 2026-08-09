@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import (
+    ROUND_CEILING,
+    ROUND_DOWN,
+    ROUND_FLOOR,
+    ROUND_HALF_DOWN,
+    ROUND_HALF_EVEN,
+    ROUND_HALF_UP,
+    ROUND_UP,
+    Decimal,
+)
 from uuid import UUID
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,6 +31,7 @@ from app.uom.models import (
     ProductUomConfig,
     Uom,
     UomGroup,
+    UomGroupUnit,
 )
 from app.uom.schemas import (
     BusinessProfileUomDefaultUpsert,
@@ -43,20 +53,36 @@ from app.uom.schemas import (
     UomUpdate,
 )
 
+# The rule stores a rounding mode and the conversion ignored it, always rounding
+# half up. A firm that configured DOWN on a strip conversion still received a
+# rounded-up quantity.
+ROUNDING_MODES = {
+    "HALF_UP": ROUND_HALF_UP,
+    "HALF_DOWN": ROUND_HALF_DOWN,
+    "HALF_EVEN": ROUND_HALF_EVEN,
+    "UP": ROUND_UP,
+    "DOWN": ROUND_DOWN,
+    "CEILING": ROUND_CEILING,
+    "FLOOR": ROUND_FLOOR,
+}
+
 
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
 
     def list_uoms(self, *, include_inactive: bool = False) -> list[Uom]:
+        """Return the unit catalogue, active units only by default."""
         statement = select(Uom).where(Uom.is_deleted.is_(False))
         if not include_inactive:
             statement = statement.where(Uom.status == "ACTIVE")
         return list(self._session.scalars(statement.order_by(Uom.name.asc())).all())
 
     def create_uom(self, data: UomCreate, *, actor_id: UUID) -> Uom:
+        """Add a unit to the catalogue."""
         row = Uom(
             code=data.code.strip().upper(),
             name=data.name.strip(),
@@ -73,6 +99,7 @@ class UomService:
         return row
 
     def update_uom(self, uom_id: UUID, data: UomUpdate, *, actor_id: UUID) -> Uom:
+        """Change a unit in the catalogue."""
         row = self.get_uom(uom_id)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
@@ -87,7 +114,9 @@ class UomService:
         return row
 
     def delete_uom(self, uom_id: UUID, *, actor_id: UUID) -> None:
+        """Soft delete a unit nothing still references."""
         row = self.get_uom(uom_id)
+        self._assert_uom_unused(uom_id)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -95,6 +124,7 @@ class UomService:
         self._session.commit()
 
     def get_uom(self, uom_id: UUID) -> Uom:
+        """Return one live unit."""
         row = self._session.scalar(
             select(Uom).where(Uom.id == uom_id, Uom.is_deleted.is_(False))
         )
@@ -102,7 +132,67 @@ class UomService:
             raise ResourceNotFoundError("UOM not found.")
         return row
 
+    @staticmethod
+    def _rounding_mode(value: str) -> str:
+        """Return a rounding mode the conversion can actually apply."""
+        mode = value.strip().upper()
+        if mode not in ROUNDING_MODES:
+            raise ValidationError(
+                f"rounding_mode must be one of {', '.join(sorted(ROUNDING_MODES))}."
+            )
+        return mode
+
+    def _assert_uom_unused(self, uom_id: UUID) -> None:
+        """Refuse to delete a unit anything still points at.
+
+        The UOM catalogue has no firm_id: in a SHARED deployment every firm in
+        the store reads the same rows, so an unguarded delete took a unit out
+        from under another firm's products and conversion rules. Usage is
+        therefore checked across the whole store, not just the caller's firm.
+        """
+        references = (
+            (
+                ConversionRule,
+                or_(
+                    ConversionRule.from_uom_id == uom_id,
+                    ConversionRule.to_uom_id == uom_id,
+                ),
+            ),
+            (UomGroupUnit, UomGroupUnit.uom_id == uom_id),
+            (ProductPackagingLevel, ProductPackagingLevel.uom_id == uom_id),
+            (
+                ProductUomConfig,
+                or_(
+                    ProductUomConfig.base_uom_id == uom_id,
+                    ProductUomConfig.inventory_uom_id == uom_id,
+                    ProductUomConfig.purchase_uom_id == uom_id,
+                    ProductUomConfig.sales_uom_id == uom_id,
+                    ProductUomConfig.default_receiving_uom_id == uom_id,
+                    ProductUomConfig.default_dispatch_uom_id == uom_id,
+                    ProductUomConfig.minimum_sales_uom_id == uom_id,
+                ),
+            ),
+            (
+                BusinessProfileUomDefault,
+                or_(
+                    BusinessProfileUomDefault.base_uom_id == uom_id,
+                    BusinessProfileUomDefault.inventory_uom_id == uom_id,
+                    BusinessProfileUomDefault.purchase_uom_id == uom_id,
+                    BusinessProfileUomDefault.sales_uom_id == uom_id,
+                ),
+            ),
+        )
+        for model, condition in references:
+            in_use = self._session.scalar(
+                select(model.id).where(condition, model.is_deleted.is_(False)).limit(1)
+            )
+            if in_use is not None:
+                raise ValidationError(
+                    "This unit is in use and cannot be deleted. Deactivate it instead."
+                )
+
     def list_uom_groups(self) -> list[UomGroup]:
+        """Return the unit groups by name."""
         return list(
             self._session.scalars(
                 select(UomGroup)
@@ -112,6 +202,7 @@ class UomService:
         )
 
     def create_uom_group(self, data: UomGroupCreate, *, actor_id: UUID) -> UomGroup:
+        """Add a unit group."""
         row = UomGroup(
             code=data.code.strip().upper(),
             name=data.name.strip(),
@@ -128,8 +219,11 @@ class UomService:
     def update_uom_group(
         self, group_id: UUID, data: UomGroupUpdate, *, actor_id: UUID
     ) -> UomGroup:
+        """Change a unit group."""
         row = self._session.scalar(
-            select(UomGroup).where(UomGroup.id == group_id, UomGroup.is_deleted.is_(False))
+            select(UomGroup).where(
+                UomGroup.id == group_id, UomGroup.is_deleted.is_(False)
+            )
         )
         if row is None:
             raise ResourceNotFoundError("UOM group not found.")
@@ -146,11 +240,23 @@ class UomService:
         return row
 
     def delete_uom_group(self, group_id: UUID, *, actor_id: UUID) -> None:
+        """Soft delete a group that holds no units."""
         row = self._session.scalar(
-            select(UomGroup).where(UomGroup.id == group_id, UomGroup.is_deleted.is_(False))
+            select(UomGroup).where(
+                UomGroup.id == group_id, UomGroup.is_deleted.is_(False)
+            )
         )
         if row is None:
             raise ResourceNotFoundError("UOM group not found.")
+        if self._session.scalar(
+            select(UomGroupUnit.id)
+            .where(
+                UomGroupUnit.uom_group_id == group_id,
+                UomGroupUnit.is_deleted.is_(False),
+            )
+            .limit(1)
+        ):
+            raise ValidationError("This group still holds units and cannot be deleted.")
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -158,6 +264,7 @@ class UomService:
         self._session.commit()
 
     def list_packaging_types(self) -> list[PackagingType]:
+        """Return the packaging types by name."""
         return list(
             self._session.scalars(
                 select(PackagingType)
@@ -169,6 +276,7 @@ class UomService:
     def create_packaging_type(
         self, data: PackagingTypeCreate, *, actor_id: UUID
     ) -> PackagingType:
+        """Add a packaging type."""
         row = PackagingType(
             code=data.code.strip().upper(),
             name=data.name.strip(),
@@ -185,9 +293,11 @@ class UomService:
     def update_packaging_type(
         self, packaging_type_id: UUID, data: PackagingTypeUpdate, *, actor_id: UUID
     ) -> PackagingType:
+        """Change a packaging type."""
         row = self._session.scalar(
             select(PackagingType).where(
-                PackagingType.id == packaging_type_id, PackagingType.is_deleted.is_(False)
+                PackagingType.id == packaging_type_id,
+                PackagingType.is_deleted.is_(False),
             )
         )
         if row is None:
@@ -205,13 +315,27 @@ class UomService:
         return row
 
     def delete_packaging_type(self, packaging_type_id: UUID, *, actor_id: UUID) -> None:
+        """Soft delete a packaging type no level uses."""
         row = self._session.scalar(
             select(PackagingType).where(
-                PackagingType.id == packaging_type_id, PackagingType.is_deleted.is_(False)
+                PackagingType.id == packaging_type_id,
+                PackagingType.is_deleted.is_(False),
             )
         )
         if row is None:
             raise ResourceNotFoundError("Packaging type not found.")
+        if self._session.scalar(
+            select(ProductPackagingLevel.id)
+            .where(
+                ProductPackagingLevel.packaging_type_id == packaging_type_id,
+                ProductPackagingLevel.is_deleted.is_(False),
+            )
+            .limit(1)
+        ):
+            raise ValidationError(
+                "This packaging type is used by a packaging level and cannot be "
+                "deleted."
+            )
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -226,13 +350,18 @@ class UomService:
         page: int,
         page_size: int,
     ) -> tuple[list[ConversionRule], int]:
+        """Return a page of this firm's conversion rules."""
         statement = select(ConversionRule).where(
             ConversionRule.firm_id == firm_scope,
             ConversionRule.is_deleted.is_(False),
         )
-        count = select(func.count()).select_from(ConversionRule).where(
-            ConversionRule.firm_id == firm_scope,
-            ConversionRule.is_deleted.is_(False),
+        count = (
+            select(func.count())
+            .select_from(ConversionRule)
+            .where(
+                ConversionRule.firm_id == firm_scope,
+                ConversionRule.is_deleted.is_(False),
+            )
         )
         for field, value in {
             ConversionRule.product_id: filters.product_id,
@@ -251,7 +380,10 @@ class UomService:
             on = filters.effective_on
             active_on = and_(
                 ConversionRule.effective_from <= on,
-                or_(ConversionRule.effective_to.is_(None), ConversionRule.effective_to >= on),
+                or_(
+                    ConversionRule.effective_to.is_(None),
+                    ConversionRule.effective_to >= on,
+                ),
             )
             statement = statement.where(active_on)
             count = count.where(active_on)
@@ -260,7 +392,7 @@ class UomService:
                 statement.order_by(
                     ConversionRule.product_id.asc(),
                     ConversionRule.from_uom_id.asc(),
-                    ConversionRule.version.desc(),
+                    ConversionRule.version_number.desc(),
                 )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
@@ -271,6 +403,7 @@ class UomService:
     def create_conversion_rule(
         self, data: ConversionRuleCreate, *, firm_scope: UUID, actor_id: UUID
     ) -> ConversionRule:
+        """Publish a conversion rule version for one unit pair."""
         row = ConversionRule(
             firm_id=firm_scope,
             business_profile_id=data.business_profile_id,
@@ -278,11 +411,11 @@ class UomService:
             from_uom_id=data.from_uom_id,
             to_uom_id=data.to_uom_id,
             conversion_factor=data.conversion_factor,
-            rounding_mode=data.rounding_mode.strip().upper(),
+            rounding_mode=self._rounding_mode(data.rounding_mode),
             precision_scale=data.precision_scale,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
-            version=data.version,
+            version_number=data.version,
             status=data.status.strip().upper(),
             reason=data.reason,
             created_by=actor_id,
@@ -309,6 +442,7 @@ class UomService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> ConversionRule:
+        """Change a conversion rule this firm owns."""
         row = self._session.scalar(
             select(ConversionRule).where(
                 ConversionRule.id == rule_id,
@@ -319,6 +453,13 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Conversion rule not found.")
         payload = data.model_dump(exclude_unset=True)
+        if "rounding_mode" in payload and payload["rounding_mode"] is not None:
+            payload["rounding_mode"] = self._rounding_mode(payload["rounding_mode"])
+        # The request field is still called version; the column behind it is
+        # version_number, because version is the concurrency counter and writing
+        # to it here would corrupt the check that protects this very update.
+        if "version" in payload:
+            payload["version_number"] = payload.pop("version")
         for field, value in payload.items():
             if isinstance(value, str):
                 value = value.strip().upper()
@@ -339,6 +480,7 @@ class UomService:
     def delete_conversion_rule(
         self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Retire a conversion rule and record the audit entry."""
         row = self._session.scalar(
             select(ConversionRule).where(
                 ConversionRule.id == rule_id,
@@ -359,14 +501,17 @@ class UomService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            before_data={"status": row.status, "version": row.version},
+            before_data={"status": row.status, "version": row.version_number},
         )
         self._session.commit()
 
     def convert_quantity(
         self, request: ConversionRequest, *, firm_scope: UUID
     ) -> ConversionResponse:
-        on_date = request.conversion_date or date.today()
+        """Convert a quantity with the rule in force on the given date."""
+        # utc_now(), not date.today(): the server's local date can already be
+        # tomorrow, which selects a rule that is not yet effective.
+        on_date = request.conversion_date or utc_now().date()
         rule = self._resolve_conversion_rule(
             firm_scope=firm_scope,
             product_id=request.product_id,
@@ -376,7 +521,7 @@ class UomService:
         )
         precision = Decimal("1").scaleb(-int(rule.precision_scale))
         converted = (request.quantity * rule.conversion_factor).quantize(
-            precision, rounding=ROUND_HALF_UP
+            precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
         )
         return ConversionResponse(
             quantity=request.quantity,
@@ -384,7 +529,7 @@ class UomService:
             from_uom_id=request.from_uom_id,
             to_uom_id=request.to_uom_id,
             conversion_factor=rule.conversion_factor,
-            version=rule.version,
+            version=rule.version_number,
             conversion_rule_id=rule.id,
             conversion_date=on_date,
         )
@@ -397,6 +542,7 @@ class UomService:
         data: BusinessProfileUomDefaultUpsert,
         actor_id: UUID,
     ) -> BusinessProfileUomDefault:
+        """Store a business profile's default unit behaviour."""
         row = self._session.scalar(
             select(BusinessProfileUomDefault).where(
                 BusinessProfileUomDefault.firm_id == firm_scope,
@@ -423,6 +569,7 @@ class UomService:
     def get_profile_default(
         self, *, firm_scope: UUID | None, profile_id: UUID
     ) -> BusinessProfileUomDefault | None:
+        """Return a business profile's default unit behaviour."""
         return self._session.scalar(
             select(BusinessProfileUomDefault).where(
                 BusinessProfileUomDefault.firm_id == firm_scope,
@@ -439,6 +586,7 @@ class UomService:
         data: ProductUomConfigUpsert,
         actor_id: UUID,
     ) -> ProductUomConfig:
+        """Store one product's unit selection and dimensions."""
         row = self._session.scalar(
             select(ProductUomConfig).where(
                 ProductUomConfig.firm_id == firm_scope,
@@ -462,7 +610,10 @@ class UomService:
         self._session.commit()
         return row
 
-    def get_product_config(self, *, firm_scope: UUID, product_id: UUID) -> ProductUomConfig | None:
+    def get_product_config(
+        self, *, firm_scope: UUID, product_id: UUID
+    ) -> ProductUomConfig | None:
+        """Return one product's unit configuration."""
         return self._session.scalar(
             select(ProductUomConfig).where(
                 ProductUomConfig.firm_id == firm_scope,
@@ -474,6 +625,7 @@ class UomService:
     def list_packaging_levels(
         self, *, firm_scope: UUID, product_id: UUID
     ) -> list[ProductPackagingLevel]:
+        """Return a product's packaging hierarchy in display order."""
         return list(
             self._session.scalars(
                 select(ProductPackagingLevel)
@@ -497,6 +649,7 @@ class UomService:
         data: PackagingLevelCreate,
         actor_id: UUID,
     ) -> ProductPackagingLevel:
+        """Add a level to a product's packaging hierarchy."""
         row = ProductPackagingLevel(
             firm_id=firm_scope,
             product_id=product_id,
@@ -534,6 +687,7 @@ class UomService:
         data: PackagingLevelUpdate,
         actor_id: UUID,
     ) -> ProductPackagingLevel:
+        """Change a packaging level."""
         row = self._session.scalar(
             select(ProductPackagingLevel).where(
                 ProductPackagingLevel.id == level_id,
@@ -564,6 +718,7 @@ class UomService:
         level_id: UUID,
         actor_id: UUID,
     ) -> None:
+        """Soft delete a packaging level."""
         row = self._session.scalar(
             select(ProductPackagingLevel).where(
                 ProductPackagingLevel.id == level_id,
@@ -580,19 +735,27 @@ class UomService:
         row.updated_by = actor_id
         self._session.commit()
 
-    def list_industry_templates(self, *, include_inactive: bool = False) -> list[IndustryTemplate]:
-        statement = select(IndustryTemplate).where(IndustryTemplate.is_deleted.is_(False))
+    def list_industry_templates(
+        self, *, include_inactive: bool = False
+    ) -> list[IndustryTemplate]:
+        """Return the industry UOM templates."""
+        statement = select(IndustryTemplate).where(
+            IndustryTemplate.is_deleted.is_(False)
+        )
         if not include_inactive:
             statement = statement.where(IndustryTemplate.status == "ACTIVE")
         return list(
             self._session.scalars(
-                statement.order_by(IndustryTemplate.industry_type.asc(), IndustryTemplate.code.asc())
+                statement.order_by(
+                    IndustryTemplate.industry_type.asc(), IndustryTemplate.code.asc()
+                )
             ).all()
         )
 
     def create_industry_template(
         self, data: IndustryTemplateCreate, *, actor_id: UUID
     ) -> IndustryTemplate:
+        """Add an industry UOM template."""
         row = IndustryTemplate(
             code=data.code.strip().upper(),
             name=data.name.strip(),
@@ -611,9 +774,11 @@ class UomService:
     def update_industry_template(
         self, template_id: UUID, data: IndustryTemplateUpdate, *, actor_id: UUID
     ) -> IndustryTemplate:
+        """Change an industry UOM template."""
         row = self._session.scalar(
             select(IndustryTemplate).where(
-                IndustryTemplate.id == template_id, IndustryTemplate.is_deleted.is_(False)
+                IndustryTemplate.id == template_id,
+                IndustryTemplate.is_deleted.is_(False),
             )
         )
         if row is None:
@@ -626,14 +791,18 @@ class UomService:
                     value = value.upper()
             setattr(row, field, value)
         row.updated_by = actor_id
-        self._flush_or_conflict("Industry template update conflicts with existing data.")
+        self._flush_or_conflict(
+            "Industry template update conflicts with existing data."
+        )
         self._session.commit()
         return row
 
     def delete_industry_template(self, template_id: UUID, *, actor_id: UUID) -> None:
+        """Soft delete an industry UOM template."""
         row = self._session.scalar(
             select(IndustryTemplate).where(
-                IndustryTemplate.id == template_id, IndustryTemplate.is_deleted.is_(False)
+                IndustryTemplate.id == template_id,
+                IndustryTemplate.is_deleted.is_(False),
             )
         )
         if row is None:
@@ -654,21 +823,36 @@ class UomService:
         on_date: date,
     ) -> ConversionRule:
         exact = self._session.scalars(
-            select(ConversionRule)
-            .where(
+            select(ConversionRule).where(
                 ConversionRule.firm_id == firm_scope,
                 ConversionRule.is_deleted.is_(False),
                 ConversionRule.status == "ACTIVE",
                 ConversionRule.from_uom_id == from_uom_id,
                 ConversionRule.to_uom_id == to_uom_id,
                 ConversionRule.effective_from <= on_date,
-                or_(ConversionRule.effective_to.is_(None), ConversionRule.effective_to >= on_date),
-                or_(ConversionRule.product_id == product_id, ConversionRule.product_id.is_(None)),
+                or_(
+                    ConversionRule.effective_to.is_(None),
+                    ConversionRule.effective_to >= on_date,
+                ),
+                or_(
+                    ConversionRule.product_id == product_id,
+                    ConversionRule.product_id.is_(None),
+                ),
             )
-            .order_by(ConversionRule.product_id.desc(), ConversionRule.version.desc())
+            # Specificity is expressed explicitly. Ordering by product_id DESC
+            # relied on where the backend sorts NULLs: PostgreSQL puts them
+            # first, so the firm-wide fallback beat the product's own rule and
+            # every quantity for that product converted with the wrong factor.
+            # SQLite sorts them last, which is why no unit test could see it.
+            .order_by(
+                case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
+                ConversionRule.version_number.desc(),
+            )
         ).first()
         if exact is None:
-            raise ValidationError("No active conversion rule is configured for this UOM pair.")
+            raise ValidationError(
+                "No active conversion rule is configured for this UOM pair."
+            )
         return exact
 
     def _flush_or_conflict(self, message: str) -> None:
