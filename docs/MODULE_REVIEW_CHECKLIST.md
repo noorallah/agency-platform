@@ -38,7 +38,11 @@ ones that produced a defect during the platform pass.
 - [ ] Firm-scoped queries filter on `firm_id`; nothing leaks across firms. Write a
       two-firm test that asserts the second firm sees nothing.
 - [ ] Uniqueness checks filter `is_deleted` **(found a real bug — user email)**.
-      A soft-deleted row must not permanently reserve a natural key.
+      A soft-deleted row must not permanently reserve a natural key. **The
+      database constraint has to agree with the service check** — `firms` kept
+      table-wide `UNIQUE` constraints while `_assert_unique` ignored deleted
+      rows, so re-creating a deleted firm passed validation and then died on the
+      constraint with a 500 **(found a real bug — firm code, GST and PAN)**.
 
 ### Persistence and migrations
 
@@ -115,6 +119,23 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 - [ ] Anything touching tenancy, cross-schema FKs, triggers or concurrency has an
       **integration test**; SQLite cannot express any of it.
 
+### Defects the `firms` pass added to this list
+
+- [ ] On a full-replacement `PUT`, an **optional field that is omitted inherits
+      the stored value** — it does not fall back to the system default. Every
+      tenancy field on `FirmUpdate` is optional, so renaming a firm rewrote its
+      storage mapping to `SHARED` with a null schema and stranded everything the
+      firm had written to its dedicated schema **(found a real bug)**.
+- [ ] **Anything provisioned once is immutable afterwards.** Nothing migrates a
+      firm's rows between stores and `provision_new_firm` runs only at creation,
+      so accepting a routing change on update either abandons the data or aims
+      the firm at a schema that was never built. Reject it in the service and
+      mark the field `readOnlyWhenEditing` in the desktop form.
+- [ ] **Two tenants can never be routed into one store.** The only uniqueness on
+      `firm_storage_mappings` is one row per firm, so two firms could name the
+      same schema and read each other's rows; soft-deleted firms count, because
+      their data is still sitting in that schema.
+
 ## Module inventory
 
 Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
@@ -125,7 +146,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `finance` | 30 | 0 | 0 | `test_finance_module` | **none** |
 | `common` (audit) | 1 | 0 | 0 | `test_audit_trail_api` | **none** |
 | `identity` | 29 | 0 | 2 | `test_identity_service`, `test_identity_hardening` | typed |
-| `firms` | 5 | 0 | 1 | **none** | typed |
+| `firms` | 5 | 0 | 0 | `test_firms_module` | typed |
 | `document_framework` | 15 | 0 | 1 | `test_document_framework` | widgets only |
 | `business` | 28 | 2 | 3 | `test_business_profile_framework` | typed |
 | `sales` (territory) | 44 | 2 | 0 | `test_sales_territory_route_management` | typed |
@@ -182,7 +203,7 @@ and typed; mostly cleanup.
 | 0d | **persistence conventions** | 2026-08-09 | FK naming collided on two FKs to one target, so `create_all` could not build the schema on PostgreSQL; `BaseEntity.version` never read or incremented | yes |
 | 1 | `sales_invoice` | 2026-08-09 | permission codes unseeded (whole API admin-only); every handler mis-called its service; the six tables never matched the ORM | yes — module now has a test |
 | 2 | `goods_receipt` | 2026-08-09 | cancel left stock posted; totals computed twice with different formulas; lines re-inserted on edit | yes |
-| 3 | `firms` | | | still no dedicated test |
+| 3 | `firms` | 2026-08-09 | soft delete burned the code, GST and PAN forever; a `PUT` omitting the optional tenancy fields re-pointed a dedicated firm at the shared schema; two firms could be routed into one schema; update carried no `after_data` and no `If-Match` | yes — module now has a test |
 | 4 | `purchase_invoice` | 2026-08-09 | `subtotal` folded in line charges; committed mid-write; `_flush_or_conflict` left the session unusable | yes |
 | 5 | `purchase_return` | 2026-08-09 | cancel left stock posted and its movements were unlinkable; `subtotal` folded in line charges | yes |
 | 6 | `delivery_note` | 2026-08-09 | lines re-inserted on edit, dangling downstream references | yes |

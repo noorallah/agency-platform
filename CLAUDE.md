@@ -32,7 +32,7 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-08-09 `pytest` is **green (173 unit + 4 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-08-09 `pytest` is **green (204 unit + 5 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
@@ -193,5 +193,6 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
 - `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. Automatic GL posting from invoices is **not** built: it needs a per-firm control-account mapping design. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
 - Config is `pydantic-settings` reading `backend/config/.env` with the `AGENCY_` prefix; env vars override the file. `config/.env` is never committed. Staging/production refuse to start with the development JWT key or without an explicit bootstrap admin password.
 - PostgreSQL 17 is the primary target; MySQL is supported by the connection layer but some constraints (the `UQ_user_firms_active_primary` and `UQ_users_email_active` partial indexes) are PostgreSQL-only — the matching service-level checks stay authoritative.
-- `users.email` is unique **only among live accounts**, so soft-deleting a user releases their address for re-onboarding. Filter `is_deleted` in any email lookup.
+- `users.email` is unique **only among live accounts**, so soft-deleting a user releases their address for re-onboarding. Filter `is_deleted` in any email lookup. `firms.code`, `gst_number` and `pan_number` work the same way since `20260809_0054` — partial indexes named `UQ_firms_<column>_active`.
+- **A firm's storage routing is fixed at creation.** `provision_new_firm` runs only on create and nothing migrates a firm's rows between stores, so `FirmService.update` rejects any change to `deployment_mode`/`schema_name`/`database_name`, and omitted tenancy fields inherit the stored mapping instead of defaulting to `SHARED`. Two firms are never allowed to share one database/schema pair — soft-deleted firms included, because their data is still there.
 - `refresh_tokens`, `login_history` and `password_history` have no automatic cleanup. `uv run python scripts/purge_identity_history.py --dry-run` reports what `IdentityRetentionService` would remove; `--yes` applies it. Nothing schedules this yet.

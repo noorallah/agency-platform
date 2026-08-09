@@ -2346,29 +2346,36 @@ ResourceDefinition<Firm> firmDefinition(
           helperText: 'ISO date, for example 2026-04-01.',
           required: true,
         ),
+        // Storage routing is fixed at creation: the firm's data is only ever
+        // provisioned once, and nothing migrates it between stores, so the
+        // backend refuses a change here. Show it, do not offer to edit it.
         FieldSpec(
           key: 'deployment_mode',
           label: 'Deployment mode',
-          helperText: 'SHARED, SCHEMA, or DATABASE.',
+          helperText: 'SHARED, SCHEMA, or DATABASE. Fixed once the firm exists.',
           section: 'Storage Mapping',
+          readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'database_type',
           label: 'Database type',
           helperText: 'Use platform engine (for example postgresql).',
           section: 'Storage Mapping',
+          readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'database_name',
           label: 'Database name',
           helperText: 'Required for SCHEMA and DATABASE modes.',
           section: 'Storage Mapping',
+          readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'schema_name',
           label: 'Schema name',
           helperText: 'Required for SCHEMA and DATABASE modes.',
           section: 'Storage Mapping',
+          readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'business_profile_id',

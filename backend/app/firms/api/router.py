@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
+from app.core.concurrency import ExpectedVersion
 from app.core.config.settings import Settings
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -81,12 +82,13 @@ def update_firm(
     firm_id: UUID,
     data: FirmUpdate,
     principal: PlatformPrincipal,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[FirmResponse]:
     """Replace one firm."""
     firm = FirmService(db, tenancy_settings=settings.tenancy).update(
-        firm_id, data, _actor_id(principal)
+        firm_id, data, _actor_id(principal), expected_version
     )
     return ApiResponse(data=FirmResponse.model_validate(firm))
 
