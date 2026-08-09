@@ -33,6 +33,7 @@ from app.finance.api.router import (
 from app.finance.models import (
     AccountingPeriod,
     GLPosting,
+    JournalLine,
     JournalStatus,
     LedgerBalance,
     PeriodStatus,
@@ -60,6 +61,7 @@ from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -692,3 +694,113 @@ def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
         ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
         ControlAccountPurpose.OUTPUT_TAX,
     )
+
+
+def test_sales_invoice_posts_receivable_revenue_and_tax() -> None:
+    """An approved invoice becomes a balanced journal, or is refused.
+
+    Finance was an island: no module outside app/finance imported it, so the
+    trial balance could only ever reflect hand-keyed journals.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm_id=firm.id, actor_id=actor_id)
+    finance = FinanceService(session)
+    receivable = finance.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1100",
+            name="Trade Receivables",
+            account_type=AccountTypeEnum.ASSET,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    tax_group = finance.create_account_group(
+        AccountGroupCreate(
+            code="DUT", name="Duties", account_type=AccountTypeEnum.LIABILITY
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    output_tax = finance.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=tax_group.id,
+            code="2200",
+            name="Output Tax",
+            account_type=AccountTypeEnum.LIABILITY,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    posting = DocumentPostingService(session)
+    invoice_id = uuid4()
+
+    # Nothing mapped yet: the post is refused and names every gap at once.
+    with pytest.raises(ValidationError) as unmapped:
+        posting.post_sales_invoice(
+            firm_id=firm.id,
+            invoice_id=invoice_id,
+            invoice_number="SI-1",
+            invoice_date=date(2026, 4, 15),
+            taxable_amount=Decimal("1000"),
+            tax_amount=Decimal("180"),
+            total_amount=Decimal("1180"),
+            actor_id=actor_id,
+        )
+    message = str(unmapped.value)
+    assert "ACCOUNTS_RECEIVABLE" in message
+    assert "SALES_REVENUE" in message
+    assert "OUTPUT_TAX" in message
+
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id,
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        receivable.id,
+        actor_id=actor_id,
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.SALES_REVENUE, book.sales.id, actor_id=actor_id
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.OUTPUT_TAX, output_tax.id, actor_id=actor_id
+    )
+
+    entry = posting.post_sales_invoice(
+        firm_id=firm.id,
+        invoice_id=invoice_id,
+        invoice_number="SI-1",
+        invoice_date=date(2026, 4, 15),
+        taxable_amount=Decimal("1000"),
+        tax_amount=Decimal("180"),
+        total_amount=Decimal("1180"),
+        actor_id=actor_id,
+    )
+    assert entry.status == JournalStatus.POSTED.value
+    assert entry.source_module == "sales_invoice"
+    assert entry.source_id == invoice_id
+    legs = {
+        line.ledger_account_id: (line.debit_amount, line.credit_amount)
+        for line in session.scalars(
+            select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+        ).all()
+    }
+    assert legs[receivable.id][0] == Decimal("1180.00")
+    assert legs[book.sales.id][1] == Decimal("1000.00")
+    assert legs[output_tax.id][1] == Decimal("180.00")
+
+    # A date no open period covers refuses the post rather than skipping it.
+    with pytest.raises(ValidationError) as closed:
+        posting.post_sales_invoice(
+            firm_id=firm.id,
+            invoice_id=uuid4(),
+            invoice_number="SI-2",
+            invoice_date=date(2027, 1, 5),
+            taxable_amount=Decimal("100"),
+            tax_amount=Decimal("0"),
+            total_amount=Decimal("100"),
+            actor_id=actor_id,
+        )
+    assert "No open accounting period" in str(closed.value)
