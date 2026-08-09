@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import get_args
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -28,10 +29,13 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
+from app.core.exceptions import ValidationError
 from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
+from app.finance.models import JournalEntry, JournalLine, JournalStatus
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.identity.system_seed import SYSTEM_PERMISSION_CODES
@@ -77,6 +81,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     """Build an isolated in-memory schema for one test."""
@@ -334,6 +339,11 @@ def test_sales_invoice_timeline_and_outstanding_endpoints_resolve() -> None:
     firm = _firm(session)
     service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
     scope = _scope(firm.id)
+    # Approval now posts to the general ledger, so the firm needs its chart of
+    # accounts, an open period and its control accounts first.
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
     service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
 
     timeline = get_sales_invoice_timeline(
@@ -436,3 +446,46 @@ def test_subtotal_is_the_taxable_base_and_charges_land_in_grand_total() -> None:
     assert response.line_discount_total == Decimal("40.0000")
     # ...and the 10.00 of line charges is still collected in the grand total.
     assert response.grand_total == Decimal("370.0000")
+
+
+def test_approval_posts_a_journal_and_fails_when_it_cannot() -> None:
+    """Approval and its journal succeed together or not at all.
+
+    Finance was an island: approving an invoice moved a customer balance and
+    left the ledger untouched. Posting is now part of approval, and an approved
+    invoice with no journal is exactly the silent gap that is not acceptable.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+
+    # Without control accounts the approval is refused, not silently skipped.
+    with pytest.raises(ValidationError) as unconfigured:
+        service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert "ACCOUNTS_RECEIVABLE" in str(unconfigured.value)
+    session.rollback()
+    assert (
+        service.get_invoice(invoice_id, firm_scope=firm.id).status
+        == SalesInvoiceStatus.DRAFT
+    ), "a refused posting must leave the invoice unapproved"
+
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    approved = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert approved.status == SalesInvoiceStatus.APPROVED.value
+
+    entry = session.scalar(
+        select(JournalEntry).where(
+            JournalEntry.source_module == "sales_invoice",
+            JournalEntry.source_id == invoice_id,
+        )
+    )
+    assert entry is not None, "approval must leave a journal behind"
+    assert entry.status == JournalStatus.POSTED.value
+    lines = session.scalars(
+        select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+    ).all()
+    debits = sum(line.debit_amount for line in lines)
+    credits = sum(line.credit_amount for line in lines)
+    assert debits == credits == Decimal("400.00"), "the entry must balance"

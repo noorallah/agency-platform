@@ -34,6 +34,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -511,6 +512,25 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_scope=firm_scope,
             actor_id=actor_id,
             commit=False,
+        )
+        # Posting runs before the commit and is allowed to fail the approval. An
+        # approved invoice with no journal is the gap this closes, so a missing
+        # control account or a closed period refuses the approval outright.
+        #
+        # Revenue takes everything that is not tax: the taxable base plus any
+        # line charges, header charges and round-off. Those belong in their own
+        # accounts and will move there when this posts a line per component;
+        # lumping them into revenue keeps the entry balanced and the receivable
+        # exactly equal to what the customer owes.
+        DocumentPostingService(self._session).post_sales_invoice(
+            firm_id=firm_scope,
+            invoice_id=row.id,
+            invoice_number=row.invoice_number,
+            invoice_date=row.invoice_date,
+            taxable_amount=self._q(row.grand_total - row.tax_total),
+            tax_amount=self._q(row.tax_total),
+            total_amount=self._q(row.grand_total),
+            actor_id=actor_id,
         )
         self._record_event(
             firm_id=firm_scope,
