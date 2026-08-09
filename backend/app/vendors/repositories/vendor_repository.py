@@ -27,23 +27,29 @@ class VendorRepository:
     }
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
 
     def add(self, vendor: Vendor) -> None:
+        """Stage a new row for insertion."""
         self._session.add(vendor)
 
     def add_category(self, category: VendorCategory) -> None:
+        """Add category."""
         self._session.add(category)
 
     def add_type(self, vendor_type: VendorType) -> None:
+        """Add type."""
         self._session.add(vendor_type)
 
     def flush(self) -> None:
+        """Push pending work so generated ids are available."""
         self._session.flush()
 
     def get(
         self, vendor_id: UUID, firm_scope: UUID | None, *, include_deleted: bool
     ) -> Vendor | None:
+        """Return one vendor the firm owns."""
         statement = (
             select(Vendor)
             .options(
@@ -70,6 +76,7 @@ class VendorRepository:
         gstin: str | None,
         excluding_id: UUID | None = None,
     ) -> UUID | None:
+        """Duplicate id."""
         conditions = [Vendor.code == code]
         if gstin:
             conditions.append(Vendor.gstin == gstin)
@@ -89,6 +96,7 @@ class VendorRepository:
         offset: int,
         limit: int,
     ) -> tuple[list[Vendor], int]:
+        """Return a page of vendors for the firm in scope."""
         statement = select(Vendor).options(
             selectinload(Vendor.contacts),
             selectinload(Vendor.addresses),
@@ -135,6 +143,7 @@ class VendorRepository:
     def summary(
         self, firm_scope: UUID | None, filters: VendorListFilters
     ) -> tuple[int, int, int, int, int, int]:
+        """Return vendor counts by status."""
         base = select(
             func.count(Vendor.id),
             func.sum(case((Vendor.status == "ACTIVE", 1), else_=0)),
@@ -156,6 +165,7 @@ class VendorRepository:
     def list_categories(
         self, firm_id: UUID, include_deleted: bool
     ) -> list[VendorCategory]:
+        """Return the firm's vendor categories."""
         statement = select(VendorCategory).where(VendorCategory.firm_id == firm_id)
         if not include_deleted:
             statement = statement.where(VendorCategory.is_deleted.is_(False))
@@ -164,6 +174,7 @@ class VendorRepository:
     def get_category(
         self, category_id: UUID, firm_id: UUID, *, include_deleted: bool
     ) -> VendorCategory | None:
+        """Return one vendor category the firm owns."""
         statement = select(VendorCategory).where(
             VendorCategory.id == category_id,
             VendorCategory.firm_id == firm_id,
@@ -173,6 +184,7 @@ class VendorRepository:
         return self._session.scalar(statement)
 
     def list_types(self, firm_id: UUID, include_deleted: bool) -> list[VendorType]:
+        """List types."""
         statement = select(VendorType).where(VendorType.firm_id == firm_id)
         if not include_deleted:
             statement = statement.where(VendorType.is_deleted.is_(False))
@@ -181,6 +193,7 @@ class VendorRepository:
     def get_type(
         self, type_id: UUID, firm_id: UUID, *, include_deleted: bool
     ) -> VendorType | None:
+        """Return type."""
         statement = select(VendorType).where(
             VendorType.id == type_id,
             VendorType.firm_id == firm_id,
@@ -194,6 +207,7 @@ class VendorRepository:
         firm_scope: UUID | None,
         filters: VendorListFilters,
     ) -> list[ColumnElement[bool]]:
+        """Conditions ."""
         conditions: list[ColumnElement[bool]] = []
         scoped_firm = firm_scope or filters.firm_id
         if scoped_firm is not None:

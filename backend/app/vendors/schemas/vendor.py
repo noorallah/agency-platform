@@ -51,16 +51,19 @@ class VendorContactInput(VendorSchema):
     @field_validator("phone", "mobile")
     @classmethod
     def normalize_phone(cls, value: str | None) -> str | None:
+        """Validate an optional phone number."""
         return validate_phone(value) if value else None
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
+        """Validate an optional email address."""
         return validate_email(value) if value else None
 
     @field_validator("status", mode="before")
     @classmethod
     def normalize_status(cls, value: str) -> str:
+        """Normalize status."""
         return value.strip().upper()
 
 
@@ -96,6 +99,7 @@ class VendorBankInput(VendorSchema):
     @field_validator("ifsc", "swift_code", mode="before")
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
+        """Normalize codes."""
         return value.strip().upper() if value else None
 
 
@@ -123,6 +127,7 @@ class VendorTaxInput(VendorSchema):
     )
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
+        """Normalize codes."""
         return value.strip().upper() if value else None
 
 
@@ -146,6 +151,7 @@ class VendorNoteInput(VendorSchema):
     @field_validator("note_type", mode="before")
     @classmethod
     def normalize_type(cls, value: str) -> str:
+        """Normalize type."""
         return value.strip().upper()
 
 
@@ -190,6 +196,7 @@ class VendorWrite(VendorSchema):
     )
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
+        """Normalize codes."""
         if value is None:
             return None
         normalized = value.strip().upper()
@@ -198,21 +205,25 @@ class VendorWrite(VendorSchema):
     @field_validator("name", "legal_name", "display_name", mode="before")
     @classmethod
     def normalize_names(cls, value: str | None) -> str | None:
+        """Normalize names."""
         return value.strip() if value else None
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
+        """Validate an optional email address."""
         return validate_email(value) if value else None
 
     @field_validator("phone", "mobile")
     @classmethod
     def normalize_phone(cls, value: str | None) -> str | None:
+        """Validate an optional phone number."""
         return validate_phone(value) if value else None
 
     @field_validator("website", mode="before")
     @classmethod
     def normalize_website(cls, value: str | None) -> str | None:
+        """Normalize website."""
         if value is None:
             return None
         normalized = value.strip()
@@ -220,6 +231,7 @@ class VendorWrite(VendorSchema):
 
     @model_validator(mode="after")
     def validate_nested_defaults(self) -> "VendorWrite":
+        """Validate nested defaults."""
         if sum(contact.is_primary for contact in self.contacts) > 1:
             raise ValueError("Only one primary contact is allowed.")
         if sum(address.is_primary for address in self.addresses) > 1:
@@ -256,11 +268,13 @@ class VendorCategoryWrite(VendorSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Uppercase and trim an identifier code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: str) -> str:
+        """Trim a display name."""
         return value.strip()
 
 
@@ -275,11 +289,13 @@ class VendorTypeWrite(VendorSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Uppercase and trim an identifier code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: str) -> str:
+        """Trim a display name."""
         return value.strip()
 
 
@@ -421,6 +437,7 @@ class VendorListFilters(VendorSchema):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "VendorListFilters":
+        """Reject a date window that ends before it starts."""
         if (
             self.created_from is not None
             and self.created_to is not None

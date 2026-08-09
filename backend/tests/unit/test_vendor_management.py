@@ -4,10 +4,11 @@ from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -38,7 +39,9 @@ def _firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
 
+
 def _session_factory() -> sessionmaker[Session]:
+    """Build an isolated in-memory schema for one test."""
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -49,6 +52,7 @@ def _session_factory() -> sessionmaker[Session]:
 
 
 def _firm(session: Session, code: str) -> Firm:
+    """Create an owning firm."""
     row = Firm(
         name=f"{code} Firm",
         code=code,
@@ -62,6 +66,7 @@ def _firm(session: Session, code: str) -> Firm:
 
 
 def _principal(user_id: UUID, permissions: set[str]) -> Principal:
+    """Build a principal carrying the given permissions."""
     return Principal(
         subject=user_id,
         roles=frozenset(),
@@ -77,6 +82,7 @@ def _principal(user_id: UUID, permissions: set[str]) -> Principal:
 
 
 def _vendor_data(code: str = "VEN-001", gstin: str = "GSTIN-001") -> VendorCreate:
+    """Build a valid vendor creation payload."""
     return VendorCreate.model_validate(
         {
             "code": code,
@@ -113,6 +119,7 @@ def _vendor_data(code: str = "VEN-001", gstin: str = "GSTIN-001") -> VendorCreat
 
 
 def test_vendor_schema_normalizes_and_validates_nested_defaults() -> None:
+    """Nested payloads normalise and reject more than one default row."""
     data = _vendor_data()
     assert data.code == "VEN-001"
     assert data.email == "vendors@acme.test"
@@ -133,6 +140,7 @@ def test_vendor_schema_normalizes_and_validates_nested_defaults() -> None:
 
 
 def test_vendor_service_enforces_uniqueness_scope_and_soft_delete_restore() -> None:
+    """Codes are unique per firm and a soft delete is reversible."""
     factory = _session_factory()
     session = factory()
     first_firm = _firm(session, "VEN-A")
@@ -183,6 +191,7 @@ def test_vendor_service_enforces_uniqueness_scope_and_soft_delete_restore() -> N
 
 
 def test_vendor_api_scope_permissions_and_listing() -> None:
+    """The router resolves firm scope and enforces its permission codes."""
     factory = _session_factory()
     setup = factory()
     firm = _firm(setup, "VEN-API")
@@ -221,3 +230,45 @@ def test_vendor_api_scope_permissions_and_listing() -> None:
     assert listed.pagination.total_records == 1
     with pytest.raises(AuthorizationError):
         require_permission("VENDOR_DELETE")(principal)
+
+
+def test_bulk_vendor_operations_are_audited() -> None:
+    """All five bulk endpoints wrote nothing at all.
+
+    Whether a change reached the audit trail depended on which button the user
+    pressed: the row menu recorded it, the toolbar did not.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "VBULK")
+    actor_id = uuid4()
+    service = VendorService(session)
+    first = service.create(
+        _vendor_data("VEN-B1", "GSTIN-B1"), firm_id=firm.id, actor_id=actor_id
+    )
+    second = service.create(
+        _vendor_data("VEN-B2", "GSTIN-B2"), firm_id=firm.id, actor_id=actor_id
+    )
+
+    service.bulk_status(
+        ids=[first.id, second.id],
+        status="INACTIVE",
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    updated = session.scalars(
+        select(AuditLog).where(AuditLog.action == "vendor.updated")
+    ).all()
+    assert {row.entity_id for row in updated} == {first.id, second.id}
+
+    service.bulk_delete(ids=[first.id], firm_scope=firm.id, actor_id=actor_id)
+    deleted = session.scalars(
+        select(AuditLog).where(AuditLog.action == "vendor.deleted")
+    ).all()
+    assert [row.entity_id for row in deleted] == [first.id]
+    assert all(row.firm_id == firm.id for row in deleted)
+
+    service.bulk_restore(ids=[first.id], firm_scope=firm.id, actor_id=actor_id)
+    restored = session.scalars(
+        select(AuditLog).where(AuditLog.action == "vendor.restored")
+    ).all()
+    assert [row.entity_id for row in restored] == [first.id]
