@@ -21,7 +21,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, class_mapper
 
 from app.branches.models import Branch
 from app.core.exceptions import ConflictError, ResourceNotFoundError
@@ -338,6 +338,52 @@ class TransactionalDocumentService:
                 actor_id,
             )
         return document_type, numbering_rule
+
+    # ---- child rows -------------------------------------------------------
+
+    def _apply_line_values(
+        self,
+        target: object,
+        source: object,
+        *,
+        actor_id: UUID,
+        preserve: tuple[str, ...] = (),
+    ) -> None:
+        """Copy a freshly built line's values onto the persisted row.
+
+        Document updates used to delete every line and re-insert it, which minted
+        a new UUID per line on every save. Downstream documents record
+        ``source_document_line_id`` as a bare UUID with no foreign key, so those
+        references silently dangled after an upstream edit.
+
+        Callers still build a transient line exactly as before; this transfers
+        its column values onto the existing row so the identity survives.
+
+        Args:
+            target: The persisted line to update.
+            source: A transient line carrying the new values.
+            actor_id: The user performing the edit.
+            preserve: Columns on ``target`` that must not be overwritten, such
+                as quantities the document accrues rather than restates.
+
+        """
+        skip = {
+            "id",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "updated_by",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by",
+            "version",
+            *preserve,
+        }
+        for attribute in class_mapper(type(target)).column_attrs:
+            if attribute.key in skip:
+                continue
+            setattr(target, attribute.key, getattr(source, attribute.key))
+        target.updated_by = actor_id  # type: ignore[attr-defined]
 
     # ---- lifecycle events -------------------------------------------------
 

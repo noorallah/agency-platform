@@ -55,6 +55,7 @@ from app.purchase.api.router import (
     restore_purchase_order,
     update_purchase_order,
 )
+from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderImportRequest,
@@ -1287,3 +1288,60 @@ def test_generated_purchase_order_number_carries_firm_branch_and_year() -> None:
 
     # prefix - company - branch - financial year - sequence
     assert row.po_number == f"PO-{firm.code}-{branch.code}-2026-2027-000001"
+
+
+def test_editing_a_purchase_order_keeps_its_line_identities() -> None:
+    """Purchase order line ids survive an edit.
+
+    Goods receipts and purchase invoices record which order line they came from
+    in source_document_line_id, a bare UUID with no foreign key. Re-inserting
+    lines on every save left those references pointing at rows that no longer
+    existed.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "EDIT")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+    service = PurchaseService(session)
+
+    def _payload(quantity: str) -> PurchaseOrderCreate:
+        return PurchaseOrderCreate(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            purchase_date=date(2026, 8, 4),
+            status=PurchaseOrderStatus.DRAFT,
+            lines=[
+                {
+                    "product_id": str(product.id),
+                    "ordered_quantity": quantity,
+                    "unit_price": "10",
+                }
+            ],
+        )
+
+    order = service.create_order(_payload("5"), firm_id=firm.id, actor_id=actor_id)
+    before = session.scalar(
+        select(PurchaseOrderLine.id).where(
+            PurchaseOrderLine.purchase_order_id == order.id
+        )
+    )
+    assert before is not None
+
+    service.update_order(
+        order.id,
+        PurchaseOrderUpdate(**_payload("8").model_dump(exclude={"po_number"})),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    rows = session.scalars(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].id == before, "the line must keep its identity across an edit"
+    assert rows[0].ordered_quantity == Decimal("8.0000")

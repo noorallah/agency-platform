@@ -763,9 +763,18 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
     ) -> None:
-        self._session.query(GoodsReceiptLine).filter(
-            GoodsReceiptLine.goods_receipt_id == receipt.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place;
+        # re-inserting them minted a new UUID per line on every save, and
+        # downstream documents reference those ids with no foreign key.
+        existing = {
+            existing_line.line_number: existing_line
+            for existing_line in self._session.scalars(
+                select(GoodsReceiptLine).where(
+                    GoodsReceiptLine.goods_receipt_id == receipt.id
+                )
+            ).all()
+        }
+        seen: set[int] = set()
         purchase_lines = {
             line.id: line
             for line in self._session.scalars(
@@ -891,7 +900,20 @@ class GoodsReceiptService(TransactionalDocumentService):
             total_rejected += self._q(line.rejected_quantity)
             total_damaged += self._q(line.damaged_quantity)
             total_free += self._q(line.free_quantity)
-            self._session.add(row)
+            persisted = existing.get(line.line_number)
+            if persisted is None:
+                self._session.add(row)
+            else:
+                self._apply_line_values(
+                    persisted,
+                    row,
+                    actor_id=actor_id,
+                    preserve=("inventory_transaction_id",),
+                )
+            seen.add(line.line_number)
+        for line_number, obsolete in existing.items():
+            if line_number not in seen:
+                self._session.delete(obsolete)
         self._session.flush()
         receipt.total_ordered_quantity = self._q(total_ordered)
         receipt.total_previous_received_quantity = self._q(total_previous)

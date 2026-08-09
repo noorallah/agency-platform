@@ -917,9 +917,18 @@ class PurchaseService(TransactionalDocumentService):
         data: PurchaseOrderCreate | PurchaseOrderUpdate,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(PurchaseOrderLine).filter(
-            PurchaseOrderLine.purchase_order_id == order.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place;
+        # re-inserting them minted a new UUID per line on every save, and
+        # downstream documents reference those ids with no foreign key.
+        existing = {
+            existing_line.line_number: existing_line
+            for existing_line in self._session.scalars(
+                select(PurchaseOrderLine).where(
+                    PurchaseOrderLine.purchase_order_id == order.id
+                )
+            ).all()
+        }
+        seen: set[int] = set()
         gross_total = Decimal("0")
         line_discount_total = Decimal("0")
         tax_total = Decimal("0")
@@ -999,10 +1008,23 @@ class PurchaseService(TransactionalDocumentService):
             self._validate_storage_scope(
                 order.firm_id, row.warehouse_id, row.storage_node_id
             )
-            self._session.add(row)
+            persisted = existing.get(idx)
+            if persisted is None:
+                self._session.add(row)
+            else:
+                self._apply_line_values(
+                    persisted,
+                    row,
+                    actor_id=actor_id,
+                    preserve=("received_quantity", "invoiced_quantity"),
+                )
+            seen.add(idx)
             gross_total += gross_amount
             line_discount_total += discount_amount
             tax_total += tax_amount
+        for line_number, obsolete in existing.items():
+            if line_number not in seen:
+                self._session.delete(obsolete)
         self._session.flush()
         # subtotal is the taxable base — gross less line discount, before tax —
         # which is what every other transactional document reports. This module

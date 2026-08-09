@@ -870,9 +870,18 @@ class DeliveryNoteService(TransactionalDocumentService):
         lines: list[DeliveryNoteLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(DeliveryNoteLine).filter(
-            DeliveryNoteLine.delivery_note_id == row.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place;
+        # re-inserting them minted a new UUID per line on every save, and
+        # downstream documents reference those ids with no foreign key.
+        existing = {
+            existing_line.line_number: existing_line
+            for existing_line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == row.id
+                )
+            ).all()
+        }
+        seen: set[int] = set()
         source_lines = {
             item.id: item
             for item in self._session.scalars(
@@ -996,7 +1005,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                 created_by=actor_id,
                 updated_by=actor_id,
             )
-            self._session.add(line)
+            persisted = existing.get(item.line_number)
+            if persisted is None:
+                self._session.add(line)
+            else:
+                self._apply_line_values(persisted, line, actor_id=actor_id, preserve=())
+            seen.add(item.line_number)
             totals["total_ordered_quantity"] += ordered_qty
             totals["total_previously_delivered_quantity"] += previous_delivered
             totals["total_current_delivery_quantity"] += delivered_qty
@@ -1004,6 +1018,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             totals["line_discount_total"] += discount
             totals["subtotal"] += taxable
             totals["tax_total"] += tax
+        for line_number, obsolete in existing.items():
+            if line_number not in seen:
+                self._session.delete(obsolete)
         return {key: self._q(value) for key, value in totals.items()}
 
     def _replace_attachments(
@@ -1145,9 +1162,6 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.flush()
 
     def _delete_children(self, note_id: UUID) -> None:
-        self._session.query(DeliveryNoteLine).filter(
-            DeliveryNoteLine.delivery_note_id == note_id
-        ).delete(synchronize_session=False)
         self._session.query(DeliveryNoteAttachment).filter(
             DeliveryNoteAttachment.delivery_note_id == note_id
         ).delete(synchronize_session=False)
