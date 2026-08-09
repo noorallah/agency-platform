@@ -56,6 +56,10 @@ from app.finance.services import (
     JournalEntryEngine,
     JournalLineData,
 )
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -71,6 +75,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for service and API tests."""
@@ -627,3 +632,63 @@ def test_locked_period_accepts_only_a_reopen() -> None:
         actor_id=actor_id,
     )
     assert reopened.status == PeriodStatus.OPEN.value
+
+
+def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
+    """A firm nominates where each kind of posting lands, and the map is checked.
+
+    Automatic GL posting never existed, and the consumer that once guessed
+    accounts by matching on their name was removed for good reason. Posting
+    rules belong in code; which account they land in belongs to the firm.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm_id=firm.id, actor_id=actor_id)
+    service = ControlAccountService(session)
+
+    # Nothing is mapped, and the error names what is missing rather than
+    # falling back to a guess.
+    with pytest.raises(ValidationError) as unmapped:
+        service.resolve(firm.id, ControlAccountPurpose.SALES_REVENUE)
+    assert "SALES_REVENUE" in str(unmapped.value)
+
+    service.assign(
+        firm.id,
+        ControlAccountPurpose.SALES_REVENUE,
+        book.sales.id,
+        actor_id=actor_id,
+    )
+    assert (
+        service.resolve(firm.id, ControlAccountPurpose.SALES_REVENUE) == book.sales.id
+    )
+
+    # Re-assigning replaces rather than duplicating; the unique constraint on
+    # (firm, purpose) means a second row would fail outright.
+    service.assign(firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id)
+    service.assign(firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id)
+    assert len(service.mapping(firm.id)) == 2
+
+    # Revenue cannot be pointed at an asset account.
+    with pytest.raises(ValidationError) as wrong_type:
+        service.assign(
+            firm.id,
+            ControlAccountPurpose.SALES_REVENUE,
+            book.cash.id,
+            actor_id=actor_id,
+        )
+    assert "INCOME" in str(wrong_type.value)
+
+    # And every remaining gap can be reported at once.
+    gaps = service.missing(
+        firm.id,
+        (
+            ControlAccountPurpose.SALES_REVENUE,
+            ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+            ControlAccountPurpose.OUTPUT_TAX,
+        ),
+    )
+    assert gaps == (
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        ControlAccountPurpose.OUTPUT_TAX,
+    )

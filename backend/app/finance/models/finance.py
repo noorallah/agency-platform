@@ -562,3 +562,31 @@ class VendorLedger(BaseEntity):
     days_overdue: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+
+
+class FirmControlAccount(BaseEntity):
+    """Map a document-posting purpose onto the account a firm posts it to.
+
+    Which account a firm's receivables or cost of goods sold lands in is that
+    firm's decision, and it differs between firms sharing a chart of accounts.
+    Keeping it in data lets the posting rules stay in code; the previous attempt
+    guessed accounts by matching on their name and was removed.
+    """
+
+    __tablename__ = "firm_control_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id", "purpose", name="UQ_firm_control_accounts_firm_purpose"
+        ),
+        Index("IX_firm_control_accounts_firm", "firm_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    purpose: Mapped[str] = mapped_column(String(40), nullable=False)
+    ledger_account_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
