@@ -24,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, class_mapper
 
 from app.branches.models import Branch
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import financial_year_label
 from app.core.utils.money import quantize_money
@@ -41,7 +42,6 @@ from app.document_framework.schemas import (
 from app.document_framework.services.document_framework_service import (
     DocumentFrameworkService,
 )
-from app.firms.models import Firm
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +97,7 @@ class TransactionalDocumentService:
         """Bind the service to a session it does not own."""
         self._session = session
         self._documents = DocumentFrameworkService(session)
+        self._firms = FirmMetadataReader(session)
 
     # ---- money and dates -------------------------------------------------
 
@@ -125,11 +126,9 @@ class TransactionalDocumentService:
             The shared ``YYYY-YYYY`` label.
 
         """
-        start_month = self._session.scalar(
-            select(Firm.financial_year_start).where(Firm.id == firm_id)
-        )
+        starts_on = self._firms.get(firm_id).financial_year_start
         return financial_year_label(
-            on, start_month=start_month.month if start_month is not None else 4
+            on, start_month=starts_on.month if starts_on is not None else 4
         )
 
     # ---- scope codes -----------------------------------------------------
@@ -155,7 +154,7 @@ class TransactionalDocumentService:
 
     def _company_code(self, firm_id: UUID) -> str | None:
         """Return the firm's own code for document numbering."""
-        code = self._session.scalar(select(Firm.code).where(Firm.id == firm_id))
+        code = self._firms.get(firm_id).code
         return code.upper() if code else None
 
     def _scope_codes(
