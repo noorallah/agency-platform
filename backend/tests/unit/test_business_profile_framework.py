@@ -4,13 +4,12 @@ from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.business.models import BusinessProfile
 from app.business.api.router import _resolve_firm_scope
+from app.business.models import BusinessProfile
 from app.business.schemas import (
     BusinessFeatureCreate,
     BusinessModuleCreate,
@@ -21,7 +20,7 @@ from app.business.services import BusinessProfileFrameworkService
 from app.business.system_seed import seed_business_profiles
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, ConflictError
 from app.core.security.authorization import Principal, require_platform_admin
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
@@ -210,3 +209,55 @@ def test_seed_business_profiles_prefills_distribution_profiles() -> None:
     assert profiles["PHARMACY"].default_settings["expiry_required"] is True
     assert profiles["FOOD"].default_settings["near_expiry_alert_days"] == 30
     assert profiles["WHOLESALE"].default_settings["bulk_pricing"] is True
+
+
+def test_a_feature_a_profile_enables_cannot_be_deleted() -> None:
+    """Deleting the master row revokes the capability for every firm at once.
+
+    ``resolve_capabilities`` skips deleted features, so removing one does not
+    tidy a catalogue -- it makes ``require_feature`` start rejecting writes that
+    the firms on that profile were making the day before. ``delete_profile``
+    already refuses while an assignment exists; this is the same rule one level
+    down.
+    """
+    session = _session_factory()()
+    service = BusinessProfileFrameworkService(session)
+    actor = uuid4()
+    profile = service.create_profile(
+        BusinessProfileCreate(
+            code="PHARMA_X",
+            name="Pharma",
+            industry_type="PHARMA",
+            status="ACTIVE",
+            is_default=True,
+        ),
+        actor,
+    )
+    feature = service.create_feature(
+        BusinessFeatureCreate(
+            code="BATCH_TRACKING_X",
+            name="Batch tracking",
+            default_enabled=False,
+        ),
+        actor,
+    )
+    module = service.create_module(
+        BusinessModuleCreate(
+            code="BATCHES_X",
+            name="Batches",
+            ui_route="batches",
+            default_enabled=False,
+        ),
+        actor,
+    )
+    service.set_profile_features(profile.id, [feature.id], actor)
+    service.set_profile_modules(profile.id, [module.id], actor)
+
+    with pytest.raises(ConflictError, match="still enable this feature"):
+        service.delete_feature(feature.id, actor)
+    with pytest.raises(ConflictError, match="still enable this module"):
+        service.delete_module(module.id, actor)
+
+    # Disabled everywhere, it can go.
+    service.set_profile_features(profile.id, [], actor)
+    service.delete_feature(feature.id, actor)

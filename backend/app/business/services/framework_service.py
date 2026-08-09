@@ -216,8 +216,50 @@ class BusinessProfileFrameworkService:
         self._session.commit()
         return feature
 
+    def _assert_feature_unused(self, feature_id: UUID) -> None:
+        """Refuse to delete a feature a profile still enables.
+
+        ``resolve_capabilities`` skips deleted features, so removing the master
+        row does not merely tidy a catalogue: every firm on a profile that
+        enabled it loses the capability at once, and ``require_feature`` starts
+        rejecting writes those firms were making yesterday. ``delete_profile``
+        already refuses while an assignment exists; this is the same rule one
+        level down.
+        """
+        enabled = self._session.scalar(
+            select(ProfileFeature.id)
+            .where(
+                ProfileFeature.feature_id == feature_id,
+                ProfileFeature.is_enabled.is_(True),
+                ProfileFeature.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if enabled is not None:
+            raise ConflictError(
+                "Business profiles still enable this feature; disable it there first."
+            )
+
+    def _assert_module_unused(self, module_id: UUID) -> None:
+        """Refuse to delete a module a profile still enables."""
+        enabled = self._session.scalar(
+            select(ProfileModule.id)
+            .where(
+                ProfileModule.module_id == module_id,
+                ProfileModule.is_enabled.is_(True),
+                ProfileModule.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if enabled is not None:
+            raise ConflictError(
+                "Business profiles still enable this module; disable it there first."
+            )
+
     def delete_feature(self, feature_id: UUID, actor_id: UUID) -> None:
+        """Soft delete a feature no profile still enables."""
         feature = self.get_feature(feature_id)
+        self._assert_feature_unused(feature.id)
         feature.is_deleted = True
         feature.deleted_at = utc_now()
         feature.deleted_by = actor_id
@@ -292,7 +334,9 @@ class BusinessProfileFrameworkService:
         return module
 
     def delete_module(self, module_id: UUID, actor_id: UUID) -> None:
+        """Soft delete a module no profile still enables."""
         module = self.get_module(module_id)
+        self._assert_module_unused(module.id)
         module.is_deleted = True
         module.deleted_at = utc_now()
         module.deleted_by = actor_id
