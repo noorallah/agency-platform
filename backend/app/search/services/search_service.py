@@ -1,14 +1,16 @@
 """Cross-module global search service with permission and firm awareness."""
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import Select, String, cast, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessFeature, BusinessProfile
+from app.core.database.entity import BaseEntity
 from app.core.security.authorization import Principal
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote
@@ -38,6 +40,8 @@ from app.vendors.models import Vendor
 
 @dataclass(frozen=True, slots=True)
 class SearchDefinition:
+    """One searchable entity: where it lives, who may see it, what matches."""
+
     entity_type: str
     model: type
     module: str
@@ -54,46 +58,538 @@ class SearchDefinition:
 
 
 _DEFINITIONS: tuple[SearchDefinition, ...] = (
-    SearchDefinition("users", User, "administration", "users", "user", "USER_VIEW", False, None, ("full_name", "email"), category="organization"),
-    SearchDefinition("roles", Role, "administration", "roles", "shield", "ROLE_VIEW", False, "firm_id", ("name", "code"), category="organization"),
-    SearchDefinition("permissions", Permission, "administration", "permissions", "key", "PERMISSION_VIEW", False, None, ("name", "code"), category="organization"),
-    SearchDefinition("firms", Firm, "administration", "user-firms", "apartment", "FIRM_VIEW", False, None, ("name", "code"), subtitle_columns=("city", "state"), status_column="is_active", category="organization"),
-    SearchDefinition("business_profiles", BusinessProfile, "administration", "business-profiles", "business", "PLATFORM_VIEW", True, None, ("name", "code", "industry_type"), status_column="status", category="masters"),
-    SearchDefinition("feature_flags", BusinessFeature, "administration", "feature-management", "toggle", "PLATFORM_VIEW", True, None, ("name", "code"), subtitle_columns=("category",), status_column="is_active", category="masters"),
-    SearchDefinition("customers", Customer, "masters", "customers", "groups", "CUSTOMER_VIEW", False, "firm_id", ("name", "code"), subtitle_columns=("email", "phone"), status_column="status", category="masters"),
-    SearchDefinition("vendors", Vendor, "masters", "vendors", "store", "VENDOR_VIEW", False, "firm_id", ("name", "code"), subtitle_columns=("email", "phone"), status_column="status", category="masters"),
-    SearchDefinition("products", Product, "masters", "products", "inventory", "PRODUCT_VIEW", False, "firm_id", ("name", "code", "barcode", "qr_code"), status_column="status", category="masters"),
-    SearchDefinition("purchase_orders", PurchaseOrder, "purchases", "purchases", "shopping_cart", "PURCHASE_VIEW", False, "firm_id", ("po_number", "reference_number", "external_reference"), subtitle_columns=("vendor_contact",), status_column="status", category="masters"),
-    SearchDefinition("sales_orders", SalesOrder, "salesOrders", "sales-orders", "point_of_sale", "SALES_VIEW", False, "firm_id", ("order_number", "reference_number", "customer_reference"), subtitle_columns=("remarks",), status_column="status", category="masters"),
-    SearchDefinition("delivery_notes", DeliveryNote, "deliveryNotes", "delivery-notes", "local_shipping", "SALES_VIEW", False, "firm_id", ("delivery_note_number", "sales_order_reference", "vehicle"), subtitle_columns=("driver",), status_column="status", category="masters"),
-    SearchDefinition("purchase_invoices", PurchaseInvoice, "purchaseInvoices", "purchase-invoices", "request_quote", "PURCHASE_VIEW", False, "firm_id", ("invoice_number", "supplier_invoice_number", "reference_number"), subtitle_columns=("payment_terms",), status_column="status", category="masters"),
-    SearchDefinition("sales_invoices", SalesInvoice, "salesInvoices", "sales-invoices", "receipt_long", "SALES_VIEW", False, "firm_id", ("invoice_number", "customer_invoice_number", "reference_number"), subtitle_columns=("payment_terms",), status_column="status", category="masters"),
-    SearchDefinition("purchase_returns", PurchaseReturn, "purchaseReturns", "purchase-returns", "assignment_return", "PURCHASE_VIEW", False, "firm_id", ("return_number", "supplier_return_number", "reference_number"), subtitle_columns=("return_reason",), status_column="status", category="masters"),
-    SearchDefinition("goods_receipts", GoodsReceipt, "goodsReceipts", "receipts", "receipt_long", "PURCHASE_VIEW", False, "firm_id", ("grn_number", "purchase_order_number", "invoice_reference"), subtitle_columns=("vehicle_number", "transport_details"), status_column="status", category="masters"),
-    SearchDefinition("product_categories", ProductCategory, "masters", "products", "category", "PRODUCT_VIEW", False, "firm_id", ("name", "code", "path"), status_column="is_active", category="masters"),
-    SearchDefinition("tax_systems", TaxSystem, "administration", "tax-systems", "account_balance", "TAX_VIEW", False, "firm_id", ("name", "code", "display_name"), status_column="status", category="tax"),
-    SearchDefinition("tax_profiles", TaxProfile, "administration", "tax-profiles", "receipt_long", "TAX_VIEW", False, "firm_id", ("name", "code", "label"), status_column="status", category="tax"),
-    SearchDefinition("tax_rules", TaxRule, "administration", "tax-rules", "rule", "TAX_RULE_VIEW", False, "firm_id", ("name", "code"), status_column="status", badge_columns=("priority", "version_number"), category="tax"),
-    SearchDefinition("uom", Uom, "administration", "uoms", "straighten", "UOM_VIEW", False, None, ("name", "code", "symbol"), status_column="status", category="masters"),
-    SearchDefinition("packaging", PackagingType, "administration", "packaging-types", "inventory_2", "PACKAGING_MANAGE", False, None, ("name", "code"), status_column="status", category="masters"),
-    SearchDefinition("territories", SalesTerritoryNode, "sales", "territories", "route", "TERRITORY_VIEW", False, "firm_id", ("name", "code", "path"), status_column="status", category="organization"),
-    SearchDefinition("routes", SalesTerritoryNode, "sales", "routes", "alt_route", "TERRITORY_VIEW", False, "firm_id", ("name", "code"), status_column="status", category="organization"),
-    SearchDefinition("branches", Branch, "masters", "branches", "account_tree", "BRANCH_VIEW", False, "firm_id", ("name", "code"), status_column="status", category="organization"),
-    SearchDefinition("warehouses", Warehouse, "masters", "warehouses", "warehouse", "WAREHOUSE_VIEW", False, "firm_id", ("name", "code"), status_column="status", category="organization"),
-    SearchDefinition("storage_areas", WarehouseStorageNode, "masters", "storage-areas", "shelves", "STORAGE_AREA_MANAGE", False, None, ("name", "code", "path"), status_column="is_active", category="organization"),
-    SearchDefinition("inventory", InventoryRecord, "inventory", "inventory", "inventory_2", "INVENTORY_VIEW", False, "firm_id", ("storage_locator",), subtitle_columns=("status",), status_column="status", badge_columns=("current_quantity", "available_quantity"), category="inventory"),
-    SearchDefinition("opening_stock", OpeningStockBatch, "inventory", "opening-stock", "upload_file", "INVENTORY_VIEW", False, "firm_id", ("reference_number",), subtitle_columns=("status",), status_column="status", category="inventory"),
-    SearchDefinition("stock_ledger", StockLedgerEntry, "inventory", "stock-ledger", "receipt", "INVENTORY_LEDGER_VIEW", False, "firm_id", ("reference_number", "reference_type"), subtitle_columns=("transaction_type",), category="inventory"),
-    SearchDefinition("batch", BatchRecord, "inventory", "batches", "layers", "BATCH_VIEW", False, "firm_id", ("batch_number", "supplier_batch", "internal_batch"), status_column="status", category="inventory"),
-    SearchDefinition("lot", LotRecord, "inventory", "lots", "dataset", "BATCH_VIEW", False, "firm_id", ("lot_number",), status_column="status", category="inventory"),
-    SearchDefinition("serial", SerialNumber, "inventory", "serials", "qr_code_scanner", "SERIAL_VIEW", False, "firm_id", ("serial_number",), status_column="status", category="inventory"),
-    SearchDefinition("expiry", BatchRecord, "inventory", "expiry", "event_busy", "BATCH_VIEW", False, "firm_id", ("batch_number",), subtitle_columns=("expiry_date",), status_column="status", category="inventory"),
-    SearchDefinition("geo_masters", GeoCountry, "settings", "geo-masters", "public", "TERRITORY_VIEW", False, None, ("name", "code", "iso2", "iso3"), status_column="is_active", category="organization"),
-    SearchDefinition("geo_masters", GeoState, "settings", "geo-masters", "map", "TERRITORY_VIEW", False, None, ("name", "code"), status_column="is_active", category="organization"),
-    SearchDefinition("geo_masters", GeoDistrict, "settings", "geo-masters", "location_city", "TERRITORY_VIEW", False, None, ("name", "code"), status_column="is_active", category="organization"),
-    SearchDefinition("geo_masters", GeoCity, "settings", "geo-masters", "location_on", "TERRITORY_VIEW", False, None, ("name", "code"), status_column="is_active", category="organization"),
-    SearchDefinition("geo_masters", GeoLocality, "settings", "geo-masters", "pin_drop", "TERRITORY_VIEW", False, None, ("name",), status_column="is_active", category="organization"),
-    SearchDefinition("settings", TaxSettings, "settings", "tax-settings", "settings", "TAX_MANAGE_SETTINGS", False, "firm_id", ("primary_label", "component_label", "profile_label"), category="tax"),
+    SearchDefinition(
+        "users",
+        User,
+        "administration",
+        "users",
+        "user",
+        "USER_VIEW",
+        False,
+        None,
+        ("full_name", "email"),
+        category="organization",
+    ),
+    SearchDefinition(
+        "roles",
+        Role,
+        "administration",
+        "roles",
+        "shield",
+        "ROLE_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        category="organization",
+    ),
+    SearchDefinition(
+        "permissions",
+        Permission,
+        "administration",
+        "permissions",
+        "key",
+        "PERMISSION_VIEW",
+        False,
+        None,
+        ("name", "code"),
+        category="organization",
+    ),
+    SearchDefinition(
+        "firms",
+        Firm,
+        "administration",
+        "user-firms",
+        "apartment",
+        "FIRM_VIEW",
+        False,
+        None,
+        ("name", "code"),
+        subtitle_columns=("city", "state"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "business_profiles",
+        BusinessProfile,
+        "administration",
+        "business-profiles",
+        "business",
+        "PLATFORM_VIEW",
+        True,
+        None,
+        ("name", "code", "industry_type"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "feature_flags",
+        BusinessFeature,
+        "administration",
+        "feature-management",
+        "toggle",
+        "PLATFORM_VIEW",
+        True,
+        None,
+        ("name", "code"),
+        subtitle_columns=("category",),
+        status_column="is_active",
+        category="masters",
+    ),
+    SearchDefinition(
+        "customers",
+        Customer,
+        "masters",
+        "customers",
+        "groups",
+        "CUSTOMER_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        subtitle_columns=("email", "phone"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "vendors",
+        Vendor,
+        "masters",
+        "vendors",
+        "store",
+        "VENDOR_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        subtitle_columns=("email", "phone"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "products",
+        Product,
+        "masters",
+        "products",
+        "inventory",
+        "PRODUCT_VIEW",
+        False,
+        "firm_id",
+        ("name", "code", "barcode", "qr_code"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "purchase_orders",
+        PurchaseOrder,
+        "purchases",
+        "purchases",
+        "shopping_cart",
+        "PURCHASE_VIEW",
+        False,
+        "firm_id",
+        ("po_number", "reference_number", "external_reference"),
+        subtitle_columns=("vendor_contact",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "sales_orders",
+        SalesOrder,
+        "salesOrders",
+        "sales-orders",
+        "point_of_sale",
+        "SALES_VIEW",
+        False,
+        "firm_id",
+        ("order_number", "reference_number", "customer_reference"),
+        subtitle_columns=("remarks",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "delivery_notes",
+        DeliveryNote,
+        "deliveryNotes",
+        "delivery-notes",
+        "local_shipping",
+        "SALES_VIEW",
+        False,
+        "firm_id",
+        ("delivery_note_number", "sales_order_reference", "vehicle"),
+        subtitle_columns=("driver",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "purchase_invoices",
+        PurchaseInvoice,
+        "purchaseInvoices",
+        "purchase-invoices",
+        "request_quote",
+        "PURCHASE_VIEW",
+        False,
+        "firm_id",
+        ("invoice_number", "supplier_invoice_number", "reference_number"),
+        subtitle_columns=("payment_terms",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "sales_invoices",
+        SalesInvoice,
+        "salesInvoices",
+        "sales-invoices",
+        "receipt_long",
+        "SALES_VIEW",
+        False,
+        "firm_id",
+        ("invoice_number", "customer_invoice_number", "reference_number"),
+        subtitle_columns=("payment_terms",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "purchase_returns",
+        PurchaseReturn,
+        "purchaseReturns",
+        "purchase-returns",
+        "assignment_return",
+        "PURCHASE_VIEW",
+        False,
+        "firm_id",
+        ("return_number", "supplier_return_number", "reference_number"),
+        subtitle_columns=("return_reason",),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "goods_receipts",
+        GoodsReceipt,
+        "goodsReceipts",
+        "receipts",
+        "receipt_long",
+        "PURCHASE_VIEW",
+        False,
+        "firm_id",
+        ("grn_number", "purchase_order_number", "invoice_reference"),
+        subtitle_columns=("vehicle_number", "transport_details"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "product_categories",
+        ProductCategory,
+        "masters",
+        "products",
+        "category",
+        "PRODUCT_VIEW",
+        False,
+        "firm_id",
+        ("name", "code", "path"),
+        status_column="is_active",
+        category="masters",
+    ),
+    SearchDefinition(
+        "tax_systems",
+        TaxSystem,
+        "administration",
+        "tax-systems",
+        "account_balance",
+        "TAX_VIEW",
+        False,
+        "firm_id",
+        ("name", "code", "display_name"),
+        status_column="status",
+        category="tax",
+    ),
+    SearchDefinition(
+        "tax_profiles",
+        TaxProfile,
+        "administration",
+        "tax-profiles",
+        "receipt_long",
+        "TAX_VIEW",
+        False,
+        "firm_id",
+        ("name", "code", "label"),
+        status_column="status",
+        category="tax",
+    ),
+    SearchDefinition(
+        "tax_rules",
+        TaxRule,
+        "administration",
+        "tax-rules",
+        "rule",
+        "TAX_RULE_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        status_column="status",
+        badge_columns=("priority", "version_number"),
+        category="tax",
+    ),
+    SearchDefinition(
+        "uom",
+        Uom,
+        "administration",
+        "uoms",
+        "straighten",
+        "UOM_VIEW",
+        False,
+        None,
+        ("name", "code", "symbol"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "packaging",
+        PackagingType,
+        "administration",
+        "packaging-types",
+        "inventory_2",
+        "PACKAGING_MANAGE",
+        False,
+        None,
+        ("name", "code"),
+        status_column="status",
+        category="masters",
+    ),
+    SearchDefinition(
+        "territories",
+        SalesTerritoryNode,
+        "sales",
+        "territories",
+        "route",
+        "TERRITORY_VIEW",
+        False,
+        "firm_id",
+        ("name", "code", "path"),
+        status_column="status",
+        category="organization",
+    ),
+    SearchDefinition(
+        "routes",
+        SalesTerritoryNode,
+        "sales",
+        "routes",
+        "alt_route",
+        "TERRITORY_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        status_column="status",
+        category="organization",
+    ),
+    SearchDefinition(
+        "branches",
+        Branch,
+        "masters",
+        "branches",
+        "account_tree",
+        "BRANCH_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        status_column="status",
+        category="organization",
+    ),
+    SearchDefinition(
+        "warehouses",
+        Warehouse,
+        "masters",
+        "warehouses",
+        "warehouse",
+        "WAREHOUSE_VIEW",
+        False,
+        "firm_id",
+        ("name", "code"),
+        status_column="status",
+        category="organization",
+    ),
+    SearchDefinition(
+        "storage_areas",
+        WarehouseStorageNode,
+        "masters",
+        "storage-areas",
+        "shelves",
+        "STORAGE_AREA_MANAGE",
+        False,
+        None,
+        ("name", "code", "path"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "inventory",
+        InventoryRecord,
+        "inventory",
+        "inventory",
+        "inventory_2",
+        "INVENTORY_VIEW",
+        False,
+        "firm_id",
+        ("storage_locator",),
+        subtitle_columns=("status",),
+        status_column="status",
+        badge_columns=("current_quantity", "available_quantity"),
+        category="inventory",
+    ),
+    SearchDefinition(
+        "opening_stock",
+        OpeningStockBatch,
+        "inventory",
+        "opening-stock",
+        "upload_file",
+        "INVENTORY_VIEW",
+        False,
+        "firm_id",
+        ("reference_number",),
+        subtitle_columns=("status",),
+        status_column="status",
+        category="inventory",
+    ),
+    SearchDefinition(
+        "stock_ledger",
+        StockLedgerEntry,
+        "inventory",
+        "stock-ledger",
+        "receipt",
+        "INVENTORY_LEDGER_VIEW",
+        False,
+        "firm_id",
+        ("reference_number", "reference_type"),
+        subtitle_columns=("transaction_type",),
+        category="inventory",
+    ),
+    SearchDefinition(
+        "batch",
+        BatchRecord,
+        "inventory",
+        "batches",
+        "layers",
+        "BATCH_VIEW",
+        False,
+        "firm_id",
+        ("batch_number", "supplier_batch", "internal_batch"),
+        status_column="status",
+        category="inventory",
+    ),
+    SearchDefinition(
+        "lot",
+        LotRecord,
+        "inventory",
+        "lots",
+        "dataset",
+        "BATCH_VIEW",
+        False,
+        "firm_id",
+        ("lot_number",),
+        status_column="status",
+        category="inventory",
+    ),
+    SearchDefinition(
+        "serial",
+        SerialNumber,
+        "inventory",
+        "serials",
+        "qr_code_scanner",
+        "SERIAL_VIEW",
+        False,
+        "firm_id",
+        ("serial_number",),
+        status_column="status",
+        category="inventory",
+    ),
+    SearchDefinition(
+        "expiry",
+        BatchRecord,
+        "inventory",
+        "expiry",
+        "event_busy",
+        "BATCH_VIEW",
+        False,
+        "firm_id",
+        ("batch_number",),
+        subtitle_columns=("expiry_date",),
+        status_column="status",
+        category="inventory",
+    ),
+    SearchDefinition(
+        "geo_masters",
+        GeoCountry,
+        "settings",
+        "geo-masters",
+        "public",
+        "TERRITORY_VIEW",
+        False,
+        None,
+        ("name", "code", "iso2", "iso3"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "geo_masters",
+        GeoState,
+        "settings",
+        "geo-masters",
+        "map",
+        "TERRITORY_VIEW",
+        False,
+        None,
+        ("name", "code"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "geo_masters",
+        GeoDistrict,
+        "settings",
+        "geo-masters",
+        "location_city",
+        "TERRITORY_VIEW",
+        False,
+        None,
+        ("name", "code"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "geo_masters",
+        GeoCity,
+        "settings",
+        "geo-masters",
+        "location_on",
+        "TERRITORY_VIEW",
+        False,
+        None,
+        ("name", "code"),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "geo_masters",
+        GeoLocality,
+        "settings",
+        "geo-masters",
+        "pin_drop",
+        "TERRITORY_VIEW",
+        False,
+        None,
+        ("name",),
+        status_column="is_active",
+        category="organization",
+    ),
+    SearchDefinition(
+        "settings",
+        TaxSettings,
+        "settings",
+        "tax-settings",
+        "settings",
+        "TAX_MANAGE_SETTINGS",
+        False,
+        "firm_id",
+        ("primary_label", "component_label", "profile_label"),
+        category="tax",
+    ),
 )
 
 _CATEGORY_ENTITY_TYPES: dict[SearchCategory, set[str]] = {
@@ -144,6 +640,7 @@ class SearchService:
     """Execute permission-aware global search over implemented modules."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
 
     def search(
@@ -157,8 +654,11 @@ class SearchService:
         entity_types: set[str] | None = None,
         include_deleted: bool = False,
     ) -> SearchResultPage:
+        """Search every entity the caller may see, in the firm in scope."""
         normalized_query = query.strip()
-        allowed_types = _CATEGORY_ENTITY_TYPES.get(category, _CATEGORY_ENTITY_TYPES["all"])
+        allowed_types = _CATEGORY_ENTITY_TYPES.get(
+            category, _CATEGORY_ENTITY_TYPES["all"]
+        )
         if entity_types is not None:
             allowed_types = allowed_types.intersection(entity_types)
         per_entity_limit = max(page_size, 20)
@@ -189,7 +689,9 @@ class SearchService:
             results=hits[start:end],
         )
 
-    def _is_accessible(self, definition: SearchDefinition, principal: Principal) -> bool:
+    def _is_accessible(
+        self, definition: SearchDefinition, principal: Principal
+    ) -> bool:
         if definition.platform_admin_only and not principal.is_platform_admin:
             return False
         if definition.permission is None:
@@ -206,15 +708,24 @@ class SearchService:
         limit: int,
     ) -> list[SearchResultItem]:
         model = definition.model
-        statement = select(model)
+        statement: Select[tuple[Any]] = select(model)
         if hasattr(model, "is_deleted") and not include_deleted:
-            statement = statement.where(getattr(model, "is_deleted").is_(False))
+            statement = statement.where(model.is_deleted.is_(False))
         if definition.firm_column is not None:
+            # Firm-owned rows are searched inside one firm, never across firms.
+            # Platform admins used to skip the filter entirely, so in a SHARED
+            # deployment -- where one schema holds every firm's rows -- an admin
+            # with no firm selected got results from all of them in one list.
+            # A null firm column means the row belongs to the platform rather
+            # than to a firm (roles are the case that matters), so those stay
+            # visible either way.
+            column = getattr(model, definition.firm_column)
             firm_id = principal.firm_id
-            if firm_id is None and not principal.is_platform_admin:
-                return []
-            if firm_id is not None:
-                statement = statement.where(getattr(model, definition.firm_column) == firm_id)
+            statement = statement.where(
+                column.is_(None)
+                if firm_id is None
+                else or_(column == firm_id, column.is_(None))
+            )
         if query:
             search_conditions = []
             for field in (*definition.title_columns, *definition.subtitle_columns):
@@ -225,9 +736,9 @@ class SearchService:
             if search_conditions:
                 statement = statement.where(or_(*search_conditions))
         if hasattr(model, "updated_at"):
-            statement = statement.order_by(getattr(model, "updated_at").desc())
+            statement = statement.order_by(model.updated_at.desc())
         elif hasattr(model, "created_at"):
-            statement = statement.order_by(getattr(model, "created_at").desc())
+            statement = statement.order_by(model.created_at.desc())
         statement = statement.limit(limit)
         rows = self._session.scalars(statement).all()
         return [
@@ -245,7 +756,7 @@ class SearchService:
         self,
         *,
         definition: SearchDefinition,
-        row: object,
+        row: BaseEntity,
         query: str,
     ) -> SearchResultItem:
         title_parts = [
@@ -256,7 +767,7 @@ class SearchService:
             self._string_value(getattr(row, field, None))
             for field in definition.subtitle_columns
         ]
-        title = next((part for part in title_parts if part), str(getattr(row, "id")))
+        title = next((part for part in title_parts if part), str(row.id))
         subtitle = " | ".join([part for part in subtitle_parts if part]) or None
         badges = [
             self._string_value(getattr(row, field, None))
@@ -266,7 +777,7 @@ class SearchService:
         if definition.status_column is not None:
             status = self._status_value(getattr(row, definition.status_column, None))
         matched_fields = self._matched_fields(definition, row, query)
-        entity_id = getattr(row, "id")
+        entity_id = row.id
         return SearchResultItem(
             id=str(entity_id),
             entity_type=definition.entity_type,

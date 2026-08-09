@@ -364,3 +364,67 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         "these were fixed — remove them from known_bugs so the list stays "
         f"honest: {sorted(fixed)}"
     )
+
+
+def test_global_search_never_crosses_firms_even_for_a_platform_admin() -> None:
+    """A platform admin with no firm selected used to see every firm's rows.
+
+    The firm filter was skipped entirely for platform admins. In a SHARED
+    deployment one schema holds every firm's rows, so the exemption put two
+    firms' customers in a single result list -- the exemption the rest of the
+    platform explicitly refuses on firm-owned resources.
+    """
+    session = _session_factory()()
+    actor = uuid4()
+    firms = []
+    for code in ("ALPHA", "BETA"):
+        firm = Firm(
+            name=f"{code} Firm",
+            code=code,
+            country="IN",
+            currency_code="INR",
+            financial_year_start=date(2026, 4, 1),
+        )
+        session.add(firm)
+        session.flush()
+        firms.append(firm)
+        session.add(
+            Customer(
+                firm_id=firm.id,
+                code=f"CUST-{code}",
+                customer_type="BUSINESS",
+                name=f"Shared Name {code}",
+                display_name=f"Shared Name {code}",
+                currency_code="INR",
+                status="ACTIVE",
+                created_by=actor,
+                updated_by=actor,
+            )
+        )
+    session.commit()
+
+    service = SearchService(session)
+
+    def _titles(firm_id: UUID | None) -> list[str]:
+        principal = _principal(
+            actor, permissions={"CUSTOMER_VIEW"}, roles={"platform_admin"}
+        )
+        page = service.search(
+            query="Shared Name",
+            principal=principal.__class__(
+                subject=principal.subject,
+                roles=principal.roles,
+                permissions=principal.permissions,
+                claims=principal.claims,
+                firm_id=firm_id,
+            ),
+            category="all",
+            page=1,
+            page_size=20,
+            entity_types={"customers"},
+        )
+        return sorted(item.title for item in page.results)
+
+    assert _titles(None) == []
+    assert _titles(firms[0].id) == ["Shared Name ALPHA"]
+    assert _titles(firms[1].id) == ["Shared Name BETA"]

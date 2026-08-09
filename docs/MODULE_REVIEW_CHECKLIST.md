@@ -182,6 +182,15 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 - [ ] A recorded setting that changes nothing recurred here: `rounding_mode` was
       stored per rule and the conversion always rounded half up.
 
+### Defects the `search` pass added to this list
+
+- [ ] **A platform admin is not exempt from the firm filter.** Global search
+      skipped it for them entirely, so in a SHARED deployment -- one schema
+      holding every firm's rows -- an admin with no firm selected got two
+      firms' customers in a single list **(found a real bug)**. Where a firm
+      column is nullable, null means the row belongs to the platform, not that
+      the filter should be dropped.
+
 ### Defects the `batch_serial` pass added to this list
 
 - [ ] **A status nobody transitions is not a state.** Expiry counts filtered on
@@ -234,12 +243,12 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `common` (audit) | 1 | 0 | 0 | `test_audit_trail_api` | **none** |
 | `identity` | 29 | 0 | 2 | `test_identity_service`, `test_identity_hardening` | typed |
 | `firms` | 5 | 0 | 0 | `test_firms_module` | typed |
-| `document_framework` | 15 | 0 | 1 | `test_document_framework` | widgets only |
+| `document_framework` | 15 | 0 | 0 | `test_document_framework` | widgets only |
 | `business` | 28 | 0 | 0 | `test_business_profile_framework` | typed |
 | `sales` (territory) | 44 | 0 | 0 | `test_sales_territory_route_management` | typed |
 | `customers` | 14 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
-| `search` | 1 | 55 | 1 | `test_global_search` | typed |
+| `search` | 1 | 0 | 0 | `test_global_search` | typed |
 | `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
@@ -306,5 +315,5 @@ and typed; mostly cleanup.
 | 16 | `purchase` | 2026-08-10 | a purchase order with goods receipts against it could be deleted, though cancelling the same order was refused; a CSV import helper closed over its loop variable | yes — module is now clean under ruff, black and mypy |
 | 17 | `business` | 2026-08-10 | deleting a feature or module a profile still enabled silently revoked the capability for every firm on that profile, so `require_feature` began rejecting writes those firms made the day before | yes |
 | 18 | `sales` (territory) | 2026-08-10 | bulk status changes and moves wrote one summary audit row keyed on the first id, so the trail recorded that N territories changed without naming any of them | yes |
-| 19 | `search` | | | |
-| 20 | `document_framework` | | | |
+| 19 | `search` | 2026-08-10 | the firm filter was skipped entirely for platform admins, so an admin with no firm selected saw every firm's rows in one result list — in a SHARED store that is one schema holding all of them | yes |
+| 20 | `document_framework` | 2026-08-10 | none — the commit-per-method defect was fixed in the 2026-08-09 pass and lifecycle, numbering and timeline events all hold | gates only |

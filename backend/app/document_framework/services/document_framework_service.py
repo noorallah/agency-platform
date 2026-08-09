@@ -152,7 +152,11 @@ class DocumentFrameworkService:
     ) -> DocumentTypeDefinition:
         row = self.get_type(firm_id, type_id)
         self._assert_unique_type(firm_id, data.code, current_id=row.id)
-        before = {"code": row.code, "name": row.name, "category": row.category}
+        before: dict[str, object] = {
+            "code": row.code,
+            "name": row.name,
+            "category": row.category,
+        }
         for field, value in data.model_dump().items():
             setattr(row, field, value)
         row.updated_by = actor_id
