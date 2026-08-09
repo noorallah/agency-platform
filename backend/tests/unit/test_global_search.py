@@ -337,19 +337,11 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         "app/common/firm_metadata.py",
         "app/common/scope.py",
     }
-    # KNOWN BUGS, not exemptions. Each of these resolves firms or memberships on
-    # the request session, so the endpoints behind them fail with UndefinedTable
-    # whenever the caller supplies X-Firm-ID for a firm outside the platform
-    # schema — which the desktop client always does. Route each through
-    # FirmMetadataReader or an explicit platform session, then delete its entry.
-    known_bugs = {
-        # GET/PUT /business-framework/firms/{id}/profile-assignment
-        "app/business/services/framework_service.py",
-        # Salesman assignment validates membership against user_firms.
-        "app/sales/services/territory_service.py",
-        # Product creation validates the owning firm exists.
-        "app/products/services/product_service.py",
-    }
+    # Known offenders, kept empty. Five instances of this defect shipped before
+    # the guard existed; all are fixed. Anything added here needs a fix, not a
+    # permanent home — the assertions below fail both on a new violation and on
+    # leaving a fixed entry behind.
+    known_bugs: set[str] = set()
     offenders: set[str] = set()
     for path in Path("app").rglob("*.py"):
         key = path.as_posix()

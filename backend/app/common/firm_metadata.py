@@ -12,16 +12,18 @@ lives in a different database entirely, where no such schema exists. The lookup
 has to go to the platform connection.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Row, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.firms.models import Firm
+from app.identity.models import User, UserFirm
 
 _platform: DatabaseManager | None = None
 
@@ -97,3 +99,42 @@ class FirmMetadataReader:
         if row is None:
             return FirmMetadata(code=None, financial_year_start=None)
         return FirmMetadata(code=row[0], financial_year_start=row[1])
+
+    def exists(self, firm_id: UUID) -> bool:
+        """Return whether the firm is present and not soft-deleted."""
+        return self.get(firm_id).code is not None
+
+    def active_member_count(self, firm_id: UUID, user_ids: Sequence[UUID]) -> int:
+        """Count how many of ``user_ids`` are active members of the firm.
+
+        ``user_firms`` and ``users`` are platform tables, so this cannot run on
+        a tenant session either.
+
+        Args:
+            firm_id: The firm the users must belong to.
+            user_ids: The users to check.
+
+        Returns:
+            How many are active, undeleted members.
+
+        """
+        if not user_ids:
+            return 0
+        statement = (
+            select(func.count())
+            .select_from(UserFirm)
+            .join(User, User.id == UserFirm.user_id)
+            .where(
+                UserFirm.user_id.in_(list(user_ids)),
+                UserFirm.firm_id == firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+                User.is_deleted.is_(False),
+            )
+        )
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            return int(self._session.scalar(statement) or 0)
+        manager = _platform_manager()
+        with manager.sessions(schema=manager.config.default_schema).session() as reader:
+            return int(reader.scalar(statement) or 0)

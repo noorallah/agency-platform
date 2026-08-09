@@ -33,9 +33,9 @@ from app.business.schemas import (
     FirmBusinessProfileAssign,
 )
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
-from app.firms.models import Firm
 
 
 class BusinessProfileFrameworkService:
@@ -491,7 +491,7 @@ class BusinessProfileFrameworkService:
         *,
         effective_from: datetime | None = None,
     ) -> FirmBusinessProfile:
-        self._get_firm(firm_id)
+        self._require_firm(firm_id)
         self.get_profile(data.business_profile_id)
         row = self._session.scalar(
             select(FirmBusinessProfile).where(
@@ -531,7 +531,7 @@ class BusinessProfileFrameworkService:
         return row
 
     def get_firm_assignment(self, firm_id: UUID) -> FirmBusinessProfile | None:
-        self._get_firm(firm_id)
+        self._require_firm(firm_id)
         return self._session.scalar(
             select(FirmBusinessProfile).where(
                 FirmBusinessProfile.firm_id == firm_id,
@@ -740,13 +740,14 @@ class BusinessProfileFrameworkService:
             raise ResourceNotFoundError("No active business profile is configured.")
         return fallback.id
 
-    def _get_firm(self, firm_id: UUID) -> Firm:
-        row = self._session.scalar(
-            select(Firm).where(Firm.id == firm_id, Firm.is_deleted.is_(False))
-        )
-        if row is None:
+    def _require_firm(self, firm_id: UUID) -> None:
+        """Confirm the firm exists, via the platform store.
+
+        ``firms`` lives only in the platform schema, so the request session
+        cannot see it whenever the caller supplies a firm outside that store.
+        """
+        if not FirmMetadataReader(self._session).exists(firm_id):
             raise ResourceNotFoundError("Firm not found.")
-        return row
 
     def _list_catalog(
         self,

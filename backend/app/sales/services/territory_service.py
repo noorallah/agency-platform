@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
-from app.identity.models import User, UserFirm
+from app.identity.models import User
 from app.sales.models import (
     AddressMaster,
     BeatPlan,
@@ -975,19 +976,12 @@ class SalesTerritoryService:
         territory = self._territory(territory_id, firm_scope)
         requested_user_ids = [item.user_id for item in payload.assignments]
         if requested_user_ids:
-            members = self._session.scalar(
-                select(func.count())
-                .select_from(UserFirm)
-                .join(User, User.id == UserFirm.user_id)
-                .where(
-                    UserFirm.user_id.in_(requested_user_ids),
-                    UserFirm.firm_id == firm_scope,
-                    UserFirm.is_active.is_(True),
-                    UserFirm.is_deleted.is_(False),
-                    User.is_deleted.is_(False),
-                )
+            # user_firms and users are platform tables; counting them on the
+            # request session fails for any firm outside the platform store.
+            members = FirmMetadataReader(self._session).active_member_count(
+                firm_scope, requested_user_ids
             )
-            if int(members or 0) != len(set(requested_user_ids)):
+            if members != len(set(requested_user_ids)):
                 raise ValidationError(
                     "One or more salesmen are not active firm members."
                 )
