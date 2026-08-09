@@ -106,6 +106,7 @@ def list_inventory(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[InventoryResponse]:
+    """List stock projections for the firm in scope."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = InventoryListFilters.model_validate(
         {
@@ -143,6 +144,7 @@ def inventory_summary(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventorySummary]:
+    """Return stock counts and value totals."""
     summary = InventoryService(db).inventory_summary(
         firm_scope=scope.firm_id,
         filters=InventoryListFilters(include_deleted=include_deleted),
@@ -157,6 +159,7 @@ def stock_by_firm(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
+    """Return stock totals rolled up to the firm."""
     return ApiResponse(
         data=InventoryService(db).stock_by_firm(firm_scope=scope.firm_id)
     )
@@ -169,6 +172,7 @@ def stock_by_branch(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
+    """Return stock totals per branch."""
     return ApiResponse(
         data=InventoryService(db).stock_by_branch(firm_scope=scope.firm_id)
     )
@@ -181,6 +185,7 @@ def stock_by_warehouse(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
+    """Return stock totals per warehouse."""
     return ApiResponse(
         data=InventoryService(db).stock_by_warehouse(firm_scope=scope.firm_id)
     )
@@ -196,6 +201,7 @@ def create_inventory(
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryResponse]:
+    """Create a stock projection for a product location."""
     service = InventoryService(db)
     row = service.create_inventory_record(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
@@ -230,6 +236,7 @@ def list_transactions(
     transaction_to: str | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[InventoryTransactionResponse]:
+    """List inventory movements."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = InventoryTransactionListFilters.model_validate(
         {
@@ -285,6 +292,7 @@ def list_ledger(
     transaction_to: str | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[StockLedgerResponse]:
+    """List immutable stock ledger rows."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = StockLedgerListFilters.model_validate(
         {
@@ -325,6 +333,7 @@ def create_opening_stock(
     scope: OpeningStockCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[OpeningStockBatchResponse]:
+    """Create a draft opening-stock batch."""
     service = InventoryService(db)
     row = service.create_opening_stock_batch(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
@@ -352,6 +361,7 @@ def list_opening_stock(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[OpeningStockBatchResponse]:
+    """List opening-stock batches."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = OpeningStockBatchListFilters.model_validate(
         {
@@ -388,6 +398,7 @@ def get_opening_stock(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[OpeningStockBatchResponse]:
+    """Return one opening-stock batch."""
     service = InventoryService(db)
     row = service.get_opening_stock_batch(
         batch_id, firm_scope=scope.firm_id, include_deleted=include_deleted
@@ -404,6 +415,7 @@ def update_opening_stock(
     scope: OpeningStockUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[OpeningStockBatchResponse]:
+    """Change a draft opening-stock batch."""
     service = InventoryService(db)
     row = service.update_opening_stock_batch(
         batch_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -420,6 +432,7 @@ def post_opening_stock(
     scope: OpeningStockCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[OpeningStockBatchResponse]:
+    """Post an opening-stock batch into the ledger."""
     service = InventoryService(db)
     row = service.post_opening_stock_batch(
         batch_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -445,6 +458,7 @@ async def import_opening_stock(
     remarks: Annotated[str | None, Form()] = None,
     auto_post: Annotated[bool, Form()] = True,
 ) -> ApiResponse[OpeningStockBatchResponse]:
+    """Create an opening-stock batch from an upload or JSON body."""
     service = InventoryService(db)
     if format == "json":
         if payload is None:
@@ -463,7 +477,8 @@ async def import_opening_stock(
         or warehouse_id is None
     ):
         raise ValidationError(
-            "file, reference_number, posting_date, branch_id, and warehouse_id are required for CSV/XLSX import."
+            "file, reference_number, posting_date, branch_id, and warehouse_id "
+            "are required for CSV/XLSX import."
         )
     try:
         parsed_posting_date = date.fromisoformat(posting_date)
@@ -507,6 +522,7 @@ def create_adjustment(
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryTransactionResponse]:
+    """Post a stock adjustment."""
     service = InventoryService(db)
     row = service.create_adjustment(
         data, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -522,6 +538,7 @@ def export_inventory(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Stream stock or ledger rows as CSV or XLSX."""
     service = InventoryService(db)
     if dataset == "ledger":
         if format == "xlsx":
@@ -563,6 +580,7 @@ def get_inventory(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryResponse]:
+    """Return one stock projection."""
     service = InventoryService(db)
     row = service.get_inventory_record(
         inventory_id, firm_scope=scope.firm_id, include_deleted=include_deleted
@@ -577,6 +595,7 @@ def update_inventory(
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryResponse]:
+    """Change a stock projection's thresholds and status."""
     service = InventoryService(db)
     row = service.update_inventory_record(
         inventory_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -590,6 +609,7 @@ def delete_inventory(
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a stock projection."""
     row = InventoryService(db).get_inventory_record(
         inventory_id, firm_scope=scope.firm_id
     )

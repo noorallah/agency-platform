@@ -182,6 +182,17 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 - [ ] A recorded setting that changes nothing recurred here: `rounding_mode` was
       stored per rule and the conversion always rounded half up.
 
+### Defects the `inventory` pass added to this list
+
+- [ ] **A response builder is not reusable just because the rows look alike.**
+      `ledger_response` passed a `StockLedgerEntry` to the builder for
+      `InventoryTransaction`; the ledger names its as-entered columns
+      `original_quantity`/`original_uom_id` and has no `conversion_version`, so
+      the endpoint raised AttributeError as soon as one movement existed
+      **(found a real bug)**. mypy had been reporting it the whole time.
+- [ ] **Read every endpoint back at least once in a test.** The write path was
+      correct and covered; nothing had ever listed the rows it wrote.
+
 ### Defects the `branches` pass added to this list
 
 - [ ] **Bulk endpoints audit every row they touch.** All six of them wrote
@@ -222,7 +233,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `purchase` | 12 | 105 | 5 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 121 | 2 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 134 | 1 | **none** | typed |
-| `inventory` | 19 | 145 | 6 | `test_inventory_foundation` | typed |
+| `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
 | `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | **untyped** |
@@ -276,7 +287,7 @@ and typed; mostly cleanup.
 | 8 | `tax` | 2026-08-09 | `simulate` committed the caller's session while every document computed tax line by line; an eighth private rounding helper still used banker's rounding; country-scoped rules never matched a document and profile-scoped ones matched five of seven; `included_in_price` was billed on top of the price; `REVERSE_CHARGE` changed nothing; the execution log had no purge path | yes — desktop endpoints still inlined |
 | 9 | `uom` | 2026-08-09 | a product's own conversion factor lost to the firm-wide one on PostgreSQL only; the rule's published version was the same column as the concurrency counter, so any edit moved it; the configured `rounding_mode` was ignored; a unit in use could be deleted out from under other firms | yes — module is now clean under ruff, black and mypy |
 | 10 | `branches` | 2026-08-10 | the six bulk endpoints wrote no audit entries at all; a branch could be deleted with live warehouses under it and a warehouse deleted with stock in it; `is_default` was maintained by nothing, so every branch could be the firm default | yes — module is now clean under ruff, black and mypy |
-| 11 | `inventory` | | | |
+| 11 | `inventory` | 2026-08-10 | `GET /inventory/ledger` raised AttributeError for every firm that had ever moved stock, because the ledger row was fed to the transaction response builder | yes — module is now clean under ruff, black and mypy |
 | 12 | `batch_serial` | | | |
 | 13 | `customers` | | | |
 | 14 | `products` | | | |

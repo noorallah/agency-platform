@@ -63,6 +63,7 @@ class InventoryWrite(InventorySchema):
 
     @model_validator(mode="after")
     def validate_thresholds(self) -> "InventoryWrite":
+        """Reject a maximum level below the minimum."""
         if (
             self.maximum_level is not None
             and self.minimum_level is not None
@@ -373,6 +374,7 @@ class InventoryAdjustmentCreate(InventorySchema):
 
     @model_validator(mode="after")
     def validate_quantity(self) -> "InventoryAdjustmentCreate":
+        """Reject an adjustment that moves nothing."""
         if self.quantity == 0:
             raise ValueError("Adjustment quantity cannot be zero.")
         return self
