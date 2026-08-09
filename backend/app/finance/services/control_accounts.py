@@ -37,6 +37,7 @@ class ControlAccountPurpose(StrEnum):
     OUTPUT_TAX = "OUTPUT_TAX"
     INPUT_TAX = "INPUT_TAX"
     INVENTORY = "INVENTORY"
+    GOODS_RECEIVED_NOT_INVOICED = "GOODS_RECEIVED_NOT_INVOICED"
     COST_OF_GOODS_SOLD = "COST_OF_GOODS_SOLD"
     DISCOUNT_ALLOWED = "DISCOUNT_ALLOWED"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
@@ -58,6 +59,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.OUTPUT_TAX: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.INPUT_TAX: frozenset({"ASSET", "CONTROL"}),
     ControlAccountPurpose.INVENTORY: frozenset({"ASSET"}),
+    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED: frozenset(
+        {"LIABILITY", "CONTROL"}
+    ),
     ControlAccountPurpose.COST_OF_GOODS_SOLD: frozenset({"EXPENSE"}),
     ControlAccountPurpose.DISCOUNT_ALLOWED: frozenset({"EXPENSE"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),

@@ -44,6 +44,11 @@ GOODS_ISSUE_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
 )
 
+GOODS_RECEIPT_PURPOSES = (
+    ControlAccountPurpose.INVENTORY,
+    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class PostingContext:
@@ -279,6 +284,72 @@ class DocumentPostingService:
                 ),
             ],
             source_module=source_module,
+            source_id=document_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_goods_receipt(
+        self,
+        *,
+        firm_id: UUID,
+        document_id: UUID,
+        document_number: str,
+        receipt_date: date,
+        cost_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Bring received stock onto the balance sheet.
+
+        Stock arrives before the supplier's invoice does, so the credit goes to
+        goods received not invoiced rather than to payables — the purchase
+        invoice clears that account when it arrives. Without this the inventory
+        account is only ever credited by dispatches and drifts negative while
+        the warehouse fills up.
+
+        Args:
+            firm_id: The owning firm.
+            document_id: The receipt.
+            document_number: Its number, used as the journal reference.
+            receipt_date: The date the journal carries.
+            cost_amount: Total cost brought into stock.
+            actor_id: The receiving user.
+
+        Returns:
+            The posted entry, or None when the receipt brought in no value.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        cost = quantize_money(cost_amount)
+        if cost == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, GOODS_RECEIPT_PURPOSES)
+        context = self.context_for(firm_id, receipt_date)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=receipt_date,
+            reference_number=document_number,
+            description=f"Goods received on {document_number}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                    debit_amount=cost,
+                    description=f"Stock received on {document_number}",
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED
+                    ],
+                    credit_amount=cost,
+                    description=f"Awaiting supplier invoice for {document_number}",
+                ),
+            ],
+            source_module="goods_receipt",
             source_id=document_id,
             actor_id=actor_id,
         )

@@ -100,6 +100,13 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.ACCOUNTS_PAYABLE,
     ),
     SeedAccount(
+        "2300",
+        "Goods Received Not Invoiced",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
+    ),
+    SeedAccount(
         "2200",
         "Output Tax",
         AccountTypeEnum.LIABILITY,

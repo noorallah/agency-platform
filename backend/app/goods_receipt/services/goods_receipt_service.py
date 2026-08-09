@@ -24,6 +24,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import (
     GoodsReceipt,
     GoodsReceiptAttachment,
@@ -44,6 +45,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptSummary,
     GoodsReceiptUpdate,
 )
+from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -1001,6 +1003,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def _post_inventory(
         self, receipt: GoodsReceipt, *, purchase_order: PurchaseOrder, actor_id: UUID
     ) -> None:
+        received_cost = ZERO
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
@@ -1032,6 +1035,28 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
+            received_cost += self._receipt_cost(transaction.id)
+
+        # Stock is on the shelf now; the supplier invoice is not here yet, so
+        # the credit waits in goods received not invoiced. Without this the
+        # inventory account is only ever credited by dispatches.
+        DocumentPostingService(self._session).post_goods_receipt(
+            firm_id=receipt.firm_id,
+            document_id=receipt.id,
+            document_number=receipt.grn_number,
+            receipt_date=receipt.receipt_date,
+            cost_amount=received_cost,
+            actor_id=actor_id,
+        )
+
+    def _receipt_cost(self, transaction_id: UUID) -> Decimal:
+        """Return what the stock ledger brought in for one movement."""
+        total = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost)).where(
+                StockLedgerEntry.transaction_id == transaction_id
+            )
+        )
+        return self._q(total)
 
     def _validate_lines(
         self,
