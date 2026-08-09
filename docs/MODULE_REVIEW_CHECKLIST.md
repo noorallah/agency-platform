@@ -237,7 +237,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `document_framework` | 15 | 0 | 1 | `test_document_framework` | widgets only |
 | `business` | 28 | 2 | 3 | `test_business_profile_framework` | typed |
 | `sales` (territory) | 44 | 2 | 0 | `test_sales_territory_route_management` | typed |
-| `customers` | 14 | 15 | 6 | `test_customer_management` | typed |
+| `customers` | 14 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 23 | 4 | `test_product_master` | typed |
 | `search` | 1 | 55 | 1 | `test_global_search` | typed |
 | `vendors` | 23 | 82 | 6 | `test_vendor_management` | typed |
@@ -300,7 +300,7 @@ and typed; mostly cleanup.
 | 10 | `branches` | 2026-08-10 | the six bulk endpoints wrote no audit entries at all; a branch could be deleted with live warehouses under it and a warehouse deleted with stock in it; `is_default` was maintained by nothing, so every branch could be the firm default | yes — module is now clean under ruff, black and mypy |
 | 11 | `inventory` | 2026-08-10 | `GET /inventory/ledger` raised AttributeError for every firm that had ever moved stock, because the ledger row was fed to the transaction response builder | yes — module is now clean under ruff, black and mypy |
 | 12 | `batch_serial` | 2026-08-10 | expiry counts keyed on a `status` nothing ever sets, so the summary reported zero expired batches while the expiry card listed them; the guard blocking purchases of expired stock never fired for the same reason; expiry windows used the server's local date | yes — module is now clean under ruff, black and mypy |
-| 13 | `customers` | | | |
+| 13 | `customers` | 2026-08-10 | none — receivable arithmetic, address/contact reconciliation and firm scoping all hold; `credit_limit` is snapshotted onto sales orders but never compared against `current_outstanding`, which needs a product decision on warn versus block | gates only: ruff 14, mypy 6 and black cleared |
 | 14 | `products` | | | |
 | 15 | `vendors` | | | |
 | 16 | `purchase` | | | |
