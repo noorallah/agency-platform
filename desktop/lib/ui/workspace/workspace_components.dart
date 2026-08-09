@@ -639,6 +639,66 @@ class WorkspaceTab {
   final bool available;
 }
 
+/// A compact page control for screens that render their own list.
+///
+/// [EnterpriseDataGrid] paginates through `PaginatedDataTable`, but the
+/// document workspaces and the goods receipt screen render bespoke lists and so
+/// had no pager at all: they fetched a page count they never showed and stayed
+/// on page one for the life of the screen, which put every record past the
+/// first twenty out of reach.
+class WorkspacePager extends StatelessWidget {
+  const WorkspacePager({
+    super.key,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+    required this.onPageChanged,
+  });
+
+  /// The page currently shown, counting from one.
+  final int page;
+  final int pageSize;
+  final int total;
+
+  /// Called with the requested page, counting from one.
+  final ValueChanged<int> onPageChanged;
+
+  int get _lastPage => total <= 0 ? 1 : ((total - 1) ~/ pageSize) + 1;
+
+  @override
+  Widget build(BuildContext context) {
+    if (total <= pageSize) {
+      return const SizedBox.shrink();
+    }
+    final ThemeData theme = Theme.of(context);
+    final int first = ((page - 1) * pageSize) + 1;
+    final int last = first + pageSize - 1;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Text(
+            '$first–${last > total ? total : last} of $total',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Previous page',
+            icon: const Icon(Icons.chevron_left, size: 20),
+            onPressed: page > 1 ? () => onPageChanged(page - 1) : null,
+          ),
+          IconButton(
+            tooltip: 'Next page',
+            icon: const Icon(Icons.chevron_right, size: 20),
+            onPressed: page < _lastPage ? () => onPageChanged(page + 1) : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 enum ToolbarAction {
   newItem,
   edit,

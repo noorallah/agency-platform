@@ -247,6 +247,13 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
                               child: Text('$_total returns'),
                             ),
                           ),
+                          WorkspacePager(
+                            page: _page,
+                            pageSize: _rowsPerPage,
+                            total: _total,
+                            onPageChanged: (next) =>
+                                _load(requestedPage: next),
+                          ),
                         ],
                       ),
                     ),

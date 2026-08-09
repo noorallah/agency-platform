@@ -240,6 +240,13 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                               child: Text('$_total notes'),
                             ),
                           ),
+                          WorkspacePager(
+                            page: _page,
+                            pageSize: _rowsPerPage,
+                            total: _total,
+                            onPageChanged: (next) =>
+                                _load(requestedPage: next),
+                          ),
                         ],
                       ),
                     ),

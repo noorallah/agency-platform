@@ -1133,6 +1133,10 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
   // Component assignments
   List<_ComponentAssignment> _assignments = [];
   bool _compsLoading = false;
+  // "No components found" is a claim about the data. It must not be shown when
+  // the request failed, which is a claim about the network.
+  String? _compsError;
+  String? _systemsError;
 
   final _formKey = GlobalKey<FormState>();
   final _detailScroll = ScrollController();
@@ -1191,15 +1195,21 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
     try {
       final result = await widget.api
           .taxSystems(page: 1, pageSize: 100, status: 'ACTIVE');
-      if (mounted) setState(() => _systems = result.items);
-    } on ApiException catch (_) {
-      // silent — list may be empty
+      if (mounted) {
+        setState(() {
+          _systems = result.items;
+          _systemsError = null;
+        });
+      }
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _systemsError = error.message);
     }
   }
 
   Future<void> _loadComponentsForSystem(String systemId) async {
     setState(() {
       _compsLoading = true;
+      _compsError = null;
       for (final a in _assignments) {
         a.dispose();
       }
@@ -1232,8 +1242,8 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
       }).toList();
 
       if (mounted) setState(() => _assignments = assignments);
-    } on ApiException catch (_) {
-      // silent
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _compsError = error.message);
     } finally {
       if (mounted) setState(() => _compsLoading = false);
     }
@@ -1703,10 +1713,14 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
   Widget _buildSystemDropdown(ColorScheme cs) {
     return DropdownButtonFormField<String>(
       initialValue: _selectedSystemId,
-      decoration: const InputDecoration(
-          labelText: 'Tax System *',
-          border: OutlineInputBorder(),
-          isDense: true),
+      decoration: InputDecoration(
+        labelText: 'Tax System *',
+        border: const OutlineInputBorder(),
+        isDense: true,
+        errorText: _systemsError == null
+            ? null
+            : 'Tax systems could not be loaded: $_systemsError',
+      ),
       hint: const Text('Select a tax system'),
       items: _systems
           .map((s) => DropdownMenuItem(
@@ -1926,6 +1940,9 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
             const SizedBox(height: 12),
             if (_compsLoading)
               const Center(child: CircularProgressIndicator())
+            else if (_compsError != null)
+              Text('Components could not be loaded: $_compsError',
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 13))
             else if (_assignments.isEmpty && _selectedSystemId != null)
               const Text('No components found for selected system.',
                   style: TextStyle(color: Colors.grey, fontSize: 13))

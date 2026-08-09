@@ -34,6 +34,9 @@ class SalesInvoiceManagementPage extends StatefulWidget {
 class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage> {
   final TextEditingController _search = TextEditingController();
   bool _loading = false;
+  static const int _rowsPerPage = 50;
+  int _page = 1;
+  int _total = 0;
   String? _error;
   List<Map<String, dynamic>> _invoices = const [];
   Map<String, dynamic>? _selected;
@@ -78,21 +81,24 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         _ => true,
       };
 
-  Future<void> _load() async {
+  Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
+      if (requestedPage != null) {
+        _page = requestedPage;
+      }
     });
     try {
       final List<dynamic> responses = await Future.wait<dynamic>([
         widget.api.documentSummary('sales-invoices', path: 'reports/summary'),
         widget.api.documentPage(
           'sales-invoices',
-          page: 1,
-          pageSize: 50,
+          page: _page,
+          pageSize: _rowsPerPage,
           search: _search.text.trim(),
           sortBy: 'invoice_date',
           descending: true,
@@ -104,6 +110,10 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      final Object? pagination = page['pagination'];
+      final int total = pagination is Map
+          ? (pagination['total_records'] as num?)?.toInt() ?? rows.length
+          : rows.length;
       final Map<String, dynamic>? selected = rows.isEmpty
           ? null
           : (_selected == null
@@ -116,6 +126,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       setState(() {
         _summary = summary;
         _invoices = rows;
+        _total = total;
         _selected = selected;
       });
     } on ApiException catch (error) {
@@ -233,6 +244,13 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
                                 );
                               },
                             ),
+                          ),
+                          WorkspacePager(
+                            page: _page,
+                            pageSize: _rowsPerPage,
+                            total: _total,
+                            onPageChanged: (next) =>
+                                _load(requestedPage: next),
                           ),
                         ],
                       ),

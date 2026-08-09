@@ -205,6 +205,10 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
   // Reference data
   List<TaxProfileRecord> _profiles = [];
   List<TaxComponentRecord> _components = [];
+  // When an option load fails the form falls back to a free-text box asking
+  // for a raw id. That fallback is fine when the list is genuinely empty and
+  // misleading when the request failed, so the reason is kept and shown.
+  String? _optionsError;
 
   // Detail state
   TaxRuleRecord? _selected;
@@ -282,10 +286,12 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
     try {
       final result = await widget.api.taxProfiles(page: 1, pageSize: 100);
       if (!mounted) return;
-      final list = result.items;
-      if (mounted) setState(() => _profiles = list);
-    } on ApiException catch (_) {
-      // silent
+      setState(() {
+        _profiles = result.items;
+        _optionsError = null;
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _optionsError = error.message);
     }
   }
 
@@ -293,10 +299,12 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
     try {
       final result = await widget.api.taxComponents(page: 1, pageSize: 100);
       if (!mounted) return;
-      final list = result.items;
-      if (mounted) setState(() => _components = list);
-    } on ApiException catch (_) {
-      // silent
+      setState(() {
+        _components = result.items;
+        _optionsError = null;
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _optionsError = error.message);
     }
   }
 
@@ -1469,11 +1477,15 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
                 ? (_profiles.isEmpty
                     ? TextFormField(
                         controller: draft.targetProfileId,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           isDense: true,
                           hintText: 'Profile group code',
-                          contentPadding:
-                              EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          helperText: _optionsError == null
+                              ? null
+                              : 'Profiles could not be loaded: $_optionsError',
+                          helperMaxLines: 2,
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 8),
                         ),
                         style: const TextStyle(fontSize: 13),
                       )
@@ -1507,10 +1519,15 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
                     ? (_components.isEmpty
                         ? TextFormField(
                             controller: draft.targetComponentId,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               isDense: true,
                               hintText: 'Component ID',
-                              contentPadding: EdgeInsets.symmetric(
+                              helperText: _optionsError == null
+                                  ? null
+                                  : 'Components could not be loaded: '
+                                      '$_optionsError',
+                              helperMaxLines: 2,
+                              contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 8),
                             ),
                             style: const TextStyle(fontSize: 13),

@@ -256,6 +256,13 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
                               },
                             ),
                           ),
+                          WorkspacePager(
+                            page: _page,
+                            pageSize: _rowsPerPage,
+                            total: _total,
+                            onPageChanged: (next) =>
+                                _load(requestedPage: next),
+                          ),
                         ],
                       ),
                     ),
