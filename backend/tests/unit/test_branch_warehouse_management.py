@@ -1,10 +1,11 @@
 """Branch and warehouse validation, service, tenancy, and API tests."""
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,9 +15,15 @@ from app.branches.api.router import (
     list_branches,
     list_warehouses,
 )
-from app.branches.schemas import BranchCreate, WarehouseCreate
-from app.branches.schemas.branch_warehouse import BranchListFilters, WarehouseListFilters
+from app.branches.models import Branch, Warehouse
+from app.branches.schemas import BranchCreate, BranchUpdate, WarehouseCreate
+from app.branches.schemas.branch_warehouse import (
+    BranchListFilters,
+    BulkIdsRequest,
+    WarehouseListFilters,
+)
 from app.branches.services import BranchWarehouseService
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -24,11 +31,17 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import UserFirm
+from app.inventory.models import InventoryRecord
 
 
 def _firm_scope(
@@ -42,6 +55,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -113,6 +127,7 @@ def _warehouse_data(branch_id: UUID, code: str = "WH-001") -> WarehouseCreate:
 
 
 def test_branch_and_warehouse_service_lifecycle() -> None:
+    """Codes are unique per firm and neither firm can see the other's rows."""
     factory = _session_factory()
     session = factory()
     first_firm = _firm(session, "BW-A")
@@ -120,7 +135,9 @@ def test_branch_and_warehouse_service_lifecycle() -> None:
     actor_id = uuid4()
     service = BranchWarehouseService(session)
 
-    branch = service.create_branch(_branch_data(), firm_id=first_firm.id, actor_id=actor_id)
+    branch = service.create_branch(
+        _branch_data(), firm_id=first_firm.id, actor_id=actor_id
+    )
     with pytest.raises(ConflictError):
         service.create_branch(_branch_data(), firm_id=first_firm.id, actor_id=actor_id)
     branch_other_firm = service.create_branch(
@@ -145,20 +162,7 @@ def test_branch_and_warehouse_service_lifecycle() -> None:
         )
     assert warehouse.branch_id == branch.id
 
-    service.delete_branch(branch.id, firm_scope=first_firm.id, actor_id=actor_id)
-    _, visible_total = service.list_branches(
-        firm_scope=first_firm.id,
-        filters=BranchListFilters(),
-        page=1,
-        page_size=20,
-        search=None,
-        sort_by="created_at",
-        descending=True,
-    )
-    assert visible_total == 0
-    restored = service.restore_branch(branch.id, firm_scope=first_firm.id, actor_id=actor_id)
-    assert restored.is_deleted is False
-
+    # The warehouse goes first: a branch that still has one cannot be deleted.
     service.delete_warehouse(warehouse.id, firm_scope=first_firm.id, actor_id=actor_id)
     _, warehouse_visible_total = service.list_warehouses(
         firm_scope=first_firm.id,
@@ -170,6 +174,23 @@ def test_branch_and_warehouse_service_lifecycle() -> None:
         descending=True,
     )
     assert warehouse_visible_total == 0
+
+    service.delete_branch(branch.id, firm_scope=first_firm.id, actor_id=actor_id)
+    _, visible_total = service.list_branches(
+        firm_scope=first_firm.id,
+        filters=BranchListFilters(),
+        page=1,
+        page_size=20,
+        search=None,
+        sort_by="created_at",
+        descending=True,
+    )
+    assert visible_total == 0
+    restored = service.restore_branch(
+        branch.id, firm_scope=first_firm.id, actor_id=actor_id
+    )
+    assert restored.is_deleted is False
+
     restored_wh = service.restore_warehouse(
         warehouse.id,
         firm_scope=first_firm.id,
@@ -179,6 +200,7 @@ def test_branch_and_warehouse_service_lifecycle() -> None:
 
 
 def test_branch_and_warehouse_api_scope_permissions_and_listing() -> None:
+    """The routers resolve firm scope and enforce their permission codes."""
     factory = _session_factory()
     setup = factory()
     firm = _firm(setup, "BW-API")
@@ -249,3 +271,164 @@ def test_branch_and_warehouse_api_scope_permissions_and_listing() -> None:
     assert warehouses.pagination.total_records == 1
     with pytest.raises(AuthorizationError):
         require_permission("BRANCH_DELETE")(principal)
+
+
+def _stock(
+    session: Session, *, firm_id: UUID, branch_id: UUID, warehouse_id: UUID
+) -> None:
+    """Put one product's stock into the warehouse."""
+    session.add(
+        InventoryRecord(
+            firm_id=firm_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_locator="MAIN",
+            product_id=uuid4(),
+            current_quantity=Decimal("25"),
+            available_quantity=Decimal("25"),
+            created_by=uuid4(),
+            updated_by=uuid4(),
+        )
+    )
+    session.commit()
+
+
+def test_a_branch_with_live_warehouses_cannot_be_deleted() -> None:
+    """Deleting the branch only hid it; its warehouses kept trading.
+
+    The warehouses stayed active, pointing at a branch no listing shows, and
+    stock kept moving through them.
+    """
+    session = _session_factory()()
+    service = BranchWarehouseService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "BRDEL")
+    branch = service.create_branch(_branch_data(), firm_id=firm.id, actor_id=actor_id)
+    warehouse = service.create_warehouse(
+        _warehouse_data(branch.id), firm_id=firm.id, actor_id=actor_id
+    )
+
+    with pytest.raises(ValidationError, match="still has warehouses"):
+        service.delete_branch(branch.id, firm_scope=firm.id, actor_id=actor_id)
+
+    service.delete_warehouse(warehouse.id, firm_scope=firm.id, actor_id=actor_id)
+    service.delete_branch(branch.id, firm_scope=firm.id, actor_id=actor_id)
+    assert service.get_branch(
+        branch.id, firm_scope=firm.id, include_deleted=True
+    ).is_deleted
+
+
+def test_a_warehouse_holding_stock_cannot_be_deleted() -> None:
+    """The stock rows survive the warehouse and keep counting toward the books."""
+    session = _session_factory()()
+    service = BranchWarehouseService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "WHDEL")
+    branch = service.create_branch(_branch_data(), firm_id=firm.id, actor_id=actor_id)
+    warehouse = service.create_warehouse(
+        _warehouse_data(branch.id), firm_id=firm.id, actor_id=actor_id
+    )
+    _stock(session, firm_id=firm.id, branch_id=branch.id, warehouse_id=warehouse.id)
+
+    with pytest.raises(ValidationError, match="still holds stock"):
+        service.delete_warehouse(warehouse.id, firm_scope=firm.id, actor_id=actor_id)
+
+
+def test_only_one_branch_and_warehouse_can_be_the_default() -> None:
+    """Nothing maintained the flag, so every row could claim to be the default."""
+    session = _session_factory()()
+    service = BranchWarehouseService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "BRDEF")
+
+    first = service.create_branch(
+        _branch_data("BR-001").model_copy(update={"is_default": True}),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    second = service.create_branch(
+        _branch_data("BR-002").model_copy(update={"is_default": True}),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.expire_all()
+    assert session.get(Branch, first.id).is_default is False
+    assert session.get(Branch, second.id).is_default is True
+
+    one = service.create_warehouse(
+        _warehouse_data(second.id, "WH-001").model_copy(update={"is_default": True}),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    two = service.create_warehouse(
+        _warehouse_data(second.id, "WH-002").model_copy(update={"is_default": True}),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.expire_all()
+    assert session.get(Warehouse, one.id).is_default is False
+    assert session.get(Warehouse, two.id).is_default is True
+
+    # Promoting through an update demotes the incumbent too.
+    service.update_branch(
+        first.id,
+        BranchUpdate.model_validate(
+            _branch_data("BR-001").model_dump() | {"is_default": True}
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    session.expire_all()
+    assert session.get(Branch, first.id).is_default is True
+    assert session.get(Branch, second.id).is_default is False
+
+
+def test_bulk_operations_are_audited_like_single_row_ones() -> None:
+    """Deleting fifty branches from the toolbar recorded nothing at all."""
+    session = _session_factory()()
+    service = BranchWarehouseService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "BRBULK")
+    first = service.create_branch(
+        _branch_data("BR-001"), firm_id=firm.id, actor_id=actor_id
+    )
+    second = service.create_branch(
+        _branch_data("BR-002"), firm_id=firm.id, actor_id=actor_id
+    )
+
+    service.bulk_delete_branches(
+        BulkIdsRequest(ids=[first.id, second.id]),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    deleted = session.scalars(
+        select(AuditLog).where(AuditLog.action == "branch.deleted")
+    ).all()
+    assert len(deleted) == 2
+    assert {row.entity_id for row in deleted} == {first.id, second.id}
+    assert all(row.firm_id == firm.id for row in deleted)
+
+    service.bulk_restore_branches(
+        BulkIdsRequest(ids=[first.id]), firm_scope=firm.id, actor_id=actor_id
+    )
+    restored = session.scalars(
+        select(AuditLog).where(AuditLog.action == "branch.restored")
+    ).all()
+    assert [row.entity_id for row in restored] == [first.id]
+
+
+def test_bulk_delete_refuses_a_branch_that_still_has_warehouses() -> None:
+    """The bulk path enforces the same rule as the single-row one."""
+    session = _session_factory()()
+    service = BranchWarehouseService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "BRBLK2")
+    branch = service.create_branch(_branch_data(), firm_id=firm.id, actor_id=actor_id)
+    service.create_warehouse(
+        _warehouse_data(branch.id), firm_id=firm.id, actor_id=actor_id
+    )
+
+    with pytest.raises(ValidationError, match="still has warehouses"):
+        service.bulk_delete_branches(
+            BulkIdsRequest(ids=[branch.id]), firm_scope=firm.id, actor_id=actor_id
+        )

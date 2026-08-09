@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,12 +34,14 @@ from app.branches.schemas import (
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.inventory.models import InventoryRecord
 
 
 class BranchWarehouseService:
     """Coordinate branch and warehouse mutations, queries, and audits."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
         self._repository = BranchWarehouseRepository(session)
 
@@ -54,6 +56,7 @@ class BranchWarehouseService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[Branch], int]:
+        """Return a page of branches for the firm in scope."""
         return self._repository.list_branches(
             firm_scope=firm_scope,
             filters=filters,
@@ -64,11 +67,18 @@ class BranchWarehouseService:
             limit=page_size,
         )
 
-    def create_branch(self, data: BranchCreate, *, firm_id: UUID, actor_id: UUID) -> Branch:
+    def create_branch(
+        self, data: BranchCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Branch:
+        """Create a branch, demoting any previous default."""
         self._assert_unique_branch_code(firm_id, data.code)
+        values = self._branch_values(data)
+        self._demote_other_default_branches(
+            firm_id, is_default=bool(values["is_default"]), exclude_id=None
+        )
         row = Branch(
             firm_id=firm_id,
-            **self._branch_values(data),
+            **values,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -89,6 +99,7 @@ class BranchWarehouseService:
     def get_branch(
         self, branch_id: UUID, *, firm_scope: UUID | None, include_deleted: bool = False
     ) -> Branch:
+        """Return one branch the firm owns."""
         row = self._repository.get_branch(
             branch_id, firm_scope, include_deleted=include_deleted
         )
@@ -104,10 +115,15 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> Branch:
+        """Replace a branch, demoting any previous default."""
         row = self.get_branch(branch_id, firm_scope=firm_scope)
         self._assert_unique_branch_code(row.firm_id, data.code, excluding_id=row.id)
-        before = {"code": row.code, "status": row.status}
-        for field, value in self._branch_values(data).items():
+        before: dict[str, object] = {"code": row.code, "status": row.status}
+        values = self._branch_values(data)
+        self._demote_other_default_branches(
+            row.firm_id, is_default=bool(values["is_default"]), exclude_id=row.id
+        )
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -123,8 +139,12 @@ class BranchWarehouseService:
         self._commit_unique("Branch code already exists in this firm.")
         return row
 
-    def delete_branch(self, branch_id: UUID, *, firm_scope: UUID | None, actor_id: UUID) -> None:
+    def delete_branch(
+        self, branch_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
+    ) -> None:
+        """Soft delete a branch that has no live warehouses."""
         row = self.get_branch(branch_id, firm_scope=firm_scope)
+        self._assert_branch_removable(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -143,6 +163,7 @@ class BranchWarehouseService:
     def restore_branch(
         self, branch_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Branch:
+        """Restore a soft-deleted branch."""
         row = self.get_branch(branch_id, firm_scope=firm_scope, include_deleted=True)
         if not row.is_deleted:
             return row
@@ -165,6 +186,7 @@ class BranchWarehouseService:
     def duplicate_branch(
         self, branch_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Branch:
+        """Copy a branch under a suffixed code."""
         source = self.get_branch(branch_id, firm_scope=firm_scope)
         duplicate = Branch(
             firm_id=source.firm_id,
@@ -204,8 +226,9 @@ class BranchWarehouseService:
     def branch_summary(
         self, *, firm_scope: UUID | None, filters: BranchListFilters
     ) -> BranchSummary:
-        total, active, inactive, draft, archived, deleted = self._repository.branch_summary(
-            firm_scope, filters
+        """Return branch counts by status."""
+        total, active, inactive, draft, archived, deleted = (
+            self._repository.branch_summary(firm_scope, filters)
         )
         return BranchSummary(
             total=total,
@@ -219,15 +242,18 @@ class BranchWarehouseService:
     def bulk_delete_branches(
         self, data: BulkIdsRequest, *, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Soft delete several branches, auditing each."""
         affected = 0
         for branch_id in data.ids:
             row = self.get_branch(branch_id, firm_scope=firm_scope)
             if row.is_deleted:
                 continue
+            self._assert_branch_removable(row)
             row.is_deleted = True
             row.deleted_at = utc_now()
             row.deleted_by = actor_id
             row.updated_by = actor_id
+            self._audit_bulk(row, action="branch.deleted", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -236,15 +262,19 @@ class BranchWarehouseService:
     def bulk_restore_branches(
         self, data: BulkIdsRequest, *, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Restore several branches, auditing each."""
         affected = 0
         for branch_id in data.ids:
-            row = self.get_branch(branch_id, firm_scope=firm_scope, include_deleted=True)
+            row = self.get_branch(
+                branch_id, firm_scope=firm_scope, include_deleted=True
+            )
             if not row.is_deleted:
                 continue
             row.is_deleted = False
             row.deleted_at = None
             row.deleted_by = None
             row.updated_by = actor_id
+            self._audit_bulk(row, action="branch.restored", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -253,6 +283,7 @@ class BranchWarehouseService:
     def bulk_branch_status(
         self, data: BulkBranchStatusRequest, *, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Set the status of several branches, auditing each."""
         affected = 0
         for branch_id in data.ids:
             row = self.get_branch(branch_id, firm_scope=firm_scope)
@@ -260,6 +291,7 @@ class BranchWarehouseService:
                 continue
             row.status = data.status.value
             row.updated_by = actor_id
+            self._audit_bulk(row, action="branch.updated", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -276,6 +308,7 @@ class BranchWarehouseService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[Warehouse], int]:
+        """Return a page of warehouses for the firm in scope."""
         return self._repository.list_warehouses(
             firm_scope=firm_scope,
             filters=filters,
@@ -289,11 +322,16 @@ class BranchWarehouseService:
     def create_warehouse(
         self, data: WarehouseCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Warehouse:
+        """Create a warehouse under a branch the firm owns."""
         self._assert_unique_warehouse_code(firm_id, data.code)
         branch = self.get_branch(data.branch_id, firm_scope=firm_id)
+        values = self._warehouse_values(data)
+        self._demote_other_default_warehouses(
+            branch.id, is_default=bool(values["is_default"]), exclude_id=None
+        )
         row = Warehouse(
             firm_id=firm_id,
-            **self._warehouse_values(data),
+            **values,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -318,6 +356,7 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         include_deleted: bool = False,
     ) -> Warehouse:
+        """Return one warehouse the firm owns."""
         row = self._repository.get_warehouse(
             warehouse_id, firm_scope, include_deleted=include_deleted
         )
@@ -333,11 +372,16 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> Warehouse:
+        """Replace a warehouse, demoting any previous default."""
         row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
         self._assert_unique_warehouse_code(row.firm_id, data.code, excluding_id=row.id)
         self.get_branch(data.branch_id, firm_scope=row.firm_id)
-        before = {"code": row.code, "status": row.status}
-        for field, value in self._warehouse_values(data).items():
+        before: dict[str, object] = {"code": row.code, "status": row.status}
+        values = self._warehouse_values(data)
+        self._demote_other_default_warehouses(
+            data.branch_id, is_default=bool(values["is_default"]), exclude_id=row.id
+        )
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -356,7 +400,9 @@ class BranchWarehouseService:
     def delete_warehouse(
         self, warehouse_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> None:
+        """Soft delete a warehouse that holds no stock."""
         row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
+        self._assert_warehouse_removable(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -375,7 +421,10 @@ class BranchWarehouseService:
     def restore_warehouse(
         self, warehouse_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Warehouse:
-        row = self.get_warehouse(warehouse_id, firm_scope=firm_scope, include_deleted=True)
+        """Restore a soft-deleted warehouse."""
+        row = self.get_warehouse(
+            warehouse_id, firm_scope=firm_scope, include_deleted=True
+        )
         if not row.is_deleted:
             return row
         row.is_deleted = False
@@ -397,6 +446,7 @@ class BranchWarehouseService:
     def duplicate_warehouse(
         self, warehouse_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Warehouse:
+        """Copy a warehouse under a suffixed code."""
         source = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
         duplicate = Warehouse(
             firm_id=source.firm_id,
@@ -439,6 +489,7 @@ class BranchWarehouseService:
     def warehouse_summary(
         self, *, firm_scope: UUID | None, filters: WarehouseListFilters
     ) -> WarehouseSummary:
+        """Return warehouse counts by status."""
         total, active, inactive, draft, archived, deleted = (
             self._repository.warehouse_summary(firm_scope, filters)
         )
@@ -454,15 +505,18 @@ class BranchWarehouseService:
     def bulk_delete_warehouses(
         self, data: BulkIdsRequest, *, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Soft delete several warehouses, auditing each."""
         affected = 0
         for warehouse_id in data.ids:
             row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
             if row.is_deleted:
                 continue
+            self._assert_warehouse_removable(row)
             row.is_deleted = True
             row.deleted_at = utc_now()
             row.deleted_by = actor_id
             row.updated_by = actor_id
+            self._audit_bulk(row, action="warehouse.deleted", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -471,6 +525,7 @@ class BranchWarehouseService:
     def bulk_restore_warehouses(
         self, data: BulkIdsRequest, *, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Restore several warehouses, auditing each."""
         affected = 0
         for warehouse_id in data.ids:
             row = self.get_warehouse(
@@ -482,6 +537,7 @@ class BranchWarehouseService:
             row.deleted_at = None
             row.deleted_by = None
             row.updated_by = actor_id
+            self._audit_bulk(row, action="warehouse.restored", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -494,6 +550,7 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> int:
+        """Set the status of several warehouses, auditing each."""
         affected = 0
         for warehouse_id in data.ids:
             row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
@@ -501,6 +558,7 @@ class BranchWarehouseService:
                 continue
             row.status = data.status.value
             row.updated_by = actor_id
+            self._audit_bulk(row, action="warehouse.updated", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -509,6 +567,7 @@ class BranchWarehouseService:
     def create_storage_node(
         self, data: StorageNodeCreate, *, firm_scope: UUID | None, actor_id: UUID
     ) -> WarehouseStorageNode:
+        """Add a node to a warehouse's storage hierarchy."""
         warehouse = self.get_warehouse(data.warehouse_id, firm_scope=firm_scope)
         parent = None
         if data.parent_id is not None:
@@ -516,7 +575,9 @@ class BranchWarehouseService:
                 data.parent_id, firm_scope, include_deleted=False
             )
             if parent is None or parent.warehouse_id != data.warehouse_id:
-                raise ValidationError("Parent storage node is invalid for this warehouse.")
+                raise ValidationError(
+                    "Parent storage node is invalid for this warehouse."
+                )
         node = WarehouseStorageNode(
             warehouse_id=data.warehouse_id,
             parent_id=data.parent_id,
@@ -541,7 +602,9 @@ class BranchWarehouseService:
             firm_id=warehouse.firm_id,
             after_data={"code": node.code, "warehouse_id": str(warehouse.id)},
         )
-        self._commit_unique("Storage node code or name already exists in this warehouse.")
+        self._commit_unique(
+            "Storage node code or name already exists in this warehouse."
+        )
         return node
 
     def update_storage_node(
@@ -552,6 +615,7 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> WarehouseStorageNode:
+        """Change a storage node and repath its descendants."""
         node = self.get_storage_node(storage_node_id, firm_scope=firm_scope)
         if data.warehouse_id != node.warehouse_id:
             raise ValidationError("Storage node warehouse cannot be changed.")
@@ -563,7 +627,9 @@ class BranchWarehouseService:
                 data.parent_id, firm_scope, include_deleted=False
             )
             if parent is None or parent.warehouse_id != node.warehouse_id:
-                raise ValidationError("Parent storage node is invalid for this warehouse.")
+                raise ValidationError(
+                    "Parent storage node is invalid for this warehouse."
+                )
             if parent.path.startswith(f"{node.path}/"):
                 raise ValidationError("Circular storage hierarchy is not allowed.")
         old_path = node.path
@@ -579,12 +645,15 @@ class BranchWarehouseService:
         node.updated_by = actor_id
         if old_path != new_path:
             self._repath_descendants(node.warehouse_id, old_path, new_path)
-        self._commit_unique("Storage node code or name already exists in this warehouse.")
+        self._commit_unique(
+            "Storage node code or name already exists in this warehouse."
+        )
         return node
 
     def delete_storage_node(
         self, storage_node_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> None:
+        """Soft delete a storage node that has no children."""
         node = self.get_storage_node(storage_node_id, firm_scope=firm_scope)
         children = self._repository.list_storage_nodes(
             warehouse_id=node.warehouse_id,
@@ -606,6 +675,7 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         include_deleted: bool = False,
     ) -> WarehouseStorageNode:
+        """Return one storage node, scoped through its warehouse."""
         node = self._repository.get_storage_node(
             storage_node_id,
             firm_scope,
@@ -618,18 +688,23 @@ class BranchWarehouseService:
     def list_storage_nodes(
         self, *, warehouse_id: UUID, firm_scope: UUID | None, include_deleted: bool
     ) -> list[WarehouseStorageNode]:
+        """Return a warehouse's storage hierarchy."""
         return self._repository.list_storage_nodes(
             warehouse_id=warehouse_id,
             firm_scope=firm_scope,
             include_deleted=include_deleted,
         )
 
-    def list_branch_types(self, *, firm_id: UUID, include_deleted: bool) -> list[BranchType]:
+    def list_branch_types(
+        self, *, firm_id: UUID, include_deleted: bool
+    ) -> list[BranchType]:
+        """Return the firm's branch types."""
         return self._repository.list_branch_types(firm_id, include_deleted)
 
     def create_branch_type(
         self, data: BranchTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> BranchType:
+        """Add a branch type."""
         row = BranchType(
             firm_id=firm_id,
             code=data.code,
@@ -651,7 +726,10 @@ class BranchWarehouseService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> BranchType:
-        row = self._repository.get_branch_type(branch_type_id, firm_id, include_deleted=True)
+        """Change a branch type."""
+        row = self._repository.get_branch_type(
+            branch_type_id, firm_id, include_deleted=True
+        )
         if row is None:
             raise ResourceNotFoundError("Branch type not found.")
         row.code = data.code
@@ -665,8 +743,13 @@ class BranchWarehouseService:
         self._commit_unique("Branch type code or name already exists in this firm.")
         return row
 
-    def delete_branch_type(self, branch_type_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
-        row = self._repository.get_branch_type(branch_type_id, firm_id, include_deleted=False)
+    def delete_branch_type(
+        self, branch_type_id: UUID, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Soft delete a branch type."""
+        row = self._repository.get_branch_type(
+            branch_type_id, firm_id, include_deleted=False
+        )
         if row is None:
             raise ResourceNotFoundError("Branch type not found.")
         row.is_deleted = True
@@ -678,11 +761,13 @@ class BranchWarehouseService:
     def list_warehouse_types(
         self, *, firm_id: UUID, include_deleted: bool
     ) -> list[WarehouseType]:
+        """Return the firm's warehouse types."""
         return self._repository.list_warehouse_types(firm_id, include_deleted)
 
     def create_warehouse_type(
         self, data: WarehouseTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> WarehouseType:
+        """Add a warehouse type."""
         row = WarehouseType(
             firm_id=firm_id,
             code=data.code,
@@ -704,6 +789,7 @@ class BranchWarehouseService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> WarehouseType:
+        """Change a warehouse type."""
         row = self._repository.get_warehouse_type(
             warehouse_type_id, firm_id, include_deleted=True
         )
@@ -723,6 +809,7 @@ class BranchWarehouseService:
     def delete_warehouse_type(
         self, warehouse_type_id: UUID, *, firm_id: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete a warehouse type."""
         row = self._repository.get_warehouse_type(
             warehouse_type_id, firm_id, include_deleted=False
         )
@@ -734,9 +821,113 @@ class BranchWarehouseService:
         row.updated_by = actor_id
         self._session.commit()
 
+    def _audit_bulk(
+        self, row: Branch | Warehouse, *, action: str, actor_id: UUID
+    ) -> None:
+        """Record a bulk mutation the way the single-row endpoint records it.
+
+        The six bulk endpoints wrote nothing at all, so deleting fifty branches
+        through the toolbar left an audit trail showing none of it while
+        deleting one through the row menu was recorded.
+        """
+        record_audit(
+            self._session,
+            action=action,
+            entity_type="branch" if isinstance(row, Branch) else "warehouse",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=row.firm_id,
+            before_data={"code": row.code},
+            after_data={"status": row.status, "is_deleted": row.is_deleted},
+        )
+
+    def _assert_branch_removable(self, branch: Branch) -> None:
+        """Refuse to delete a branch that still has live warehouses.
+
+        Deleting one only hid the branch: its warehouses stayed active and kept
+        receiving and issuing stock while pointing at a branch no listing shows.
+        The module already refuses to delete a storage node with children.
+        """
+        live = self._session.scalar(
+            select(Warehouse.id)
+            .where(
+                Warehouse.branch_id == branch.id,
+                Warehouse.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if live is not None:
+            raise ValidationError(
+                "This branch still has warehouses. Remove or reassign them first."
+            )
+
+    def _assert_warehouse_removable(self, warehouse: Warehouse) -> None:
+        """Refuse to delete a warehouse that still holds stock.
+
+        The stock rows point at the warehouse and survive its deletion, so the
+        quantity stayed on the books in a location nothing would show.
+        """
+        held = self._session.scalar(
+            select(InventoryRecord.id)
+            .where(
+                InventoryRecord.warehouse_id == warehouse.id,
+                InventoryRecord.is_deleted.is_(False),
+                or_(
+                    InventoryRecord.current_quantity != 0,
+                    InventoryRecord.reserved_quantity != 0,
+                ),
+            )
+            .limit(1)
+        )
+        if held is not None:
+            raise ValidationError(
+                "This warehouse still holds stock. Move or write it off first."
+            )
+
+    def _demote_other_default_branches(
+        self, firm_id: UUID, *, is_default: bool, exclude_id: UUID | None
+    ) -> None:
+        """Keep at most one default branch per firm.
+
+        Nothing maintained the flag, so every branch could be the default at
+        once and any consumer picking "the default" got an arbitrary row. The
+        demotion is flushed before the promoted row is written, because the
+        partial unique index rejects two defaults at statement level.
+        """
+        if not is_default:
+            return
+        statement = select(Branch).where(
+            Branch.firm_id == firm_id,
+            Branch.is_default.is_(True),
+            Branch.is_deleted.is_(False),
+        )
+        if exclude_id is not None:
+            statement = statement.where(Branch.id != exclude_id)
+        for row in self._session.scalars(statement).all():
+            row.is_default = False
+        self._session.flush()
+
+    def _demote_other_default_warehouses(
+        self, branch_id: UUID, *, is_default: bool, exclude_id: UUID | None
+    ) -> None:
+        """Keep at most one default warehouse per branch."""
+        if not is_default:
+            return
+        statement = select(Warehouse).where(
+            Warehouse.branch_id == branch_id,
+            Warehouse.is_default.is_(True),
+            Warehouse.is_deleted.is_(False),
+        )
+        if exclude_id is not None:
+            statement = statement.where(Warehouse.id != exclude_id)
+        for row in self._session.scalars(statement).all():
+            row.is_default = False
+        self._session.flush()
+
     def _assert_unique_branch_code(
         self, firm_id: UUID, code: str, excluding_id: UUID | None = None
     ) -> None:
+        """Refuse a branch code the firm already uses."""
         duplicate = self._repository.branch_duplicate_id(
             firm_id,
             code=code,
@@ -748,6 +939,7 @@ class BranchWarehouseService:
     def _assert_unique_warehouse_code(
         self, firm_id: UUID, code: str, excluding_id: UUID | None = None
     ) -> None:
+        """Refuse a warehouse code the firm already uses."""
         duplicate = self._repository.warehouse_duplicate_id(
             firm_id,
             code=code,
@@ -757,6 +949,7 @@ class BranchWarehouseService:
             raise ConflictError("Warehouse code already exists in this firm.")
 
     def _commit_unique(self, message: str) -> None:
+        """Commit, turning a unique-key clash into a conflict."""
         try:
             self._session.commit()
         except IntegrityError as error:
@@ -765,6 +958,7 @@ class BranchWarehouseService:
 
     @staticmethod
     def _branch_values(data: BranchCreate | BranchUpdate) -> dict[str, object]:
+        """Flatten a branch payload into column values."""
         values = data.model_dump(mode="python")
         values["status"] = data.status.value
         values["display_name"] = data.display_name or data.name
@@ -772,6 +966,7 @@ class BranchWarehouseService:
 
     @staticmethod
     def _warehouse_values(data: WarehouseCreate | WarehouseUpdate) -> dict[str, object]:
+        """Flatten a warehouse payload into column values."""
         values = data.model_dump(mode="python")
         values["status"] = data.status.value
         values["display_name"] = data.display_name or data.name
@@ -779,11 +974,13 @@ class BranchWarehouseService:
 
     @staticmethod
     def _build_path(parent_path: str | None, code: str) -> str:
+        """Join a parent path and a code into a node path."""
         return f"{parent_path}/{code}" if parent_path else code
 
     def _repath_descendants(
         self, warehouse_id: UUID, old_path: str, new_path: str
     ) -> None:
+        """Rewrite the stored paths below a moved node."""
         descendants = self._session.scalars(
             select(WarehouseStorageNode).where(
                 WarehouseStorageNode.warehouse_id == warehouse_id,

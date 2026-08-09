@@ -55,11 +55,13 @@ class BranchTypeWrite(BranchWarehouseSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Uppercase and trim an identifier code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: str) -> str:
+        """Trim a display name."""
         return value.strip()
 
 
@@ -74,11 +76,13 @@ class WarehouseTypeWrite(BranchWarehouseSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Uppercase and trim an identifier code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: str) -> str:
+        """Trim a display name."""
         return value.strip()
 
 
@@ -115,6 +119,7 @@ class BranchWrite(BranchWarehouseSchema):
     @field_validator("code", "pan", "license_number", "currency_code", mode="before")
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
+        """Uppercase and trim an optional identifier code."""
         if value is None:
             return None
         normalized = value.strip().upper()
@@ -123,16 +128,19 @@ class BranchWrite(BranchWarehouseSchema):
     @field_validator("name", "display_name", mode="before")
     @classmethod
     def normalize_names(cls, value: str | None) -> str | None:
+        """Trim an optional display name."""
         return value.strip() if value else None
 
     @field_validator("email")
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
+        """Validate an optional contact email."""
         return validate_email(value) if value else None
 
     @field_validator("phone", "mobile")
     @classmethod
     def normalize_phone(cls, value: str | None) -> str | None:
+        """Validate an optional contact phone number."""
         return validate_phone(value) if value else None
 
 
@@ -163,7 +171,9 @@ class WarehouseWrite(BranchWarehouseSchema):
     locality_id: UUID | None = None
     address_line1: str | None = Field(default=None, max_length=250)
     address_line2: str | None = Field(default=None, max_length=250)
-    capacity: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=3)
+    capacity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=3
+    )
     capacity_unit: str | None = Field(default=None, max_length=20)
     is_default: bool = False
     temperature_controlled: bool = False
@@ -180,6 +190,7 @@ class WarehouseWrite(BranchWarehouseSchema):
     @field_validator("code", "capacity_unit", mode="before")
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
+        """Uppercase and trim an optional identifier code."""
         if value is None:
             return None
         normalized = value.strip().upper()
@@ -188,6 +199,7 @@ class WarehouseWrite(BranchWarehouseSchema):
     @field_validator("name", "display_name", mode="before")
     @classmethod
     def normalize_names(cls, value: str | None) -> str | None:
+        """Trim an optional display name."""
         return value.strip() if value else None
 
 
@@ -214,11 +226,13 @@ class StorageNodeWrite(BranchWarehouseSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Uppercase and trim an identifier code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_name(cls, value: str) -> str:
+        """Trim a display name."""
         return value.strip()
 
 
@@ -370,6 +384,7 @@ class BranchListFilters(BranchWarehouseSchema):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "BranchListFilters":
+        """Reject a created-date window that ends before it starts."""
         if (
             self.created_from is not None
             and self.created_to is not None
@@ -396,6 +411,7 @@ class WarehouseListFilters(BranchWarehouseSchema):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "WarehouseListFilters":
+        """Reject a created-date window that ends before it starts."""
         if (
             self.created_from is not None
             and self.created_to is not None

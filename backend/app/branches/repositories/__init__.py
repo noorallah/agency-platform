@@ -5,4 +5,3 @@ from app.branches.repositories.branch_warehouse_repository import (
 )
 
 __all__ = ["BranchWarehouseRepository"]
-
