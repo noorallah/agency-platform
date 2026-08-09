@@ -105,7 +105,11 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       schema **(found a real bug — every firm-owned router)**.
 - [ ] A service that receives someone else's session **does not commit it**.
       `DocumentFrameworkService` committed in all 11 mutating methods, splitting
-      every document write into several transactions.
+      every document write into several transactions. `TaxRuleService.simulate`
+      did the same and was worse hidden: it reads like a preview, but all seven
+      transactional modules call it once per line while building a document, so
+      a commit there published a half-written invoice **(found a real bug
+      twice — check every service another service calls)**.
 - [ ] Cancelling a document **reverses whatever it posted**. Cancelling a completed
       goods receipt or purchase return left the stock movement in place.
 - [ ] Sequence allocation **takes a row lock**, and a losing race returns 409, not 503.
@@ -136,6 +140,24 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       same schema and read each other's rows; soft-deleted firms count, because
       their data is still sitting in that schema.
 
+### Defects the `tax` pass added to this list
+
+- [ ] **A flag or action the engine records has to change an outcome.**
+      `included_in_price` and the `REVERSE_CHARGE` action were both stored,
+      returned in the response and read by nobody, so configuring either
+      silently produced wrong money — an inclusive component was billed on top
+      of the price it was already inside, and a reverse-charge sale still
+      charged the customer the tax. Trace every declared flag to the line that
+      acts on it, or the feature is decoration.
+- [ ] **A scope filter must be satisfiable by the callers that actually exist.**
+      Rules can be scoped by country and business profile, but no document sends
+      a country and two of the seven send no profile, so country-scoped rules
+      never fired and profile-scoped rules fired on five document types out of
+      seven. Check what the real callers pass, not what the API accepts.
+- [ ] **Grep for `quantize(` across the module.** An eighth private helper was
+      still rounding tax half-to-even after the seven document copies were
+      unified on `quantize_money`.
+
 ## Module inventory
 
 Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
@@ -165,7 +187,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `purchase_invoice` | 16 | 208 | 15 | `test_purchase_invoice_module` | **untyped** |
 | `delivery_note` | 19 | 210 | 6 | `test_delivery_note_module` | **untyped** |
 | `purchase_return` | 18 | 212 | 22 | `test_purchase_return_module` | **untyped** |
-| `tax` | 52 | 268 | 14 | `test_tax_framework` | typed + untyped |
+| `tax` | 52 | 184 | 14 | `test_tax_framework` | typed + untyped |
 
 "untyped" means the desktop reaches those endpoints through
 `api.request('GET', '/api/v1/...')` inside page widgets rather than through
@@ -208,7 +230,7 @@ and typed; mostly cleanup.
 | 5 | `purchase_return` | 2026-08-09 | cancel left stock posted and its movements were unlinkable; `subtotal` folded in line charges | yes |
 | 6 | `delivery_note` | 2026-08-09 | lines re-inserted on edit, dangling downstream references | yes |
 | 7 | `sales_order` | 2026-08-09 | lines re-inserted on edit, resetting `reserved_quantity` while the RESERVE movement stayed in the ledger | yes |
-| 8 | `tax` | | | |
+| 8 | `tax` | 2026-08-09 | `simulate` committed the caller's session while every document computed tax line by line; an eighth private rounding helper still used banker's rounding; country-scoped rules never matched a document and profile-scoped ones matched five of seven; `included_in_price` was billed on top of the price; `REVERSE_CHARGE` changed nothing; the execution log had no purge path | yes — desktop endpoints still inlined |
 | 9 | `uom` | | | |
 | 10 | `branches` | | | |
 | 11 | `inventory` | | | |
