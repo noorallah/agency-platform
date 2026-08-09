@@ -924,13 +924,15 @@ def simulate_tax_rule(
     scope: TaxRuleSimulateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxRuleSimulationResponse]:
-    return ApiResponse(
-        data=TaxRuleService(db).simulate(
-            data,
-            firm_scope=scope.firm_id,
-            actor_id=scope.actor_id,
-        )
+    # The endpoint owns the transaction: simulate() runs inside every document
+    # write too, where committing would publish a half-written document.
+    response = TaxRuleService(db).simulate(
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
     )
+    db.commit()
+    return ApiResponse(data=response)
 
 
 @router.get("/rules/export")

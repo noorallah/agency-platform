@@ -1,30 +1,39 @@
 """Enterprise tax framework service and API-scope tests."""
 
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.business.models import BusinessProfile
-from app.tax.models import TaxComponent, TaxProfile, TaxSystem
+from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_money
 from app.firms.models import Firm
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
 from app.sales.models import GeoCountry
+from app.tax.models import (
+    TaxComponent,
+    TaxProfile,
+    TaxRuleExecutionLog,
+    TaxSystem,
+)
 from app.tax.schemas import (
     TaxComponentWrite,
     TaxProfileWrite,
     TaxRuleSimulationRequest,
+    TaxRuleSimulationResponse,
     TaxRuleWrite,
     TaxSettingsWrite,
     TaxSystemWrite,
 )
-from app.tax.services import TaxFrameworkService, TaxRuleService
+from app.tax.services import TaxFrameworkService, TaxRetentionService, TaxRuleService
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -766,3 +775,278 @@ def test_a_rule_keeps_matching_after_the_rate_version_changes() -> None:
         "the rule must still fire after a rate change; matching on the profile "
         "id instead of the group is what silently broke this"
     )
+
+
+def _priced_profile(
+    session: Session,
+    firm: Firm,
+    actor_id: UUID,
+    system: TaxSystem,
+    *,
+    percent: str,
+    included_in_price: bool,
+    code: str = "PRICED",
+) -> TaxProfile:
+    """Create a single-component profile at the given rate and price treatment."""
+    component = TaxFrameworkService(session).create_component(
+        TaxComponentWrite(
+            tax_system_id=system.id,
+            code=f"C_{code}",
+            name=code,
+            label=code,
+            percentage=percent,
+            included_in_price=included_in_price,
+            status="ACTIVE",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return TaxFrameworkService(session).create_profile(
+        TaxProfileWrite(
+            tax_system_id=system.id,
+            code=code,
+            name=code,
+            label=code,
+            status="ACTIVE",
+            components=[
+                {
+                    "tax_component_id": component.id,
+                    "percentage": percent,
+                    "calculation_order": 1,
+                    "included_in_price": included_in_price,
+                    "recoverable": False,
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+
+def _document_style_simulation(
+    session: Session,
+    firm: Firm,
+    actor_id: UUID,
+    profile_id: UUID,
+    value: str = "100",
+) -> TaxRuleSimulationResponse:
+    """Simulate exactly the way a transactional document does.
+
+    Documents send no country and, in two of the seven, no business profile,
+    which is what made rule scope behave differently per document type.
+    """
+    return TaxRuleService(session).simulate(
+        TaxRuleSimulationRequest(
+            transaction_type="SALES_INVOICE",
+            transaction_date=date(2026, 6, 1),
+            tax_profile_id=profile_id,
+            invoice_value=value,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+
+def test_tax_amounts_round_half_up_like_every_other_amount() -> None:
+    """Tax used Python's default banker's rounding; money is rounded half up.
+
+    ``_quantize`` passed no rounding argument, so a component landing exactly on
+    a half rounded to even while every amount the document computed around it
+    rounded away from zero.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="100", included_in_price=False
+    )
+
+    result = _document_style_simulation(
+        session, firm, actor_id, profile.id, value="1.00025"
+    )
+    assert result.total_tax_amount == quantize_money(Decimal("1.00025"))
+    assert result.total_tax_amount == Decimal("1.0003")
+
+
+def test_simulate_does_not_commit_the_caller_transaction() -> None:
+    """Every document computes tax per line on its own session, mid-write.
+
+    Committing here published whatever the document had written so far and left
+    the rest of the write in a separate transaction.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+
+    pending = TaxSystem(
+        firm_id=firm.id,
+        country_id=session.query(GeoCountry).first().id,
+        code="HALF_WRITTEN",
+        name="Half written",
+        display_name="Half written",
+        status="ACTIVE",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(pending)
+    session.flush()
+
+    _document_style_simulation(session, firm, actor_id, profile.id)
+    session.rollback()
+
+    assert (
+        session.scalar(select(TaxSystem).where(TaxSystem.code == "HALF_WRITTEN"))
+        is None
+    ), "simulate committed work the caller had not finished"
+
+
+def test_a_country_scoped_rule_fires_the_way_a_document_calls_it() -> None:
+    """No document sends a country, so country-scoped rules never fired.
+
+    The country is derivable: the applied profile belongs to a tax system, and
+    that system names the country.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    country = session.query(GeoCountry).first()
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            code="COUNTRY_ZERO",
+            name="Country scoped",
+            priority=1,
+            status="ACTIVE",
+            actions=[{"sequence": 1, "action_type": "ZERO_RATED"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    result = _document_style_simulation(session, firm, actor_id, profile.id)
+    assert result.matched_rule_id is not None
+    assert result.zero_rated is True
+    assert result.total_tax_amount == Decimal("0")
+
+
+def test_a_profile_scoped_rule_fires_without_an_explicit_profile_id() -> None:
+    """Two of the seven documents send no business profile; five do.
+
+    The same rule set therefore taxed a purchase order and the invoice raised
+    from it differently. The firm's assignment settles it for all of them.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    business_profile = session.query(BusinessProfile).first()
+    session.add(
+        FirmBusinessProfile(
+            firm_id=firm.id,
+            business_profile_id=business_profile.id,
+            is_active=True,
+            effective_from=date(2026, 1, 1),
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+    )
+    session.commit()
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            business_profile_id=business_profile.id,
+            code="PROFILE_ZERO",
+            name="Profile scoped",
+            priority=1,
+            status="ACTIVE",
+            actions=[{"sequence": 1, "action_type": "ZERO_RATED"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    result = _document_style_simulation(session, firm, actor_id, profile.id)
+    assert result.matched_rule_id is not None
+    assert result.zero_rated is True
+
+
+def test_tax_inside_the_price_is_extracted_not_added() -> None:
+    """An inclusive component was computed as exclusive and billed on top.
+
+    A 110 line carrying an inclusive 10% component was invoiced at 121: the
+    customer paid the embedded tax once in the price and again as tax.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="10", included_in_price=True
+    )
+
+    result = _document_style_simulation(session, firm, actor_id, profile.id, "110")
+
+    assert result.applied_components[0].amount == Decimal("10.0000")
+    assert result.inclusive_tax_amount == Decimal("10.0000")
+    # What the document adds to its payable total.
+    assert result.total_tax_amount == Decimal("0")
+
+
+def test_reverse_charge_does_not_bill_the_counterparty() -> None:
+    """The action set a flag that changed nothing; the tax was still charged.
+
+    Under reverse charge the recipient accounts for the tax, so the supplier
+    bills none of it. The amount is still reported for the ledger.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    country = session.query(GeoCountry).first()
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            code="RCM",
+            name="Reverse charge",
+            priority=1,
+            status="ACTIVE",
+            actions=[{"sequence": 1, "action_type": "REVERSE_CHARGE"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    result = _document_style_simulation(session, firm, actor_id, profile.id)
+
+    assert result.reverse_charge is True
+    assert result.total_tax_amount == Decimal("0")
+    assert result.reverse_charge_tax_amount == Decimal("5.0000")
+
+
+def test_execution_logs_are_prunable_beyond_the_retention_window() -> None:
+    """The log grows by one row per document line and nothing removed any."""
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+    for _ in range(3):
+        _document_style_simulation(session, firm, actor_id, profile.id)
+    session.commit()
+
+    logs = session.scalars(select(TaxRuleExecutionLog)).all()
+    assert len(logs) == 3
+    logs[0].created_at = utc_now() - timedelta(days=400)
+    session.commit()
+
+    service = TaxRetentionService(session)
+    assert service.purge(dry_run=True).execution_logs == 1
+    assert len(session.scalars(select(TaxRuleExecutionLog)).all()) == 3
+
+    assert service.purge().execution_logs == 1
+    assert len(session.scalars(select(TaxRuleExecutionLog)).all()) == 2
+
+    with pytest.raises(ValueError):
+        service.purge(execution_log_days=0)

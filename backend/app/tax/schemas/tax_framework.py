@@ -571,7 +571,12 @@ class TaxRuleSimulationResponse(TaxFrameworkSchema):
     matched_rule_id: UUID | None
     applied_tax_profile_id: UUID | None
     applied_components: list[TaxRuleComponentPreview] = Field(default_factory=list)
+    # What the counterparty is billed on top of the line. Tax already inside the
+    # price, and tax the recipient self-accounts for under reverse charge, are
+    # reported separately because neither is added to the document total.
     total_tax_amount: Decimal
+    inclusive_tax_amount: Decimal = Decimal("0")
+    reverse_charge_tax_amount: Decimal = Decimal("0")
     base_amount: Decimal
     exempt: bool = False
     zero_rated: bool = False
