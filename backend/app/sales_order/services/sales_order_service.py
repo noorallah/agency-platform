@@ -808,9 +808,19 @@ class SalesOrderService(TransactionalDocumentService):
         lines: list[SalesOrderLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(SalesOrderLine).filter(
-            SalesOrderLine.sales_order_id == row.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place. Deleting
+        # and re-inserting them, as this did, minted a new UUID for every line on
+        # every save. Downstream documents record source_document_line_id as a
+        # bare UUID with no foreign key, so those references silently dangled
+        # after an upstream edit — and the re-insert also reset reserved_quantity
+        # to zero while the reservation movement stayed in the ledger.
+        existing = {
+            line.line_number: line
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
+            ).all()
+        }
+        seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
         line_discount_total = ZERO
@@ -859,41 +869,48 @@ class SalesOrderService(TransactionalDocumentService):
                 storage_node_id=item.storage_node_id,
                 product_id=item.product_id,
             )
-            line = SalesOrderLine(
-                sales_order_id=row.id,
-                firm_id=row.firm_id,
-                line_number=item.line_number,
-                product_id=item.product_id,
-                description=item.description,
-                quantity=quantity,
-                free_quantity=free_quantity,
-                base_quantity=self._q(conversion["converted"]),
-                reservable_quantity=self._q(conversion["converted"]),
-                reserved_quantity=ZERO,
-                available_stock=available_stock,
-                reserved_stock=reserved_stock,
-                sales_uom_id=item.sales_uom_id,
-                inventory_uom_id=item.inventory_uom_id,
-                packaging_type_id=item.packaging_type_id,
-                conversion_factor=self._q(conversion["factor"]),
-                conversion_version=conversion["version"],
-                unit_price=self._q(item.unit_price),
-                discount_percent=self._q(item.discount_percent),
-                discount_amount=discount,
-                gross_amount=gross,
-                tax_profile_id=item.tax_profile_id,
-                tax_amount=tax,
-                net_amount=net,
-                warehouse_id=item.warehouse_id or row.warehouse_id,
-                storage_node_id=item.storage_node_id,
-                remarks=item.remarks,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-            self._session.add(line)
+            line = existing.get(item.line_number)
+            if line is None:
+                line = SalesOrderLine(
+                    sales_order_id=row.id,
+                    firm_id=row.firm_id,
+                    line_number=item.line_number,
+                    reserved_quantity=ZERO,
+                    created_by=actor_id,
+                )
+                self._session.add(line)
+            line.product_id = item.product_id
+            line.description = item.description
+            line.quantity = quantity
+            line.free_quantity = free_quantity
+            line.base_quantity = self._q(conversion["converted"])
+            line.reservable_quantity = self._q(conversion["converted"])
+            line.available_stock = available_stock
+            line.reserved_stock = reserved_stock
+            line.sales_uom_id = item.sales_uom_id
+            line.inventory_uom_id = item.inventory_uom_id
+            line.packaging_type_id = item.packaging_type_id
+            line.conversion_factor = self._q(conversion["factor"])
+            version = conversion["version"]
+            line.conversion_version = None if version is None else int(version)
+            line.unit_price = self._q(item.unit_price)
+            line.discount_percent = self._q(item.discount_percent)
+            line.discount_amount = discount
+            line.gross_amount = gross
+            line.tax_profile_id = item.tax_profile_id
+            line.tax_amount = tax
+            line.net_amount = net
+            line.warehouse_id = item.warehouse_id or row.warehouse_id
+            line.storage_node_id = item.storage_node_id
+            line.remarks = item.remarks
+            line.updated_by = actor_id
+            seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
             line_discount_total += discount
+        for line_number, line in existing.items():
+            if line_number not in seen:
+                self._session.delete(line)
         self._session.flush()
         return {
             "subtotal": self._q(subtotal),
@@ -950,9 +967,12 @@ class SalesOrderService(TransactionalDocumentService):
             )
 
     def _delete_children(self, order_id: UUID) -> None:
-        self._session.query(SalesOrderLine).filter(
-            SalesOrderLine.sales_order_id == order_id
-        ).delete(synchronize_session=False)
+        """Clear the child collections an update rebuilds wholesale.
+
+        Lines are deliberately absent: ``_replace_lines`` reconciles them by
+        line number so their identities survive an edit. Deleting them here as
+        well would defeat that.
+        """
         self._session.query(SalesOrderAttachment).filter(
             SalesOrderAttachment.sales_order_id == order_id
         ).delete(synchronize_session=False)
