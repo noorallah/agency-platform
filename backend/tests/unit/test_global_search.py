@@ -1,6 +1,7 @@
 """Enterprise global search service tests."""
 
 import inspect
+import re
 from datetime import date
 from pathlib import Path
 from typing import get_args
@@ -314,3 +315,60 @@ def test_no_firm_owned_router_declares_its_own_scope_resolver() -> None:
         and path.as_posix() not in allowed
     )
     assert not offenders, f"routers with a private firm-scope resolver: {offenders}"
+
+
+def test_no_service_resolves_firms_on_a_tenant_session() -> None:
+    """Services must not query ``firms``/``user_firms`` on the request session.
+
+    Those tables exist only in the platform schema, and a tenant session runs
+    ``SET search_path TO "<firm schema>"`` with no fallback. This defect has
+    shipped three times — in every firm-owned router, then in the shared
+    document base, then in the business framework — and the unit suite cannot
+    see any of it because SQLite puts every table in one schema.
+
+    Use ``app.common.firm_metadata.FirmMetadataReader``, which resolves against
+    the platform connection, or take a platform session explicitly.
+    """
+    owns_the_tables = {
+        # Own the firm registry and membership; their routes are platform paths.
+        "app/firms/services/firm_service.py",
+        "app/identity/services/identity_service.py",
+        # The reader and the scope dependency that resolve against platform.
+        "app/common/firm_metadata.py",
+        "app/common/scope.py",
+    }
+    # KNOWN BUGS, not exemptions. Each of these resolves firms or memberships on
+    # the request session, so the endpoints behind them fail with UndefinedTable
+    # whenever the caller supplies X-Firm-ID for a firm outside the platform
+    # schema — which the desktop client always does. Route each through
+    # FirmMetadataReader or an explicit platform session, then delete its entry.
+    known_bugs = {
+        # GET/PUT /business-framework/firms/{id}/profile-assignment
+        "app/business/services/framework_service.py",
+        # Salesman assignment validates membership against user_firms.
+        "app/sales/services/territory_service.py",
+        # Product creation validates the owning firm exists.
+        "app/products/services/product_service.py",
+    }
+    offenders: set[str] = set()
+    for path in Path("app").rglob("*.py"):
+        key = path.as_posix()
+        if "/services/" not in key and key not in owns_the_tables:
+            continue
+        if key in owns_the_tables:
+            continue
+        source = path.read_text(encoding="utf-8")
+        # Word-bounded so FirmControlAccount, FirmMetadata and
+        # FirmStorageMapping are not mistaken for the registry tables.
+        if re.search("(?:^|[^A-Za-z_])(?:Firm|UserFirm)[.][A-Za-z_]", source):
+            offenders.add(key)
+
+    new_offenders = offenders - known_bugs
+    assert not new_offenders, (
+        "new services resolving firms on a tenant session: " f"{sorted(new_offenders)}"
+    )
+    fixed = known_bugs - offenders
+    assert not fixed, (
+        "these were fixed — remove them from known_bugs so the list stays "
+        f"honest: {sorted(fixed)}"
+    )
