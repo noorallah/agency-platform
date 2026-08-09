@@ -10,28 +10,22 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import financial_year_label, utc_now
-from app.core.utils.money import quantize_money
+from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.services import InventoryService
 from app.products.models import Product
@@ -75,12 +69,28 @@ from app.vendors.models import Vendor
 ZERO = Decimal("0")
 
 
-class PurchaseReturnService:
+class PurchaseReturnService(TransactionalDocumentService):
     """Coordinate supplier return lifecycle and source-document validation."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="PURCHASE_RETURN",
+        name="Purchase Return",
+        description="Supplier return document",
+        category="PURCHASE",
+        module="purchase_return",
+        prefix="PR",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("COMPLETED", "Completed", 3),
+            DocumentStateSpec("CANCELLED", "Cancelled", 4, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 5, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
@@ -215,7 +225,9 @@ class PurchaseReturnService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.return_date, firm_id),
+                financial_year_label=self._financial_year_label(
+                    data.return_date, firm_id
+                ),
                 branch_code=self._scope_code(branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.return_date,
@@ -1579,176 +1591,6 @@ class PurchaseReturnService:
             ),
             actor_id=actor_id,
         )
-
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_RETURN",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="PURCHASE_RETURN",
-                    name="Purchase Return",
-                    description="Supplier return document",
-                    category="PURCHASE",
-                    is_active=True,
-                    configuration={"module": "purchase_return"},
-                ),
-                actor_id,
-            )
-        for state_code, name, sort_order in [
-            ("DRAFT", "Draft", 1),
-            ("APPROVED", "Approved", 2),
-            ("COMPLETED", "Completed", 3),
-            ("CANCELLED", "Cancelled", 4),
-            ("CLOSED", "Closed", 5),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=state_code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=state_code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=state_code == "DRAFT",
-                        is_terminal=state_code in {"COMPLETED", "CANCELLED", "CLOSED"},
-                        allows_edit=state_code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={
-                            "module": "purchase_return",
-                            "state": state_code,
-                        },
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering_rule is None:
-            numbering_rule = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="PURCHASE_RETURN_DEFAULT",
-                    name="Purchase Return Default",
-                    prefix="PR",
-                    suffix=None,
-                    separator="-",
-                    include_financial_year=True,
-                    include_branch_code=False,
-                    include_company_code=False,
-                    auto_reset=True,
-                    manual_allowed=False,
-                    sequence_padding=6,
-                    next_sequence=1,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "purchase_return"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering_rule
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        row = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_RETURN",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            raise ResourceNotFoundError("Purchase return document type not found.")
-        return row
-
-    def _financial_year_label(self, on: date, firm_id: UUID) -> str:
-        """Return the firm's financial-year label for a document date.
-
-        Args:
-            on: The document date.
-            firm_id: The owning firm, whose ``financial_year_start`` decides
-                when the year begins.
-
-        Returns:
-            The shared ``YYYY-YYYY`` label.
-
-        """
-        start_month = self._session.scalar(
-            select(Firm.financial_year_start).where(Firm.id == firm_id)
-        )
-        return financial_year_label(
-            on, start_month=start_month.month if start_month is not None else 4
-        )
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        return str(branch_id)[:8].upper() if branch_id is not None else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        return str(firm_id)[:8].upper()
-
-    def _flush_or_conflict(self, message: str) -> None:
-        """Flush pending work, converting a unique-key clash into a conflict.
-
-        The rollback matters: without it a failed flush leaves the session
-        unusable for every statement that follows.
-
-        Args:
-            message: The conflict message surfaced to the caller.
-
-        Raises:
-            ConflictError: If the flush violates a database constraint.
-
-        """
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
-
-    @staticmethod
-    def _q(value: Decimal | int | str | None) -> Decimal:
-        """Round a monetary amount to the shared storage scale.
-
-        Args:
-            value: The amount to round; ``None`` is treated as zero.
-
-        Returns:
-            The amount quantized by :func:`quantize_money`.
-
-        """
-        return quantize_money(value)
 
     def _attachment_response(
         self, row: PurchaseReturnAttachment

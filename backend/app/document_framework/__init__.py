@@ -1,2 +1,1 @@
 """Document lifecycle framework package."""
-
