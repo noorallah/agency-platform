@@ -32,7 +32,9 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-08-09 `pytest` is **green (105 passing)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-08-09 `pytest` is **green (173 unit + 4 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+
+`tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
 `ruff check .` still reports ~3,232 pre-existing findings across older modules (mostly `E501` and missing docstrings), so it is **not** a usable pass/fail gate repo-wide. Lint the files you touched instead, e.g. `uv run ruff check app/<module> tests/unit/test_<module>.py`. `mypy app` likewise has pre-existing failures outside `app/finance`. New and rewritten code is expected to be clean under all four tools.
 
@@ -102,7 +104,9 @@ app/<domain>/{api/router.py, schemas/, services/, repositories/, models/}
 
 Routers are thin adapters (validate, resolve scope, delegate); services own transactions, business rules, and audit writes; repositories own soft-delete-aware queries. Each router is registered explicitly in `app/main.py:create_app`. `app/customers` is the reference master-data module; `app/purchase` is the reference transactional module.
 
-`app/core/` is the transport- and domain-independent framework (responses, error codes/exceptions, validation, pagination/filtering/sorting, request context, middleware, security, database, tenancy, openapi, utils). It must stay free of business entities. `app/common/` holds cross-domain services (audit, files, sequences, notifications). `app/platform/` holds installer/licensing/backup/scheduler scaffolding.
+`app/core/` is the transport- and domain-independent framework (responses, error codes/exceptions, validation, pagination/filtering/sorting, request context, middleware, security, database, tenancy, concurrency, openapi, utils). It must stay free of business entities. `app/common/` holds cross-domain services: `audit`, and `scope.py` — the firm-scope dependency every firm-owned router composes. It lives here rather than in `core` precisely because it must reference `Firm` and `UserFirm`.
+
+Eleven docstring-only packages (`app/platform`, `app/tenant`, `app/infrastructure`, `app/common/{files,notifications,sequences,shared}` and others) were deleted on 2026-08-09. They advertised subsystems that do not exist — backup, licensing, scheduling, notifications, file storage — and `app/common/sequences` in particular looked like the home of document numbering while the real implementation lives in `app/document_framework`. **Do not recreate an empty package to reserve a name.**
 
 ### Multi-tenancy — the thing to understand first
 
@@ -182,7 +186,10 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
 
 - **Most root-level `*.md` files are untracked, generated AI reports.** `.gitignore` excludes root `*_REPORT.md`, `*_ARCHITECTURE.md`, `*_SUMMARY.md`, `*_REVIEW.md`, `*_GUIDE.md`, `*_FRAMEWORK.md`, `DEVELOPMENT_*`, `PLATFORM_*`, etc. Only `README.md` and `SECURITY_ARCHITECTURE.md` are tracked at root. Treat the rest as scratch context, not as a spec, and put durable documentation in `docs/`, `backend/**/README.md`, or `desktop/docs/`.
 - Migration docs cite stale heads (`alembic/README.md` says `20260802_0021`; the versions directory is well past that). Always confirm with `uv run python -m alembic heads`.
-- `app/branches+/` is a stray untracked directory (not an importable package); the real module is `app/branches/`.
+- **`firms` and `user_firms` exist only in the platform schema.** A tenant session runs `SET search_path TO "<firm schema>"` with no fallback, so resolving them on the request session raises `UndefinedTable` for every firm outside the platform store. Every firm-owned router did exactly that until 2026-08-09. Compose `app/common/scope.py`, which resolves through `get_platform_db`; never write a private firm-scope resolver.
+- **Foreign key names are `FK_<table>_<column>`, keyed on the referring column.** Keying on the referred table collides whenever one table has two foreign keys to the same target, which SQLite ignores and PostgreSQL rejects — that made `Base.metadata.create_all` unusable on PostgreSQL, and the sample-data and tenancy-reset scripts build firm stores with it.
+- **`BaseEntity.version` is the mapper's version id.** Every ORM update bumps it and checks it, so a stale write raises `StaleDataError` (mapped to 409). Bulk `query().update()` bypasses this by design. Update endpoints accept `If-Match` carrying the version the client last read.
+- **Document lines are reconciled on their line number, not deleted and re-inserted**, in `sales_order`, `purchase`, `goods_receipt` and `delivery_note`. Downstream documents record `source_document_line_id` as a bare UUID with **no foreign key**, so re-inserting lines silently left those references dangling. The three invoice modules still re-insert; their lines are terminal.
 - `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. Automatic GL posting from invoices is **not** built: it needs a per-firm control-account mapping design. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
 - Config is `pydantic-settings` reading `backend/config/.env` with the `AGENCY_` prefix; env vars override the file. `config/.env` is never committed. Staging/production refuse to start with the development JWT key or without an explicit bootstrap admin password.
 - PostgreSQL 17 is the primary target; MySQL is supported by the connection layer but some constraints (the `UQ_user_firms_active_primary` and `UQ_users_email_active` partial indexes) are PostgreSQL-only — the matching service-level checks stay authoritative.
