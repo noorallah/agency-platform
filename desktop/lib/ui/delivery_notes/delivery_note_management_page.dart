@@ -59,6 +59,32 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     super.dispose();
   }
 
+
+  /// Whether the signed-in user may run this lifecycle action.
+  ///
+  /// The backend gates approve, close, complete and dispatch on
+  /// SALES_APPROVE and cancel on SALES_CANCEL. The toolbar used to enable
+  /// every action for anyone holding SALES_VIEW, so a read-only user was
+  /// offered buttons the server would refuse.
+  bool _mayApprove() => widget.permissions.hasPermission('SALES_APPROVE');
+
+  bool _mayRun(DocumentToolbarAction action) => switch (action) {
+        DocumentToolbarAction.approve ||
+        DocumentToolbarAction.close ||
+        DocumentToolbarAction.archive ||
+        DocumentToolbarAction.requestApproval =>
+          _mayApprove(),
+        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+          widget.permissions.hasPermission('SALES_CANCEL'),
+        DocumentToolbarAction.newDocument =>
+          widget.permissions.hasPermission('SALES_CREATE'),
+        DocumentToolbarAction.save =>
+          widget.permissions.hasPermission('SALES_UPDATE'),
+        DocumentToolbarAction.exportDocument =>
+          widget.permissions.hasPermission('SALES_EXPORT'),
+        _ => true,
+      };
+
   Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
@@ -236,7 +262,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                               DocumentToolbarAction.cancel,
                               DocumentToolbarAction.close,
                             ],
-                            isEnabled: (_) => selected != null,
+                            isEnabled: (action) => selected != null && _mayRun(action),
                             onAction: (action) async {
                               if (selected == null) return;
                               try {

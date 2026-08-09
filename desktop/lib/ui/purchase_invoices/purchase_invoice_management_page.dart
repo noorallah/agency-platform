@@ -57,6 +57,32 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
     super.dispose();
   }
 
+
+  /// Whether the signed-in user may run this lifecycle action.
+  ///
+  /// The backend gates approve, close, complete and dispatch on
+  /// PURCHASE_APPROVE and cancel on PURCHASE_CANCEL. The toolbar used to enable
+  /// every action for anyone holding PURCHASE_VIEW, so a read-only user was
+  /// offered buttons the server would refuse.
+  bool _mayApprove() => widget.permissions.hasPermission('PURCHASE_APPROVE');
+
+  bool _mayRun(DocumentToolbarAction action) => switch (action) {
+        DocumentToolbarAction.approve ||
+        DocumentToolbarAction.close ||
+        DocumentToolbarAction.archive ||
+        DocumentToolbarAction.requestApproval =>
+          _mayApprove(),
+        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+          widget.permissions.hasPermission('PURCHASE_CANCEL'),
+        DocumentToolbarAction.newDocument =>
+          widget.permissions.hasPermission('PURCHASE_CREATE'),
+        DocumentToolbarAction.save =>
+          widget.permissions.hasPermission('PURCHASE_UPDATE'),
+        DocumentToolbarAction.exportDocument =>
+          widget.permissions.hasPermission('PURCHASE_EXPORT'),
+        _ => true,
+      };
+
   Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm || !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
@@ -242,7 +268,7 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
                               DocumentToolbarAction.cancel,
                               DocumentToolbarAction.close,
                             ],
-                            isEnabled: (action) => selected != null,
+                            isEnabled: (action) => selected != null && _mayRun(action),
                             onAction: (action) async {
                               if (selected == null) {
                                 return;
