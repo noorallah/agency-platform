@@ -60,6 +60,19 @@ from app.uom.services import UomService
 from app.vendors.models import Vendor
 
 
+def _batch_is_expired(batch: BatchRecord) -> bool:
+    """Return whether a batch has expired as of today.
+
+    Expiry is decided by the date. Nothing sets ``status = 'EXPIRED'``, so the
+    original status check never fired and expired stock could be purchased.
+    """
+    if batch.status == "DESTROYED":
+        return False
+    if batch.status == "EXPIRED":
+        return True
+    return batch.expiry_date is not None and batch.expiry_date <= utc_now().date()
+
+
 class PurchaseService(TransactionalDocumentService):
     """Coordinate purchase order lifecycle, calculations, and integrations."""
 
@@ -1356,7 +1369,7 @@ class PurchaseService(TransactionalDocumentService):
                     BatchRecord.is_deleted.is_(False),
                 )
             )
-            if existing_batch is not None and existing_batch.status == "EXPIRED":
+            if existing_batch is not None and _batch_is_expired(existing_batch):
                 raise ValidationError("Expired products cannot be purchased.")
 
     def _assert_tax_profile_available(

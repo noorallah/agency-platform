@@ -1,4 +1,4 @@
-"""Firm-scoped REST endpoints for enterprise batch, lot, serial, and expiry management."""
+"""Firm-scoped REST endpoints for batch, lot, serial and expiry management."""
 
 from typing import Annotated, Literal
 from uuid import UUID
@@ -72,6 +72,7 @@ def list_batches(
     expiry_after: str | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[BatchResponse]:
+    """Return a page of batches for the firm in scope."""
     from datetime import date as _date
 
     params = PaginationParams(page=page, page_size=page_size)
@@ -104,6 +105,7 @@ def batch_summary(
     scope: BatchViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchSummary]:
+    """Return batch counts, including those past their expiry date."""
     summary = BatchSerialService(db).batch_summary(firm_scope=scope.firm_id)
     return ApiResponse(data=summary)
 
@@ -113,6 +115,7 @@ def expiry_dashboard(
     scope: BatchViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ExpiryDashboard]:
+    """Return expiry counts across the reporting windows."""
     dashboard = BatchSerialService(db).expiry_dashboard(firm_scope=scope.firm_id)
     return ApiResponse(data=dashboard)
 
@@ -123,6 +126,7 @@ def get_batch(
     scope: BatchViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
+    """Return one batch the firm owns."""
     record = BatchSerialService(db).get_batch(
         firm_scope=scope.firm_id, batch_id=batch_id
     )
@@ -140,6 +144,7 @@ def create_batch(
     scope: BatchCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
+    """Record a batch of a product."""
     record = BatchSerialService(db).create_batch(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, data=data
     )
@@ -157,6 +162,7 @@ def update_batch(
     scope: BatchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
+    """Change a batch."""
     record = BatchSerialService(db).update_batch(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, batch_id=batch_id, data=data
     )
@@ -173,6 +179,7 @@ def delete_batch(
     scope: BatchDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a batch."""
     BatchSerialService(db).delete_batch(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, batch_id=batch_id
     )
@@ -197,6 +204,7 @@ def list_lots(
     lot_type_value: str | None = Query(default=None, alias="lot_type"),
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[LotResponse]:
+    """Return a page of production lots."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = LotListFilters(
         product_id=product_id,
@@ -232,6 +240,7 @@ def create_lot(
     scope: BatchCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[LotResponse]:
+    """Record a production lot."""
     record = BatchSerialService(db).create_lot(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, data=data
     )
@@ -244,6 +253,7 @@ def get_lot(
     scope: BatchViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[LotResponse]:
+    """Return one lot the firm owns."""
     record = BatchSerialService(db).get_lot(firm_scope=scope.firm_id, lot_id=lot_id)
     return ApiResponse(data=LotResponse.model_validate(record))
 
@@ -259,6 +269,7 @@ def update_lot(
     scope: BatchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[LotResponse]:
+    """Change a lot."""
     record = BatchSerialService(db).update_lot(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, lot_id=lot_id, data=data
     )
@@ -275,6 +286,7 @@ def delete_lot(
     scope: BatchDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a lot."""
     BatchSerialService(db).delete_lot(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, lot_id=lot_id
     )
@@ -301,6 +313,7 @@ def list_serials(
     status_value: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[SerialResponse]:
+    """Return a page of serial numbers."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = SerialListFilters(
         product_id=product_id,
@@ -336,6 +349,7 @@ def create_serial(
     scope: SerialCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SerialResponse]:
+    """Record a serial number."""
     record = BatchSerialService(db).create_serial(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, data=data
     )
@@ -348,6 +362,7 @@ def get_serial(
     scope: SerialViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SerialResponse]:
+    """Return one serial number the firm owns."""
     record = BatchSerialService(db).get_serial(
         firm_scope=scope.firm_id, serial_id=serial_id
     )
@@ -365,6 +380,7 @@ def update_serial(
     scope: SerialUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SerialResponse]:
+    """Change a serial number."""
     record = BatchSerialService(db).update_serial(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
@@ -384,6 +400,7 @@ def delete_serial(
     scope: SerialDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a serial number."""
     BatchSerialService(db).delete_serial(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, serial_id=serial_id
     )
