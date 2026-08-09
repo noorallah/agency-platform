@@ -853,6 +853,7 @@ class _DesktopShellState extends State<DesktopShell> {
   /// unified sidebar's sub-navigation tree (see
   /// `ModuleCatalog.navigationChildren`).
   Set<String> _visibleTabIds(ModuleDefinition module) => module.tabs
+      .where((tab) => tab.available)
       .where(
         (tab) => _canAccess(
           tab.requiredPermissions.isEmpty
@@ -1172,6 +1173,9 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
     final ModuleDefinition module =
         ModuleCatalog.byId(AppModule.administration);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1210,7 +1214,13 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'packaging-types',
           'conversion-rules',
           'industry-templates',
-        ].firstWhere(visibleTabIds.contains);
+        ].firstWhere(
+          visibleTabIds.contains,
+          // Not every visible tab is listed above, so a valid permission set can
+          // match none of them. Without a fallback that throws a StateError
+          // instead of rendering a workspace.
+          orElse: () => visibleTabs.first.id,
+        );
     final String? requestedTab =
         widget.router.current.module == AppModule.administration.name
             ? widget.router.current.tab
@@ -1379,6 +1389,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.masters);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1540,6 +1553,9 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.sales);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1618,6 +1634,9 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.purchases);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1842,6 +1861,9 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.goodsReceipts);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1906,6 +1928,9 @@ class _DeliveryNoteWorkspaceState extends State<_DeliveryNoteWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.deliveryNotes);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty
@@ -1968,6 +1993,9 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.inventory);
     final List<ModuleTabDefinition> visibleTabs = module.tabs
+        // A tab declared `available: false` has no workspace behind it, so
+        // showing it routes the user to an unrelated screen.
+        .where((tab) => tab.available)
         .where(
           (tab) => widget.permissions.canUseTab(
             tab.requiredPermissions.isEmpty

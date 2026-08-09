@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
@@ -127,6 +128,49 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
     }
   }
 
+  /// Whether [action] is valid for the selected receipt's current status.
+  bool _isReceiptActionAllowed(DocumentToolbarAction action) {
+    final String status = _selected?.status.trim().toUpperCase() ?? '';
+    return switch (action) {
+      DocumentToolbarAction.requestApproval => status == 'DRAFT',
+      DocumentToolbarAction.cancel => status != 'CANCELLED' && status != 'CLOSED',
+      DocumentToolbarAction.close => status != 'CLOSED',
+      _ => false,
+    };
+  }
+
+  /// Run a lifecycle action against the selected receipt and reload.
+  Future<void> _runReceiptAction(DocumentToolbarAction action) async {
+    final GoodsReceiptRecord? selected = _selected;
+    if (selected == null || !_isReceiptActionAllowed(action)) return;
+    try {
+      switch (action) {
+        case DocumentToolbarAction.requestApproval:
+          await widget.api.completeGoodsReceipt(selected.id);
+        case DocumentToolbarAction.cancel:
+          await widget.api.cancelGoodsReceipt(selected.id);
+        case DocumentToolbarAction.close:
+          await widget.api.closeGoodsReceipt(selected.id);
+        default:
+          return;
+      }
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Goods receipt ${selected.grnNumber} updated.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final DocumentTotalsSnapshot totals =
@@ -225,17 +269,17 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
                         children: [
                           EnterpriseDocumentToolbar(
                             actions: const [
-                              DocumentToolbarAction.newDocument,
-                              DocumentToolbarAction.printDocument,
-                              DocumentToolbarAction.exportDocument,
-                              DocumentToolbarAction.emailDocument,
-                              DocumentToolbarAction.approve,
-                              DocumentToolbarAction.reject,
+                              DocumentToolbarAction.requestApproval,
                               DocumentToolbarAction.cancel,
                               DocumentToolbarAction.close,
                             ],
-                            isEnabled: (action) => _selected != null,
-                            onAction: (_) {},
+                            // A goods receipt has no approve/reject step, and
+                            // print, email and direct create have no backend at
+                            // all — offering them enabled meant eight buttons
+                            // that silently did nothing.
+                            isEnabled: (action) =>
+                                _selected != null && _isReceiptActionAllowed(action),
+                            onAction: _runReceiptAction,
                           ),
                           const SizedBox(height: 12),
                           EnterpriseDocumentHeader(header: header),

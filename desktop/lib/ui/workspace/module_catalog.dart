@@ -841,11 +841,15 @@ abstract final class ModuleCatalog {
           path: 'user-firms',
           icon: Icons.swap_horiz,
         ),
-      const WorkspaceNavigationNode(
-        label: 'Audit',
-        path: 'audit',
-        icon: Icons.history_outlined,
-      ),
+      // Gated on the real tab id. This node used to be unconditional with
+      // path 'audit', which matches no tab and no route, so selecting Audit
+      // silently rendered the Users workspace instead.
+      if (visibleTabIds.contains('user-audit'))
+        const WorkspaceNavigationNode(
+          label: 'Audit',
+          path: 'user-audit',
+          icon: Icons.history_outlined,
+        ),
       WorkspaceNavigationNode(
         label: 'Configuration',
         icon: Icons.tune_outlined,
