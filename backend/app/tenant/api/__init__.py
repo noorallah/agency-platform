@@ -1,1 +1,0 @@
-"""Tenant HTTP API adapters."""

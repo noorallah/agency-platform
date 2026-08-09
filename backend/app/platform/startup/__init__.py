@@ -1,1 +1,0 @@
-"""Application startup orchestration boundary."""
