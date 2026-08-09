@@ -1,5 +1,6 @@
 """Baseline UOM, packaging, and profile default seed data."""
 
+from typing import TypedDict
 from uuid import UUID
 
 from sqlalchemy import select
@@ -15,7 +16,55 @@ from app.uom.models import (
     UomGroupUnit,
 )
 
-SEED_UOMS = (
+
+# The seed rows are heterogeneous records, so an untyped literal collapses to
+# dict[str, object] and every read of one has to be narrowed at the call site.
+# Declaring their shape once keeps the seed readable and type-checked.
+class UomSeed(TypedDict):
+    """One catalogue unit to seed."""
+
+    id: UUID
+    code: str
+    name: str
+    symbol: str
+    dimension: str
+    is_decimal_allowed: bool
+
+
+class UomGroupSeed(TypedDict):
+    """One unit group to seed, with its member units."""
+
+    id: UUID
+    code: str
+    name: str
+    description: str
+    units: tuple[tuple[str, bool, int], ...]
+
+
+class IndustryTemplateSeed(TypedDict):
+    """One industry template to seed."""
+
+    id: UUID
+    code: str
+    name: str
+    industry_type: str
+    template_payload: dict[str, object]
+
+
+class ProfileDefaultSeed(TypedDict):
+    """One business profile's default unit behaviour to seed."""
+
+    id: UUID
+    profile_code: str
+    base_uom_code: str
+    inventory_uom_code: str
+    purchase_uom_code: str
+    sales_uom_code: str
+    allow_fraction: bool
+    allow_decimal: bool
+
+
+SEED_UOMS: tuple[UomSeed, ...] = (
     {
         "id": UUID("81000000-0000-0000-0000-000000000001"),
         "code": "UNIT",
@@ -162,7 +211,7 @@ SEED_UOMS = (
     },
 )
 
-SEED_UOM_GROUPS = (
+SEED_UOM_GROUPS: tuple[UomGroupSeed, ...] = (
     {
         "id": UUID("82000000-0000-0000-0000-000000000001"),
         "code": "DIST_COUNT",
@@ -222,23 +271,73 @@ SEED_UOM_GROUPS = (
     },
 )
 
-SEED_PACKAGING_TYPES = (
-    (UUID("83000000-0000-0000-0000-000000000001"), "UNIT", "Unit", "Single saleable unit."),
-    (UUID("83000000-0000-0000-0000-000000000002"), "STRIP", "Strip", "Strip packing used in pharma products."),
-    (UUID("83000000-0000-0000-0000-000000000003"), "PACK", "Pack", "Flexible consumer pack."),
+SEED_PACKAGING_TYPES: tuple[tuple[UUID, str, str, str], ...] = (
+    (
+        UUID("83000000-0000-0000-0000-000000000001"),
+        "UNIT",
+        "Unit",
+        "Single saleable unit.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-000000000002"),
+        "STRIP",
+        "Strip",
+        "Strip packing used in pharma products.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-000000000003"),
+        "PACK",
+        "Pack",
+        "Flexible consumer pack.",
+    ),
     (UUID("83000000-0000-0000-0000-000000000004"), "BOX", "Box", "Retail inner box."),
-    (UUID("83000000-0000-0000-0000-000000000005"), "CARTON", "Carton", "Outer shipping carton."),
-    (UUID("83000000-0000-0000-0000-000000000006"), "CASE", "Case", "Wholesale case packaging."),
-    (UUID("83000000-0000-0000-0000-000000000007"), "BAG", "Bag", "Bag or sack packaging."),
-    (UUID("83000000-0000-0000-0000-000000000008"), "BOTTLE", "Bottle", "Bottle container."),
+    (
+        UUID("83000000-0000-0000-0000-000000000005"),
+        "CARTON",
+        "Carton",
+        "Outer shipping carton.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-000000000006"),
+        "CASE",
+        "Case",
+        "Wholesale case packaging.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-000000000007"),
+        "BAG",
+        "Bag",
+        "Bag or sack packaging.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-000000000008"),
+        "BOTTLE",
+        "Bottle",
+        "Bottle container.",
+    ),
     (UUID("83000000-0000-0000-0000-000000000009"), "JAR", "Jar", "Jar container."),
     (UUID("83000000-0000-0000-0000-00000000000A"), "TUBE", "Tube", "Tube packaging."),
-    (UUID("83000000-0000-0000-0000-00000000000B"), "SACHET", "Sachet", "Sachet or pouch pack."),
-    (UUID("83000000-0000-0000-0000-00000000000C"), "CRATE", "Crate", "Reusable crate or tray."),
-    (UUID("83000000-0000-0000-0000-00000000000D"), "PALLET", "Pallet", "Palletized transport unit."),
+    (
+        UUID("83000000-0000-0000-0000-00000000000B"),
+        "SACHET",
+        "Sachet",
+        "Sachet or pouch pack.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-00000000000C"),
+        "CRATE",
+        "Crate",
+        "Reusable crate or tray.",
+    ),
+    (
+        UUID("83000000-0000-0000-0000-00000000000D"),
+        "PALLET",
+        "Pallet",
+        "Palletized transport unit.",
+    ),
 )
 
-SEED_INDUSTRY_TEMPLATES = (
+SEED_INDUSTRY_TEMPLATES: tuple[IndustryTemplateSeed, ...] = (
     {
         "id": UUID("84000000-0000-0000-0000-000000000001"),
         "code": "AGENCY_DISTRIBUTION",
@@ -297,7 +396,7 @@ SEED_INDUSTRY_TEMPLATES = (
     },
 )
 
-SEED_PROFILE_DEFAULTS = (
+SEED_PROFILE_DEFAULTS: tuple[ProfileDefaultSeed, ...] = (
     {
         "id": UUID("85000000-0000-0000-0000-000000000001"),
         "profile_code": "GENERIC",
@@ -353,7 +452,6 @@ SEED_PROFILE_DEFAULTS = (
 
 def seed_uom_reference_data(session: Session) -> None:
     """Create or restore baseline UOM catalog data without touching custom rows."""
-
     uoms = _seed_uoms(session)
     groups = _seed_uom_groups(session)
     session.flush()

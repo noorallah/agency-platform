@@ -158,6 +158,30 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       still rounding tax half-to-even after the seven document copies were
       unified on `quantize_money`.
 
+### Defects the `uom` pass added to this list
+
+- [ ] **Never let NULL ordering decide which row wins.** Selecting the most
+      specific conversion rule with `ORDER BY product_id DESC` relied on where
+      the backend sorts NULLs: PostgreSQL puts them first, SQLite last, so the
+      firm-wide fallback beat the product's own factor in production while the
+      unit suite saw the right answer **(found a real bug)**. Rank on an
+      explicit expression — `case((col.is_(None), 1), else_=0)` — and cover it
+      with an integration test.
+- [ ] **No model may declare a column named `version`.** That name is
+      `BaseEntity`'s optimistic-concurrency counter and the mapper's
+      `version_id_col`. `ConversionRule` used it for the rule's published
+      version, so the ORM incremented the number documents record to identify
+      the factor they converted with, and every edit invented a version that
+      never existed **(found a real bug)**. Business versions are
+      `version_number`.
+- [ ] **Deleting shared reference data needs a usage guard.** The UOM catalogue
+      has no `firm_id`, so in a SHARED deployment every firm in the store reads
+      the same rows and an unguarded delete took a unit out from under another
+      firm's products and rules. Check usage across the store, not just the
+      caller's firm.
+- [ ] A recorded setting that changes nothing recurred here: `rounding_mode` was
+      stored per rule and the conversion always rounded half up.
+
 ## Module inventory
 
 Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
@@ -181,7 +205,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `goods_receipt` | 16 | 134 | 1 | **none** | typed |
 | `inventory` | 19 | 145 | 6 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 149 | 2 | `test_branch_warehouse_management` | typed |
-| `uom` | 29 | 161 | 20 | `test_uom_packaging_framework` | typed |
+| `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
 | `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | **untyped** |
 | `sales_invoice` | 16 | 185 | 34 | **none** | **untyped** |
 | `purchase_invoice` | 16 | 208 | 15 | `test_purchase_invoice_module` | **untyped** |
@@ -231,7 +255,7 @@ and typed; mostly cleanup.
 | 6 | `delivery_note` | 2026-08-09 | lines re-inserted on edit, dangling downstream references | yes |
 | 7 | `sales_order` | 2026-08-09 | lines re-inserted on edit, resetting `reserved_quantity` while the RESERVE movement stayed in the ledger | yes |
 | 8 | `tax` | 2026-08-09 | `simulate` committed the caller's session while every document computed tax line by line; an eighth private rounding helper still used banker's rounding; country-scoped rules never matched a document and profile-scoped ones matched five of seven; `included_in_price` was billed on top of the price; `REVERSE_CHARGE` changed nothing; the execution log had no purge path | yes — desktop endpoints still inlined |
-| 9 | `uom` | | | |
+| 9 | `uom` | 2026-08-09 | a product's own conversion factor lost to the firm-wide one on PostgreSQL only; the rule's published version was the same column as the concurrency counter, so any edit moved it; the configured `rounding_mode` was ignored; a unit in use could be deleted out from under other firms | yes — module is now clean under ruff, black and mypy |
 | 10 | `branches` | | | |
 | 11 | `inventory` | | | |
 | 12 | `batch_serial` | | | |

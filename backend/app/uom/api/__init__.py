@@ -3,4 +3,3 @@
 from app.uom.api.router import router
 
 __all__ = ["router"]
-

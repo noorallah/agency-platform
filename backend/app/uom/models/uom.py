@@ -111,7 +111,7 @@ class ConversionRule(BaseEntity):
             "product_id",
             "from_uom_id",
             "to_uom_id",
-            "version",
+            "version_number",
             name="UQ_uom_conversion_rules_unique_version",
         ),
         Index("IX_uom_conversion_rules_firm", "firm_id"),
@@ -130,12 +130,16 @@ class ConversionRule(BaseEntity):
     )
     from_uom_id: Mapped[UUID] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_uom_conversion_rules_from_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_uom_conversion_rules_from_uoms", ondelete="RESTRICT"
+        ),
         nullable=False,
     )
     to_uom_id: Mapped[UUID] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_uom_conversion_rules_to_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_uom_conversion_rules_to_uoms", ondelete="RESTRICT"
+        ),
         nullable=False,
     )
     conversion_factor: Mapped[Decimal] = mapped_column(Numeric(24, 10), nullable=False)
@@ -147,7 +151,14 @@ class ConversionRule(BaseEntity):
     )
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     effective_to: Mapped[date | None] = mapped_column(Date)
-    version: Mapped[int] = mapped_column(nullable=False, default=1, server_default="1")
+    # Not ``version``: that name belongs to BaseEntity's optimistic-concurrency
+    # counter, which is the mapper's version_id_col. Declaring the business
+    # version under it made SQLAlchemy increment the rule's published version on
+    # every edit, and documents record that number to identify the factor they
+    # converted with. ``tax`` names the same concept version_number.
+    version_number: Mapped[int] = mapped_column(
+        nullable=False, default=1, server_default="1"
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
@@ -171,11 +182,17 @@ class BusinessProfileUomDefault(BaseEntity):
         UUIDType(), ForeignKey("firms.id"), index=True
     )
     business_profile_id: Mapped[UUID] = mapped_column(
-        UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT"), nullable=False
+        UUIDType(),
+        ForeignKey("business_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     base_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_business_profile_uom_defaults_base_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id",
+            name="FK_business_profile_uom_defaults_base_uoms",
+            ondelete="RESTRICT",
+        ),
     )
     inventory_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
@@ -222,7 +239,9 @@ class IndustryTemplate(BaseEntity):
     code: Mapped[str] = mapped_column(String(60), nullable=False)
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     industry_type: Mapped[str] = mapped_column(String(60), nullable=False)
-    template_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    template_payload: Mapped[dict[str, object]] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
@@ -236,7 +255,9 @@ class ProductUomConfig(BaseEntity):
 
     __tablename__ = "product_uom_configs"
     __table_args__ = (
-        UniqueConstraint("firm_id", "product_id", name="UQ_product_uom_configs_firm_product"),
+        UniqueConstraint(
+            "firm_id", "product_id", name="UQ_product_uom_configs_firm_product"
+        ),
         Index("IX_product_uom_configs_firm_product", "firm_id", "product_id"),
     )
 
@@ -248,19 +269,27 @@ class ProductUomConfig(BaseEntity):
     )
     base_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_product_uom_configs_base_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_product_uom_configs_base_uoms", ondelete="RESTRICT"
+        ),
     )
     inventory_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_product_uom_configs_inventory_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_product_uom_configs_inventory_uoms", ondelete="RESTRICT"
+        ),
     )
     purchase_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_product_uom_configs_purchase_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_product_uom_configs_purchase_uoms", ondelete="RESTRICT"
+        ),
     )
     sales_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_product_uom_configs_sales_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_product_uom_configs_sales_uoms", ondelete="RESTRICT"
+        ),
     )
     default_receiving_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
