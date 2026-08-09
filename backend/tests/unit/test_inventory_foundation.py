@@ -25,7 +25,7 @@ from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.identity.models import UserFirm
-from app.inventory.api.router import create_inventory, list_inventory
+from app.inventory.api.router import create_inventory, list_inventory, list_ledger
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
@@ -162,6 +162,7 @@ def _principal(user_id: UUID, permissions: set[str]) -> Principal:
 
 
 def test_opening_stock_post_creates_inventory_and_immutable_history() -> None:
+    """Posting a batch creates the projection and an immutable history row."""
     session = _session_factory()()
     firm = _firm(session, "INV")
     profile = _profile(session, firm.id)
@@ -213,6 +214,7 @@ def test_opening_stock_post_creates_inventory_and_immutable_history() -> None:
 
 
 def test_adjustment_updates_projection_and_negative_stock_summary() -> None:
+    """An issue larger than the balance is allowed and reported as negative."""
     session = _session_factory()()
     firm = _firm(session, "NEG")
     profile = _profile(session, firm.id)
@@ -265,6 +267,7 @@ def test_adjustment_updates_projection_and_negative_stock_summary() -> None:
 
 
 def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
+    """The router resolves firm scope and enforces its permission codes."""
     factory = _session_factory()
     setup = factory()
     firm = _firm(setup, "API")
@@ -391,3 +394,53 @@ def test_moving_average_cost_tracks_receipts_and_issues() -> None:
     assert issue is not None
     assert issue.unit_cost == Decimal("110.000000")
     assert issue.total_cost == Decimal("550.0000")
+
+
+def test_the_stock_ledger_endpoint_returns_its_rows() -> None:
+    """The ledger list failed for every firm that had ever moved stock.
+
+    ``ledger_response`` fed a ``StockLedgerEntry`` into the transaction
+    builder, which reads ``entered_quantity``/``entered_uom_id``/
+    ``conversion_version`` -- three columns the ledger does not have. The row is
+    written correctly; only reading it back through the API raised
+    AttributeError, so the endpoint 500ed as soon as one movement existed.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "LEDG")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    setup.close()
+
+    session = factory()
+    actor_id = uuid4()
+    service = InventoryService(session)
+    service.create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=Decimal("12"),
+            reference_number="ADJ-LEDGER",
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    scope = _firm_scope(
+        _principal(user_id, {"INVENTORY_LEDGER_VIEW"}), session, firm.id
+    )
+    response = list_ledger(scope=scope, db=session)
+
+    assert response.pagination.total_records == 1
+    row = response.data[0]
+    assert row.reference_number == "ADJ-LEDGER"
+    assert row.new_current_quantity == Decimal("12")
+    # The ledger's as-entered quantity lives under its own column name.
+    assert row.entered_quantity == Decimal("12")
+    assert row.transaction_id is not None

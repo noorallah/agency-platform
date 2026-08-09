@@ -78,6 +78,7 @@ class InventoryService:
     """Coordinate inventory projections, immutable movements, and opening stock."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
 
     def list_inventory(
@@ -91,6 +92,7 @@ class InventoryService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[InventoryRecord], int]:
+        """Return a page of stock projections and the total."""
         columns = {
             "created_at": InventoryRecord.created_at,
             "updated_at": InventoryRecord.updated_at,
@@ -154,6 +156,7 @@ class InventoryService:
     def inventory_summary(
         self, *, firm_scope: UUID, filters: InventoryListFilters
     ) -> InventorySummary:
+        """Return stock counts, value and exception totals."""
         statement = (
             select(
                 func.count(InventoryRecord.id),
@@ -224,6 +227,7 @@ class InventoryService:
         )
 
     def stock_by_firm(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
+        """Return stock totals rolled up to the firm."""
         row = self._session.execute(
             select(
                 func.count(InventoryRecord.id),
@@ -257,6 +261,7 @@ class InventoryService:
         ]
 
     def stock_by_branch(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
+        """Return stock totals per branch."""
         rows = self._session.execute(
             select(
                 Branch.id,
@@ -296,6 +301,7 @@ class InventoryService:
         ]
 
     def stock_by_warehouse(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
+        """Return stock totals per warehouse."""
         rows = self._session.execute(
             select(
                 Warehouse.id,
@@ -337,6 +343,7 @@ class InventoryService:
     def create_inventory_record(
         self, data: InventoryCreate, *, firm_id: UUID, actor_id: UUID
     ) -> InventoryRecord:
+        """Create a stock projection for a product location."""
         branch, warehouse, storage_node, product, profile = self._validate_references(
             firm_id=firm_id,
             branch_id=data.branch_id,
@@ -400,6 +407,7 @@ class InventoryService:
     def get_inventory_record(
         self, inventory_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> InventoryRecord:
+        """Return one stock projection the firm owns."""
         statement = select(InventoryRecord).where(
             InventoryRecord.id == inventory_id, InventoryRecord.firm_id == firm_scope
         )
@@ -418,6 +426,7 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> InventoryRecord:
+        """Change a projection's thresholds and status."""
         row = self.get_inventory_record(
             inventory_id, firm_scope=firm_scope, include_deleted=True
         )
@@ -438,7 +447,7 @@ class InventoryService:
         )
         if existing is not None and existing.id != row.id:
             raise ConflictError("The target inventory location already exists.")
-        before = {
+        before: dict[str, object] = {
             "minimum_level": str(row.minimum_level or ""),
             "maximum_level": str(row.maximum_level or ""),
             "reorder_level": str(row.reorder_level or ""),
@@ -481,6 +490,7 @@ class InventoryService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[InventoryTransaction], int]:
+        """Return a page of inventory movements."""
         columns = {
             "created_at": InventoryTransaction.created_at,
             "transaction_date": InventoryTransaction.transaction_date,
@@ -546,6 +556,7 @@ class InventoryService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[StockLedgerEntry], int]:
+        """Return a page of immutable ledger rows."""
         columns = {
             "created_at": StockLedgerEntry.created_at,
             "transaction_date": StockLedgerEntry.transaction_date,
@@ -611,6 +622,7 @@ class InventoryService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[OpeningStockBatch], int]:
+        """Return a page of opening-stock batches."""
         columns = {
             "created_at": OpeningStockBatch.created_at,
             "posting_date": OpeningStockBatch.posting_date,
@@ -657,6 +669,7 @@ class InventoryService:
     def get_opening_stock_batch(
         self, batch_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> OpeningStockBatch:
+        """Return one opening-stock batch."""
         statement = (
             select(OpeningStockBatch)
             .where(
@@ -680,6 +693,7 @@ class InventoryService:
         actor_id: UUID,
         source_format: str = "MANUAL",
     ) -> OpeningStockBatch:
+        """Create a draft opening-stock batch."""
         self._validate_branch_warehouse_scope(
             firm_id=firm_id, branch_id=data.branch_id, warehouse_id=data.warehouse_id
         )
@@ -728,6 +742,7 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> OpeningStockBatch:
+        """Change a draft opening-stock batch."""
         batch = self.get_opening_stock_batch(
             batch_id, firm_scope=firm_scope, include_deleted=True
         )
@@ -739,7 +754,10 @@ class InventoryService:
         self._assert_unique_opening_reference(
             firm_scope, data.reference_number, excluding_id=batch.id
         )
-        before = {"reference_number": batch.reference_number, "status": batch.status}
+        before: dict[str, object] = {
+            "reference_number": batch.reference_number,
+            "status": batch.status,
+        }
         batch.branch_id = data.branch_id
         batch.warehouse_id = data.warehouse_id
         batch.reference_number = data.reference_number.strip().upper()
@@ -774,6 +792,7 @@ class InventoryService:
     def post_opening_stock_batch(
         self, batch_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> OpeningStockBatch:
+        """Post an opening-stock batch into the ledger."""
         batch = self.get_opening_stock_batch(batch_id, firm_scope=firm_scope)
         if batch.status == "POSTED":
             raise ConflictError("Opening stock batch has already been posted.")
@@ -853,6 +872,7 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> OpeningStockBatch:
+        """Build opening-stock lines from a JSON payload."""
         batch = self.create_opening_stock_batch(
             OpeningStockBatchCreate(
                 branch_id=payload.branch_id,
@@ -885,6 +905,7 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> OpeningStockBatch:
+        """Build opening-stock lines from a CSV upload."""
         import csv
         import io
 
@@ -954,8 +975,9 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> OpeningStockBatch:
+        """Build opening-stock lines from an XLSX upload."""
         try:
-            from openpyxl import load_workbook
+            from openpyxl import load_workbook  # type: ignore[import-untyped]
         except ImportError as error:
             raise ValidationError(
                 "XLSX import dependency is unavailable. Install openpyxl."
@@ -1036,6 +1058,7 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> InventoryTransaction:
+        """Post a stock adjustment movement."""
         (
             base_quantity,
             entered_quantity,
@@ -1103,6 +1126,7 @@ class InventoryService:
         remarks: str | None = None,
         unit_cost: Decimal | None = None,
     ) -> InventoryTransaction:
+        """Post the stock a goods receipt brought in."""
         (
             base_quantity,
             entered_quantity,
@@ -1330,6 +1354,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
     ) -> InventoryTransaction:
+        """Post the stock a purchase return sent back."""
         (
             base_quantity,
             entered_quantity,
@@ -1381,7 +1406,8 @@ class InventoryService:
                 remarks=remarks
                 or (
                     f"purchase_return buckets sellable={sellable_base} "
-                    f"damaged={damaged_base} scrap={scrap_base} quarantine={quarantine_base}"
+                    f"damaged={damaged_base} scrap={scrap_base} "
+                    f"quarantine={quarantine_base}"
                 ),
             ),
         )
@@ -1409,6 +1435,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
     ) -> InventoryTransaction:
+        """Reserve stock for a sales order line."""
         (
             base_quantity,
             entered_quantity,
@@ -1468,6 +1495,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
     ) -> InventoryTransaction:
+        """Release a sales order's reservation."""
         (
             base_quantity,
             entered_quantity,
@@ -1527,6 +1555,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
     ) -> InventoryTransaction:
+        """Post the stock a delivery note dispatched."""
         (
             base_quantity,
             entered_quantity,
@@ -1570,6 +1599,7 @@ class InventoryService:
         return transaction
 
     def export_inventory_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Render the filtered projections as CSV."""
         rows, _ = self.list_inventory(
             firm_scope=firm_scope,
             filters=InventoryListFilters(include_deleted=False),
@@ -1606,8 +1636,9 @@ class InventoryService:
         return "\n".join(output)
 
     def export_inventory_xlsx(self, *, firm_scope: UUID, search: str | None) -> bytes:
+        """Render the filtered projections as XLSX."""
         try:
-            from openpyxl import Workbook  # type: ignore[import-untyped]
+            from openpyxl import Workbook
         except ImportError as error:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
@@ -1666,6 +1697,7 @@ class InventoryService:
         return buffer.getvalue()
 
     def export_ledger_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Render the filtered ledger rows as CSV."""
         rows, _ = self.list_ledger(
             firm_scope=firm_scope,
             filters=StockLedgerListFilters(),
@@ -1702,8 +1734,9 @@ class InventoryService:
         return "\n".join(output)
 
     def export_ledger_xlsx(self, *, firm_scope: UUID, search: str | None) -> bytes:
+        """Render the filtered ledger rows as XLSX."""
         try:
-            from openpyxl import Workbook  # type: ignore[import-untyped]
+            from openpyxl import Workbook
         except ImportError as error:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
@@ -1762,6 +1795,7 @@ class InventoryService:
         return buffer.getvalue()
 
     def inventory_response(self, row: InventoryRecord) -> InventoryResponse:
+        """Expose one stock projection."""
         return InventoryResponse.model_validate(
             {
                 "id": row.id,
@@ -1806,65 +1840,82 @@ class InventoryService:
     def transaction_response(
         self, row: InventoryTransaction
     ) -> InventoryTransactionResponse:
-        return InventoryTransactionResponse.model_validate(
-            {
-                "id": row.id,
-                "inventory_id": row.inventory_id,
-                "firm_id": row.firm_id,
-                "branch_id": row.branch_id,
-                "branch_code": self._lookup_branch_code(row.branch_id),
-                "branch_name": self._lookup_branch_name(row.branch_id),
-                "warehouse_id": row.warehouse_id,
-                "warehouse_code": self._lookup_warehouse_code(row.warehouse_id),
-                "warehouse_name": self._lookup_warehouse_name(row.warehouse_id),
-                "storage_node_id": row.storage_node_id,
-                "storage_node_code": self._lookup_storage_code(row.storage_node_id),
-                "storage_node_name": self._lookup_storage_name(row.storage_node_id),
-                "product_id": row.product_id,
-                "product_code": self._lookup_product_code(row.product_id),
-                "product_name": self._lookup_product_name(row.product_id),
-                "business_profile_id": row.business_profile_id,
-                "transaction_type": row.transaction_type,
-                "reference_number": row.reference_number,
-                "reference_type": row.reference_type,
-                "transaction_date": row.transaction_date,
-                "quantity": row.quantity,
-                "current_quantity_delta": row.current_quantity_delta,
-                "reserved_quantity_delta": row.reserved_quantity_delta,
-                "blocked_quantity_delta": row.blocked_quantity_delta,
-                "damaged_quantity_delta": row.damaged_quantity_delta,
-                "quarantine_quantity_delta": row.quarantine_quantity_delta,
-                "in_transit_quantity_delta": row.in_transit_quantity_delta,
-                "previous_current_quantity": row.previous_current_quantity,
-                "new_current_quantity": row.new_current_quantity,
-                "previous_reserved_quantity": row.previous_reserved_quantity,
-                "new_reserved_quantity": row.new_reserved_quantity,
-                "previous_available_quantity": row.previous_available_quantity,
-                "new_available_quantity": row.new_available_quantity,
-                "previous_blocked_quantity": row.previous_blocked_quantity,
-                "new_blocked_quantity": row.new_blocked_quantity,
-                "previous_damaged_quantity": row.previous_damaged_quantity,
-                "new_damaged_quantity": row.new_damaged_quantity,
-                "previous_quarantine_quantity": row.previous_quarantine_quantity,
-                "new_quarantine_quantity": row.new_quarantine_quantity,
-                "previous_in_transit_quantity": row.previous_in_transit_quantity,
-                "new_in_transit_quantity": row.new_in_transit_quantity,
-                "remarks": row.remarks,
-                "entered_quantity": row.entered_quantity,
-                "entered_uom_id": row.entered_uom_id,
-                "conversion_version": row.conversion_version,
-                "created_at": row.created_at,
-            }
-        )
+        """Expose one inventory movement."""
+        payload = self._movement_payload(row)
+        payload["entered_quantity"] = row.entered_quantity
+        payload["entered_uom_id"] = row.entered_uom_id
+        payload["conversion_version"] = row.conversion_version
+        return InventoryTransactionResponse.model_validate(payload)
+
+    def _movement_payload(
+        self, row: InventoryTransaction | StockLedgerEntry
+    ) -> dict[str, object]:
+        """Build the fields a transaction and its ledger row have in common.
+
+        The ledger row is not an ``InventoryTransaction``: it records the
+        as-entered quantity under ``original_quantity``/``original_uom_id`` and
+        has no ``conversion_version``. Reusing the transaction builder for it
+        raised AttributeError, so ``GET /inventory/ledger`` failed for every
+        firm that had ever moved stock.
+        """
+        return {
+            "id": row.id,
+            "inventory_id": row.inventory_id,
+            "firm_id": row.firm_id,
+            "branch_id": row.branch_id,
+            "branch_code": self._lookup_branch_code(row.branch_id),
+            "branch_name": self._lookup_branch_name(row.branch_id),
+            "warehouse_id": row.warehouse_id,
+            "warehouse_code": self._lookup_warehouse_code(row.warehouse_id),
+            "warehouse_name": self._lookup_warehouse_name(row.warehouse_id),
+            "storage_node_id": row.storage_node_id,
+            "storage_node_code": self._lookup_storage_code(row.storage_node_id),
+            "storage_node_name": self._lookup_storage_name(row.storage_node_id),
+            "product_id": row.product_id,
+            "product_code": self._lookup_product_code(row.product_id),
+            "product_name": self._lookup_product_name(row.product_id),
+            "business_profile_id": row.business_profile_id,
+            "transaction_type": row.transaction_type,
+            "reference_number": row.reference_number,
+            "reference_type": row.reference_type,
+            "transaction_date": row.transaction_date,
+            "quantity": row.quantity,
+            "current_quantity_delta": row.current_quantity_delta,
+            "reserved_quantity_delta": row.reserved_quantity_delta,
+            "blocked_quantity_delta": row.blocked_quantity_delta,
+            "damaged_quantity_delta": row.damaged_quantity_delta,
+            "quarantine_quantity_delta": row.quarantine_quantity_delta,
+            "in_transit_quantity_delta": row.in_transit_quantity_delta,
+            "previous_current_quantity": row.previous_current_quantity,
+            "new_current_quantity": row.new_current_quantity,
+            "previous_reserved_quantity": row.previous_reserved_quantity,
+            "new_reserved_quantity": row.new_reserved_quantity,
+            "previous_available_quantity": row.previous_available_quantity,
+            "new_available_quantity": row.new_available_quantity,
+            "previous_blocked_quantity": row.previous_blocked_quantity,
+            "new_blocked_quantity": row.new_blocked_quantity,
+            "previous_damaged_quantity": row.previous_damaged_quantity,
+            "new_damaged_quantity": row.new_damaged_quantity,
+            "previous_quarantine_quantity": row.previous_quarantine_quantity,
+            "new_quarantine_quantity": row.new_quarantine_quantity,
+            "previous_in_transit_quantity": row.previous_in_transit_quantity,
+            "new_in_transit_quantity": row.new_in_transit_quantity,
+            "remarks": row.remarks,
+            "created_at": row.created_at,
+        }
 
     def ledger_response(self, row: StockLedgerEntry) -> StockLedgerResponse:
-        payload = self.transaction_response(row).model_dump(mode="python")
+        """Expose one immutable ledger row."""
+        payload = self._movement_payload(row)
         payload["transaction_id"] = row.transaction_id
+        payload["entered_quantity"] = row.original_quantity
+        payload["entered_uom_id"] = row.original_uom_id
         return StockLedgerResponse.model_validate(payload)
 
     def opening_stock_batch_response(
         self, row: OpeningStockBatch
     ) -> OpeningStockBatchResponse:
+        """Expose one opening-stock batch."""
         return OpeningStockBatchResponse.model_validate(
             {
                 "id": row.id,
@@ -2350,13 +2401,15 @@ class InventoryService:
                 )
                 if storage_node is None:
                     raise ValidationError(
-                        "Opening stock line storage node does not belong to the selected warehouse."
+                        "Opening stock line storage node does not belong to "
+                        "the selected warehouse."
                     )
             locator = self._storage_locator(storage_node.id if storage_node else None)
             unique_key = (line.product_id, locator)
             if unique_key in seen:
                 raise ValidationError(
-                    "Duplicate opening stock lines for the same product and storage location are not allowed."
+                    "Duplicate opening stock lines for the same product and "
+                    "storage location are not allowed."
                 )
             seen.add(unique_key)
             items.append(
