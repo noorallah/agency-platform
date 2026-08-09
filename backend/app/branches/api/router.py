@@ -98,6 +98,7 @@ def _branch_filters(
     created_from: date | None,
     created_to: date | None,
 ) -> BranchListFilters:
+    """Collect the branch list filters from the query string."""
     try:
         return BranchListFilters(
             status=status_value,
@@ -129,6 +130,7 @@ def _warehouse_filters(
     created_from: date | None,
     created_to: date | None,
 ) -> WarehouseListFilters:
+    """Collect the warehouse list filters from the query string."""
     try:
         return WarehouseListFilters(
             status=status_value,
@@ -167,6 +169,7 @@ def list_branches(
     created_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[BranchResponse]:
+    """List branches for the firm in scope."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = _branch_filters(
         status_value=status_value,
@@ -205,6 +208,7 @@ def branch_summary(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchSummary]:
+    """Return branch counts by status."""
     summary = BranchWarehouseService(db).branch_summary(
         firm_scope=scope.firm_id,
         filters=BranchListFilters(include_deleted=include_deleted),
@@ -222,6 +226,7 @@ def create_branch(
     scope: BranchCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
+    """Create a branch."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when creating a branch.")
     row = BranchWarehouseService(db).create_branch(
@@ -244,6 +249,7 @@ def import_branches(
     scope: BranchWarehouseImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BranchResponse]]:
+    """Create several branches from an uploaded batch."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when importing branches.")
     service = BranchWarehouseService(db)
@@ -266,6 +272,7 @@ def get_branch(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
+    """Return one branch."""
     row = BranchWarehouseService(db).get_branch(
         branch_id,
         firm_scope=scope.firm_id,
@@ -285,6 +292,7 @@ def update_branch(
     scope: BranchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
+    """Replace one branch."""
     row = BranchWarehouseService(db).update_branch(
         branch_id,
         data,
@@ -304,6 +312,7 @@ def delete_branch(
     scope: BranchDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a branch with no live warehouses."""
     BranchWarehouseService(db).delete_branch(
         branch_id,
         firm_scope=scope.firm_id,
@@ -320,6 +329,7 @@ def restore_branch(
     scope: BranchRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
+    """Restore a soft-deleted branch."""
     row = BranchWarehouseService(db).restore_branch(
         branch_id,
         firm_scope=scope.firm_id,
@@ -340,6 +350,7 @@ def duplicate_branch(
     scope: BranchCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
+    """Copy a branch under a new code."""
     row = BranchWarehouseService(db).duplicate_branch(
         branch_id,
         firm_scope=scope.firm_id,
@@ -356,6 +367,7 @@ def bulk_delete_branches(
     scope: BranchDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Soft delete several branches."""
     affected = BranchWarehouseService(db).bulk_delete_branches(
         data,
         firm_scope=scope.firm_id,
@@ -370,6 +382,7 @@ def bulk_restore_branches(
     scope: BranchRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Restore several branches."""
     affected = BranchWarehouseService(db).bulk_restore_branches(
         data,
         firm_scope=scope.firm_id,
@@ -384,6 +397,7 @@ def bulk_branch_status(
     scope: BranchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Set the status of several branches."""
     affected = BranchWarehouseService(db).bulk_branch_status(
         data,
         firm_scope=scope.firm_id,
@@ -398,6 +412,7 @@ def export_branches(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Stream the filtered branches as CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Code", "Name", "Status", "Email", "Phone", "Mobile"])
@@ -455,6 +470,7 @@ def list_warehouses(
     created_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[WarehouseResponse]:
+    """List warehouses for the firm in scope."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = _warehouse_filters(
         status_value=status_value,
@@ -490,6 +506,7 @@ def warehouse_summary(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseSummary]:
+    """Return warehouse counts by status."""
     summary = BranchWarehouseService(db).warehouse_summary(
         firm_scope=scope.firm_id,
         filters=WarehouseListFilters(include_deleted=include_deleted),
@@ -507,6 +524,7 @@ def create_warehouse(
     scope: WarehouseCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
+    """Create a warehouse under a branch."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when creating a warehouse.")
     row = BranchWarehouseService(db).create_warehouse(
@@ -527,6 +545,7 @@ def import_warehouses(
     scope: BranchWarehouseImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[WarehouseResponse]]:
+    """Create several warehouses from an uploaded batch."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when importing warehouses.")
     service = BranchWarehouseService(db)
@@ -544,6 +563,7 @@ def get_warehouse(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
+    """Return one warehouse."""
     row = BranchWarehouseService(db).get_warehouse(
         warehouse_id,
         firm_scope=scope.firm_id,
@@ -559,6 +579,7 @@ def update_warehouse(
     scope: WarehouseUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
+    """Replace one warehouse."""
     row = BranchWarehouseService(db).update_warehouse(
         warehouse_id,
         data,
@@ -574,6 +595,7 @@ def delete_warehouse(
     scope: WarehouseDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a warehouse that holds no stock."""
     BranchWarehouseService(db).delete_warehouse(
         warehouse_id,
         firm_scope=scope.firm_id,
@@ -591,6 +613,7 @@ def restore_warehouse(
     scope: WarehouseRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
+    """Restore a soft-deleted warehouse."""
     row = BranchWarehouseService(db).restore_warehouse(
         warehouse_id,
         firm_scope=scope.firm_id,
@@ -608,6 +631,7 @@ def duplicate_warehouse(
     scope: WarehouseCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
+    """Copy a warehouse under a new code."""
     row = BranchWarehouseService(db).duplicate_warehouse(
         warehouse_id,
         firm_scope=scope.firm_id,
@@ -622,6 +646,7 @@ def bulk_delete_warehouses(
     scope: WarehouseDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Soft delete several warehouses."""
     affected = BranchWarehouseService(db).bulk_delete_warehouses(
         data,
         firm_scope=scope.firm_id,
@@ -636,6 +661,7 @@ def bulk_restore_warehouses(
     scope: WarehouseRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Restore several warehouses."""
     affected = BranchWarehouseService(db).bulk_restore_warehouses(
         data,
         firm_scope=scope.firm_id,
@@ -650,6 +676,7 @@ def bulk_warehouse_status(
     scope: WarehouseUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Set the status of several warehouses."""
     affected = BranchWarehouseService(db).bulk_warehouse_status(
         data,
         firm_scope=scope.firm_id,
@@ -664,6 +691,7 @@ def export_warehouses(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Stream the filtered warehouses as CSV."""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
@@ -712,6 +740,7 @@ def list_storage_nodes(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[StorageNodeResponse]]:
+    """List a warehouse's storage hierarchy."""
     rows = BranchWarehouseService(db).list_storage_nodes(
         warehouse_id=warehouse_id,
         firm_scope=scope.firm_id,
@@ -730,6 +759,7 @@ def create_storage_node(
     scope: StorageManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[StorageNodeResponse]:
+    """Add a node to a warehouse's storage hierarchy."""
     row = BranchWarehouseService(db).create_storage_node(
         data,
         firm_scope=scope.firm_id,
@@ -748,6 +778,7 @@ def update_storage_node(
     scope: StorageManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[StorageNodeResponse]:
+    """Change a storage node and repath its descendants."""
     row = BranchWarehouseService(db).update_storage_node(
         storage_node_id,
         data,
@@ -766,6 +797,7 @@ def delete_storage_node(
     scope: StorageManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a storage node with no children."""
     BranchWarehouseService(db).delete_storage_node(
         storage_node_id,
         firm_scope=scope.firm_id,
@@ -780,6 +812,7 @@ def list_branch_types(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BranchTypeResponse]]:
+    """List the firm's branch types."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for branch types.")
     rows = BranchWarehouseService(db).list_branch_types(
@@ -799,6 +832,7 @@ def create_branch_type(
     scope: BranchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchTypeResponse]:
+    """Add a branch type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for branch types.")
     row = BranchWarehouseService(db).create_branch_type(
@@ -818,6 +852,7 @@ def update_branch_type(
     scope: BranchUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchTypeResponse]:
+    """Change a branch type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for branch types.")
     row = BranchWarehouseService(db).update_branch_type(
@@ -835,6 +870,7 @@ def delete_branch_type(
     scope: BranchDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a branch type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for branch types.")
     BranchWarehouseService(db).delete_branch_type(
@@ -851,6 +887,7 @@ def list_warehouse_types(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[WarehouseTypeResponse]]:
+    """List the firm's warehouse types."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for warehouse types.")
     rows = BranchWarehouseService(db).list_warehouse_types(
@@ -872,6 +909,7 @@ def create_warehouse_type(
     scope: WarehouseUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseTypeResponse]:
+    """Add a warehouse type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for warehouse types.")
     row = BranchWarehouseService(db).create_warehouse_type(
@@ -892,6 +930,7 @@ def update_warehouse_type(
     scope: WarehouseUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseTypeResponse]:
+    """Change a warehouse type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for warehouse types.")
     row = BranchWarehouseService(db).update_warehouse_type(
@@ -911,6 +950,7 @@ def delete_warehouse_type(
     scope: WarehouseDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete a warehouse type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for warehouse types.")
     BranchWarehouseService(db).delete_warehouse_type(
@@ -956,5 +996,6 @@ class BranchWarehouseSettingsResponse(BranchWarehouseSchema):
 def get_settings(
     scope: BranchViewScope,
 ) -> ApiResponse[BranchWarehouseSettingsResponse]:
+    """Return the branch and warehouse module settings."""
     _ = scope
     return ApiResponse(data=BranchWarehouseSettingsResponse())

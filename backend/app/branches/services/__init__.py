@@ -3,4 +3,3 @@
 from app.branches.services.branch_warehouse_service import BranchWarehouseService
 
 __all__ = ["BranchWarehouseService"]
-

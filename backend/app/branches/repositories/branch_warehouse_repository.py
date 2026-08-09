@@ -34,17 +34,21 @@ class BranchWarehouseRepository:
     }
 
     def __init__(self, session: Session) -> None:
+        """Bind the repository to the request unit of work."""
         self._session = session
 
     def flush(self) -> None:
+        """Push pending work so generated ids are available."""
         self._session.flush()
 
     def add(self, row: object) -> None:
+        """Stage a new row for insertion."""
         self._session.add(row)
 
     def get_branch(
         self, branch_id: UUID, firm_scope: UUID | None, *, include_deleted: bool
     ) -> Branch | None:
+        """Return one branch within the firm scope, if it exists."""
         statement = (
             select(Branch)
             .options(selectinload(Branch.warehouses))
@@ -59,6 +63,7 @@ class BranchWarehouseRepository:
     def get_warehouse(
         self, warehouse_id: UUID, firm_scope: UUID | None, *, include_deleted: bool
     ) -> Warehouse | None:
+        """Return one warehouse within the firm scope, if it exists."""
         statement = (
             select(Warehouse)
             .options(selectinload(Warehouse.storage_nodes))
@@ -77,7 +82,10 @@ class BranchWarehouseRepository:
         code: str,
         excluding_id: UUID | None = None,
     ) -> UUID | None:
-        statement = select(Branch.id).where(Branch.firm_id == firm_id, Branch.code == code)
+        """Return the id of a branch already using this code."""
+        statement = select(Branch.id).where(
+            Branch.firm_id == firm_id, Branch.code == code
+        )
         if excluding_id is not None:
             statement = statement.where(Branch.id != excluding_id)
         return self._session.scalar(statement)
@@ -89,6 +97,7 @@ class BranchWarehouseRepository:
         code: str,
         excluding_id: UUID | None = None,
     ) -> UUID | None:
+        """Return the id of a warehouse already using this code."""
         statement = select(Warehouse.id).where(
             Warehouse.firm_id == firm_id, Warehouse.code == code
         )
@@ -107,6 +116,7 @@ class BranchWarehouseRepository:
         offset: int,
         limit: int,
     ) -> tuple[list[Branch], int]:
+        """Return a filtered, sorted page of branches and the total."""
         statement = select(Branch).options(selectinload(Branch.warehouses))
         count = select(func.count()).select_from(Branch)
         conditions = self._branch_conditions(firm_scope, filters)
@@ -143,6 +153,7 @@ class BranchWarehouseRepository:
         offset: int,
         limit: int,
     ) -> tuple[list[Warehouse], int]:
+        """Return a filtered, sorted page of warehouses and the total."""
         statement = select(Warehouse).options(selectinload(Warehouse.storage_nodes))
         count = select(func.count()).select_from(Warehouse)
         conditions = self._warehouse_conditions(firm_scope, filters)
@@ -175,6 +186,7 @@ class BranchWarehouseRepository:
     def branch_summary(
         self, firm_scope: UUID | None, filters: BranchListFilters
     ) -> tuple[int, int, int, int, int, int]:
+        """Return branch counts by status for the current filters."""
         row = self._session.execute(
             select(
                 func.count(Branch.id),
@@ -190,6 +202,7 @@ class BranchWarehouseRepository:
     def warehouse_summary(
         self, firm_scope: UUID | None, filters: WarehouseListFilters
     ) -> tuple[int, int, int, int, int, int]:
+        """Return warehouse counts by status for the current filters."""
         row = self._session.execute(
             select(
                 func.count(Warehouse.id),
@@ -202,7 +215,10 @@ class BranchWarehouseRepository:
         ).one()
         return tuple(int(item or 0) for item in row)  # type: ignore[return-value]
 
-    def list_branch_types(self, firm_id: UUID, include_deleted: bool) -> list[BranchType]:
+    def list_branch_types(
+        self, firm_id: UUID, include_deleted: bool
+    ) -> list[BranchType]:
+        """Return the firm's branch types."""
         statement = select(BranchType).where(BranchType.firm_id == firm_id)
         if not include_deleted:
             statement = statement.where(BranchType.is_deleted.is_(False))
@@ -211,6 +227,7 @@ class BranchWarehouseRepository:
     def get_branch_type(
         self, branch_type_id: UUID, firm_id: UUID, *, include_deleted: bool
     ) -> BranchType | None:
+        """Return one branch type owned by the firm."""
         statement = select(BranchType).where(
             BranchType.id == branch_type_id,
             BranchType.firm_id == firm_id,
@@ -222,6 +239,7 @@ class BranchWarehouseRepository:
     def list_warehouse_types(
         self, firm_id: UUID, include_deleted: bool
     ) -> list[WarehouseType]:
+        """Return the firm's warehouse types."""
         statement = select(WarehouseType).where(WarehouseType.firm_id == firm_id)
         if not include_deleted:
             statement = statement.where(WarehouseType.is_deleted.is_(False))
@@ -230,6 +248,7 @@ class BranchWarehouseRepository:
     def get_warehouse_type(
         self, warehouse_type_id: UUID, firm_id: UUID, *, include_deleted: bool
     ) -> WarehouseType | None:
+        """Return one warehouse type owned by the firm."""
         statement = select(WarehouseType).where(
             WarehouseType.id == warehouse_type_id,
             WarehouseType.firm_id == firm_id,
@@ -245,6 +264,7 @@ class BranchWarehouseRepository:
         *,
         include_deleted: bool,
     ) -> WarehouseStorageNode | None:
+        """Return one storage node, scoped through its warehouse."""
         statement = (
             select(WarehouseStorageNode)
             .join(Warehouse, Warehouse.id == WarehouseStorageNode.warehouse_id)
@@ -263,6 +283,7 @@ class BranchWarehouseRepository:
         firm_scope: UUID | None,
         include_deleted: bool,
     ) -> list[WarehouseStorageNode]:
+        """Return a warehouse's storage nodes in hierarchy order."""
         statement = (
             select(WarehouseStorageNode)
             .join(Warehouse, Warehouse.id == WarehouseStorageNode.warehouse_id)
@@ -308,7 +329,8 @@ class BranchWarehouseRepository:
             conditions.append(Branch.country_id == filters.country_id)
         if filters.created_from:
             conditions.append(
-                Branch.created_at >= datetime.combine(filters.created_from, time.min, UTC)
+                Branch.created_at
+                >= datetime.combine(filters.created_from, time.min, UTC)
             )
         if filters.created_to:
             conditions.append(
@@ -335,7 +357,9 @@ class BranchWarehouseRepository:
         if filters.manager_id is not None:
             conditions.append(Warehouse.warehouse_manager_id == filters.manager_id)
         if filters.business_profile_id is not None:
-            conditions.append(Warehouse.business_profile_id == filters.business_profile_id)
+            conditions.append(
+                Warehouse.business_profile_id == filters.business_profile_id
+            )
         if filters.city_id is not None:
             conditions.append(Warehouse.city_id == filters.city_id)
         if filters.state_id is not None:
