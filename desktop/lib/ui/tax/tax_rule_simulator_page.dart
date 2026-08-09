@@ -669,6 +669,13 @@ class _TaxSummaryRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final baseAmt = (result['base_amount'] as num?)?.toDouble();
     final totalTax = (result['total_tax_amount'] as num?)?.toDouble();
+    // Tax already inside the price, and tax the recipient self-accounts for
+    // under reverse charge, are reported apart from the billed total because
+    // neither is added to the document.
+    final inclusiveTax =
+        (result['inclusive_tax_amount'] as num?)?.toDouble() ?? 0;
+    final reverseChargeTax =
+        (result['reverse_charge_tax_amount'] as num?)?.toDouble() ?? 0;
     final exempt = result['exempt'] as bool? ?? false;
     final zeroRated = result['zero_rated'] as bool? ?? false;
     final reverseCharge = result['reverse_charge'] as bool? ?? false;
@@ -688,11 +695,25 @@ class _TaxSummaryRow extends StatelessWidget {
           textColor: cs.onSecondaryContainer,
         ),
         _SummaryChip(
-          label: 'Total Tax',
+          label: 'Tax Billed',
           value: fmt(totalTax),
           color: cs.primaryContainer,
           textColor: cs.onPrimaryContainer,
         ),
+        if (inclusiveTax > 0)
+          _SummaryChip(
+            label: 'Included In Price',
+            value: fmt(inclusiveTax),
+            color: cs.tertiaryContainer,
+            textColor: cs.onTertiaryContainer,
+          ),
+        if (reverseChargeTax > 0)
+          _SummaryChip(
+            label: 'Recipient Accounts For',
+            value: fmt(reverseChargeTax),
+            color: cs.tertiaryContainer,
+            textColor: cs.onTertiaryContainer,
+          ),
         if (exempt)
           _SummaryChip(
             label: 'EXEMPT',

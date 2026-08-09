@@ -12,9 +12,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_money
 from app.products.models import Product
 from app.tax.models import (
     TaxComponent,
@@ -24,6 +26,7 @@ from app.tax.models import (
     TaxRuleAction,
     TaxRuleCondition,
     TaxRuleExecutionLog,
+    TaxSystem,
 )
 from app.tax.schemas import (
     TaxRuleActionType,
@@ -508,8 +511,10 @@ class TaxRuleService:
                 code=item["code"],
                 label=item["label"],
                 percentage=Decimal(str(item["percentage"])),
-                amount=self._quantize(
-                    base_amount * Decimal(str(item["percentage"])) / Decimal("100")
+                amount=self._component_amount(
+                    base_amount,
+                    percentage=Decimal(str(item["percentage"])),
+                    included_in_price=bool(item["included_in_price"]),
                 ),
                 included_in_price=bool(item["included_in_price"]),
                 recoverable=bool(item["recoverable"]),
@@ -517,9 +522,35 @@ class TaxRuleService:
             )
             for item in components
         ]
-        total_tax_amount = self._quantize(
-            sum((component.amount for component in preview_components), Decimal("0"))
+        # total_tax_amount is what the counterparty is billed on top of the line,
+        # and every document adds it to its payable total. Tax already inside the
+        # price is not billed again, and under reverse charge the recipient
+        # accounts for the tax instead of being charged it. Both are still
+        # reported so the ledger and returns can see them.
+        inclusive_tax_amount = self._quantize(
+            sum(
+                (
+                    component.amount
+                    for component in preview_components
+                    if component.included_in_price
+                ),
+                Decimal("0"),
+            )
         )
+        additive_tax_amount = self._quantize(
+            sum(
+                (
+                    component.amount
+                    for component in preview_components
+                    if not component.included_in_price
+                ),
+                Decimal("0"),
+            )
+        )
+        reverse_charge_tax_amount = (
+            additive_tax_amount if reverse_charge else Decimal("0")
+        )
+        total_tax_amount = Decimal("0") if reverse_charge else additive_tax_amount
         response = TaxRuleSimulationResponse(
             transaction_type=str(context["transaction_type"]),
             transaction_date=transaction_date,
@@ -527,6 +558,8 @@ class TaxRuleService:
             applied_tax_profile_id=applied_profile_id,
             applied_components=preview_components,
             total_tax_amount=total_tax_amount,
+            inclusive_tax_amount=inclusive_tax_amount,
+            reverse_charge_tax_amount=reverse_charge_tax_amount,
             base_amount=base_amount,
             exempt=exempt,
             zero_rated=zero_rated,
@@ -569,7 +602,10 @@ class TaxRuleService:
                 "transaction_type": response.transaction_type,
             },
         )
-        self._commit()
+        # No commit: every transactional module calls this once per line while
+        # building a document, on its own session. Committing here published a
+        # half-written invoice and left the rest of the write in a second
+        # transaction. The simulate endpoint owns the commit instead.
         return response
 
     def get_rule(
@@ -737,7 +773,59 @@ class TaxRuleService:
                 )
                 if group_code is not None:
                     context["tax_profile_group_code"] = group_code
+        # A rule scoped to a country or a business profile only matches when the
+        # context names the same one, and no document sends either: a
+        # country-scoped rule never fired on an invoice, and a profile-scoped one
+        # fired on five document types but not on goods receipts or purchase
+        # orders, so the same rule set taxed a purchase order and its invoice
+        # differently. Both are derivable from the firm's own store.
+        if context.get("country_id") is None:
+            context["country_id"] = self._country_for_profile(
+                context.get("tax_profile_id"), firm_scope=firm_scope
+            )
+        if context.get("business_profile_id") is None:
+            context["business_profile_id"] = self._firm_business_profile(
+                firm_scope=firm_scope
+            )
         return context
+
+    def _country_for_profile(
+        self, tax_profile_id: UUID | None, *, firm_scope: UUID
+    ) -> UUID | None:
+        """Return the country of the tax system the applied profile belongs to."""
+        if tax_profile_id is None:
+            return None
+        return self._session.scalar(
+            select(TaxSystem.country_id)
+            .join(TaxProfile, TaxProfile.tax_system_id == TaxSystem.id)
+            .where(
+                TaxProfile.id == tax_profile_id,
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.is_deleted.is_(False),
+                TaxSystem.is_deleted.is_(False),
+            )
+        )
+
+    def _firm_business_profile(self, *, firm_scope: UUID) -> UUID | None:
+        """Return the firm's active business profile assignment, if any.
+
+        ``firm_business_profiles`` is firm-owned, so this stays on the request
+        session; ``firms`` itself lives only in the platform schema and must not
+        be resolved here.
+        """
+        return self._session.scalar(
+            select(FirmBusinessProfile.business_profile_id)
+            .join(
+                BusinessProfile,
+                BusinessProfile.id == FirmBusinessProfile.business_profile_id,
+            )
+            .where(
+                FirmBusinessProfile.firm_id == firm_scope,
+                FirmBusinessProfile.is_active.is_(True),
+                FirmBusinessProfile.is_deleted.is_(False),
+                BusinessProfile.is_deleted.is_(False),
+            )
+        )
 
     def _rule_matches(
         self,
@@ -988,9 +1076,34 @@ class TaxRuleService:
             return Decimal("0")
         return Decimal(str(value))
 
+    def _component_amount(
+        self,
+        base_amount: Decimal,
+        *,
+        percentage: Decimal,
+        included_in_price: bool,
+    ) -> Decimal:
+        """Return one component's tax on a line value.
+
+        A component flagged ``included_in_price`` is already inside the price, so
+        its tax is extracted from the amount rather than added to it. Computing
+        it as an exclusive component and then adding it on top charged the tax
+        twice: a 110 line with an inclusive 10% component billed 121.
+        """
+        if percentage == 0:
+            return self._quantize(Decimal("0"))
+        if included_in_price:
+            return self._quantize(
+                base_amount * percentage / (Decimal("100") + percentage)
+            )
+        return self._quantize(base_amount * percentage / Decimal("100"))
+
     @staticmethod
     def _quantize(value: Decimal) -> Decimal:
-        return value.quantize(Decimal("0.0001"))
+        # The shared helper, not a private copy: this one passed no rounding
+        # argument, so it used Python's default ROUND_HALF_EVEN and rounded tax
+        # differently from every amount the documents computed around it.
+        return quantize_money(value)
 
     @staticmethod
     def _soft_delete(row: Any, *, actor_id: UUID) -> None:
