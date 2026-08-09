@@ -316,14 +316,71 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     };
   }
 
+  /// The batch counts the list already fetches on every load.
+  ///
+  /// `batchSummary()` was called each time the batch section loaded and the
+  /// result thrown away, so the screen paid for the request and showed none of
+  /// it. The expired count is worth surfacing in particular: it is derived from
+  /// the expiry date rather than from a status nothing ever sets.
+  Widget _buildBatchSummary() {
+    final BatchSummaryRecord? summary = _batchSummary;
+    if (summary == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: _expiryMetricCard(
+                'Total Batches', '${summary.totalBatches}', Colors.blueGrey),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _expiryMetricCard(
+                'Near Expiry', '${summary.nearExpiry}', Colors.orange),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child:
+                _expiryMetricCard('Expired', '${summary.expired}', Colors.red),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _expiryMetricCard(
+                'Quarantine', '${summary.quarantine}', Colors.purple),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBatchGrid() {
     if (_batches.isEmpty) {
-      return StandardEmptyState(
-        type: _search.text.trim().isEmpty
-            ? EmptyStateType.noRecords
-            : EmptyStateType.noSearchResults,
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildBatchSummary(),
+          Expanded(
+            child: StandardEmptyState(
+              type: _search.text.trim().isEmpty
+                  ? EmptyStateType.noRecords
+                  : EmptyStateType.noSearchResults,
+            ),
+          ),
+        ],
       );
     }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildBatchSummary(),
+        Expanded(child: _buildBatchTable()),
+      ],
+    );
+  }
+
+  Widget _buildBatchTable() {
     return EnterpriseDataGrid<BatchRecord>(
       items: _batches,
       total: _total,

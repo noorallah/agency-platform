@@ -8,7 +8,6 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/tax_framework.dart';
 import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
 import 'tax_setup_page.dart';
 
 enum TaxManagementSection {
@@ -76,9 +75,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
 
   bool get _canCreate =>
       widget.hasActiveFirm && widget.permissions.hasPermission('TAX_CREATE');
-  bool get _canUpdate => widget.permissions.hasPermission('TAX_UPDATE');
   bool get _canDelete => widget.permissions.hasPermission('TAX_DELETE');
-  bool get _canRestore => widget.permissions.hasPermission('TAX_RESTORE');
   bool get _canSettings =>
       widget.permissions.hasPermission('TAX_MANAGE_SETTINGS');
   bool get _canRuleCreate =>

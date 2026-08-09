@@ -78,8 +78,6 @@ class _BranchWarehouseManagementPageState
       widget.permissions.hasPermission('WAREHOUSE_RESTORE');
   bool get _canStorageManage =>
       widget.permissions.hasPermission('STORAGE_AREA_MANAGE');
-  bool get _canImport =>
-      widget.permissions.hasPermission('BRANCH_WAREHOUSE_IMPORT');
   bool get _canExport =>
       widget.permissions.hasPermission('BRANCH_WAREHOUSE_EXPORT');
 
@@ -750,6 +748,7 @@ class _BranchWarehouseManagementPageState
 
   Future<void> _openWarehouseEdit(WarehouseRecord? current) async {
     final branches = await widget.api.branches(page: 1);
+    if (!mounted) return;
     final payload = await showDialog<Json>(
       context: context,
       builder: (context) => _WarehouseDialog(

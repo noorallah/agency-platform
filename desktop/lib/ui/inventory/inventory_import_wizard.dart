@@ -9,14 +9,12 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../workspace/workspace_components.dart';
-import '../workspace/workspace_interactions.dart';
 
 enum InventoryImportType {
   openingStock,

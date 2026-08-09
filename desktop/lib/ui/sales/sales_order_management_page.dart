@@ -298,7 +298,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                                     NotificationService.show(context, 'Placeholder action for sales orders.', kind: AppNotificationKind.information);
                                 }
                               } on ApiException catch (error) {
-                                NotificationService.show(context, error.message, kind: AppNotificationKind.error);
+                                if (!context.mounted) return;
+                                NotificationService.show(context, error.message,
+                                    kind: AppNotificationKind.error);
                               }
                             },
                           ),

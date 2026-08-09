@@ -438,6 +438,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       type: ConfirmationType.delete,
     );
     if (!accepted) return;
+    if (!mounted) return;
     await AppDialogs.whileLoading(
       context,
       Future.wait(ids.map(widget.api.deletePurchaseOrder)),
@@ -482,6 +483,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       builder: (_) => _ReasonDialog(title: title),
     );
     if (reason == null) return;
+    if (!mounted) return;
     final PurchaseOrder result = await AppDialogs.whileLoading(
       context,
       action(reason),
@@ -776,58 +778,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       .fullName
       .ifEmpty(id);
 
-  String _labelForProduct(String id) => _products
-      .firstWhere(
-        (item) => item.id == id,
-        orElse: () => const Product(
-          id: '',
-          firmId: '',
-          code: '',
-          barcode: '',
-          qrCode: '',
-          name: '',
-          shortName: '',
-          description: '',
-          productType: '',
-          categoryId: '',
-          subCategoryId: '',
-          unit: '',
-          brand: '',
-          model: '',
-          hsnSac: '',
-          taxProfileId: '',
-          purchasePrice: '',
-          sellingPrice: '',
-          mrp: '',
-          status: '',
-          remarks: '',
-          isDeleted: false,
-          createdAt: '',
-          updatedAt: '',
-          attributes: const [],
-          media: const [],
-        ),
-      )
-      .name
-      .ifEmpty(id);
 
-  String _labelForTaxProfile(String id) => _taxProfiles
-      .firstWhere(
-        (item) => item.id == id,
-        orElse: () => const TaxProfileRecord(
-          id: '',
-          taxSystemId: '',
-          code: '',
-          name: '',
-          label: '',
-          status: '',
-          isHistorical: false,
-          isDeleted: false,
-          components: const [],
-        ),
-      )
-      .label
-      .ifEmpty(id);
 
   List<PurchaseOrder> get _dashboardRecentOrders => _orders.take(5).toList();
 
@@ -1757,7 +1708,6 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       : (widget.order ?? _blankOrder());
   bool _saving = false;
   String? _error;
-  int _selectedTab = 0;
 
   PurchaseOrder _blankOrder() => PurchaseOrder(
         id: '',

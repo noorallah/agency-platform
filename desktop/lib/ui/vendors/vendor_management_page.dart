@@ -360,10 +360,8 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         detailsPanel: selected == null
             ? null
             : QuickSummaryPanel(
-                title: selected?.displayName ?? 'No vendor selected',
-                lines: selected == null
-                    ? const []
-                    : [
+                title: selected.displayName,
+                lines: [
                         DetailLine('Code', selected.code),
                         DetailLine('Status',
                             selected.isDeleted ? 'DELETED' : selected.status),
@@ -375,9 +373,9 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                                 ? selected.mobile
                                 : selected.phone),
                         DetailLine('Email', selected.email),
-                      ],
+                ],
                 onView: null,
-                onEdit: selected != null && _canEdit && !selected.isDeleted
+                onEdit: _canEdit && !selected.isDeleted
                     ? () => _open(selected)
                     : null,
               ),
