@@ -182,6 +182,25 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 - [ ] A recorded setting that changes nothing recurred here: `rounding_mode` was
       stored per rule and the conversion always rounded half up.
 
+### Defects the `branches` pass added to this list
+
+- [ ] **Bulk endpoints audit every row they touch.** All six of them wrote
+      nothing, so deleting fifty branches from the toolbar left a trail showing
+      none of it while deleting one from the row menu was recorded
+      **(found a real bug)**. Check the bulk path separately: it is usually a
+      second implementation of the single-row one, and it drifts.
+- [ ] **A bulk endpoint enforces the same rules as its single-row twin.** The
+      guards, not just the audit, have to be in both.
+- [ ] **Deleting a parent checks its children.** A branch could be soft deleted
+      with live warehouses still trading under it, and a warehouse with stock
+      still in it, while the module already refused to delete a storage node
+      with children **(found a real bug)**.
+- [ ] **An exclusivity flag needs an owner.** `is_default` was accepted on write
+      and maintained by nothing, so every branch in a firm could claim it. Demote
+      the incumbent in the service and back it with a partial unique index, as
+      `UQ_user_firms_active_primary` does. Flush the demotion before writing the
+      promoted row or the index rejects the statement.
+
 ## Module inventory
 
 Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
@@ -204,7 +223,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `batch_serial` | 17 | 121 | 2 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 134 | 1 | **none** | typed |
 | `inventory` | 19 | 145 | 6 | `test_inventory_foundation` | typed |
-| `branches` | 39 | 149 | 2 | `test_branch_warehouse_management` | typed |
+| `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
 | `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | **untyped** |
 | `sales_invoice` | 16 | 185 | 34 | **none** | **untyped** |
@@ -256,7 +275,7 @@ and typed; mostly cleanup.
 | 7 | `sales_order` | 2026-08-09 | lines re-inserted on edit, resetting `reserved_quantity` while the RESERVE movement stayed in the ledger | yes |
 | 8 | `tax` | 2026-08-09 | `simulate` committed the caller's session while every document computed tax line by line; an eighth private rounding helper still used banker's rounding; country-scoped rules never matched a document and profile-scoped ones matched five of seven; `included_in_price` was billed on top of the price; `REVERSE_CHARGE` changed nothing; the execution log had no purge path | yes — desktop endpoints still inlined |
 | 9 | `uom` | 2026-08-09 | a product's own conversion factor lost to the firm-wide one on PostgreSQL only; the rule's published version was the same column as the concurrency counter, so any edit moved it; the configured `rounding_mode` was ignored; a unit in use could be deleted out from under other firms | yes — module is now clean under ruff, black and mypy |
-| 10 | `branches` | | | |
+| 10 | `branches` | 2026-08-10 | the six bulk endpoints wrote no audit entries at all; a branch could be deleted with live warehouses under it and a warehouse deleted with stock in it; `is_default` was maintained by nothing, so every branch could be the firm default | yes — module is now clean under ruff, black and mypy |
 | 11 | `inventory` | | | |
 | 12 | `batch_serial` | | | |
 | 13 | `customers` | | | |
