@@ -62,6 +62,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
 )
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.opening_setup import CHART, seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -804,3 +805,49 @@ def test_sales_invoice_posts_receivable_revenue_and_tax() -> None:
             actor_id=actor_id,
         )
     assert "No open accounting period" in str(closed.value)
+
+
+def test_seed_finance_setup_is_complete_and_idempotent() -> None:
+    """A seeded firm can post, and re-seeding changes nothing.
+
+    The sample firms had no chart of accounts, no periods and no journal types
+    at all, so DocumentPostingService — which refuses rather than guesses — had
+    nothing to post against.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+
+    created = seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    assert created["accounts"] == len(CHART)
+    assert created["periods"] == 12
+    assert created["mappings"] == sum(1 for entry in CHART if entry.purpose)
+
+    # Every purpose the sales-invoice posting needs is now mapped.
+    posting = DocumentPostingService(session)
+    entry = posting.post_sales_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="SI-SEED",
+        invoice_date=date(2026, 8, 4),
+        taxable_amount=Decimal("1000"),
+        tax_amount=Decimal("180"),
+        total_amount=Decimal("1180"),
+        actor_id=actor_id,
+    )
+    assert entry.status == JournalStatus.POSTED.value
+
+    # Re-running creates nothing: the seed is safe after a partial failure or a
+    # tenancy rebuild.
+    again = seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    assert again == {
+        "groups": 0,
+        "accounts": 0,
+        "periods": 0,
+        "mappings": 0,
+        "types": 0,
+    }
