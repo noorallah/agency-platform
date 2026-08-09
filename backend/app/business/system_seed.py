@@ -1,5 +1,6 @@
 """Baseline business profile seed data for distributor-focused deployments."""
 
+from typing import TypedDict
 from uuid import UUID
 
 from sqlalchemy import select
@@ -7,7 +8,20 @@ from sqlalchemy.orm import Session
 
 from app.business.models import BusinessProfile
 
-SEED_BUSINESS_PROFILES = (
+
+class BusinessProfileSeed(TypedDict):
+    """One baseline business profile to seed."""
+
+    id: UUID
+    code: str
+    name: str
+    description: str
+    industry_type: str
+    is_default: bool
+    default_settings: dict[str, object]
+
+
+SEED_BUSINESS_PROFILES: tuple[BusinessProfileSeed, ...] = (
     {
         "id": UUID("10000000-0000-0000-0000-000000000001"),
         "code": "GENERIC",
@@ -80,7 +94,9 @@ SEED_BUSINESS_PROFILES = (
         "id": UUID("10000000-0000-0000-0000-00000000000A"),
         "code": "WHOLESALE",
         "name": "Wholesale Distribution",
-        "description": "Bulk B2B distribution profile for wholesale and cash-and-carry flows.",
+        "description": (
+            "Bulk B2B distribution profile for wholesale and cash-and-carry flows."
+        ),
         "industry_type": "WHOLESALE",
         "is_default": False,
         "default_settings": {
