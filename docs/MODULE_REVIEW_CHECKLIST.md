@@ -252,7 +252,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
-| `goods_receipt` | 16 | 134 | 1 | **none** | typed |
+| `goods_receipt` | 16 | 54 | 1 | `test_goods_receipt` | typed |
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
@@ -298,7 +298,7 @@ and typed; mostly cleanup.
 | 0c | **all firm-owned routers** (tenancy) | 2026-08-09 | every one resolved `firms`/`user_firms` on the tenant session, so all firm-owned endpoints failed on PostgreSQL outside the platform schema | yes — shared `app/common/scope.py` |
 | 0d | **persistence conventions** | 2026-08-09 | FK naming collided on two FKs to one target, so `create_all` could not build the schema on PostgreSQL; `BaseEntity.version` never read or incremented | yes |
 | 1 | `sales_invoice` | 2026-08-09 | permission codes unseeded (whole API admin-only); every handler mis-called its service; the six tables never matched the ORM | yes — module now has a test |
-| 2 | `goods_receipt` | 2026-08-09 | cancel left stock posted; totals computed twice with different formulas; lines re-inserted on edit | yes |
+| 2 | `goods_receipt` | 2026-08-09 | cancel left stock posted; totals computed twice with different formulas; lines re-inserted on edit | yes — `test_goods_receipt` added 2026-08-10 to pin the fixes |
 | 3 | `firms` | 2026-08-09 | soft delete burned the code, GST and PAN forever; a `PUT` omitting the optional tenancy fields re-pointed a dedicated firm at the shared schema; two firms could be routed into one schema; update carried no `after_data` and no `If-Match` | yes — module now has a test |
 | 4 | `purchase_invoice` | 2026-08-09 | `subtotal` folded in line charges; committed mid-write; `_flush_or_conflict` left the session unusable | yes |
 | 5 | `purchase_return` | 2026-08-09 | cancel left stock posted and its movements were unlinkable; `subtotal` folded in line charges | yes |
