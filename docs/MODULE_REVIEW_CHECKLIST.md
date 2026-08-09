@@ -252,7 +252,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
-| `goods_receipt` | 16 | 54 | 1 | `test_goods_receipt` | typed |
+| `goods_receipt` | 16 | 0 | 0 | `test_goods_receipt` | typed |
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |

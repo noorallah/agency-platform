@@ -14,6 +14,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
+    DocumentLifecycleEvent,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
@@ -98,6 +99,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[GoodsReceipt], int]:
+        """List receipts."""
         columns = {
             "grn_number": GoodsReceipt.grn_number,
             "receipt_date": GoodsReceipt.receipt_date,
@@ -166,6 +168,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         return list(rows), int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> GoodsReceiptSummary:
+        """Summarize ."""
         receipts = list(
             self._session.scalars(
                 select(GoodsReceipt).where(
@@ -215,6 +218,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def create_receipt(
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
+        """Create receipt."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -294,6 +298,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> GoodsReceipt:
+        """Change receipt."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status != GoodsReceiptStatus.DRAFT.value:
             raise ValidationError("Only draft goods receipts can be updated.")
@@ -340,6 +345,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def complete_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> GoodsReceipt:
+        """Complete receipt."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
             return row
@@ -390,6 +396,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def cancel_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
+        """Cancel receipt."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status in {
             GoodsReceiptStatus.CANCELLED.value,
@@ -501,6 +508,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def close_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
+        """Close receipt."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.CLOSED.value:
             return row
@@ -537,6 +545,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def get_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> GoodsReceipt:
+        """Return receipt."""
         statement = select(GoodsReceipt).where(
             GoodsReceipt.id == receipt_id,
             GoodsReceipt.firm_id == firm_scope,
@@ -549,6 +558,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         return row
 
     def receipt_response(self, row: GoodsReceipt) -> GoodsReceiptResponse:
+        """Return response."""
         lines = list(
             self._session.scalars(
                 select(GoodsReceiptLine)
@@ -593,7 +603,10 @@ class GoodsReceiptService(TransactionalDocumentService):
         payload["duplicate_warning"] = self._duplicate_warning(row)
         return GoodsReceiptResponse.model_validate(payload)
 
-    def receipt_history(self, *, receipt_id: UUID, firm_scope: UUID) -> list[object]:
+    def receipt_history(
+        self, *, receipt_id: UUID, firm_scope: UUID
+    ) -> list[DocumentLifecycleEvent]:
+        """Return history."""
         self.get_receipt(receipt_id, firm_scope=firm_scope, include_deleted=True)
         rows, _ = self._documents.list_timeline(
             firm_scope,
@@ -605,6 +618,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         return rows
 
     def pending_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
+        """Return receipts."""
         return list(
             self._session.scalars(
                 select(GoodsReceipt).where(
@@ -616,6 +630,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
 
     def completed_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
+        """Return receipts."""
         return list(
             self._session.scalars(
                 select(GoodsReceipt).where(
@@ -627,6 +642,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
 
     def rejected_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
+        """Return items."""
         return list(
             self._session.scalars(
                 select(GoodsReceiptLine)
@@ -643,6 +659,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
 
     def damaged_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
+        """Return items."""
         return list(
             self._session.scalars(
                 select(GoodsReceiptLine)
@@ -661,6 +678,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def partially_received_purchase_orders(
         self, *, firm_scope: UUID
     ) -> list[GoodsReceiptPurchaseOrderReport]:
+        """Return received purchase orders."""
         reports: list[GoodsReceiptPurchaseOrderReport] = []
         purchase_orders = list(
             self._session.scalars(
@@ -740,12 +758,14 @@ class GoodsReceiptService(TransactionalDocumentService):
     def import_receipts(
         self, data: list[GoodsReceiptCreate], *, firm_scope: UUID, actor_id: UUID
     ) -> list[GoodsReceipt]:
+        """Import receipts."""
         return [
             self.create_receipt(item, firm_id=firm_scope, actor_id=actor_id)
             for item in data
         ]
 
     def export_receipts_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Export receipts csv."""
         rows, _ = self.list_receipts(
             firm_scope=firm_scope,
             filters=GoodsReceiptListFilters(include_deleted=False),
@@ -756,7 +776,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             descending=True,
         )
         lines = [
-            "GRN Number,Date,Purchase Order,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total"
+            "GRN Number,Date,Purchase Order,Vendor ID,Branch ID,Warehouse ID,"
+            "Status,Subtotal,Tax Total,Grand Total"
         ]
         for row in rows:
             lines.append(
@@ -785,6 +806,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
     ) -> None:
+        """Replace lines."""
         # Lines are matched on their line number and updated in place;
         # re-inserting them minted a new UUID per line on every save, and
         # downstream documents reference those ids with no foreign key.
@@ -821,7 +843,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             purchase_line = purchase_lines.get(line.purchase_order_line_id)
             if purchase_line is None:
                 raise ValidationError(
-                    f"Receipt line references unknown purchase order line {line.purchase_order_line_id}."
+                    "Receipt line references unknown purchase order line "
+                    f"{line.purchase_order_line_id}."
                 )
             ordered_quantity = self._q(purchase_line.ordered_quantity)
             prev_received = previous_map.get(purchase_line.id, ZERO)
@@ -841,7 +864,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 )
                 if prev_received + self._q(line.current_receipt_quantity) > limit:
                     raise ValidationError(
-                        f"Goods receipt exceeds allowed quantity for PO line {purchase_line.line_number}."
+                        "Goods receipt exceeds allowed quantity for PO line "
+                        f"{purchase_line.line_number}."
                     )
             conversion = self._conversion(
                 quantity=total_sellable,
@@ -961,6 +985,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         *,
         actor_id: UUID,
     ) -> None:
+        """Replace attachments."""
         self._session.query(GoodsReceiptAttachment).filter(
             GoodsReceiptAttachment.goods_receipt_id == receipt.id
         ).delete(synchronize_session=False)
@@ -985,6 +1010,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         *,
         actor_id: UUID,
     ) -> None:
+        """Replace notes."""
         self._session.query(GoodsReceiptNote).filter(
             GoodsReceiptNote.goods_receipt_id == receipt.id
         ).delete(synchronize_session=False)
@@ -1003,6 +1029,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def _post_inventory(
         self, receipt: GoodsReceipt, *, purchase_order: PurchaseOrder, actor_id: UUID
     ) -> None:
+        """Post inventory."""
         received_cost = ZERO
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
@@ -1065,6 +1092,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         purchase_order: PurchaseOrder,
         previous_map: dict[UUID, Decimal],
     ) -> None:
+        """Validate lines."""
         line_map = {
             line.id: line
             for line in self._session.scalars(
@@ -1094,7 +1122,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 )
             if previous + line.current_receipt_quantity > allowed:
                 raise ValidationError(
-                    f"Receipt exceeds allowed quantity for purchase order line {purchase_line.line_number}."
+                    "Receipt exceeds allowed quantity for purchase order line "
+                    f"{purchase_line.line_number}."
                 )
 
     def _received_quantities_for_po(
@@ -1104,6 +1133,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_id: UUID,
         exclude_receipt_id: UUID | None = None,
     ) -> dict[UUID, Decimal]:
+        """Received quantities for po."""
         statement = (
             select(
                 GoodsReceiptLine.purchase_order_line_id,
@@ -1127,6 +1157,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         }
 
     def _duplicate_warning(self, row: GoodsReceipt) -> str | None:
+        """Duplicate warning."""
         match = self._session.scalar(
             select(GoodsReceipt.id).where(
                 GoodsReceipt.firm_id == row.firm_id,
@@ -1156,6 +1187,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         remarks: str | None = None,
         details: dict[str, object] | None = None,
     ) -> None:
+        """Record event."""
         self._documents.record_event(
             firm_id,
             DocumentLifecycleEventCreate(
@@ -1176,6 +1208,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def _purchase_order(
         self, purchase_order_id: UUID, *, firm_id: UUID
     ) -> PurchaseOrder:
+        """Purchase order."""
         row = self._session.scalar(
             select(PurchaseOrder).where(
                 PurchaseOrder.id == purchase_order_id,
@@ -1190,6 +1223,7 @@ class GoodsReceiptService(TransactionalDocumentService):
     def _validate_storage_scope(
         self, *, firm_id: UUID, warehouse_id: UUID, storage_node_id: UUID | None
     ) -> None:
+        """Validate storage scope."""
         warehouse = self._session.scalar(
             select(Warehouse).where(
                 Warehouse.id == warehouse_id,
@@ -1227,6 +1261,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         receipt_date: date,
         firm_id: UUID,
     ) -> dict[str, Decimal | int | None]:
+        """Conversion ."""
         if (
             purchase_uom_id is None
             or inventory_uom_id is None
@@ -1263,6 +1298,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         receipt_date: date,
         taxable: Decimal,
     ) -> Decimal:
+        """Line tax amount."""
         # A product names a tax group, not a version, so the rate is decided by
         # the document date. An explicitly named profile must also have been in
         # force then, or the document would carry a rate that never applied.
@@ -1297,6 +1333,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         return self._q(simulation.total_tax_amount)
 
     def _recalculate_totals(self, receipt: GoodsReceipt) -> None:
+        """Recalculate totals."""
         lines = list(
             self._session.scalars(
                 select(GoodsReceiptLine).where(

@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class GoodsReceiptSchema(BaseModel):
+    """Goods Receipt Schema contract."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class GoodsReceiptStatus(StrEnum):
+    """Goods Receipt Status contract."""
+
     DRAFT = "DRAFT"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
@@ -20,12 +24,16 @@ class GoodsReceiptStatus(StrEnum):
 
 
 class GoodsReceiptNoteType(StrEnum):
+    """Goods Receipt Note Type contract."""
+
     INTERNAL = "INTERNAL"
     VENDOR = "VENDOR"
     SYSTEM = "SYSTEM"
 
 
 class GoodsReceiptAttachmentWrite(GoodsReceiptSchema):
+    """Goods Receipt Attachment Write contract."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -33,11 +41,15 @@ class GoodsReceiptAttachmentWrite(GoodsReceiptSchema):
 
 
 class GoodsReceiptNoteWrite(GoodsReceiptSchema):
+    """Goods Receipt Note Write contract."""
+
     note_type: GoodsReceiptNoteType = GoodsReceiptNoteType.INTERNAL
     note: str = Field(min_length=1)
 
 
 class GoodsReceiptLineWrite(GoodsReceiptSchema):
+    """Goods Receipt Line Write contract."""
+
     purchase_order_line_id: UUID
     line_number: int = Field(ge=1)
     description: str | None = Field(default=None, max_length=500)
@@ -73,6 +85,8 @@ class GoodsReceiptLineWrite(GoodsReceiptSchema):
 
 
 class GoodsReceiptCreate(GoodsReceiptSchema):
+    """Goods Receipt Create contract."""
+
     purchase_order_id: UUID
     receipt_date: date
     received_by_id: UUID | None = None
@@ -94,6 +108,7 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     @field_validator("grn_number", mode="before")
     @classmethod
     def _normalize_number(cls, value: str | None) -> str | None:
+        """Uppercase and trim the document number."""
         if value is None:
             return None
         token = value.strip().upper()
@@ -101,14 +116,20 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
 
 
 class GoodsReceiptUpdate(GoodsReceiptCreate):
+    """Goods Receipt Update contract."""
+
     pass
 
 
 class GoodsReceiptImportRequest(GoodsReceiptSchema):
+    """Goods Receipt Import Request contract."""
+
     records: list[GoodsReceiptCreate] = Field(min_length=1, max_length=500)
 
 
 class GoodsReceiptAttachmentResponse(GoodsReceiptSchema):
+    """Goods Receipt Attachment Response contract."""
+
     id: UUID
     goods_receipt_id: UUID
     file_name: str
@@ -120,6 +141,8 @@ class GoodsReceiptAttachmentResponse(GoodsReceiptSchema):
 
 
 class GoodsReceiptNoteResponse(GoodsReceiptSchema):
+    """Goods Receipt Note Response contract."""
+
     id: UUID
     note_type: GoodsReceiptNoteType
     note: str
@@ -128,6 +151,8 @@ class GoodsReceiptNoteResponse(GoodsReceiptSchema):
 
 
 class GoodsReceiptLineResponse(GoodsReceiptSchema):
+    """Goods Receipt Line Response contract."""
+
     id: UUID
     goods_receipt_id: UUID
     line_number: int
@@ -166,6 +191,8 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
 
 
 class GoodsReceiptResponse(GoodsReceiptSchema):
+    """Goods Receipt Response contract."""
+
     id: UUID
     firm_id: UUID
     purchase_order_id: UUID
@@ -209,6 +236,8 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
 
 
 class GoodsReceiptListFilters(GoodsReceiptSchema):
+    """Goods Receipt List Filters contract."""
+
     purchase_order_id: UUID | None = None
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
@@ -220,6 +249,8 @@ class GoodsReceiptListFilters(GoodsReceiptSchema):
 
 
 class GoodsReceiptSummary(GoodsReceiptSchema):
+    """Goods Receipt Summary contract."""
+
     total: int
     draft: int
     completed: int
@@ -231,6 +262,8 @@ class GoodsReceiptSummary(GoodsReceiptSchema):
 
 
 class GoodsReceiptPurchaseOrderReport(GoodsReceiptSchema):
+    """Goods Receipt Purchase Order Report contract."""
+
     purchase_order_id: UUID
     purchase_order_number: str
     vendor_id: UUID

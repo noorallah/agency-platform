@@ -47,6 +47,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Action Reason Request contract."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -84,6 +86,7 @@ def _filters(
     created_to: date | None,
     include_deleted: bool,
 ) -> GoodsReceiptListFilters:
+    """Collect the goods receipt list filters from the query string."""
     try:
         return GoodsReceiptListFilters.model_validate(
             {
@@ -121,6 +124,7 @@ def list_goods_receipts(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[GoodsReceiptResponse]:
+    """List goods receipts."""
     params = PaginationParams(page=page, page_size=page_size)
     service = GoodsReceiptService(db)
     rows, total = service.list_receipts(
@@ -152,6 +156,7 @@ def goods_receipt_summary(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptSummary]:
+    """Goods receipt summary."""
     return ApiResponse(data=GoodsReceiptService(db).summary(firm_scope=scope.firm_id))
 
 
@@ -165,6 +170,7 @@ def create_goods_receipt(
     scope: GoodsReceiptCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Create goods receipt."""
     service = GoodsReceiptService(db)
     row = service.create_receipt(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.receipt_response(row))
@@ -178,6 +184,7 @@ def update_goods_receipt(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Change goods receipt."""
     service = GoodsReceiptService(db)
     assert_version(
         service.get_receipt(receipt_id, firm_scope=scope.firm_id).version,
@@ -195,6 +202,7 @@ def complete_goods_receipt(
     scope: GoodsReceiptCloseScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Complete goods receipt."""
     service = GoodsReceiptService(db)
     row = service.complete_receipt(
         receipt_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -209,6 +217,7 @@ def cancel_goods_receipt(
     scope: GoodsReceiptCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Cancel goods receipt."""
     service = GoodsReceiptService(db)
     row = service.cancel_receipt(
         receipt_id,
@@ -226,6 +235,7 @@ def close_goods_receipt(
     scope: GoodsReceiptCloseScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Close goods receipt."""
     service = GoodsReceiptService(db)
     row = service.close_receipt(
         receipt_id,
@@ -242,6 +252,7 @@ def get_goods_receipt(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
+    """Return goods receipt."""
     service = GoodsReceiptService(db)
     return ApiResponse(
         data=service.receipt_response(
@@ -259,6 +270,7 @@ def goods_receipt_history(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
+    """Goods receipt history."""
     service = GoodsReceiptService(db)
     rows = service.receipt_history(receipt_id=receipt_id, firm_scope=scope.firm_id)
     return ApiResponse(
@@ -271,6 +283,7 @@ def pending_goods_receipts(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
+    """Return goods receipts."""
     service = GoodsReceiptService(db)
     return ApiResponse(
         data=[
@@ -287,6 +300,7 @@ def completed_goods_receipts(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
+    """Return goods receipts."""
     service = GoodsReceiptService(db)
     return ApiResponse(
         data=[
@@ -303,6 +317,7 @@ def rejected_goods_receipt_items(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
+    """Return goods receipt items."""
     service = GoodsReceiptService(db)
     rows = service.rejected_items(firm_scope=scope.firm_id)
     return ApiResponse(
@@ -317,6 +332,7 @@ def damaged_goods_receipt_items(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
+    """Return goods receipt items."""
     service = GoodsReceiptService(db)
     rows = service.damaged_items(firm_scope=scope.firm_id)
     return ApiResponse(
@@ -332,6 +348,7 @@ def partial_purchase_orders(
     scope: GoodsReceiptViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptPurchaseOrderReport]]:
+    """Partial purchase orders."""
     service = GoodsReceiptService(db)
     rows = service.partially_received_purchase_orders(firm_scope=scope.firm_id)
     return ApiResponse(data=rows)
@@ -343,6 +360,7 @@ def export_goods_receipts(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Export goods receipts."""
     csv_content = GoodsReceiptService(db).export_receipts_csv(
         firm_scope=scope.firm_id, search=search
     )
@@ -365,6 +383,7 @@ async def import_goods_receipts(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
+    """Import goods receipts."""
     if format != "json":
         raise ValidationError("Only JSON import is supported for goods receipts.")
     if payload is None:
