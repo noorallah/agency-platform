@@ -1,5 +1,6 @@
 """Transactional application service for customer management."""
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -279,7 +280,9 @@ class CustomerService:
             customer_name=customer.display_name,
             outstanding=customer.current_outstanding,
             unapplied_advance=customer.unapplied_advance_balance,
-            net_position=customer.current_outstanding - customer.unapplied_advance_balance,
+            net_position=(
+                customer.current_outstanding - customer.unapplied_advance_balance
+            ),
         )
 
     def receivable_transactions(
@@ -335,7 +338,9 @@ class CustomerService:
             if applicable > advance:
                 raise ValidationError("Advance apply amount exceeds unapplied advance.")
             if applicable > current:
-                raise ValidationError("Advance apply amount exceeds outstanding balance.")
+                raise ValidationError(
+                    "Advance apply amount exceeds outstanding balance."
+                )
             outstanding_delta = -applicable
             advance_delta = -applicable
         elif tx_type == CustomerReceivableTransactionType.REFUND:
@@ -531,7 +536,10 @@ class CustomerService:
         }
 
     @staticmethod
-    def _normalize_customer_balances(opening_balance):
+    def _normalize_customer_balances(
+        opening_balance: Decimal,
+    ) -> tuple[Decimal, Decimal]:
+        """Split a signed opening balance into outstanding and advance."""
         zero = Decimal("0")
         outstanding = opening_balance if opening_balance > 0 else zero
         advance = -opening_balance if opening_balance < 0 else zero
@@ -541,7 +549,7 @@ class CustomerService:
         self,
         *,
         customer: Customer,
-        amount,
+        amount: Decimal,
         actor_id: UUID,
     ) -> None:
         if amount == 0:
@@ -568,14 +576,14 @@ class CustomerService:
         *,
         customer: Customer,
         tx_type: str,
-        amount,
-        outstanding_delta,
-        advance_delta,
-        transaction_date,
-        reference_type,
-        reference_id,
-        reference_number,
-        remarks,
+        amount: Decimal,
+        outstanding_delta: Decimal,
+        advance_delta: Decimal,
+        transaction_date: date,
+        reference_type: str | None,
+        reference_id: UUID | None,
+        reference_number: str | None,
+        remarks: str | None,
         actor_id: UUID,
     ) -> CustomerReceivableTransaction:
         row = CustomerReceivableTransaction(
@@ -603,7 +611,7 @@ class CustomerService:
         self,
         *,
         customer: Customer,
-        amount,
+        amount: Decimal,
         actor_id: UUID,
     ) -> None:
         self._session.query(CustomerReceivableTransaction).filter(

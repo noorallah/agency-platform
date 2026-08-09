@@ -240,8 +240,7 @@ class CustomerRepository:
                 .where(
                     CustomerReceivableTransaction.customer_id == customer_id,
                     CustomerReceivableTransaction.is_deleted.is_(False),
-                    CustomerReceivableTransaction.transaction_type
-                    != "OPENING_BALANCE",
+                    CustomerReceivableTransaction.transaction_type != "OPENING_BALANCE",
                 )
             )
             or 0
