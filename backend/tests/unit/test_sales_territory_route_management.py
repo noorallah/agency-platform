@@ -6,10 +6,11 @@ from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -31,7 +32,12 @@ from app.sales.schemas import (
     TerritoryCreate,
     TerritoryUpdate,
 )
-from app.sales.schemas.territory import HierarchyLevelInput, HierarchyUpdateRequest
+from app.sales.schemas.territory import (
+    HierarchyLevelInput,
+    HierarchyUpdateRequest,
+    TerritoryBulkStatusRequest,
+    TerritoryStatus,
+)
 from app.sales.services import SalesTerritoryService
 
 
@@ -46,6 +52,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -315,3 +322,46 @@ def test_territory_hierarchy_update_reuses_existing_levels() -> None:
         "CIRCLE",
         "ROUTE",
     ]
+
+
+def test_bulk_territory_changes_are_audited_per_territory() -> None:
+    """One summary row keyed on the first id could not say which changed.
+
+    The bulk endpoints recorded a single entry carrying only a count, so the
+    trail said N territories moved without naming any of them.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TERBULK")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+
+    first = service.create_territory(
+        TerritoryCreate(
+            code="T1", name="North", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    second = service.create_territory(
+        TerritoryCreate(
+            code="T2", name="South", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    service.bulk_status_change(
+        TerritoryBulkStatusRequest(
+            territory_ids=[first.id, second.id], status=TerritoryStatus.INACTIVE
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    changed = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_territory.status_changed")
+    ).all()
+    assert {row.entity_id for row in changed} == {first.id, second.id}
+    assert all(row.firm_id == firm.id for row in changed)
+    assert all(row.after_data == {"status": "INACTIVE"} for row in changed)
