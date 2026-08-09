@@ -163,6 +163,13 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.COST_OF_GOODS_SOLD,
     ),
     SeedAccount(
+        "5400",
+        "Purchase Price Variance",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+    ),
+    SeedAccount(
         "5300",
         "Discount Allowed",
         AccountTypeEnum.EXPENSE,

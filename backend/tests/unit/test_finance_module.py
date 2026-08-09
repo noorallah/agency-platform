@@ -1040,3 +1040,78 @@ def test_receipt_accrual_is_raised_then_cleared_by_the_supplier_invoice() -> Non
         )
         is None
     )
+
+
+def test_a_supplier_price_change_lands_in_purchase_price_variance() -> None:
+    """The accrual clears at cost; the difference reaches the P&L.
+
+    Clearing at the invoice price instead would leave the gap sitting in goods
+    received not invoiced, growing quietly and explaining nothing.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    posting = DocumentPostingService(session)
+    accounts = ControlAccountService(session).mapping(firm.id)
+    accrual = accounts[ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value]
+    variance = accounts[ControlAccountPurpose.PURCHASE_PRICE_VARIANCE.value]
+    payables = accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE.value]
+
+    def _legs(entry_id: UUID) -> dict[UUID, tuple[Decimal, Decimal]]:
+        return {
+            line.ledger_account_id: (line.debit_amount, line.credit_amount)
+            for line in session.scalars(
+                select(JournalLine).where(JournalLine.journal_entry_id == entry_id)
+            ).all()
+        }
+
+    # Received at 1000, billed 1050: an unfavourable variance of 50.
+    dearer = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-DEAR",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("1050"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("1050"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    legs = _legs(dearer.id)
+    assert legs[accrual][0] == Decimal("1000.00"), "the accrual clears at cost"
+    assert legs[variance][0] == Decimal("50.00"), "the overspend is an expense"
+    assert legs[payables][1] == Decimal("1050.00"), "the supplier is owed the bill"
+
+    # Received at 1000, billed 900: a favourable variance, credited.
+    cheaper = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-CHEAP",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("900"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("900"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    legs = _legs(cheaper.id)
+    assert legs[accrual][0] == Decimal("1000.00")
+    assert legs[variance][1] == Decimal("100.00"), "the saving is a credit"
+    assert legs[payables][1] == Decimal("900.00")
+
+    # Invoice matching the receipt raises no variance line at all.
+    exact = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-EXACT",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("1000"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("1000"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    assert variance not in _legs(exact.id)

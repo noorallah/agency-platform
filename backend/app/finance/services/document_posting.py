@@ -48,6 +48,7 @@ PURCHASE_INVOICE_PURPOSES = (
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
     ControlAccountPurpose.INPUT_TAX,
     ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
 )
 
 GOODS_RECEIPT_PURPOSES = (
@@ -372,6 +373,7 @@ class DocumentPostingService:
         tax_amount: Decimal,
         total_amount: Decimal,
         actor_id: UUID,
+        accrued_amount: Decimal | None = None,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -416,12 +418,19 @@ class DocumentPostingService:
                 f"plus tax {tax} is not total {total}."
             )
 
+        # The accrual is cleared at what the receipt actually cost. Any gap
+        # between that and what the supplier billed is a purchase price
+        # variance, and it belongs in the P&L: clearing the accrual at the
+        # invoice price instead would leave the difference sitting in the
+        # accrual forever, growing quietly and explaining nothing.
+        accrued = goods if accrued_amount is None else quantize_money(accrued_amount)
+        variance = quantize_money(goods - accrued)
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[
                     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED
                 ],
-                debit_amount=goods,
+                debit_amount=accrued,
                 description=f"Clearing receipt accrual for {invoice_number}",
             ),
             JournalLineData(
@@ -438,6 +447,17 @@ class DocumentPostingService:
                     debit_amount=tax,
                     description=f"Input tax on {invoice_number}",
                 ),
+            )
+        if variance != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+                    ],
+                    debit_amount=variance if variance > ZERO else ZERO,
+                    credit_amount=-variance if variance < ZERO else ZERO,
+                    description=f"Price variance on {invoice_number}",
+                )
             )
 
         entry = self._journals.create_entry(

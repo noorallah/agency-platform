@@ -28,6 +28,7 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import (
@@ -437,6 +438,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_number=row.invoice_number,
             invoice_date=row.invoice_date,
             goods_amount=self._q(row.grand_total - row.tax_total),
+            accrued_amount=self._accrued_cost(row.id),
             tax_amount=self._q(row.tax_total),
             total_amount=self._q(row.grand_total),
             actor_id=actor_id,
@@ -1388,6 +1390,44 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 "A purchase invoice with this supplier invoice number already exists."
             )
         return None
+
+    def _accrued_cost(self, invoice_id: UUID) -> Decimal:
+        """Return what the receipts behind this invoice actually cost.
+
+        The goods receipt accrued at the stock ledger's cost, so the invoice has
+        to clear the accrual at that same number. Anything else the supplier
+        billed is a price variance.
+
+        Lines sourced from a purchase order rather than a receipt accrued
+        nothing, so they contribute nothing here and the whole of their value
+        becomes variance — which is the honest answer when stock was invoiced
+        without ever being received.
+
+        Args:
+            invoice_id: The invoice being approved.
+
+        Returns:
+            The total cost accrued by the receipts this invoice draws on.
+
+        """
+        accrued = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost))
+            .select_from(PurchaseInvoiceLine)
+            .join(
+                GoodsReceiptLine,
+                GoodsReceiptLine.id == PurchaseInvoiceLine.source_document_line_id,
+            )
+            .join(
+                StockLedgerEntry,
+                StockLedgerEntry.transaction_id
+                == GoodsReceiptLine.inventory_transaction_id,
+            )
+            .where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        )
+        return self._q(accrued)
 
     def _record_event(
         self,

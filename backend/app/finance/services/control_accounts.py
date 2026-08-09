@@ -39,6 +39,7 @@ class ControlAccountPurpose(StrEnum):
     INVENTORY = "INVENTORY"
     GOODS_RECEIVED_NOT_INVOICED = "GOODS_RECEIVED_NOT_INVOICED"
     COST_OF_GOODS_SOLD = "COST_OF_GOODS_SOLD"
+    PURCHASE_PRICE_VARIANCE = "PURCHASE_PRICE_VARIANCE"
     DISCOUNT_ALLOWED = "DISCOUNT_ALLOWED"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
     ROUNDING = "ROUNDING"
@@ -63,6 +64,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
         {"LIABILITY", "CONTROL"}
     ),
     ControlAccountPurpose.COST_OF_GOODS_SOLD: frozenset({"EXPENSE"}),
+    # A favourable variance is a credit to the same account, so income
+    # is allowed for firms that prefer to book it there.
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE: frozenset({"EXPENSE", "INCOME"}),
     ControlAccountPurpose.DISCOUNT_ALLOWED: frozenset({"EXPENSE"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),
