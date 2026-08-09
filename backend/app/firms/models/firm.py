@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,11 +24,27 @@ class Firm(BaseEntity):
     """Represent an organization available to one or more platform users."""
 
     __tablename__ = "firms"
+    __table_args__ = tuple(
+        # A firm's natural keys are reserved by live firms only. Table-wide
+        # UNIQUE constraints kept them forever, so a soft-deleted firm burned
+        # its code, GST and PAN: FirmService._assert_unique ignores deleted rows
+        # and then INSERT failed on the constraint with a 500. This mirrors
+        # UQ_users_email_active. MySQL ignores the predicate, so the service
+        # check stays authoritative there.
+        Index(
+            f"UQ_firms_{column}_active",
+            column,
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        )
+        for column in ("code", "gst_number", "pan_number")
+    )
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    gst_number: Mapped[str | None] = mapped_column(String(32), unique=True)
-    pan_number: Mapped[str | None] = mapped_column(String(32), unique=True)
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    gst_number: Mapped[str | None] = mapped_column(String(32))
+    pan_number: Mapped[str | None] = mapped_column(String(32))
     address_line1: Mapped[str | None] = mapped_column(String(250))
     address_line2: Mapped[str | None] = mapped_column(String(250))
     city: Mapped[str | None] = mapped_column(String(100))
@@ -89,11 +106,7 @@ class Firm(BaseEntity):
         if active is not None:
             return active
         return next(
-            (
-                mapping
-                for mapping in self.storage_mappings
-                if not mapping.is_deleted
-            ),
+            (mapping for mapping in self.storage_mappings if not mapping.is_deleted),
             None,
         )
 
