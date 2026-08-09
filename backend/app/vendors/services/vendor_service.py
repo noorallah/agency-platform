@@ -1,11 +1,13 @@
 """Transactional application service for vendor management."""
 
+from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
 from app.vendors.models import (
@@ -40,10 +42,12 @@ class VendorService:
     """Coordinate validated vendor mutations, queries, and audits."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
         self._repository = VendorRepository(session)
 
     def create(self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID) -> Vendor:
+        """Create a vendor with its nested detail rows."""
         try:
             vendor = self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
@@ -59,6 +63,7 @@ class VendorService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> list[Vendor]:
+        """Create several vendors from an uploaded batch."""
         try:
             vendors = [
                 self._stage_create(record, firm_id=firm_id, actor_id=actor_id)
@@ -79,6 +84,7 @@ class VendorService:
         firm_scope: UUID | None,
         include_deleted: bool = False,
     ) -> Vendor:
+        """Return one vendor the firm owns."""
         vendor = self._repository.get(
             vendor_id, firm_scope, include_deleted=include_deleted
         )
@@ -94,6 +100,7 @@ class VendorService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> Vendor:
+        """Replace a vendor and reconcile its nested rows."""
         vendor = self.get(vendor_id, firm_scope=firm_scope)
         self._assert_unique(vendor.firm_id, data, excluding_id=vendor.id)
         before = self._audit_snapshot(vendor)
@@ -134,6 +141,7 @@ class VendorService:
     def delete(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> None:
+        """Soft delete a vendor."""
         vendor = self.get(vendor_id, firm_scope=firm_scope)
         before = self._audit_snapshot(vendor)
         vendor.is_deleted = True
@@ -154,6 +162,7 @@ class VendorService:
     def restore(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Vendor:
+        """Restore a soft-deleted vendor."""
         vendor = self.get(vendor_id, firm_scope=firm_scope, include_deleted=True)
         if not vendor.is_deleted:
             return vendor
@@ -184,6 +193,7 @@ class VendorService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[Vendor], int]:
+        """Return a page of vendors for the firm in scope."""
         return self._repository.list_vendors(
             firm_scope=firm_scope,
             filters=filters,
@@ -197,6 +207,7 @@ class VendorService:
     def summary(
         self, *, firm_scope: UUID | None, filters: VendorListFilters
     ) -> VendorSummary:
+        """Return vendor counts by status."""
         total, active, inactive, draft, archived, deleted = self._repository.summary(
             firm_scope, filters
         )
@@ -209,9 +220,27 @@ class VendorService:
             deleted=deleted,
         )
 
+    def _audit_bulk(self, vendor: Vendor, *, action: str, actor_id: UUID) -> None:
+        """Record a bulk mutation the way the single-row endpoint records it.
+
+        All five bulk endpoints wrote nothing, so whether a change reached the
+        audit trail depended on which button the user pressed.
+        """
+        record_audit(
+            self._session,
+            action=action,
+            entity_type="vendor",
+            entity_id=vendor.id,
+            actor_id=actor_id,
+            firm_id=vendor.firm_id,
+            before_data={"code": vendor.code},
+            after_data={"status": vendor.status, "is_deleted": vendor.is_deleted},
+        )
+
     def bulk_delete(
         self, *, ids: list[UUID], firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Soft delete several vendors, auditing each."""
         affected = 0
         for vendor_id in ids:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
@@ -221,6 +250,7 @@ class VendorService:
             vendor.deleted_at = utc_now()
             vendor.deleted_by = actor_id
             vendor.updated_by = actor_id
+            self._audit_bulk(vendor, action="vendor.deleted", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -229,6 +259,7 @@ class VendorService:
     def bulk_restore(
         self, *, ids: list[UUID], firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Restore several vendors, auditing each."""
         affected = 0
         for vendor_id in ids:
             vendor = self.get(vendor_id, firm_scope=firm_scope, include_deleted=True)
@@ -238,6 +269,7 @@ class VendorService:
             vendor.deleted_at = None
             vendor.deleted_by = None
             vendor.updated_by = actor_id
+            self._audit_bulk(vendor, action="vendor.restored", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -246,6 +278,7 @@ class VendorService:
     def bulk_status(
         self, *, ids: list[UUID], status: str, firm_scope: UUID | None, actor_id: UUID
     ) -> int:
+        """Set the status of several vendors, auditing each."""
         affected = 0
         normalized = status.strip().upper()
         for vendor_id in ids:
@@ -254,6 +287,7 @@ class VendorService:
                 continue
             vendor.status = normalized
             vendor.updated_by = actor_id
+            self._audit_bulk(vendor, action="vendor.updated", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -267,6 +301,7 @@ class VendorService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> int:
+        """Reassign the category of several vendors, auditing each."""
         affected = 0
         for vendor_id in ids:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
@@ -274,6 +309,7 @@ class VendorService:
                 continue
             vendor.category_id = category_id
             vendor.updated_by = actor_id
+            self._audit_bulk(vendor, action="vendor.updated", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -287,6 +323,7 @@ class VendorService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> int:
+        """Reassign the business profile of several vendors, auditing each."""
         affected = 0
         for vendor_id in ids:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
@@ -294,6 +331,7 @@ class VendorService:
                 continue
             vendor.business_profile_id = business_profile_id
             vendor.updated_by = actor_id
+            self._audit_bulk(vendor, action="vendor.updated", actor_id=actor_id)
             affected += 1
         if affected:
             self._session.commit()
@@ -302,6 +340,7 @@ class VendorService:
     def duplicate(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Vendor:
+        """Duplicate ."""
         source = self.get(vendor_id, firm_scope=firm_scope)
         payload = self._vendor_values_for_duplicate(source)
         duplicate = Vendor(
@@ -333,11 +372,13 @@ class VendorService:
     def list_categories(
         self, *, firm_id: UUID, include_deleted: bool = False
     ) -> list[VendorCategory]:
+        """Return the firm's vendor categories."""
         return self._repository.list_categories(firm_id, include_deleted)
 
     def create_category(
         self, data: VendorCategoryWrite, *, firm_id: UUID, actor_id: UUID
     ) -> VendorCategory:
+        """Add a vendor category."""
         category = VendorCategory(
             firm_id=firm_id,
             code=data.code,
@@ -359,6 +400,7 @@ class VendorService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> VendorCategory:
+        """Change a vendor category."""
         category = self._repository.get_category(
             category_id, firm_id, include_deleted=True
         )
@@ -378,6 +420,7 @@ class VendorService:
     def delete_category(
         self, category_id: UUID, *, firm_id: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete a vendor category."""
         category = self._repository.get_category(
             category_id, firm_id, include_deleted=False
         )
@@ -392,11 +435,13 @@ class VendorService:
     def list_types(
         self, *, firm_id: UUID, include_deleted: bool = False
     ) -> list[VendorType]:
+        """List types."""
         return self._repository.list_types(firm_id, include_deleted)
 
     def create_type(
         self, data: VendorTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> VendorType:
+        """Create type."""
         vendor_type = VendorType(
             firm_id=firm_id,
             code=data.code,
@@ -418,6 +463,7 @@ class VendorService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> VendorType:
+        """Change type."""
         vendor_type = self._repository.get_type(type_id, firm_id, include_deleted=True)
         if vendor_type is None:
             raise ResourceNotFoundError("Vendor type not found.")
@@ -433,6 +479,7 @@ class VendorService:
         return vendor_type
 
     def delete_type(self, type_id: UUID, *, firm_id: UUID, actor_id: UUID) -> None:
+        """Soft delete type."""
         vendor_type = self._repository.get_type(type_id, firm_id, include_deleted=False)
         if vendor_type is None:
             raise ResourceNotFoundError("Vendor type not found.")
@@ -445,6 +492,7 @@ class VendorService:
     def _stage_create(
         self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Vendor:
+        """Stage create."""
         self._assert_unique(firm_id, data)
         vendor = Vendor(
             firm_id=firm_id,
@@ -481,6 +529,7 @@ class VendorService:
         data: VendorCreate | VendorUpdate,
         excluding_id: UUID | None = None,
     ) -> None:
+        """Assert unique."""
         if (
             self._repository.duplicate_id(
                 firm_id,
@@ -493,6 +542,7 @@ class VendorService:
             raise ConflictError("Vendor code or GSTIN already exists in this firm.")
 
     def _commit_unique(self) -> None:
+        """Commit unique."""
         try:
             self._session.commit()
         except IntegrityError as error:
@@ -501,10 +551,12 @@ class VendorService:
 
     @staticmethod
     def _unique_conflict() -> ConflictError:
+        """Return the conflict message for a duplicate natural key."""
         return ConflictError("Vendor uniqueness constraints were violated.")
 
     @staticmethod
     def _vendor_values(data: VendorCreate | VendorUpdate) -> dict[str, object]:
+        """Return values."""
         values = data.model_dump(
             exclude={
                 "contacts",
@@ -522,6 +574,7 @@ class VendorService:
 
     @staticmethod
     def _new_contact(data: VendorContactInput, actor_id: UUID) -> VendorContact:
+        """Build a vendor contact row from its payload."""
         return VendorContact(
             **data.model_dump(exclude={"id"}, mode="python"),
             created_by=actor_id,
@@ -530,12 +583,14 @@ class VendorService:
 
     @staticmethod
     def _new_address(data: VendorAddressInput, actor_id: UUID) -> VendorAddress:
+        """Build a vendor address row from its payload."""
         values = data.model_dump(exclude={"id"}, mode="python")
         values["address_type"] = data.address_type.value
         return VendorAddress(**values, created_by=actor_id, updated_by=actor_id)
 
     @staticmethod
     def _new_bank(data: VendorBankInput, actor_id: UUID) -> VendorBankAccount:
+        """Build a vendor bank account row from its payload."""
         return VendorBankAccount(
             **data.model_dump(exclude={"id"}, mode="python"),
             created_by=actor_id,
@@ -544,6 +599,7 @@ class VendorService:
 
     @staticmethod
     def _new_tax(data: VendorTaxInput, actor_id: UUID) -> VendorTaxDetail:
+        """Build a vendor tax detail row from its payload."""
         return VendorTaxDetail(
             **data.model_dump(exclude={"id"}, mode="python"),
             created_by=actor_id,
@@ -554,6 +610,7 @@ class VendorService:
     def _new_attachment(
         data: VendorAttachmentInput, actor_id: UUID
     ) -> VendorAttachment:
+        """Build a vendor attachment row from its payload."""
         return VendorAttachment(
             **data.model_dump(exclude={"id"}, mode="python"),
             created_by=actor_id,
@@ -562,6 +619,7 @@ class VendorService:
 
     @staticmethod
     def _new_note(data: VendorNoteInput, actor_id: UUID) -> VendorNote:
+        """Build a vendor note row from its payload."""
         return VendorNote(
             **data.model_dump(exclude={"id"}, mode="python"),
             created_by=actor_id,
@@ -574,6 +632,7 @@ class VendorService:
         inputs: list[VendorContactInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile contacts."""
         existing = {item.id: item for item in vendor.contacts}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -594,6 +653,7 @@ class VendorService:
         inputs: list[VendorAddressInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile addresses."""
         existing = {item.id: item for item in vendor.addresses}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -616,6 +676,7 @@ class VendorService:
         inputs: list[VendorBankInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile banks."""
         existing = {item.id: item for item in vendor.bank_accounts}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -636,6 +697,7 @@ class VendorService:
         inputs: list[VendorTaxInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile tax."""
         existing = {item.id: item for item in vendor.tax_details}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -656,6 +718,7 @@ class VendorService:
         inputs: list[VendorAttachmentInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile attachments."""
         existing = {item.id: item for item in vendor.attachments}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -676,6 +739,7 @@ class VendorService:
         inputs: list[VendorNoteInput],
         actor_id: UUID,
     ) -> None:
+        """Reconcile notes."""
         existing = {item.id: item for item in vendor.notes}
         requested = {item.id for item in inputs if item.id is not None}
         for item in inputs:
@@ -692,19 +756,23 @@ class VendorService:
 
     @staticmethod
     def _mark_removed(
-        existing: dict[UUID, object], requested_ids: set[UUID], actor_id: UUID
+        existing: Mapping[UUID, BaseEntity],
+        requested_ids: set[UUID],
+        actor_id: UUID,
     ) -> None:
+        """Soft delete the child rows the caller left out of the payload."""
         now = utc_now()
         for row_id, row in existing.items():
             if row_id in requested_ids:
                 continue
-            setattr(row, "is_deleted", True)
-            setattr(row, "deleted_at", now)
-            setattr(row, "deleted_by", actor_id)
-            setattr(row, "updated_by", actor_id)
+            row.is_deleted = True
+            row.deleted_at = now
+            row.deleted_by = actor_id
+            row.updated_by = actor_id
 
     @staticmethod
     def _vendor_values_for_duplicate(vendor: Vendor) -> dict[str, object]:
+        """Return values for duplicate."""
         return {
             "name": vendor.name,
             "legal_name": vendor.legal_name,
@@ -728,6 +796,7 @@ class VendorService:
 
     @staticmethod
     def _audit_snapshot(vendor: Vendor) -> dict[str, object]:
+        """Audit snapshot."""
         return {
             "firm_id": str(vendor.firm_id),
             "code": vendor.code,

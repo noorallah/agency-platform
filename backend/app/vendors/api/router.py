@@ -94,6 +94,7 @@ def _filters(
     created_to: date | None,
     include_deleted: bool,
 ) -> VendorListFilters:
+    """Collect the vendor list filters from the query string."""
     try:
         return VendorListFilters(
             status=status_value,
@@ -133,6 +134,7 @@ def list_vendors(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[VendorResponse]:
+    """Return a page of vendors for the firm in scope."""
     params = PaginationParams(page=page, page_size=page_size)
     filters = _filters(
         status_value=status_value,
@@ -168,6 +170,7 @@ def vendor_summary(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorSummary]:
+    """Return summary."""
     summary = VendorService(db).summary(
         firm_scope=scope.firm_id,
         filters=VendorListFilters(include_deleted=include_deleted),
@@ -181,6 +184,7 @@ def export_vendors(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Export vendors."""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Code", "Name", "GSTIN", "PAN", "Email", "Phone", "Status"])
@@ -226,6 +230,7 @@ def create_vendor(
     scope: VendorCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
+    """Create vendor."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when creating a vendor.")
     vendor = VendorService(db).create(
@@ -244,6 +249,7 @@ def import_vendors(
     scope: VendorImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[VendorResponse]]:
+    """Create several vendors from an uploaded batch."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when importing vendors.")
     vendors = VendorService(db).import_vendors(
@@ -261,6 +267,7 @@ def get_vendor(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
+    """Return vendor."""
     vendor = VendorService(db).get(
         vendor_id,
         firm_scope=scope.firm_id,
@@ -276,6 +283,7 @@ def update_vendor(
     scope: VendorUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
+    """Change vendor."""
     vendor = VendorService(db).update(
         vendor_id,
         data,
@@ -291,6 +299,7 @@ def delete_vendor(
     scope: VendorDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete vendor."""
     VendorService(db).delete(
         vendor_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -303,6 +312,7 @@ def restore_vendor(
     scope: VendorRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
+    """Restore vendor."""
     vendor = VendorService(db).restore(
         vendor_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
@@ -315,6 +325,7 @@ def duplicate_vendor(
     scope: VendorCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
+    """Duplicate vendor."""
     vendor = VendorService(db).duplicate(
         vendor_id,
         firm_scope=scope.firm_id,
@@ -329,6 +340,7 @@ def bulk_delete_vendors(
     scope: VendorDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Apply in bulk: delete vendors."""
     affected = VendorService(db).bulk_delete(
         ids=data.ids,
         firm_scope=scope.firm_id,
@@ -343,6 +355,7 @@ def bulk_restore_vendors(
     scope: VendorRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Apply in bulk: restore vendors."""
     affected = VendorService(db).bulk_restore(
         ids=data.ids,
         firm_scope=scope.firm_id,
@@ -357,6 +370,7 @@ def bulk_status_vendors(
     scope: VendorUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Apply in bulk: status vendors."""
     affected = VendorService(db).bulk_status(
         ids=data.ids,
         status=data.status.value,
@@ -372,6 +386,7 @@ def bulk_category_vendors(
     scope: VendorUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Apply in bulk: category vendors."""
     affected = VendorService(db).bulk_category(
         ids=data.ids,
         category_id=data.category_id,
@@ -387,6 +402,7 @@ def bulk_profile_vendors(
     scope: VendorUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Apply in bulk: profile vendors."""
     affected = VendorService(db).bulk_profile(
         ids=data.ids,
         business_profile_id=data.business_profile_id,
@@ -402,6 +418,7 @@ def list_vendor_categories(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[VendorCategoryResponse]]:
+    """List vendor categories."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor categories.")
     rows = VendorService(db).list_categories(
@@ -423,6 +440,7 @@ def create_vendor_category(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorCategoryResponse]:
+    """Create vendor category."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor categories.")
     row = VendorService(db).create_category(
@@ -442,6 +460,7 @@ def update_vendor_category(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorCategoryResponse]:
+    """Change vendor category."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor categories.")
     row = VendorService(db).update_category(
@@ -459,6 +478,7 @@ def delete_vendor_category(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete vendor category."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor categories.")
     VendorService(db).delete_category(
@@ -475,6 +495,7 @@ def list_vendor_types(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[VendorTypeResponse]]:
+    """List vendor types."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor types.")
     rows = VendorService(db).list_types(
@@ -493,6 +514,7 @@ def create_vendor_type(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorTypeResponse]:
+    """Create vendor type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor types.")
     row = VendorService(db).create_type(
@@ -510,6 +532,7 @@ def update_vendor_type(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorTypeResponse]:
+    """Change vendor type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor types.")
     row = VendorService(db).update_type(
@@ -527,6 +550,7 @@ def delete_vendor_type(
     scope: VendorCategoryManageScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete vendor type."""
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required for vendor types.")
     VendorService(db).delete_type(
