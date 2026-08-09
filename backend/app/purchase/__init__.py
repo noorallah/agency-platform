@@ -1,2 +1,1 @@
 """Enterprise purchase management module."""
-

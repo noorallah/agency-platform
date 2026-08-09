@@ -5,7 +5,13 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
-    Boolean, Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+    Date,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 

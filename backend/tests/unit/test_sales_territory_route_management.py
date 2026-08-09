@@ -10,6 +10,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -18,7 +23,7 @@ from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
-from app.sales.api.router import list_territories, territory_scope
+from app.sales.api.router import list_territories
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
@@ -29,6 +34,18 @@ from app.sales.schemas import (
 from app.sales.schemas.territory import HierarchyLevelInput, HierarchyUpdateRequest
 from app.sales.services import SalesTerritoryService
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -169,7 +186,7 @@ def test_territory_api_scope_and_permissions() -> None:
     permissions = {"TERRITORY_VIEW", "TERRITORY_CREATE"}
     principal = _principal(user_id, permissions)
     session = factory()
-    scope = territory_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     listed = list_territories(
         scope=scope,
         page=1,

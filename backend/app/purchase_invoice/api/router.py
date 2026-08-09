@@ -9,7 +9,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    Header,
     Query,
     Response,
     UploadFile,
@@ -17,22 +16,15 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
@@ -53,89 +45,30 @@ router = APIRouter(
 )
 
 
-class PurchaseInvoiceScope:
-    """Carry principal and firm scope for invoice handlers."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Purchase invoice operations require a user principal.")
-        return self.principal.subject
-
-
 class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-def purchase_invoice_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> PurchaseInvoiceScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return PurchaseInvoiceScope(principal=principal, firm_id=x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return PurchaseInvoiceScope(principal=principal, firm_id=x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[PurchaseInvoiceScope, Depends(purchase_invoice_scope)],
-    ) -> PurchaseInvoiceScope:
-        return scope
-
-    return Depends(dependency)
-
-
-PurchaseInvoiceViewScope = Annotated[PurchaseInvoiceScope, _permission("PURCHASE_VIEW")]
+PurchaseInvoiceViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+]
 PurchaseInvoiceCreateScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_CREATE")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
 ]
 PurchaseInvoiceUpdateScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_UPDATE")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_UPDATE")
 ]
 PurchaseInvoiceApproveScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_APPROVE")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_APPROVE")
 ]
 PurchaseInvoiceCancelScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_CANCEL")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
 ]
 PurchaseInvoiceExportScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_EXPORT")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_EXPORT")
 ]
 PurchaseInvoiceImportScope = Annotated[
-    PurchaseInvoiceScope, _permission("PURCHASE_IMPORT")
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_IMPORT")
 ]
 
 

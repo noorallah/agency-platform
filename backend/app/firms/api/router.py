@@ -64,9 +64,7 @@ def create_firm(
     lifecycle = request.app.state.tenant_storage_lifecycle
     firm = FirmService(
         db, storage_lifecycle=lifecycle, tenancy_settings=settings.tenancy
-    ).create(
-        data, _actor_id(principal)
-    )
+    ).create(data, _actor_id(principal))
     return ApiResponse(data=FirmResponse.model_validate(firm))
 
 

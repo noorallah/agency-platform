@@ -1,1 +1,0 @@
-"""Tenant persistence model declarations."""

@@ -6,28 +6,25 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.services import InventoryService
@@ -72,12 +69,28 @@ from app.vendors.models import Vendor
 ZERO = Decimal("0")
 
 
-class PurchaseReturnService:
+class PurchaseReturnService(TransactionalDocumentService):
     """Coordinate supplier return lifecycle and source-document validation."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="PURCHASE_RETURN",
+        name="Purchase Return",
+        description="Supplier return document",
+        category="PURCHASE",
+        module="purchase_return",
+        prefix="PR",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("COMPLETED", "Completed", 3),
+            DocumentStateSpec("CANCELLED", "Cancelled", 4, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 5, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
@@ -212,7 +225,9 @@ class PurchaseReturnService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.return_date),
+                financial_year_label=self._financial_year_label(
+                    data.return_date, firm_id
+                ),
                 branch_code=self._scope_code(branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.return_date,
@@ -273,7 +288,11 @@ class PurchaseReturnService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
@@ -366,7 +385,11 @@ class PurchaseReturnService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
@@ -460,7 +483,7 @@ class PurchaseReturnService:
                 raise ValidationError(
                     "Rejected quantity cannot exceed returned quantity."
                 )
-            self._inventory.record_purchase_return(
+            transaction = self._inventory.record_purchase_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 branch_id=row.branch_id,
@@ -481,6 +504,8 @@ class PurchaseReturnService:
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
             )
+            line.inventory_transaction_id = transaction.id
+            line.updated_by = actor_id
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
         row.updated_by = actor_id
@@ -521,6 +546,9 @@ class PurchaseReturnService:
         }:
             raise ValidationError("This purchase return can no longer be cancelled.")
         before = row.status
+        reversed_lines = self._reverse_inventory(
+            row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
@@ -541,10 +569,57 @@ class PurchaseReturnService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"reason": reason},
+            after_data={
+                "reason": reason,
+                "reversed_inventory_lines": reversed_lines,
+            },
         )
         self._session.commit()
         return row
+
+    def _reverse_inventory(
+        self,
+        document: PurchaseReturn,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None,
+    ) -> int:
+        """Undo the stock this return moved out, if it had already completed.
+
+        Completing a return takes goods off the shelf. Cancelling it afterwards
+        must put them back, otherwise the firm loses stock it still holds.
+
+        Args:
+            document: The return being cancelled.
+            firm_scope: The owning firm.
+            actor_id: The user cancelling the return.
+            reason: Optional cancellation reason, stored on the reversal.
+
+        Returns:
+            The number of lines whose stock movement was reversed.
+
+        """
+        reversed_lines = 0
+        for line in self._session.scalars(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == document.id,
+                PurchaseReturnLine.inventory_transaction_id.is_not(None),
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+        ).all():
+            if line.inventory_transaction_id is None:
+                continue
+            self._inventory.reverse_transaction(
+                line.inventory_transaction_id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=reason or f"Purchase return {document.return_number} cancelled.",
+            )
+            line.inventory_transaction_id = None
+            line.updated_by = actor_id
+            reversed_lines += 1
+        return reversed_lines
 
     def close_return(
         self,
@@ -1061,9 +1136,12 @@ class PurchaseReturnService:
             totals["total_already_returned_quantity"] += already_returned
             totals["total_current_return_quantity"] += return_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(
-                gross_amount - discount_amount + charges_amount
-            )
+            # subtotal is the taxable base: gross less discount, before tax and
+            # before charges. Line charges used to be folded in here, which made
+            # this module's subtotal mean something different from every other
+            # document's; they are carried separately and added to grand_total.
+            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -1513,139 +1591,6 @@ class PurchaseReturnService:
             ),
             actor_id=actor_id,
         )
-
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_RETURN",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="PURCHASE_RETURN",
-                    name="Purchase Return",
-                    description="Supplier return document",
-                    category="PURCHASE",
-                    is_active=True,
-                    configuration={"module": "purchase_return"},
-                ),
-                actor_id,
-            )
-        for state_code, name, sort_order in [
-            ("DRAFT", "Draft", 1),
-            ("APPROVED", "Approved", 2),
-            ("COMPLETED", "Completed", 3),
-            ("CANCELLED", "Cancelled", 4),
-            ("CLOSED", "Closed", 5),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=state_code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=state_code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=state_code == "DRAFT",
-                        is_terminal=state_code in {"COMPLETED", "CANCELLED", "CLOSED"},
-                        allows_edit=state_code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={
-                            "module": "purchase_return",
-                            "state": state_code,
-                        },
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering_rule is None:
-            numbering_rule = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="PURCHASE_RETURN_DEFAULT",
-                    name="Purchase Return Default",
-                    prefix="PR",
-                    suffix=None,
-                    separator="-",
-                    include_financial_year=True,
-                    include_branch_code=False,
-                    include_company_code=False,
-                    auto_reset=True,
-                    manual_allowed=False,
-                    sequence_padding=6,
-                    next_sequence=1,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "purchase_return"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering_rule
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        row = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_RETURN",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            raise ResourceNotFoundError("Purchase return document type not found.")
-        return row
-
-    def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}"
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        return str(branch_id)[:8].upper() if branch_id is not None else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        return str(firm_id)[:8].upper()
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except Exception as error:
-            raise ConflictError(message) from error
-
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        if value is None:
-            return ZERO
-        return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
     def _attachment_response(
         self, row: PurchaseReturnAttachment

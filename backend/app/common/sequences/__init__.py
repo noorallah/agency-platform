@@ -1,1 +1,0 @@
-"""Document-sequence capability boundary."""

@@ -3,6 +3,7 @@
 import asyncio
 import json
 from datetime import date
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -18,6 +19,8 @@ from app.core.exceptions.handlers import application_error_handler
 from app.core.filtering import Filter, FilterOperator
 from app.core.middleware import CoreRequestMiddleware
 from app.core.pagination import PaginationParams
+from app.core.utils.dates import financial_year_label
+from app.core.utils.money import quantize_money
 from app.core.security import (
     JwtService,
     PasswordSecurity,
@@ -182,3 +185,32 @@ def test_permission_dependencies_allow_non_admin_claims() -> None:
     )
     with pytest.raises(AuthorizationError):
         require_permission("USER_VIEW")(restricted_principal)
+
+
+def test_money_rounds_half_up_at_the_shared_scale() -> None:
+    """One rounding rule for every transactional module.
+
+    ``goods_receipt`` used to quantize without a rounding mode, so it applied
+    banker's rounding and produced different money from every other document.
+    """
+    assert quantize_money(None) == Decimal("0")
+    assert quantize_money("1.00005") == Decimal("1.0001")
+    assert quantize_money(Decimal("2.00015")) == Decimal("2.0002")
+    # ROUND_HALF_EVEN would give 2.0002 here; half-up must give 2.0003.
+    assert quantize_money(Decimal("2.00025")) == Decimal("2.0003")
+    assert quantize_money(7) == Decimal("7.0000")
+    assert quantize_money(Decimal("-1.00005")) == Decimal("-1.0001")
+
+
+def test_financial_year_label_follows_the_firms_year_start() -> None:
+    """One label format, anchored on the firm's own financial year."""
+    assert financial_year_label(date(2026, 8, 9)) == "2026-2027"
+    assert financial_year_label(date(2026, 3, 31)) == "2025-2026"
+    assert financial_year_label(date(2026, 4, 1)) == "2026-2027"
+    # A firm on a calendar financial year.
+    assert financial_year_label(date(2026, 3, 31), start_month=1) == "2026-2027"
+    # A firm whose year starts in July.
+    assert financial_year_label(date(2026, 6, 30), start_month=7) == "2025-2026"
+    assert financial_year_label(date(2026, 7, 1), start_month=7) == "2026-2027"
+    with pytest.raises(ValueError):
+        financial_year_label(date(2026, 1, 1), start_month=13)

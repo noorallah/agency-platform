@@ -17,6 +17,11 @@ from app.business.models import (
     ProfileFeature,
 )
 from app.business.services import AttributeService
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -29,7 +34,6 @@ from app.products.api.router import (
     delete_product,
     get_product,
     list_products,
-    product_scope,
     restore_product,
 )
 from app.products.models import ProductAttributeValue
@@ -40,6 +44,18 @@ from app.products.schemas import (
 )
 from app.products.services import ProductService
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for product tests."""
@@ -229,7 +245,7 @@ def test_product_api_applies_permissions_and_soft_delete_restore() -> None:
     }
     principal = _principal(user_id, permissions)
     session = factory()
-    scope = product_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     created = create_product(_base_payload(), scope, session)
     product_id = created.data.id
 
@@ -271,7 +287,7 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
     session.commit()
     _seed_profile(session, with_barcode_feature=True)
 
-    creator_scope = product_scope(
+    creator_scope = _firm_scope(
         _principal(
             user_id, {"PRODUCT_VIEW", "PRODUCT_CREATE", "PRODUCT_VIEW_COST_PRICE"}
         ),
@@ -279,7 +295,7 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
         firm.id,
     )
     created = create_product(_base_payload("PROD-COST"), creator_scope, session)
-    viewer_scope = product_scope(
+    viewer_scope = _firm_scope(
         _principal(user_id, {"PRODUCT_VIEW"}), session, firm.id
     )
     fetched = get_product(created.data.id, viewer_scope, False, session)

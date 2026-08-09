@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import and_, func, or_, select

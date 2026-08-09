@@ -89,6 +89,32 @@ ones that produced a defect during the platform pass.
 - [ ] `ruff`, `black`, `mypy` clean **for the module** (repo-wide is still red).
 - [ ] Full suite no worse than the baseline you captured.
 
+### Defects the 2026-08-09 pass added to this list
+
+Each of these was invisible to the unit suite, and each cost a real defect.
+
+- [ ] Permission codes are **upper snake case and seeded**. The guard test matched
+      only `[A-Z0-9_]+`, so lowercase `sales_invoice:read` slipped past it and made
+      an entire module platform-admin-only.
+- [ ] Firm scope is resolved through `app/common/scope.py`, **never** on the
+      request's tenant session — `firms`/`user_firms` live only in the platform
+      schema **(found a real bug — every firm-owned router)**.
+- [ ] A service that receives someone else's session **does not commit it**.
+      `DocumentFrameworkService` committed in all 11 mutating methods, splitting
+      every document write into several transactions.
+- [ ] Cancelling a document **reverses whatever it posted**. Cancelling a completed
+      goods receipt or purchase return left the stock movement in place.
+- [ ] Sequence allocation **takes a row lock**, and a losing race returns 409, not 503.
+- [ ] Rounding, financial-year labels and `subtotal` come from the shared helpers.
+      Seven private copies disagreed three ways, including one using banker's rounding.
+- [ ] **Generated values are asserted, not just their prefix.** Extracting the shared
+      document base silently dropped the company code from purchase order numbers and
+      nothing failed, because every test supplied its own number.
+- [ ] Child rows are **reconciled on their natural key**, not deleted and re-inserted.
+      Downstream documents reference line ids with no foreign key.
+- [ ] Anything touching tenancy, cross-schema FKs, triggers or concurrency has an
+      **integration test**; SQLite cannot express any of it.
+
 ## Module inventory
 
 Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
@@ -152,13 +178,15 @@ and typed; mostly cleanup.
 | --- | --- | --- | --- | --- |
 | 0 | platform (`identity`, `firms`, security, RBAC) | 2026-08-09 | 6 real, 2 retracted | yes |
 | 0b | `business` (profile framework) | 2026-08-09 | gating was client-side only; 18/21 features unenforced; profile data empty for every industry but GENERIC | mechanism + seed done; per-module gating outstanding |
-| 1 | `sales_invoice` | | | |
-| 2 | `goods_receipt` | | | |
-| 3 | `firms` | | | |
-| 4 | `purchase_invoice` | | | |
-| 5 | `purchase_return` | | | |
-| 6 | `delivery_note` | | | |
-| 7 | `sales_order` | | | |
+| 0c | **all firm-owned routers** (tenancy) | 2026-08-09 | every one resolved `firms`/`user_firms` on the tenant session, so all firm-owned endpoints failed on PostgreSQL outside the platform schema | yes — shared `app/common/scope.py` |
+| 0d | **persistence conventions** | 2026-08-09 | FK naming collided on two FKs to one target, so `create_all` could not build the schema on PostgreSQL; `BaseEntity.version` never read or incremented | yes |
+| 1 | `sales_invoice` | 2026-08-09 | permission codes unseeded (whole API admin-only); every handler mis-called its service; the six tables never matched the ORM | yes — module now has a test |
+| 2 | `goods_receipt` | 2026-08-09 | cancel left stock posted; totals computed twice with different formulas; lines re-inserted on edit | yes |
+| 3 | `firms` | | | still no dedicated test |
+| 4 | `purchase_invoice` | 2026-08-09 | `subtotal` folded in line charges; committed mid-write; `_flush_or_conflict` left the session unusable | yes |
+| 5 | `purchase_return` | 2026-08-09 | cancel left stock posted and its movements were unlinkable; `subtotal` folded in line charges | yes |
+| 6 | `delivery_note` | 2026-08-09 | lines re-inserted on edit, dangling downstream references | yes |
+| 7 | `sales_order` | 2026-08-09 | lines re-inserted on edit, resetting `reserved_quantity` while the RESERVE movement stayed in the ledger | yes |
 | 8 | `tax` | | | |
 | 9 | `uom` | | | |
 | 10 | `branches` | | | |

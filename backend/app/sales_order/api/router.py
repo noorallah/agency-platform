@@ -9,7 +9,6 @@ from fastapi import (
     Depends,
     File,
     Form,
-    Header,
     Query,
     Response,
     UploadFile,
@@ -17,22 +16,16 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.sales_order.schemas import (
     SalesOrderBackOrderRecord,
     SalesOrderByCustomerRecord,
@@ -56,78 +49,29 @@ router = APIRouter(
 )
 
 
-class SalesOrderScope:
-    """Carry principal and firm scope for sales order handlers."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Sales order operations require a user principal.")
-        return self.principal.subject
-
-
 class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-def sales_order_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> SalesOrderScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return SalesOrderScope(principal=principal, firm_id=x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return SalesOrderScope(principal=principal, firm_id=x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[SalesOrderScope, Depends(sales_order_scope)],
-    ) -> SalesOrderScope:
-        return scope
-
-    return Depends(dependency)
-
-
-SalesOrderViewScope = Annotated[SalesOrderScope, _permission("SALES_VIEW")]
-SalesOrderCreateScope = Annotated[SalesOrderScope, _permission("SALES_CREATE")]
-SalesOrderUpdateScope = Annotated[SalesOrderScope, _permission("SALES_UPDATE")]
-SalesOrderApproveScope = Annotated[SalesOrderScope, _permission("SALES_APPROVE")]
-SalesOrderCancelScope = Annotated[SalesOrderScope, _permission("SALES_CANCEL")]
-SalesOrderExportScope = Annotated[SalesOrderScope, _permission("SALES_EXPORT")]
-SalesOrderImportScope = Annotated[SalesOrderScope, _permission("SALES_IMPORT")]
+SalesOrderViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+SalesOrderCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+]
+SalesOrderUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+]
+SalesOrderApproveScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+]
+SalesOrderCancelScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+]
+SalesOrderExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
+]
+SalesOrderImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
 
 
 def _filters(
@@ -242,8 +186,12 @@ def update_sales_order(
     data: SalesOrderCreate,
     scope: SalesOrderUpdateScope,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesOrderResponse]:
     service = SalesOrderService(db)
+    assert_version(
+        service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
+    )
     row = service.update_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )

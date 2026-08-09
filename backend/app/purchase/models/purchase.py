@@ -26,7 +26,9 @@ class PurchaseOrder(BaseEntity):
 
     __tablename__ = "purchase_orders"
     __table_args__ = (
-        UniqueConstraint("firm_id", "po_number", name="UQ_purchase_orders_firm_po_number"),
+        UniqueConstraint(
+            "firm_id", "po_number", name="UQ_purchase_orders_firm_po_number"
+        ),
         Index("IX_purchase_orders_firm_status", "firm_id", "status"),
         Index("IX_purchase_orders_firm_date", "firm_id", "purchase_date"),
         Index("IX_purchase_orders_firm_vendor", "firm_id", "vendor_id"),
@@ -57,7 +59,10 @@ class PurchaseOrder(BaseEntity):
     vendor_address: Mapped[str | None] = mapped_column(String(500))
     department: Mapped[str | None] = mapped_column(String(120))
     purchase_type: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="STANDARD_PURCHASE", server_default="STANDARD_PURCHASE"
+        String(30),
+        nullable=False,
+        default="STANDARD_PURCHASE",
+        server_default="STANDARD_PURCHASE",
     )
     purchase_category: Mapped[str | None] = mapped_column(String(120))
     purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -131,11 +136,17 @@ class PurchaseOrderLine(BaseEntity):
     vendor_product_code: Mapped[str | None] = mapped_column(String(120))
     purchase_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_purchase_order_lines_purchase_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id", name="FK_purchase_order_lines_purchase_uoms", ondelete="RESTRICT"
+        ),
     )
     inventory_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
-        ForeignKey("uoms.id", name="FK_purchase_order_lines_inventory_uoms", ondelete="RESTRICT"),
+        ForeignKey(
+            "uoms.id",
+            name="FK_purchase_order_lines_inventory_uoms",
+            ondelete="RESTRICT",
+        ),
     )
     conversion_factor: Mapped[Decimal] = mapped_column(
         Numeric(24, 10), nullable=False, default=Decimal("1"), server_default="1"
@@ -222,9 +233,7 @@ class PurchaseAttachment(BaseEntity):
     """Store purchase document attachments."""
 
     __tablename__ = "purchase_attachments"
-    __table_args__ = (
-        Index("IX_purchase_attachments_order", "purchase_order_id"),
-    )
+    __table_args__ = (Index("IX_purchase_attachments_order", "purchase_order_id"),)
 
     purchase_order_id: Mapped[UUID] = mapped_column(
         UUIDType(),
@@ -239,7 +248,10 @@ class PurchaseAttachment(BaseEntity):
     mime_type: Mapped[str | None] = mapped_column(String(120))
     file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     attachment_kind: Mapped[str] = mapped_column(
-        String(40), nullable=False, default="PURCHASE_FILE", server_default="PURCHASE_FILE"
+        String(40),
+        nullable=False,
+        default="PURCHASE_FILE",
+        server_default="PURCHASE_FILE",
     )
 
 

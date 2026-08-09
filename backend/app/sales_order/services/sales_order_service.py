@@ -6,33 +6,28 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService
@@ -73,12 +68,27 @@ from app.uom.services import UomService
 ZERO = Decimal("0")
 
 
-class SalesOrderService:
+class SalesOrderService(TransactionalDocumentService):
     """Coordinate sales order lifecycle, totals, and stock reservation."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="SALES_ORDER",
+        name="Sales Order",
+        description="Customer sales order document",
+        category="SALES",
+        module="sales_order",
+        prefix="SO",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("CANCELLED", "Cancelled", 3, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 4, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
@@ -203,7 +213,9 @@ class SalesOrderService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.order_date),
+                financial_year_label=self._financial_year_label(
+                    data.order_date, firm_id
+                ),
                 branch_code=self._scope_code(data.branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.order_date,
@@ -796,9 +808,19 @@ class SalesOrderService:
         lines: list[SalesOrderLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(SalesOrderLine).filter(
-            SalesOrderLine.sales_order_id == row.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place. Deleting
+        # and re-inserting them, as this did, minted a new UUID for every line on
+        # every save. Downstream documents record source_document_line_id as a
+        # bare UUID with no foreign key, so those references silently dangled
+        # after an upstream edit — and the re-insert also reset reserved_quantity
+        # to zero while the reservation movement stayed in the ledger.
+        existing = {
+            line.line_number: line
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
+            ).all()
+        }
+        seen: set[int] = set()
         subtotal = ZERO
         tax_total = ZERO
         line_discount_total = ZERO
@@ -847,41 +869,48 @@ class SalesOrderService:
                 storage_node_id=item.storage_node_id,
                 product_id=item.product_id,
             )
-            line = SalesOrderLine(
-                sales_order_id=row.id,
-                firm_id=row.firm_id,
-                line_number=item.line_number,
-                product_id=item.product_id,
-                description=item.description,
-                quantity=quantity,
-                free_quantity=free_quantity,
-                base_quantity=self._q(conversion["converted"]),
-                reservable_quantity=self._q(conversion["converted"]),
-                reserved_quantity=ZERO,
-                available_stock=available_stock,
-                reserved_stock=reserved_stock,
-                sales_uom_id=item.sales_uom_id,
-                inventory_uom_id=item.inventory_uom_id,
-                packaging_type_id=item.packaging_type_id,
-                conversion_factor=self._q(conversion["factor"]),
-                conversion_version=conversion["version"],
-                unit_price=self._q(item.unit_price),
-                discount_percent=self._q(item.discount_percent),
-                discount_amount=discount,
-                gross_amount=gross,
-                tax_profile_id=item.tax_profile_id,
-                tax_amount=tax,
-                net_amount=net,
-                warehouse_id=item.warehouse_id or row.warehouse_id,
-                storage_node_id=item.storage_node_id,
-                remarks=item.remarks,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-            self._session.add(line)
+            line = existing.get(item.line_number)
+            if line is None:
+                line = SalesOrderLine(
+                    sales_order_id=row.id,
+                    firm_id=row.firm_id,
+                    line_number=item.line_number,
+                    reserved_quantity=ZERO,
+                    created_by=actor_id,
+                )
+                self._session.add(line)
+            line.product_id = item.product_id
+            line.description = item.description
+            line.quantity = quantity
+            line.free_quantity = free_quantity
+            line.base_quantity = self._q(conversion["converted"])
+            line.reservable_quantity = self._q(conversion["converted"])
+            line.available_stock = available_stock
+            line.reserved_stock = reserved_stock
+            line.sales_uom_id = item.sales_uom_id
+            line.inventory_uom_id = item.inventory_uom_id
+            line.packaging_type_id = item.packaging_type_id
+            line.conversion_factor = self._q(conversion["factor"])
+            version = conversion["version"]
+            line.conversion_version = None if version is None else int(version)
+            line.unit_price = self._q(item.unit_price)
+            line.discount_percent = self._q(item.discount_percent)
+            line.discount_amount = discount
+            line.gross_amount = gross
+            line.tax_profile_id = item.tax_profile_id
+            line.tax_amount = tax
+            line.net_amount = net
+            line.warehouse_id = item.warehouse_id or row.warehouse_id
+            line.storage_node_id = item.storage_node_id
+            line.remarks = item.remarks
+            line.updated_by = actor_id
+            seen.add(item.line_number)
             subtotal += taxable
             tax_total += tax
             line_discount_total += discount
+        for line_number, line in existing.items():
+            if line_number not in seen:
+                self._session.delete(line)
         self._session.flush()
         return {
             "subtotal": self._q(subtotal),
@@ -938,9 +967,12 @@ class SalesOrderService:
             )
 
     def _delete_children(self, order_id: UUID) -> None:
-        self._session.query(SalesOrderLine).filter(
-            SalesOrderLine.sales_order_id == order_id
-        ).delete(synchronize_session=False)
+        """Clear the child collections an update rebuilds wholesale.
+
+        Lines are deliberately absent: ``_replace_lines`` reconciles them by
+        line number so their identities survive an edit. Deleting them here as
+        well would defeat that.
+        """
         self._session.query(SalesOrderAttachment).filter(
             SalesOrderAttachment.sales_order_id == order_id
         ).delete(synchronize_session=False)
@@ -1219,144 +1251,6 @@ class SalesOrderService:
                 actor_id=actor_id,
             ),
             actor_id=actor_id,
-        )
-
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "SALES_ORDER",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="SALES_ORDER",
-                    name="Sales Order",
-                    description="Customer sales order document",
-                    category="SALES",
-                    is_active=True,
-                    configuration={"module": "sales_order"},
-                ),
-                actor_id,
-            )
-        for code, name, sort_order, terminal in [
-            ("DRAFT", "Draft", 1, False),
-            ("APPROVED", "Approved", 2, False),
-            ("CANCELLED", "Cancelled", 3, True),
-            ("CLOSED", "Closed", 4, True),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=code == "DRAFT",
-                        is_terminal=terminal,
-                        allows_edit=code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={"module": "sales_order", "state": code},
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering is None:
-            numbering = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="SALES_ORDER_DEFAULT",
-                    name="Sales Order Default",
-                    prefix="SO",
-                    suffix=None,
-                    separator="-",
-                    include_financial_year=True,
-                    include_branch_code=False,
-                    include_company_code=False,
-                    auto_reset=True,
-                    manual_allowed=False,
-                    sequence_padding=6,
-                    next_sequence=1,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "sales_order"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "SALES_ORDER",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            raise ResourceNotFoundError("Sales order document type is not configured.")
-        return document_type
-
-    def _financial_year_label(self, on: date) -> str:
-        return (
-            f"{on.year}-{str(on.year + 1)[-2:]}"
-            if on.month >= 4
-            else f"{on.year - 1}-{str(on.year)[-2:]}"
-        )
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        if branch_id is None:
-            return None
-        row = self._session.scalar(select(Branch.code).where(Branch.id == branch_id))
-        return row.upper() if row else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        row = self._session.scalar(select(Firm.code).where(Firm.id == firm_id))
-        return row.upper() if row else None
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
-
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        return Decimal("0" if value is None else str(value)).quantize(
-            Decimal("0.0001"), rounding=ROUND_HALF_UP
         )
 
     def _attachment_response(

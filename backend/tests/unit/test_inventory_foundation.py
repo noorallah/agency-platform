@@ -11,6 +11,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError
@@ -20,7 +25,7 @@ from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.identity.models import UserFirm
-from app.inventory.api.router import create_inventory, inventory_scope, list_inventory
+from app.inventory.api.router import create_inventory, list_inventory
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
@@ -33,6 +38,19 @@ from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.vendors.models import vendor as _vendor_models  # noqa: F401
+
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -269,9 +287,7 @@ def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
     }
     session = factory()
     # One SQLite session backs both the tenant and platform dependencies here.
-    scope = inventory_scope(
-        _principal(user_id, permissions), session, session, firm.id
-    )
+    scope = _firm_scope(_principal(user_id, permissions), session, firm.id)
     created = create_inventory(
         InventoryCreate(
             branch_id=branch.id,
@@ -306,4 +322,72 @@ def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
     assert listed.pagination.total_records == 1
 
     with pytest.raises(AuthorizationError):
-        require_permission("INVENTORY_VIEW")(_principal(user_id, {"OPENING_STOCK_CREATE"}))
+        require_permission("INVENTORY_VIEW")(
+            _principal(user_id, {"OPENING_STOCK_CREATE"})
+        )
+
+
+def test_moving_average_cost_tracks_receipts_and_issues() -> None:
+    """Stock carries a value, and issues consume it at the running average.
+
+    stock_ledger_entries had no cost column of any kind, so stock could not be
+    valued and cost of goods sold did not exist.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "VAL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    service = InventoryService(session)
+    actor_id = uuid4()
+
+    def _receive(quantity: str, unit_cost: str) -> None:
+        service.record_goods_receipt(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            storage_node_id=None,
+            product_id=product.id,
+            reference_number="GRN-VAL",
+            transaction_date=date(2026, 8, 4),
+            total_quantity=Decimal(quantity),
+            unit_cost=Decimal(unit_cost),
+        )
+
+    # 10 @ 100 then 10 @ 120 averages to 110.
+    _receive("10", "100")
+    valuation = service.valuation_for(firm_scope=firm.id, product_id=product.id)
+    assert valuation.quantity_on_hand == Decimal("10.0000")
+    assert valuation.average_cost == Decimal("100.000000")
+    assert valuation.total_value == Decimal("1000.0000")
+
+    _receive("10", "120")
+    session.refresh(valuation)
+    assert valuation.quantity_on_hand == Decimal("20.0000")
+    assert valuation.average_cost == Decimal("110.000000")
+    assert valuation.total_value == Decimal("2200.0000")
+
+    # Issuing consumes at the average and leaves it unchanged.
+    service.record_delivery_note_dispatch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="DN-VAL",
+        transaction_date=date(2026, 8, 5),
+        dispatch_quantity=Decimal("5"),
+    )
+    session.refresh(valuation)
+    assert valuation.quantity_on_hand == Decimal("15.0000")
+    assert valuation.average_cost == Decimal("110.000000"), "issues must not move it"
+    assert valuation.total_value == Decimal("1650.0000")
+
+    # The cost of that issue is on the ledger: 5 x 110 is the cost of goods sold.
+    issue = session.scalar(
+        select(StockLedgerEntry).where(StockLedgerEntry.reference_number == "DN-VAL")
+    )
+    assert issue is not None
+    assert issue.unit_cost == Decimal("110.000000")
+    assert issue.total_cost == Decimal("550.0000")

@@ -7,28 +7,19 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     Query,
     status,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceCustomerOutstandingRecord,
@@ -49,69 +40,40 @@ router = APIRouter(
 )
 
 
-class SalesInvoiceScope:
-    """Carry principal and firm scope for invoice handlers."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Sales invoice operations require a user principal.")
-        return self.principal.subject
-
-
 class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-def sales_invoice_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> SalesInvoiceScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return SalesInvoiceScope(principal=principal, firm_id=x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return SalesInvoiceScope(principal=principal, firm_id=x_firm_id)
+SalesInvoiceViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+]
+SalesInvoiceCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+]
+SalesInvoiceUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+]
+SalesInvoiceApproveScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+]
+SalesInvoiceCancelScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+]
+SalesInvoiceExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
+]
+SalesInvoiceImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
 
 
 @router.get(
     "/",
     response_model=PaginatedResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def list_sales_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     pagination: Annotated[PaginationParams, Depends()],
     customer_id: Annotated[UUID | None, Query()] = None,
@@ -150,9 +112,7 @@ def list_sales_invoices(
     )
     return PaginatedResponse(
         data=[service.invoice_response(row) for row in rows],
-        total=total,
-        page=pagination.page,
-        page_size=pagination.page_size,
+        pagination=pagination.metadata(total),
     )
 
 
@@ -160,17 +120,15 @@ def list_sales_invoices(
     "/",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def create_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceCreateScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceCreate,
 ) -> SalesInvoiceResponse:
     """Create a new sales invoice."""
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -178,10 +136,9 @@ def create_sales_invoice(
     "/{invoice_id}",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
 ) -> SalesInvoiceResponse:
@@ -195,10 +152,9 @@ def get_sales_invoice(
     "/{invoice_id}",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def update_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceUpdateScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: SalesInvoiceCreate,
@@ -208,7 +164,6 @@ def update_sales_invoice(
     row = service.update_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -216,19 +171,17 @@ def update_sales_invoice(
     "/{invoice_id}/approve",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:approve"))],
 )
 def approve_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
 ) -> SalesInvoiceResponse:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.approve_invoice(
-        invoice_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -236,10 +189,9 @@ def approve_sales_invoice(
     "/{invoice_id}/cancel",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def cancel_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceCancelScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
@@ -247,9 +199,11 @@ def cancel_sales_invoice(
     """Cancel a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.cancel_invoice(
-        invoice_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=data.reason,
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -257,10 +211,9 @@ def cancel_sales_invoice(
     "/{invoice_id}/close",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def close_sales_invoice(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
@@ -268,9 +221,11 @@ def close_sales_invoice(
     """Close a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.close_invoice(
-        invoice_id, data.reason, firm_id=scope.firm_id, actor_id=scope.actor_id
+        invoice_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=data.reason,
     )
-    db.commit()
     return service.invoice_response(row)
 
 
@@ -278,10 +233,9 @@ def close_sales_invoice(
     "/{invoice_id}/timeline",
     response_model=PaginatedResponse[DocumentLifecycleEventResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_timeline(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     pagination: Annotated[PaginationParams, Depends()],
@@ -290,12 +244,13 @@ def get_sales_invoice_timeline(
     service = SalesInvoiceService(db)
     rows, total = service.timeline(
         invoice_id=invoice_id,
-        firm_id=scope.firm_id,
+        firm_scope=scope.firm_id,
         page=pagination.page,
         page_size=pagination.page_size,
     )
     return PaginatedResponse(
-        data=rows, total=total, page=pagination.page, page_size=pagination.page_size
+        data=[DocumentLifecycleEventResponse.model_validate(row) for row in rows],
+        pagination=pagination.metadata(total),
     )
 
 
@@ -303,10 +258,9 @@ def get_sales_invoice_timeline(
     "/reports/pending",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_pending_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceResponse]:
     """Get pending (draft) sales invoices."""
@@ -319,10 +273,9 @@ def get_pending_invoices(
     "/reports/overdue",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_overdue_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceResponse]:
     """Get overdue sales invoices."""
@@ -335,10 +288,9 @@ def get_overdue_invoices(
     "/reports/summary",
     response_model=SalesInvoiceSummary,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_summary(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> SalesInvoiceSummary:
     """Get sales invoice summary."""
@@ -350,10 +302,9 @@ def get_sales_invoice_summary(
     "/reports/register",
     response_model=list[SalesInvoiceRegisterRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_register(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceRegisterRecord]:
     """Get sales invoice register report."""
@@ -365,25 +316,23 @@ def get_sales_invoice_register(
     "/reports/customer-outstanding",
     response_model=list[SalesInvoiceCustomerOutstandingRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_customer_outstanding(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceCustomerOutstandingRecord]:
     """Get customer outstanding amounts report."""
     service = SalesInvoiceService(db)
-    return service.customer_outstanding_report(firm_scope=scope.firm_id)
+    return service.outstanding_report(firm_scope=scope.firm_id)
 
 
 @router.get(
     "/reports/reconciliation",
     response_model=list[SalesInvoiceReconciliationRecord],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def get_sales_invoice_reconciliation(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> list[SalesInvoiceReconciliationRecord]:
     """Get sales invoice vs delivery note reconciliation report."""
@@ -395,10 +344,9 @@ def get_sales_invoice_reconciliation(
     "/import",
     response_model=list[SalesInvoiceResponse],
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_permission("sales_invoice:write"))],
 )
 def import_sales_invoices(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceImportScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceImportRequest,
 ) -> list[SalesInvoiceResponse]:
@@ -413,10 +361,9 @@ def import_sales_invoices(
     "/export/csv",
     response_class=StreamingResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(require_permission("sales_invoice:read"))],
 )
 def export_sales_invoices_csv(
-    scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
+    scope: SalesInvoiceExportScope,
     db: Annotated[Session, Depends(get_db)],
     search: Annotated[str | None, Query(max_length=100)] = None,
 ) -> StreamingResponse:

@@ -5,23 +5,15 @@ from io import StringIO
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Body, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.tax.schemas import (
     BulkTaxStatusRequest,
     BulkUuidRequest,
@@ -31,6 +23,11 @@ from app.tax.schemas import (
     TaxCountryMappingResponse,
     TaxCountryMappingWrite,
     TaxHistoryRecord,
+    TaxImportSystemsRequest,
+    TaxMigrationMappingResponse,
+    TaxMigrationMappingWrite,
+    TaxProfileResponse,
+    TaxProfileWrite,
     TaxRuleConditionResponse,
     TaxRuleExecutionLogResponse,
     TaxRuleImportRequest,
@@ -39,11 +36,6 @@ from app.tax.schemas import (
     TaxRuleSimulationRequest,
     TaxRuleSimulationResponse,
     TaxRuleWrite,
-    TaxImportSystemsRequest,
-    TaxMigrationMappingResponse,
-    TaxMigrationMappingWrite,
-    TaxProfileResponse,
-    TaxProfileWrite,
     TaxSettingsResponse,
     TaxSettingsWrite,
     TaxSetupResponse,
@@ -61,81 +53,32 @@ router = APIRouter(
 )
 
 
-class TaxScope:
-    """Carry authenticated principal and resolved firm context."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Tax framework management requires a user principal.")
-        return self.principal.subject
-
-
-def tax_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_platform_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> TaxScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return TaxScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return TaxScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[TaxScope, Depends(tax_scope)],
-    ) -> TaxScope:
-        return scope
-
-    return Depends(dependency)
-
-
-TaxViewScope = Annotated[TaxScope, _permission("TAX_VIEW")]
-TaxCreateScope = Annotated[TaxScope, _permission("TAX_CREATE")]
-TaxUpdateScope = Annotated[TaxScope, _permission("TAX_UPDATE")]
-TaxDeleteScope = Annotated[TaxScope, _permission("TAX_DELETE")]
-TaxRestoreScope = Annotated[TaxScope, _permission("TAX_RESTORE")]
-TaxImportScope = Annotated[TaxScope, _permission("TAX_IMPORT")]
-TaxExportScope = Annotated[TaxScope, _permission("TAX_EXPORT")]
-TaxSettingsScope = Annotated[TaxScope, _permission("TAX_MANAGE_SETTINGS")]
-TaxRuleViewScope = Annotated[TaxScope, _permission("TAX_RULE_VIEW")]
-TaxRuleCreateScope = Annotated[TaxScope, _permission("TAX_RULE_CREATE")]
-TaxRuleUpdateScope = Annotated[TaxScope, _permission("TAX_RULE_UPDATE")]
-TaxRuleDeleteScope = Annotated[TaxScope, _permission("TAX_RULE_DELETE")]
-TaxRuleRestoreScope = Annotated[TaxScope, _permission("TAX_RULE_RESTORE")]
-TaxRuleSimulateScope = Annotated[TaxScope, _permission("TAX_SIMULATE")]
+TaxViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_VIEW")]
+TaxCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_CREATE")]
+TaxUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_UPDATE")]
+TaxDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_DELETE")]
+TaxRestoreScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_RESTORE")]
+TaxImportScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_IMPORT")]
+TaxExportScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_EXPORT")]
+TaxSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_MANAGE_SETTINGS")
+]
+TaxRuleViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("TAX_RULE_VIEW")]
+TaxRuleCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_RULE_CREATE")
+]
+TaxRuleUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_RULE_UPDATE")
+]
+TaxRuleDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_RULE_DELETE")
+]
+TaxRuleRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_RULE_RESTORE")
+]
+TaxRuleSimulateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TAX_SIMULATE")
+]
 
 
 @router.get("/systems", response_model=PaginatedResponse[TaxSystemResponse])

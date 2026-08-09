@@ -48,10 +48,16 @@ class PurchaseLineWrite(PurchaseSchema):
     purchase_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None
     ordered_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    free_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     unit_price: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    discount_percent: Decimal = Field(default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4)
-    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     tax_profile_id: UUID | None = None
     batch_required: bool = False
     expiry_required: bool = False
@@ -98,18 +104,28 @@ class PurchaseOrderWrite(PurchaseSchema):
     payment_terms: str | None = Field(default=None, max_length=200)
     delivery_terms: str | None = Field(default=None, max_length=200)
     currency_code: str | None = Field(default=None, max_length=10)
-    exchange_rate: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+    exchange_rate: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=6
+    )
     reference_number: str | None = Field(default=None, max_length=80)
     external_reference: str | None = Field(default=None, max_length=80)
     priority: str = Field(default="NORMAL", max_length=20)
     remarks: str | None = None
     status: PurchaseOrderStatus = PurchaseOrderStatus.DRAFT
-    header_discount_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
-    additional_charges: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18, decimal_places=4)
+    header_discount_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
+    additional_charges: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     lines: list[PurchaseLineWrite] = Field(min_length=1, max_length=1000)
-    delivery_schedules: list[PurchaseDeliveryScheduleWrite] = Field(default_factory=list, max_length=2000)
-    attachments: list[PurchaseAttachmentWrite] = Field(default_factory=list, max_length=500)
+    delivery_schedules: list[PurchaseDeliveryScheduleWrite] = Field(
+        default_factory=list, max_length=2000
+    )
+    attachments: list[PurchaseAttachmentWrite] = Field(
+        default_factory=list, max_length=500
+    )
     notes: list[PurchaseNoteWrite] = Field(default_factory=list, max_length=500)
 
     @field_validator("purchase_type", mode="before")
@@ -248,7 +264,9 @@ class PurchaseOrderResponse(PurchaseSchema):
     created_at: datetime
     updated_at: datetime
     lines: list[PurchaseOrderLineResponse] = Field(default_factory=list)
-    delivery_schedules: list[PurchaseDeliveryScheduleResponse] = Field(default_factory=list)
+    delivery_schedules: list[PurchaseDeliveryScheduleResponse] = Field(
+        default_factory=list
+    )
     attachments: list[PurchaseAttachmentResponse] = Field(default_factory=list)
     notes: list[PurchaseNoteResponse] = Field(default_factory=list)
 
@@ -273,4 +291,3 @@ class PurchaseSummary(PurchaseSchema):
     closed: int
     total_value: Decimal
     overdue_delivery: int
-

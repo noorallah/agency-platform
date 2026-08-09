@@ -6,9 +6,8 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.branches.schemas import (
@@ -16,12 +15,12 @@ from app.branches.schemas import (
     BranchImportRequest,
     BranchListFilters,
     BranchResponse,
+    BranchStatus,
     BranchSummary,
     BranchTypeResponse,
     BranchTypeWrite,
     BranchUpdate,
     BranchWarehouseSchema,
-    BranchStatus,
     BulkBranchStatusRequest,
     BulkIdsRequest,
     BulkWarehouseStatusRequest,
@@ -32,25 +31,19 @@ from app.branches.schemas import (
     WarehouseImportRequest,
     WarehouseListFilters,
     WarehouseResponse,
+    WarehouseStatus,
     WarehouseSummary,
     WarehouseTypeResponse,
     WarehouseTypeWrite,
     WarehouseUpdate,
-    WarehouseStatus,
 )
 from app.branches.services import BranchWarehouseService
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 
 router = APIRouter(
     prefix="/api/v1",
@@ -59,85 +52,36 @@ router = APIRouter(
 )
 
 
-class BranchWarehouseScope:
-    """Carry the authenticated principal and resolved firm scope."""
-
-    def __init__(self, principal: Principal, firm_id: UUID | None) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Branch and warehouse management requires a user principal.")
-        return self.principal.subject
-
-
-def branch_warehouse_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    platform_db: Annotated[Session, Depends(get_platform_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> BranchWarehouseScope:
-    """Validate active firm access for branch and warehouse operations."""
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = platform_db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return BranchWarehouseScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = platform_db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return BranchWarehouseScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[BranchWarehouseScope, Depends(branch_warehouse_scope)],
-    ) -> BranchWarehouseScope:
-        return scope
-
-    return Depends(dependency)
-
-
-BranchViewScope = Annotated[BranchWarehouseScope, _permission("BRANCH_VIEW")]
-BranchCreateScope = Annotated[BranchWarehouseScope, _permission("BRANCH_CREATE")]
-BranchUpdateScope = Annotated[BranchWarehouseScope, _permission("BRANCH_UPDATE")]
-BranchDeleteScope = Annotated[BranchWarehouseScope, _permission("BRANCH_DELETE")]
-BranchRestoreScope = Annotated[BranchWarehouseScope, _permission("BRANCH_RESTORE")]
-WarehouseViewScope = Annotated[BranchWarehouseScope, _permission("WAREHOUSE_VIEW")]
-WarehouseCreateScope = Annotated[BranchWarehouseScope, _permission("WAREHOUSE_CREATE")]
-WarehouseUpdateScope = Annotated[BranchWarehouseScope, _permission("WAREHOUSE_UPDATE")]
-WarehouseDeleteScope = Annotated[BranchWarehouseScope, _permission("WAREHOUSE_DELETE")]
-WarehouseRestoreScope = Annotated[BranchWarehouseScope, _permission("WAREHOUSE_RESTORE")]
-StorageManageScope = Annotated[BranchWarehouseScope, _permission("STORAGE_AREA_MANAGE")]
+BranchViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("BRANCH_VIEW")]
+BranchCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("BRANCH_CREATE")]
+BranchUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("BRANCH_UPDATE")]
+BranchDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("BRANCH_DELETE")]
+BranchRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("BRANCH_RESTORE")
+]
+WarehouseViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("WAREHOUSE_VIEW")
+]
+WarehouseCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("WAREHOUSE_CREATE")
+]
+WarehouseUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("WAREHOUSE_UPDATE")
+]
+WarehouseDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("WAREHOUSE_DELETE")
+]
+WarehouseRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("WAREHOUSE_RESTORE")
+]
+StorageManageScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("STORAGE_AREA_MANAGE")
+]
 BranchWarehouseImportScope = Annotated[
-    BranchWarehouseScope, _permission("BRANCH_WAREHOUSE_IMPORT")
+    ResolvedFirmScope, firm_permission_scope("BRANCH_WAREHOUSE_IMPORT")
 ]
 BranchWarehouseExportScope = Annotated[
-    BranchWarehouseScope, _permission("BRANCH_WAREHOUSE_EXPORT")
+    ResolvedFirmScope, firm_permission_scope("BRANCH_WAREHOUSE_EXPORT")
 ]
 
 
@@ -248,7 +192,9 @@ def list_branches(
     data = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
-        payload["warehouse_count"] = len([item for item in row.warehouses if not item.is_deleted])
+        payload["warehouse_count"] = len(
+            [item for item in row.warehouses if not item.is_deleted]
+        )
         data.append(BranchResponse.model_validate(payload))
     return PaginatedResponse(data=data, pagination=params.metadata(total))
 
@@ -267,7 +213,9 @@ def branch_summary(
 
 
 @router.post(
-    "/branches", response_model=ApiResponse[BranchResponse], status_code=status.HTTP_201_CREATED
+    "/branches",
+    response_model=ApiResponse[BranchResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_branch(
     data: BranchCreate,
@@ -324,7 +272,9 @@ def get_branch(
         include_deleted=include_deleted,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
-    payload["warehouse_count"] = len([item for item in row.warehouses if not item.is_deleted])
+    payload["warehouse_count"] = len(
+        [item for item in row.warehouses if not item.is_deleted]
+    )
     return ApiResponse(data=BranchResponse.model_validate(payload))
 
 
@@ -342,7 +292,9 @@ def update_branch(
         actor_id=scope.actor_id,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
-    payload["warehouse_count"] = len([item for item in row.warehouses if not item.is_deleted])
+    payload["warehouse_count"] = len(
+        [item for item in row.warehouses if not item.is_deleted]
+    )
     return ApiResponse(data=BranchResponse.model_validate(payload))
 
 
@@ -360,7 +312,9 @@ def delete_branch(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/branches/{branch_id}/restore", response_model=ApiResponse[BranchResponse])
+@router.post(
+    "/branches/{branch_id}/restore", response_model=ApiResponse[BranchResponse]
+)
 def restore_branch(
     branch_id: UUID,
     scope: BranchRestoreScope,
@@ -372,11 +326,15 @@ def restore_branch(
         actor_id=scope.actor_id,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
-    payload["warehouse_count"] = len([item for item in row.warehouses if not item.is_deleted])
+    payload["warehouse_count"] = len(
+        [item for item in row.warehouses if not item.is_deleted]
+    )
     return ApiResponse(data=BranchResponse.model_validate(payload))
 
 
-@router.post("/branches/{branch_id}/duplicate", response_model=ApiResponse[BranchResponse])
+@router.post(
+    "/branches/{branch_id}/duplicate", response_model=ApiResponse[BranchResponse]
+)
 def duplicate_branch(
     branch_id: UUID,
     scope: BranchCreateScope,
@@ -457,7 +415,14 @@ def export_branches(
         )
         for row in rows:
             writer.writerow(
-                [row.code, row.name, row.status, row.email or "", row.phone or "", row.mobile or ""]
+                [
+                    row.code,
+                    row.name,
+                    row.status,
+                    row.email or "",
+                    row.phone or "",
+                    row.mobile or "",
+                ]
             )
         if len(rows) < 1000:
             break
@@ -701,7 +666,9 @@ def export_warehouses(
 ) -> StreamingResponse:
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Code", "Name", "Branch ID", "Status", "Capacity", "Capacity Unit"])
+    writer.writerow(
+        ["Code", "Name", "Branch ID", "Status", "Capacity", "Capacity Unit"]
+    )
     page = 1
     service = BranchWarehouseService(db)
     while True:
@@ -842,7 +809,9 @@ def create_branch_type(
     return ApiResponse(data=BranchTypeResponse.model_validate(row))
 
 
-@router.put("/branch-types/{branch_type_id}", response_model=ApiResponse[BranchTypeResponse])
+@router.put(
+    "/branch-types/{branch_type_id}", response_model=ApiResponse[BranchTypeResponse]
+)
 def update_branch_type(
     branch_type_id: UUID,
     data: BranchTypeWrite,
@@ -888,7 +857,9 @@ def list_warehouse_types(
         firm_id=scope.firm_id,
         include_deleted=include_deleted,
     )
-    return ApiResponse(data=[WarehouseTypeResponse.model_validate(item) for item in rows])
+    return ApiResponse(
+        data=[WarehouseTypeResponse.model_validate(item) for item in rows]
+    )
 
 
 @router.post(
@@ -932,7 +903,9 @@ def update_warehouse_type(
     return ApiResponse(data=WarehouseTypeResponse.model_validate(row))
 
 
-@router.delete("/warehouse-types/{warehouse_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/warehouse-types/{warehouse_type_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_warehouse_type(
     warehouse_type_id: UUID,
     scope: WarehouseDeleteScope,
@@ -949,28 +922,39 @@ def delete_warehouse_type(
 
 
 class BranchWarehouseSettingsResponse(BranchWarehouseSchema):
-    """Expose branch-warehouse future-ready settings stub."""
+    """Report which branch-warehouse capabilities this deployment actually has.
+
+    Every flag here was hardcoded ``True``, including five capabilities with no
+    implementation anywhere in the backend. A client that trusts this response
+    offers its users features that cannot work, so each flag now states the
+    truth and must be flipped by the change that builds the capability.
+    """
 
     stock_ledger_ready: bool = True
     inventory_ready: bool = True
     batch_tracking_ready: bool = True
     serial_number_ready: bool = True
     expiry_ready: bool = True
-    stock_transfer_ready: bool = True
-    inter_branch_transfer_ready: bool = True
+    # No transfer service or endpoint exists: TRANSFER_IN/TRANSFER_OUT are enum
+    # members and `in_transit_quantity` is an unused column.
+    stock_transfer_ready: bool = False
+    inter_branch_transfer_ready: bool = False
     purchase_receipt_ready: bool = True
     sales_dispatch_ready: bool = True
     barcode_ready: bool = True
     qr_ready: bool = True
-    rfid_ready: bool = True
-    iot_ready: bool = True
-    warehouse_automation_ready: bool = True
+    # No RFID, IoT or warehouse-automation code exists in the backend.
+    rfid_ready: bool = False
+    iot_ready: bool = False
+    warehouse_automation_ready: bool = False
 
 
 @router.get(
     "/branch-warehouse/settings",
     response_model=ApiResponse[BranchWarehouseSettingsResponse],
 )
-def get_settings(scope: BranchViewScope) -> ApiResponse[BranchWarehouseSettingsResponse]:
+def get_settings(
+    scope: BranchViewScope,
+) -> ApiResponse[BranchWarehouseSettingsResponse]:
     _ = scope
     return ApiResponse(data=BranchWarehouseSettingsResponse())

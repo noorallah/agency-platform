@@ -3,23 +3,9 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.business.gating import require_feature
-from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError
-from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
-from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.batch_serial.schemas import (
     BatchCreate,
     BatchListFilters,
@@ -41,6 +27,12 @@ from app.batch_serial.schemas import (
     SerialUpdate,
 )
 from app.batch_serial.services import BatchSerialService
+from app.business.gating import require_feature
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
+from app.core.openapi import STANDARD_ERROR_RESPONSES
+from app.core.pagination import PaginationParams
+from app.core.responses.models import ApiResponse, PaginatedResponse
 
 router = APIRouter(
     prefix="/api/v1/batch-serial",
@@ -49,75 +41,14 @@ router = APIRouter(
 )
 
 
-class BatchSerialScope:
-    """Carry the authenticated principal and resolved firm scope."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Batch/serial operations require a user principal.")
-        return self.principal.subject
-
-
-def batch_serial_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> BatchSerialScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return BatchSerialScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return BatchSerialScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[BatchSerialScope, Depends(batch_serial_scope)],
-    ) -> BatchSerialScope:
-        return scope
-
-    return Depends(dependency)
-
-
-BatchViewScope = Annotated[BatchSerialScope, _permission("BATCH_VIEW")]
-BatchCreateScope = Annotated[BatchSerialScope, _permission("BATCH_CREATE")]
-BatchUpdateScope = Annotated[BatchSerialScope, _permission("BATCH_UPDATE")]
-BatchDeleteScope = Annotated[BatchSerialScope, _permission("BATCH_DELETE")]
-SerialViewScope = Annotated[BatchSerialScope, _permission("SERIAL_VIEW")]
-SerialCreateScope = Annotated[BatchSerialScope, _permission("SERIAL_CREATE")]
-SerialUpdateScope = Annotated[BatchSerialScope, _permission("SERIAL_UPDATE")]
-SerialDeleteScope = Annotated[BatchSerialScope, _permission("SERIAL_DELETE")]
+BatchViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("BATCH_VIEW")]
+BatchCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("BATCH_CREATE")]
+BatchUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("BATCH_UPDATE")]
+BatchDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("BATCH_DELETE")]
+SerialViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SERIAL_VIEW")]
+SerialCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("SERIAL_CREATE")]
+SerialUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("SERIAL_UPDATE")]
+SerialDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("SERIAL_DELETE")]
 
 
 # ── Batch endpoints ──────────────────────────────────────────────────────────

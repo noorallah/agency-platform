@@ -5,11 +5,11 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     ForeignKey,
     Index,
-    JSON,
     Numeric,
     String,
     Text,

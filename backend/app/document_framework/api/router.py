@@ -6,18 +6,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.common.scope import RequiredFirmScope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ConflictError
+from app.core.exceptions import ConflictError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import (
     Principal,
-    get_current_principal,
     require_platform_admin,
 )
 from app.document_framework.schemas import (
@@ -34,8 +33,6 @@ from app.document_framework.schemas import (
     DocumentTypeUpdate,
 )
 from app.document_framework.services import DocumentFrameworkService
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 
 router = APIRouter(
     prefix="/api/v1/document-framework",
@@ -44,59 +41,6 @@ router = APIRouter(
 )
 
 PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
-
-
-class DocumentScope:
-    """Carry authenticated principal and resolved firm context."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError(
-                "Document framework management requires a user principal."
-            )
-        return self.principal.subject
-
-
-def document_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> DocumentScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return DocumentScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return DocumentScope(principal, x_firm_id)
 
 
 def _service(db: Session) -> DocumentFrameworkService:
@@ -113,7 +57,7 @@ def _actor_id(principal: Principal) -> UUID:
 
 @router.get("/document-types", response_model=PaginatedResponse[DocumentTypeResponse])
 def list_document_types(
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -144,10 +88,11 @@ def list_document_types(
 def create_document_type(
     data: DocumentTypeCreate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentTypeResponse]:
     row = _service(db).create_type(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentTypeResponse.model_validate(row))
 
 
@@ -159,12 +104,13 @@ def update_document_type(
     document_type_id: UUID,
     data: DocumentTypeUpdate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentTypeResponse]:
     row = _service(db).update_type(
         scope.firm_id, document_type_id, data, _actor_id(principal)
     )
+    db.commit()
     return ApiResponse(data=DocumentTypeResponse.model_validate(row))
 
 
@@ -174,16 +120,17 @@ def update_document_type(
 def delete_document_type(
     document_type_id: UUID,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_type(scope.firm_id, document_type_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/document-states", response_model=PaginatedResponse[DocumentStateResponse])
 def list_document_states(
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -216,10 +163,11 @@ def list_document_states(
 def create_document_state(
     data: DocumentStateCreate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentStateResponse]:
     row = _service(db).create_state(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentStateResponse.model_validate(row))
 
 
@@ -231,10 +179,11 @@ def update_document_state(
     state_id: UUID,
     data: DocumentStateUpdate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentStateResponse]:
     row = _service(db).update_state(scope.firm_id, state_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentStateResponse.model_validate(row))
 
 
@@ -242,10 +191,11 @@ def update_document_state(
 def delete_document_state(
     state_id: UUID,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_state(scope.firm_id, state_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -254,7 +204,7 @@ def delete_document_state(
     response_model=PaginatedResponse[DocumentNumberingRuleResponse],
 )
 def list_numbering_rules(
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
@@ -287,10 +237,11 @@ def list_numbering_rules(
 def create_numbering_rule(
     data: DocumentNumberingRuleCreate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentNumberingRuleResponse]:
     row = _service(db).create_numbering_rule(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
 
 
@@ -302,12 +253,13 @@ def update_numbering_rule(
     rule_id: UUID,
     data: DocumentNumberingRuleUpdate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentNumberingRuleResponse]:
     row = _service(db).update_numbering_rule(
         scope.firm_id, rule_id, data, _actor_id(principal)
     )
+    db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
 
 
@@ -315,10 +267,11 @@ def update_numbering_rule(
 def delete_numbering_rule(
     rule_id: UUID,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     _service(db).delete_numbering_rule(scope.firm_id, rule_id, _actor_id(principal))
+    db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -328,7 +281,7 @@ def delete_numbering_rule(
 )
 def preview_numbering_rule(
     rule_id: UUID,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     document_date: Annotated[date | None, Query()] = None,
     financial_year_label: str | None = None,
     branch_code: str | None = None,
@@ -354,7 +307,7 @@ def preview_numbering_rule(
 )
 def list_document_timeline(
     document_id: UUID,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     page: int = 1,
     page_size: int = 20,
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -383,10 +336,11 @@ def create_document_event(
     document_id: UUID,
     data: DocumentLifecycleEventCreate,
     principal: PlatformPrincipal,
-    scope: Annotated[DocumentScope, Depends(document_scope)],
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentLifecycleEventResponse]:
     if data.source_document_id != document_id:
         raise ConflictError("The document identifier does not match the request body.")
     row = _service(db).record_event(scope.firm_id, data, _actor_id(principal))
+    db.commit()
     return ApiResponse(data=DocumentLifecycleEventResponse.model_validate(row))

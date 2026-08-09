@@ -11,18 +11,25 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessFeature, BusinessProfile
 from app.core.security.authorization import Principal
 from app.customers.models import Customer
+from app.delivery_note.models import DeliveryNote
 from app.firms.models import Firm
+from app.goods_receipt.models import GoodsReceipt
 from app.identity.models import Permission, Role, User
 from app.inventory.models import InventoryRecord, OpeningStockBatch, StockLedgerEntry
 from app.products.models import Product, ProductCategory
 from app.purchase.models import PurchaseOrder
-from app.goods_receipt.models import GoodsReceipt
-from app.delivery_note.models import DeliveryNote
 from app.purchase_invoice.models import PurchaseInvoice
 from app.purchase_return.models import PurchaseReturn
+from app.sales.models import (
+    GeoCity,
+    GeoCountry,
+    GeoDistrict,
+    GeoLocality,
+    GeoState,
+    SalesTerritoryNode,
+)
 from app.sales_invoice.models import SalesInvoice
 from app.sales_order.models import SalesOrder
-from app.sales.models import GeoCity, GeoCountry, GeoDistrict, GeoLocality, GeoState, SalesTerritoryNode
 from app.search.schemas import SearchCategory, SearchResultItem, SearchResultPage
 from app.tax.models import TaxProfile, TaxRule, TaxSettings, TaxSystem
 from app.uom.models import PackagingType, Uom

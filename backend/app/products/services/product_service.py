@@ -21,9 +21,9 @@ from app.business.models import (
 )
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.firms.models import Firm
 from app.products.models import (
     Product,
     ProductAttributeValue,
@@ -1163,8 +1163,10 @@ class ProductService:
             ) from error
 
     def ensure_firm(self, firm_id: UUID) -> None:
-        row = self._session.scalar(
-            select(Firm.id).where(Firm.id == firm_id, Firm.is_deleted.is_(False))
-        )
-        if row is None:
+        """Confirm the firm exists.
+
+        Resolved through the platform store: ``firms`` is not in a firm schema,
+        so querying it on the request session fails outside the platform store.
+        """
+        if not FirmMetadataReader(self._session).exists(firm_id):
             raise ResourceNotFoundError("Firm not found.")

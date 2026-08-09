@@ -6,16 +6,15 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.delivery_note.models import (
@@ -42,22 +41,19 @@ from app.delivery_note.schemas import (
     DeliveryNoteSummary,
 )
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
-from app.firms.models import Firm
+from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
-from app.inventory.models import InventoryRecord
+from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -71,12 +67,31 @@ from app.uom.services import UomService
 ZERO = Decimal("0")
 
 
-class DeliveryNoteService:
+class DeliveryNoteService(TransactionalDocumentService):
     """Coordinate delivery note lifecycle, validation, and inventory dispatch."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="DELIVERY_NOTE",
+        name="Delivery Note",
+        description="Goods dispatch document",
+        category="SALES",
+        module="delivery_note",
+        prefix="DN",
+        include_branch_code=True,
+        include_company_code=True,
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("DISPATCHED", "Dispatched", 3),
+            DocumentStateSpec("COMPLETED", "Completed", 4, is_terminal=True),
+            DocumentStateSpec("CANCELLED", "Cancelled", 90, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 100, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
@@ -231,7 +246,9 @@ class DeliveryNoteService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.delivery_date),
+                financial_year_label=self._financial_year_label(
+                    data.delivery_date, firm_id
+                ),
                 branch_code=self._scope_code(order.branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.delivery_date,
@@ -854,9 +871,18 @@ class DeliveryNoteService:
         lines: list[DeliveryNoteLineWrite],
         actor_id: UUID,
     ) -> dict[str, Decimal]:
-        self._session.query(DeliveryNoteLine).filter(
-            DeliveryNoteLine.delivery_note_id == row.id
-        ).delete(synchronize_session=False)
+        # Lines are matched on their line number and updated in place;
+        # re-inserting them minted a new UUID per line on every save, and
+        # downstream documents reference those ids with no foreign key.
+        existing = {
+            existing_line.line_number: existing_line
+            for existing_line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == row.id
+                )
+            ).all()
+        }
+        seen: set[int] = set()
         source_lines = {
             item.id: item
             for item in self._session.scalars(
@@ -980,7 +1006,12 @@ class DeliveryNoteService:
                 created_by=actor_id,
                 updated_by=actor_id,
             )
-            self._session.add(line)
+            persisted = existing.get(item.line_number)
+            if persisted is None:
+                self._session.add(line)
+            else:
+                self._apply_line_values(persisted, line, actor_id=actor_id, preserve=())
+            seen.add(item.line_number)
             totals["total_ordered_quantity"] += ordered_qty
             totals["total_previously_delivered_quantity"] += previous_delivered
             totals["total_current_delivery_quantity"] += delivered_qty
@@ -988,6 +1019,9 @@ class DeliveryNoteService:
             totals["line_discount_total"] += discount
             totals["subtotal"] += taxable
             totals["tax_total"] += tax
+        for line_number, obsolete in existing.items():
+            if line_number not in seen:
+                self._session.delete(obsolete)
         return {key: self._q(value) for key, value in totals.items()}
 
     def _replace_attachments(
@@ -1053,6 +1087,7 @@ class DeliveryNoteService:
             raise ValidationError(
                 "Delivery note must contain at least one line before dispatch."
             )
+        issued_cost = ZERO
         for line in lines:
             if line.inventory_transaction_id is not None:
                 continue
@@ -1126,12 +1161,35 @@ class DeliveryNoteService:
             )
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
+            issued_cost += self._issue_cost(dispatched.id)
         self._session.flush()
+        # Goods leave stock here, not when the invoice is raised, so this is
+        # where cost of goods sold belongs. Posting fails the dispatch for the
+        # same reason it fails an invoice approval: stock that has moved with no
+        # accounting entry behind it is the gap this closes.
+        DocumentPostingService(self._session).post_goods_issue(
+            firm_id=row.firm_id,
+            document_id=row.id,
+            document_number=row.delivery_note_number,
+            issue_date=row.delivery_date,
+            cost_amount=issued_cost,
+            source_module="delivery_note",
+            actor_id=actor_id,
+        )
+
+    def _issue_cost(self, transaction_id: UUID) -> Decimal:
+        """Return what the stock ledger released for one movement.
+
+        The moving average decides this, not the selling price on the invoice.
+        """
+        total = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost)).where(
+                StockLedgerEntry.transaction_id == transaction_id
+            )
+        )
+        return self._q(total)
 
     def _delete_children(self, note_id: UUID) -> None:
-        self._session.query(DeliveryNoteLine).filter(
-            DeliveryNoteLine.delivery_note_id == note_id
-        ).delete(synchronize_session=False)
         self._session.query(DeliveryNoteAttachment).filter(
             DeliveryNoteAttachment.delivery_note_id == note_id
         ).delete(synchronize_session=False)
@@ -1382,117 +1440,6 @@ class DeliveryNoteService:
             actor_id=actor_id,
         )
 
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "DELIVERY_NOTE",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="DELIVERY_NOTE",
-                    name="Delivery Note",
-                    description="Goods dispatch document",
-                    category="SALES",
-                    is_active=True,
-                    configuration={"module": "delivery_note"},
-                ),
-                actor_id,
-            )
-        for code, name, sort_order, terminal in [
-            ("DRAFT", "Draft", 1, False),
-            ("APPROVED", "Approved", 2, False),
-            ("DISPATCHED", "Dispatched", 3, False),
-            ("COMPLETED", "Completed", 4, True),
-            ("CANCELLED", "Cancelled", 90, True),
-            ("CLOSED", "Closed", 100, True),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=code == "DRAFT",
-                        is_terminal=terminal,
-                        allows_edit=code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={"module": "delivery_note", "state": code},
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.code == "DELIVERY_NOTE_DEFAULT",
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering is None:
-            numbering = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="DELIVERY_NOTE_DEFAULT",
-                    name="Delivery Note Default",
-                    prefix="DN",
-                    include_financial_year=True,
-                    include_branch_code=True,
-                    include_company_code=True,
-                    auto_reset=True,
-                    manual_allowed=True,
-                    sequence_padding=6,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "delivery_note"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "DELIVERY_NOTE",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            raise ResourceNotFoundError(
-                "Delivery note document type is not configured."
-            )
-        return document_type
-
     def _sales_order(self, sales_order_id: UUID, *, firm_id: UUID) -> SalesOrder:
         row = self._session.scalar(
             select(SalesOrder).where(
@@ -1604,35 +1551,6 @@ class DeliveryNoteService:
             return None
         return (
             "Potential duplicate dispatch detected for this sales order/date/vehicle."
-        )
-
-    def _financial_year_label(self, on: date) -> str:
-        return (
-            f"{on.year}-{str(on.year + 1)[-2:]}"
-            if on.month >= 4
-            else f"{on.year - 1}-{str(on.year)[-2:]}"
-        )
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        if branch_id is None:
-            return None
-        row = self._session.scalar(select(Branch.code).where(Branch.id == branch_id))
-        return row.upper() if row else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        row = self._session.scalar(select(Firm.code).where(Firm.id == firm_id))
-        return row.upper() if row else None
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except IntegrityError as error:
-            self._session.rollback()
-            raise ConflictError(message) from error
-
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        return Decimal("0" if value is None else str(value)).quantize(
-            Decimal("0.0001"), rounding=ROUND_HALF_UP
         )
 
     def _attachment_response(

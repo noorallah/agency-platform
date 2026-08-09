@@ -16,6 +16,11 @@ from app.batch_serial.models import batch_serial as _batch_models  # noqa: F401
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -46,11 +51,11 @@ from app.purchase.api.router import (
     import_purchase_orders,
     list_purchase_orders,
     purchase_order_history,
-    purchase_scope,
     purchase_summary,
     restore_purchase_order,
     update_purchase_order,
 )
+from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderImportRequest,
@@ -67,6 +72,19 @@ from app.uom.models import uom as _uom_models  # noqa: F401
 from app.uom.schemas import ConversionRuleCreate, UomCreate
 from app.uom.services import UomService
 from app.vendors.models import Vendor
+
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -494,9 +512,12 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
     )
     response = service.order_response(created)
     assert response.po_number == "PO-VAL-001"
-    assert response.subtotal == Decimal("20.0000")
+    # subtotal is the taxable base: gross 20.00 less the 2.00 line discount.
+    # It previously reported gross before discount, which no other document did.
+    assert response.subtotal == Decimal("18.0000")
     assert response.line_discount_total == Decimal("2.0000")
     assert response.tax_total == Decimal("0.9000")
+    # grand_total is unchanged by the redefinition; only the name's meaning was.
     assert response.grand_total == Decimal("20.4000")
     assert response.lines[0].base_quantity == Decimal("30.0000")
     assert response.lines[0].conversion_factor == Decimal("10")
@@ -547,7 +568,9 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
                         header_discount_amount="2",
                         additional_charges="1",
                         round_off="0.5",
-                    ).model_dump(mode="json").items()
+                    )
+                    .model_dump(mode="json")
+                    .items()
                     if key != "po_number"
                 }
             },
@@ -623,7 +646,9 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
                         product_id=product.id,
                         tax_profile_id=tax_profile_id,
                         po_number="IGNORED",
-                    ).model_dump(mode="json").items()
+                    )
+                    .model_dump(mode="json")
+                    .items()
                     if key != "po_number"
                 }
             ),
@@ -968,7 +993,7 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     }
     principal = _principal(actor_id, permissions, firm_id=firm.id)
     session = factory()
-    scope = purchase_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
 
     created = create_purchase_order(
         _purchase_data(
@@ -1028,7 +1053,9 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
                     free_quantity="0",
                     unit_price="11",
                     discount_percent="5",
-                ).model_dump(mode="json").items()
+                )
+                .model_dump(mode="json")
+                .items()
                 if key != "po_number"
             }
         ),
@@ -1145,7 +1172,10 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     csv_export = export_purchase_orders(scope, "csv", "PO-API", session)
     csv_bytes = asyncio.run(_read_stream(csv_export))
     csv_text = csv_bytes.decode("utf-8")
-    assert "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total" in csv_text
+    assert (
+        "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total"
+        in csv_text
+    )
     assert "PO-API-001" in csv_text
 
     xlsx_export = export_purchase_orders(scope, "xlsx", "PO-API", session)
@@ -1218,3 +1248,100 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         require_permission("PURCHASE_DELETE")(
             _principal(actor_id, {"PURCHASE_VIEW"}, firm_id=firm.id)
         )
+
+
+def test_generated_purchase_order_number_carries_firm_branch_and_year() -> None:
+    """Auto-generated numbers keep their composed shape.
+
+    Every purchase test supplied an explicit po_number, so the generated format
+    was asserted nowhere. Extracting the shared document base silently dropped
+    the company code from it, and nothing failed.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "NUM")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+
+    row = PurchaseService(session).create_order(
+        PurchaseOrderCreate(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            purchase_date=date(2026, 8, 4),
+            status=PurchaseOrderStatus.DRAFT,
+            lines=[
+                {
+                    "product_id": str(product.id),
+                    "ordered_quantity": "5",
+                    "unit_price": "10",
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    # prefix - company - branch - financial year - sequence
+    assert row.po_number == f"PO-{firm.code}-{branch.code}-2026-2027-000001"
+
+
+def test_editing_a_purchase_order_keeps_its_line_identities() -> None:
+    """Purchase order line ids survive an edit.
+
+    Goods receipts and purchase invoices record which order line they came from
+    in source_document_line_id, a bare UUID with no foreign key. Re-inserting
+    lines on every save left those references pointing at rows that no longer
+    existed.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "EDIT")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+    service = PurchaseService(session)
+
+    def _payload(quantity: str) -> PurchaseOrderCreate:
+        return PurchaseOrderCreate(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            purchase_date=date(2026, 8, 4),
+            status=PurchaseOrderStatus.DRAFT,
+            lines=[
+                {
+                    "product_id": str(product.id),
+                    "ordered_quantity": quantity,
+                    "unit_price": "10",
+                }
+            ],
+        )
+
+    order = service.create_order(_payload("5"), firm_id=firm.id, actor_id=actor_id)
+    before = session.scalar(
+        select(PurchaseOrderLine.id).where(
+            PurchaseOrderLine.purchase_order_id == order.id
+        )
+    )
+    assert before is not None
+
+    service.update_order(
+        order.id,
+        PurchaseOrderUpdate(**_payload("8").model_dump(exclude={"po_number"})),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    rows = session.scalars(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].id == before, "the line must keep its identity across an edit"
+    assert rows[0].ordered_quantity == Decimal("8.0000")

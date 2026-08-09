@@ -8,7 +8,7 @@ from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueCon
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UTCDateTime, UUIDType
+from app.core.database.types import UUIDType
 
 
 class InventoryRecord(BaseEntity):
@@ -159,11 +159,15 @@ class InventoryTransaction(BaseEntity):
     previous_current_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_current_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_current_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_reserved_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_available_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
@@ -173,11 +177,15 @@ class InventoryTransaction(BaseEntity):
     previous_blocked_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_blocked_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_blocked_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_damaged_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_damaged_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_quarantine_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
@@ -196,9 +204,20 @@ class InventoryTransaction(BaseEntity):
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
     )
     conversion_version: Mapped[int | None] = mapped_column()
-    batch_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True)
-    lot_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("lots.id", ondelete="RESTRICT"), index=True)
-    serial_id: Mapped[UUID | None] = mapped_column(UUIDType(), ForeignKey("serial_numbers.id", ondelete="RESTRICT"), index=True)
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
+    )
+    lot_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("lots.id", ondelete="RESTRICT"), index=True
+    )
+    serial_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("serial_numbers.id", ondelete="RESTRICT"), index=True
+    )
+    reversal_of_transaction_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("inventory_transactions.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
     inventory: Mapped[InventoryRecord] = relationship(back_populates="transactions")
     ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(
@@ -276,11 +295,15 @@ class StockLedgerEntry(BaseEntity):
     previous_current_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_current_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_current_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_reserved_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_reserved_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_reserved_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_available_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
@@ -290,11 +313,15 @@ class StockLedgerEntry(BaseEntity):
     previous_blocked_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_blocked_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_blocked_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_damaged_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
-    new_damaged_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    new_damaged_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False
+    )
     previous_quarantine_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )
@@ -313,9 +340,58 @@ class StockLedgerEntry(BaseEntity):
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
     )
     base_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    average_cost_after: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
 
-    transaction: Mapped[InventoryTransaction] = relationship(back_populates="ledger_entries")
+    transaction: Mapped[InventoryTransaction] = relationship(
+        back_populates="ledger_entries"
+    )
     inventory: Mapped[InventoryRecord] = relationship(back_populates="ledger_entries")
+
+
+class ProductValuation(BaseEntity):
+    """Track the moving weighted-average cost of a product for a firm.
+
+    The stock ledger recorded quantity buckets and no cost of any kind, so stock
+    could not be valued and cost of goods sold did not exist. This is the running
+    state the average is computed from.
+
+    The grain is deliberately ``(firm, product)`` rather than per location: a
+    per-warehouse average turns every stock transfer into a cost-movement
+    problem, and a per-bin average is noise. The costing method is stored so a
+    firm can move to FIFO later without this table changing shape.
+    """
+
+    __tablename__ = "product_valuations"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id", "product_id", name="UQ_product_valuations_firm_product"
+        ),
+        Index("IX_product_valuations_firm_product", "firm_id", "product_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    costing_method: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="WEIGHTED_AVERAGE",
+        server_default="WEIGHTED_AVERAGE",
+    )
+    quantity_on_hand: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    average_cost: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_value: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
 
 class OpeningStockBatch(BaseEntity):

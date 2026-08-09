@@ -17,6 +17,7 @@ from app.core.database.base import Base
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
+from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -167,7 +168,9 @@ def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
         warehouse_id=warehouse.id,
     )
     po_line = session.scalar(
-        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == purchase_order.id)
+        select(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == purchase_order.id
+        )
     )
     assert po_line is not None
 
@@ -207,13 +210,155 @@ def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
     assert response.return_number.startswith("PR")
     assert response.grand_total == Decimal("400.0000")
     assert response.duplicate_warning is None
-    assert session.scalar(
-        select(DocumentTypeDefinition).where(
-            DocumentTypeDefinition.firm_id == firm.id,
-            DocumentTypeDefinition.code == "PURCHASE_RETURN",
+    assert (
+        session.scalar(
+            select(DocumentTypeDefinition).where(
+                DocumentTypeDefinition.firm_id == firm.id,
+                DocumentTypeDefinition.code == "PURCHASE_RETURN",
+            )
         )
-    ) is not None
-    assert session.scalar(select(PurchaseReturn).where(PurchaseReturn.id == row.id)) is not None
-    assert session.scalar(select(PurchaseReturnLine).where(PurchaseReturnLine.purchase_return_id == row.id)) is not None
+        is not None
+    )
+    assert (
+        session.scalar(select(PurchaseReturn).where(PurchaseReturn.id == row.id))
+        is not None
+    )
+    assert (
+        session.scalar(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == row.id
+            )
+        )
+        is not None
+    )
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None
+
+
+def _approved_return_with_stock_posted(
+    session: Session, *, firm_id: UUID
+) -> tuple[PurchaseReturnService, PurchaseReturn]:
+    """Create, approve and complete a return so its stock movement exists."""
+    branch = _branch(session, firm_id=firm_id)
+    warehouse = _warehouse(session, firm_id=firm_id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm_id)
+    purchase_order = _purchase_order(
+        session,
+        firm_id=firm_id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == purchase_order.id
+        )
+    )
+    assert po_line is not None
+
+    service = PurchaseReturnService(session)
+    row = service.create_return(
+        PurchaseReturnCreate(
+            supplier_return_number="SUP-2001",
+            supplier_return_date=date(2026, 8, 2),
+            return_date=date(2026, 8, 2),
+            warehouse_id=warehouse.id,
+            allow_direct_purchase_order=True,
+            source_documents=[
+                {
+                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
+                    "source_document_id": purchase_order.id,
+                }
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
+                    source_document_id=purchase_order.id,
+                    source_document_line_id=po_line.id,
+                    line_number=1,
+                    current_return_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                    discount_amount=Decimal("0"),
+                    charges_amount=Decimal("0"),
+                    warehouse_id=warehouse.id,
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    service.approve_return(row.id, firm_scope=firm_id, actor_id=uuid4())
+    service.complete_return(row.id, firm_scope=firm_id, actor_id=uuid4())
+    return service, row
+
+
+def test_completing_a_purchase_return_links_its_inventory_movement() -> None:
+    """The completed return records which movement it produced.
+
+    Without this link the movements are unattributable, so a later cancellation
+    has no way to find the stock it must put back.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+
+    line = session.scalar(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    )
+    assert line is not None
+    assert line.inventory_transaction_id is not None
+    movement = session.get(InventoryTransaction, line.inventory_transaction_id)
+    assert movement is not None
+    assert movement.transaction_type == "RETURN"
+    assert movement.current_quantity_delta == Decimal("-4.0000")
+
+
+def test_cancelling_a_completed_purchase_return_reverses_the_stock() -> None:
+    """Cancelling after completion nets the stock movement back to zero.
+
+    Previously cancel only flipped the status, so a cancelled return kept the
+    goods off the shelf permanently.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+    original_id = session.scalar(
+        select(PurchaseReturnLine.inventory_transaction_id).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    )
+    assert original_id is not None
+
+    service.cancel_return(
+        row.id, firm_scope=firm.id, actor_id=uuid4(), reason="vendor refused"
+    )
+
+    cancelled = service.get_return(row.id, firm_scope=firm.id)
+    assert cancelled.status == PurchaseReturnStatus.CANCELLED.value
+
+    reversal = session.scalar(
+        select(InventoryTransaction).where(
+            InventoryTransaction.reversal_of_transaction_id == original_id
+        )
+    )
+    assert reversal is not None
+    assert reversal.transaction_type == "RETURN_REVERSAL"
+    assert reversal.current_quantity_delta == Decimal("4.0000")
+
+    net = sum(
+        movement.current_quantity_delta
+        for movement in session.scalars(
+            select(InventoryTransaction).where(InventoryTransaction.firm_id == firm.id)
+        ).all()
+    )
+    assert net == Decimal("0.0000")
+
+    line = session.scalar(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    )
+    assert line is not None
+    assert line.inventory_transaction_id is None

@@ -6,7 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.branches.models import Branch, BranchType, Warehouse, WarehouseStorageNode, WarehouseType
+from app.branches.models import (
+    Branch,
+    BranchType,
+    Warehouse,
+    WarehouseStorageNode,
+    WarehouseType,
+)
 from app.branches.repositories import BranchWarehouseRepository
 from app.branches.schemas import (
     BranchCreate,

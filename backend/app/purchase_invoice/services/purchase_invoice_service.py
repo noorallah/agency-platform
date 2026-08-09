@@ -6,30 +6,29 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
-    DocumentNumberingRuleCreate,
-    DocumentStateCreate,
-    DocumentTypeCreate,
 )
-from app.document_framework.services.document_framework_service import (
-    DocumentFrameworkService,
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import (
@@ -70,12 +69,27 @@ from app.vendors.models import Vendor
 ZERO = Decimal("0")
 
 
-class PurchaseInvoiceService:
+class PurchaseInvoiceService(TransactionalDocumentService):
     """Coordinate supplier invoice lifecycle and source-document validation."""
 
+    DOCUMENT = DocumentTypeSpec(
+        code="PURCHASE_INVOICE",
+        name="Purchase Invoice",
+        description="Supplier invoice document",
+        category="FINANCE",
+        module="purchase_invoice",
+        prefix="PI",
+        states=(
+            DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
+            DocumentStateSpec("APPROVED", "Approved", 2),
+            DocumentStateSpec("CANCELLED", "Cancelled", 3, is_terminal=True),
+            DocumentStateSpec("CLOSED", "Closed", 4, is_terminal=True),
+        ),
+    )
+
     def __init__(self, session: Session) -> None:
-        self._session = session
-        self._documents = DocumentFrameworkService(session)
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
 
@@ -223,7 +237,9 @@ class PurchaseInvoiceService:
             else self._documents.reserve_number(
                 numbering_rule.id,
                 firm_id=firm_id,
-                financial_year_label=self._financial_year_label(data.invoice_date),
+                financial_year_label=self._financial_year_label(
+                    data.invoice_date, firm_id
+                ),
                 branch_code=self._scope_code(branch_id),
                 company_code=self._company_code(firm_id),
                 document_date=data.invoice_date,
@@ -278,7 +294,11 @@ class PurchaseInvoiceService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_id
@@ -368,7 +388,11 @@ class PurchaseInvoiceService:
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
         row.grand_total = self._q(
-            row.subtotal + row.tax_total + row.additional_charges + row.round_off
+            row.subtotal
+            + row.tax_total
+            + line_totals["line_charges_total"]
+            + row.additional_charges
+            + row.round_off
         )
         self._replace_attachments(
             row, data.attachments, actor_id=actor_id, firm_id=firm_scope
@@ -405,6 +429,20 @@ class PurchaseInvoiceService:
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
+        # Posting runs before the commit and may fail the approval, matching the
+        # sales side. Goods value clears the receipt accrual rather than touching
+        # inventory, which was already valued at what the receipt cost.
+        DocumentPostingService(self._session).post_purchase_invoice(
+            firm_id=firm_scope,
+            invoice_id=row.id,
+            invoice_number=row.invoice_number,
+            invoice_date=row.invoice_date,
+            goods_amount=self._q(row.grand_total - row.tax_total),
+            accrued_amount=self._accrued_cost(row.id),
+            tax_amount=self._q(row.tax_total),
+            total_amount=self._q(row.grand_total),
+            actor_id=actor_id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -965,9 +1003,12 @@ class PurchaseInvoiceService:
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
             totals["line_discount_total"] += discount_amount
-            totals["subtotal"] += self._q(
-                gross_amount - discount_amount + charges_amount
-            )
+            # subtotal is the taxable base: gross less discount, before tax and
+            # before charges. Line charges used to be folded in here, which made
+            # this module's subtotal mean something different from every other
+            # document's; they are carried separately and added to grand_total.
+            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
 
@@ -1350,6 +1391,44 @@ class PurchaseInvoiceService:
             )
         return None
 
+    def _accrued_cost(self, invoice_id: UUID) -> Decimal:
+        """Return what the receipts behind this invoice actually cost.
+
+        The goods receipt accrued at the stock ledger's cost, so the invoice has
+        to clear the accrual at that same number. Anything else the supplier
+        billed is a price variance.
+
+        Lines sourced from a purchase order rather than a receipt accrued
+        nothing, so they contribute nothing here and the whole of their value
+        becomes variance — which is the honest answer when stock was invoiced
+        without ever being received.
+
+        Args:
+            invoice_id: The invoice being approved.
+
+        Returns:
+            The total cost accrued by the receipts this invoice draws on.
+
+        """
+        accrued = self._session.scalar(
+            select(func.sum(StockLedgerEntry.total_cost))
+            .select_from(PurchaseInvoiceLine)
+            .join(
+                GoodsReceiptLine,
+                GoodsReceiptLine.id == PurchaseInvoiceLine.source_document_line_id,
+            )
+            .join(
+                StockLedgerEntry,
+                StockLedgerEntry.transaction_id
+                == GoodsReceiptLine.inventory_transaction_id,
+            )
+            .where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        )
+        return self._q(accrued)
+
     def _record_event(
         self,
         *,
@@ -1387,138 +1466,6 @@ class PurchaseInvoiceService:
             ),
             actor_id=actor_id,
         )
-
-    def _ensure_document_setup(
-        self, *, firm_id: UUID, actor_id: UUID
-    ) -> tuple[DocumentTypeDefinition, DocumentNumberingRule]:
-        document_type = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_INVOICE",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if document_type is None:
-            document_type = self._documents.create_type(
-                firm_id,
-                DocumentTypeCreate(
-                    code="PURCHASE_INVOICE",
-                    name="Purchase Invoice",
-                    description="Supplier invoice document",
-                    category="FINANCE",
-                    is_active=True,
-                    configuration={"module": "purchase_invoice"},
-                ),
-                actor_id,
-            )
-        for state_code, name, sort_order in [
-            ("DRAFT", "Draft", 1),
-            ("APPROVED", "Approved", 2),
-            ("CANCELLED", "Cancelled", 3),
-            ("CLOSED", "Closed", 4),
-        ]:
-            if not self._state_exists(
-                firm_id=firm_id, document_type_id=document_type.id, code=state_code
-            ):
-                self._documents.create_state(
-                    firm_id,
-                    DocumentStateCreate(
-                        document_type_id=document_type.id,
-                        code=state_code,
-                        name=name,
-                        sort_order=sort_order,
-                        is_default=state_code == "DRAFT",
-                        is_terminal=state_code in {"CANCELLED", "CLOSED"},
-                        allows_edit=state_code == "DRAFT",
-                        allows_print=True,
-                        allows_email=True,
-                        allows_export_pdf=True,
-                        transition_rules={
-                            "module": "purchase_invoice",
-                            "state": state_code,
-                        },
-                        is_active=True,
-                    ),
-                    actor_id,
-                )
-        numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
-                DocumentNumberingRule.firm_id == firm_id,
-                DocumentNumberingRule.document_type_id == document_type.id,
-                DocumentNumberingRule.is_deleted.is_(False),
-            )
-        )
-        if numbering_rule is None:
-            numbering_rule = self._documents.create_numbering_rule(
-                firm_id,
-                DocumentNumberingRuleCreate(
-                    document_type_id=document_type.id,
-                    code="PURCHASE_INVOICE_DEFAULT",
-                    name="Purchase Invoice Default",
-                    prefix="PI",
-                    suffix=None,
-                    separator="-",
-                    include_financial_year=True,
-                    include_branch_code=False,
-                    include_company_code=False,
-                    auto_reset=True,
-                    manual_allowed=False,
-                    sequence_padding=6,
-                    next_sequence=1,
-                    is_default=True,
-                    is_active=True,
-                    configuration={"module": "purchase_invoice"},
-                ),
-                actor_id,
-            )
-        return document_type, numbering_rule
-
-    def _state_exists(
-        self, *, firm_id: UUID, document_type_id: UUID, code: str
-    ) -> bool:
-        return (
-            self._session.scalar(
-                select(DocumentStateDefinition.id).where(
-                    DocumentStateDefinition.firm_id == firm_id,
-                    DocumentStateDefinition.document_type_id == document_type_id,
-                    DocumentStateDefinition.code == code,
-                    DocumentStateDefinition.is_deleted.is_(False),
-                )
-            )
-            is not None
-        )
-
-    def _document_type(self, firm_id: UUID) -> DocumentTypeDefinition:
-        row = self._session.scalar(
-            select(DocumentTypeDefinition).where(
-                DocumentTypeDefinition.firm_id == firm_id,
-                DocumentTypeDefinition.code == "PURCHASE_INVOICE",
-                DocumentTypeDefinition.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            raise ResourceNotFoundError("Purchase invoice document type not found.")
-        return row
-
-    def _financial_year_label(self, on: date) -> str:
-        return f"{on.year}"
-
-    def _scope_code(self, branch_id: UUID | None) -> str | None:
-        return str(branch_id)[:8].upper() if branch_id is not None else None
-
-    def _company_code(self, firm_id: UUID) -> str | None:
-        return str(firm_id)[:8].upper()
-
-    def _flush_or_conflict(self, message: str) -> None:
-        try:
-            self._session.flush()
-        except Exception as error:
-            raise ConflictError(message) from error
-
-    def _q(self, value: Decimal | int | str | None) -> Decimal:
-        if value is None:
-            return ZERO
-        return Decimal(str(value)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
     def _attachment_response(
         self, row: PurchaseInvoiceAttachment

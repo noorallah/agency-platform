@@ -5,11 +5,16 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -22,13 +27,15 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
-    finance_scope,
     post_journal_entry,
     trial_balance,
 )
 from app.finance.models import (
     AccountingPeriod,
+    CostCenter,
+    FinancialYear,
     GLPosting,
+    JournalLine,
     JournalStatus,
     LedgerBalance,
     PeriodStatus,
@@ -52,8 +59,27 @@ from app.finance.services import (
     JournalEntryEngine,
     JournalLineData,
 )
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
+from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.opening_setup import CHART, seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
+
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -491,13 +517,13 @@ def test_finance_api_scope_enforces_membership_and_permissions() -> None:
 
     # A missing firm header is refused.
     with pytest.raises(AuthorizationError, match="X-Firm-ID is required"):
-        finance_scope(principal, session, None)
+        _firm_scope(principal, session, None)
 
     # A firm the user does not belong to is refused.
     with pytest.raises(AuthorizationError, match="not authorized"):
-        finance_scope(principal, session, outsider_firm.id)
+        _firm_scope(principal, session, outsider_firm.id)
 
-    scope = finance_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     assert scope.firm_id == firm.id
     assert scope.actor_id == user_id
 
@@ -611,3 +637,481 @@ def test_locked_period_accepts_only_a_reopen() -> None:
         actor_id=actor_id,
     )
     assert reopened.status == PeriodStatus.OPEN.value
+
+
+def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
+    """A firm nominates where each kind of posting lands, and the map is checked.
+
+    Automatic GL posting never existed, and the consumer that once guessed
+    accounts by matching on their name was removed for good reason. Posting
+    rules belong in code; which account they land in belongs to the firm.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm_id=firm.id, actor_id=actor_id)
+    service = ControlAccountService(session)
+
+    # Nothing is mapped, and the error names what is missing rather than
+    # falling back to a guess.
+    with pytest.raises(ValidationError) as unmapped:
+        service.resolve(firm.id, ControlAccountPurpose.SALES_REVENUE)
+    assert "SALES_REVENUE" in str(unmapped.value)
+
+    service.assign(
+        firm.id,
+        ControlAccountPurpose.SALES_REVENUE,
+        book.sales.id,
+        actor_id=actor_id,
+    )
+    assert (
+        service.resolve(firm.id, ControlAccountPurpose.SALES_REVENUE) == book.sales.id
+    )
+
+    # Re-assigning replaces rather than duplicating; the unique constraint on
+    # (firm, purpose) means a second row would fail outright.
+    service.assign(firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id)
+    service.assign(firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id)
+    assert len(service.mapping(firm.id)) == 2
+
+    # Revenue cannot be pointed at an asset account.
+    with pytest.raises(ValidationError) as wrong_type:
+        service.assign(
+            firm.id,
+            ControlAccountPurpose.SALES_REVENUE,
+            book.cash.id,
+            actor_id=actor_id,
+        )
+    assert "INCOME" in str(wrong_type.value)
+
+    # And every remaining gap can be reported at once.
+    gaps = service.missing(
+        firm.id,
+        (
+            ControlAccountPurpose.SALES_REVENUE,
+            ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+            ControlAccountPurpose.OUTPUT_TAX,
+        ),
+    )
+    assert gaps == (
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        ControlAccountPurpose.OUTPUT_TAX,
+    )
+
+
+def test_sales_invoice_posts_receivable_revenue_and_tax() -> None:
+    """An approved invoice becomes a balanced journal, or is refused.
+
+    Finance was an island: no module outside app/finance imported it, so the
+    trial balance could only ever reflect hand-keyed journals.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm_id=firm.id, actor_id=actor_id)
+    finance = FinanceService(session)
+    receivable = finance.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1100",
+            name="Trade Receivables",
+            account_type=AccountTypeEnum.ASSET,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    tax_group = finance.create_account_group(
+        AccountGroupCreate(
+            code="DUT", name="Duties", account_type=AccountTypeEnum.LIABILITY
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    output_tax = finance.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=tax_group.id,
+            code="2200",
+            name="Output Tax",
+            account_type=AccountTypeEnum.LIABILITY,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    posting = DocumentPostingService(session)
+    invoice_id = uuid4()
+
+    # Nothing mapped yet: the post is refused and names every gap at once.
+    with pytest.raises(ValidationError) as unmapped:
+        posting.post_sales_invoice(
+            firm_id=firm.id,
+            invoice_id=invoice_id,
+            invoice_number="SI-1",
+            invoice_date=date(2026, 4, 15),
+            taxable_amount=Decimal("1000"),
+            tax_amount=Decimal("180"),
+            total_amount=Decimal("1180"),
+            actor_id=actor_id,
+        )
+    message = str(unmapped.value)
+    assert "ACCOUNTS_RECEIVABLE" in message
+    assert "SALES_REVENUE" in message
+    assert "OUTPUT_TAX" in message
+
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id,
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        receivable.id,
+        actor_id=actor_id,
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.SALES_REVENUE, book.sales.id, actor_id=actor_id
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.OUTPUT_TAX, output_tax.id, actor_id=actor_id
+    )
+
+    entry = posting.post_sales_invoice(
+        firm_id=firm.id,
+        invoice_id=invoice_id,
+        invoice_number="SI-1",
+        invoice_date=date(2026, 4, 15),
+        taxable_amount=Decimal("1000"),
+        tax_amount=Decimal("180"),
+        total_amount=Decimal("1180"),
+        actor_id=actor_id,
+    )
+    assert entry.status == JournalStatus.POSTED.value
+    assert entry.source_module == "sales_invoice"
+    assert entry.source_id == invoice_id
+    legs = {
+        line.ledger_account_id: (line.debit_amount, line.credit_amount)
+        for line in session.scalars(
+            select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+        ).all()
+    }
+    assert legs[receivable.id][0] == Decimal("1180.00")
+    assert legs[book.sales.id][1] == Decimal("1000.00")
+    assert legs[output_tax.id][1] == Decimal("180.00")
+
+    # A date no open period covers refuses the post rather than skipping it.
+    with pytest.raises(ValidationError) as closed:
+        posting.post_sales_invoice(
+            firm_id=firm.id,
+            invoice_id=uuid4(),
+            invoice_number="SI-2",
+            invoice_date=date(2027, 1, 5),
+            taxable_amount=Decimal("100"),
+            tax_amount=Decimal("0"),
+            total_amount=Decimal("100"),
+            actor_id=actor_id,
+        )
+    assert "No open accounting period" in str(closed.value)
+
+
+def test_seed_finance_setup_is_complete_and_idempotent() -> None:
+    """A seeded firm can post, and re-seeding changes nothing.
+
+    The sample firms had no chart of accounts, no periods and no journal types
+    at all, so DocumentPostingService — which refuses rather than guesses — had
+    nothing to post against.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+
+    created = seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    assert created["accounts"] == len(CHART)
+    assert created["periods"] == 12
+    assert created["mappings"] == sum(1 for entry in CHART if entry.purpose)
+
+    # Every purpose the sales-invoice posting needs is now mapped.
+    posting = DocumentPostingService(session)
+    entry = posting.post_sales_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="SI-SEED",
+        invoice_date=date(2026, 8, 4),
+        taxable_amount=Decimal("1000"),
+        tax_amount=Decimal("180"),
+        total_amount=Decimal("1180"),
+        actor_id=actor_id,
+    )
+    assert entry.status == JournalStatus.POSTED.value
+
+    # Re-running creates nothing: the seed is safe after a partial failure or a
+    # tenancy rebuild.
+    again = seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    assert again == {
+        "groups": 0,
+        "accounts": 0,
+        "periods": 0,
+        "mappings": 0,
+        "types": 0,
+    }
+
+
+def test_a_conflict_leaves_earlier_work_in_the_transaction() -> None:
+    """A duplicate key rolls back the clashing row, not the caller's work.
+
+    FinanceService used to commit after every operation, so its rollback-on-
+    conflict only ever discarded the failed insert. Once the router owns the
+    transaction that same rollback would throw away everything done since the
+    last commit — a financial year created moments earlier would vanish because
+    an unrelated cost centre clashed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = FinanceService(session)
+
+    year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2026",
+            name="Financial Year 2026-2027",
+            starts_on=date(2026, 4, 1),
+            ends_on=date(2027, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.create_cost_center(
+        CostCenterCreate(code="CC1", name="First"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ConflictError):
+        service.create_cost_center(
+            CostCenterCreate(code="CC1", name="Duplicate"),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    # The year and the first cost centre survive the conflict.
+    assert (
+        session.scalar(select(FinancialYear.id).where(FinancialYear.id == year.id))
+        is not None
+    )
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(CostCenter)
+            .where(CostCenter.firm_id == firm.id, CostCenter.is_deleted.is_(False))
+        )
+        == 1
+    )
+    # And the session is still usable rather than needing a rollback.
+    service.create_cost_center(
+        CostCenterCreate(code="CC2", name="After the conflict"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+
+def test_goods_issue_posts_cost_of_goods_sold_against_inventory() -> None:
+    """Dispatched stock moves its cost from inventory into expense.
+
+    The amount comes from what the stock ledger released at the moving average,
+    not from the selling price on the invoice — which is why inventory had to be
+    given a cost before any of this could mean anything.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    posting = DocumentPostingService(session)
+    note_id = uuid4()
+
+    entry = posting.post_goods_issue(
+        firm_id=firm.id,
+        document_id=note_id,
+        document_number="DN-1",
+        issue_date=date(2026, 8, 5),
+        cost_amount=Decimal("550"),
+        source_module="delivery_note",
+        actor_id=actor_id,
+    )
+    assert entry is not None
+    assert entry.status == JournalStatus.POSTED.value
+    assert entry.source_module == "delivery_note"
+
+    accounts = ControlAccountService(session).mapping(firm.id)
+    legs = {
+        line.ledger_account_id: (line.debit_amount, line.credit_amount)
+        for line in session.scalars(
+            select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+        ).all()
+    }
+    cogs = accounts[ControlAccountPurpose.COST_OF_GOODS_SOLD.value]
+    inventory = accounts[ControlAccountPurpose.INVENTORY.value]
+    assert legs[cogs][0] == Decimal("550.00"), "cost of goods sold is debited"
+    assert legs[inventory][1] == Decimal("550.00"), "inventory is credited"
+
+    # Stock carrying no cost — received before valuation existed — writes no
+    # journal rather than an empty one.
+    assert (
+        posting.post_goods_issue(
+            firm_id=firm.id,
+            document_id=uuid4(),
+            document_number="DN-2",
+            issue_date=date(2026, 8, 5),
+            cost_amount=Decimal("0"),
+            source_module="delivery_note",
+            actor_id=actor_id,
+        )
+        is None
+    )
+
+
+def test_receipt_accrual_is_raised_then_cleared_by_the_supplier_invoice() -> None:
+    """Stock arrives before its invoice, so the liability moves in two steps.
+
+    Receipts posted nothing at all until now: inventory was only ever credited
+    by dispatches, so the account drove negative while the warehouse filled up.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    posting = DocumentPostingService(session)
+    accounts = ControlAccountService(session).mapping(firm.id)
+    inventory = accounts[ControlAccountPurpose.INVENTORY.value]
+    accrual = accounts[ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value]
+    input_tax = accounts[ControlAccountPurpose.INPUT_TAX.value]
+    payables = accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE.value]
+
+    def _legs(entry_id: UUID) -> dict[UUID, tuple[Decimal, Decimal]]:
+        return {
+            line.ledger_account_id: (line.debit_amount, line.credit_amount)
+            for line in session.scalars(
+                select(JournalLine).where(JournalLine.journal_entry_id == entry_id)
+            ).all()
+        }
+
+    receipt = posting.post_goods_receipt(
+        firm_id=firm.id,
+        document_id=uuid4(),
+        document_number="GRN-1",
+        receipt_date=date(2026, 8, 4),
+        cost_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    assert receipt is not None
+    receipt_legs = _legs(receipt.id)
+    assert receipt_legs[inventory][0] == Decimal("1000.00"), "stock is capitalised"
+    assert receipt_legs[accrual][1] == Decimal("1000.00"), "the accrual is raised"
+
+    invoice = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-1",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("1000"),
+        tax_amount=Decimal("180"),
+        total_amount=Decimal("1180"),
+        actor_id=actor_id,
+    )
+    invoice_legs = _legs(invoice.id)
+    assert invoice_legs[accrual][0] == Decimal("1000.00"), "the accrual is cleared"
+    assert invoice_legs[input_tax][0] == Decimal("180.00")
+    assert invoice_legs[payables][1] == Decimal("1180.00")
+    # Inventory is untouched by the invoice: it was valued at what the receipt
+    # cost, and re-valuing here would double-count.
+    assert inventory not in invoice_legs
+
+    # A receipt that brought in no value writes nothing.
+    assert (
+        posting.post_goods_receipt(
+            firm_id=firm.id,
+            document_id=uuid4(),
+            document_number="GRN-2",
+            receipt_date=date(2026, 8, 4),
+            cost_amount=Decimal("0"),
+            actor_id=actor_id,
+        )
+        is None
+    )
+
+
+def test_a_supplier_price_change_lands_in_purchase_price_variance() -> None:
+    """The accrual clears at cost; the difference reaches the P&L.
+
+    Clearing at the invoice price instead would leave the gap sitting in goods
+    received not invoiced, growing quietly and explaining nothing.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    posting = DocumentPostingService(session)
+    accounts = ControlAccountService(session).mapping(firm.id)
+    accrual = accounts[ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value]
+    variance = accounts[ControlAccountPurpose.PURCHASE_PRICE_VARIANCE.value]
+    payables = accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE.value]
+
+    def _legs(entry_id: UUID) -> dict[UUID, tuple[Decimal, Decimal]]:
+        return {
+            line.ledger_account_id: (line.debit_amount, line.credit_amount)
+            for line in session.scalars(
+                select(JournalLine).where(JournalLine.journal_entry_id == entry_id)
+            ).all()
+        }
+
+    # Received at 1000, billed 1050: an unfavourable variance of 50.
+    dearer = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-DEAR",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("1050"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("1050"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    legs = _legs(dearer.id)
+    assert legs[accrual][0] == Decimal("1000.00"), "the accrual clears at cost"
+    assert legs[variance][0] == Decimal("50.00"), "the overspend is an expense"
+    assert legs[payables][1] == Decimal("1050.00"), "the supplier is owed the bill"
+
+    # Received at 1000, billed 900: a favourable variance, credited.
+    cheaper = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-CHEAP",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("900"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("900"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    legs = _legs(cheaper.id)
+    assert legs[accrual][0] == Decimal("1000.00")
+    assert legs[variance][1] == Decimal("100.00"), "the saving is a credit"
+    assert legs[payables][1] == Decimal("900.00")
+
+    # Invoice matching the receipt raises no variance line at all.
+    exact = posting.post_purchase_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="PI-EXACT",
+        invoice_date=date(2026, 8, 6),
+        goods_amount=Decimal("1000"),
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("1000"),
+        accrued_amount=Decimal("1000"),
+        actor_id=actor_id,
+    )
+    assert variance not in _legs(exact.id)
