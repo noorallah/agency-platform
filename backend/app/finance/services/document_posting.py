@@ -44,6 +44,12 @@ GOODS_ISSUE_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
 )
 
+PURCHASE_INVOICE_PURPOSES = (
+    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
+    ControlAccountPurpose.INPUT_TAX,
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+)
+
 GOODS_RECEIPT_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
@@ -351,6 +357,100 @@ class DocumentPostingService:
             ],
             source_module="goods_receipt",
             source_id=document_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_purchase_invoice(
+        self,
+        *,
+        firm_id: UUID,
+        invoice_id: UUID,
+        invoice_number: str,
+        invoice_date: date,
+        goods_amount: Decimal,
+        tax_amount: Decimal,
+        total_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Turn a supplier invoice into a payable and clear the receipt accrual.
+
+        The goods were already brought onto the balance sheet when they were
+        received, credited to goods received not invoiced. This debits that
+        accrual back out and credits payables instead, so the liability moves
+        from "stock we owe for" to "this supplier, this invoice".
+
+        Inventory is deliberately untouched: it was valued at what the receipt
+        cost, and re-valuing it here would double-count. Where the invoice
+        disagrees with the receipt the difference is a purchase price variance,
+        which this does not yet model — see the note in the module that raises
+        it.
+
+        Args:
+            firm_id: The owning firm.
+            invoice_id: The source document.
+            invoice_number: The document number, used as the journal reference.
+            invoice_date: The date the journal carries.
+            goods_amount: Net of discount, before tax.
+            tax_amount: Recoverable input tax.
+            total_amount: What is owed to the supplier.
+            actor_id: The approving user.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing, or the
+                amounts do not balance.
+
+        """
+        accounts = self._require_mapping(firm_id, PURCHASE_INVOICE_PURPOSES)
+        context = self.context_for(firm_id, invoice_date)
+
+        goods = quantize_money(goods_amount)
+        tax = quantize_money(tax_amount)
+        total = quantize_money(total_amount)
+        if goods + tax != total:
+            raise ValidationError(
+                f"Invoice {invoice_number} does not balance: goods {goods} "
+                f"plus tax {tax} is not total {total}."
+            )
+
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED
+                ],
+                debit_amount=goods,
+                description=f"Clearing receipt accrual for {invoice_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                credit_amount=total,
+                description=f"Supplier invoice {invoice_number}",
+            ),
+        ]
+        if tax != ZERO:
+            lines.insert(
+                1,
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.INPUT_TAX],
+                    debit_amount=tax,
+                    description=f"Input tax on {invoice_number}",
+                ),
+            )
+
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=invoice_date,
+            reference_number=invoice_number,
+            description=f"Purchase invoice {invoice_number}",
+            lines=lines,
+            source_module="purchase_invoice",
+            source_id=invoice_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

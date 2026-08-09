@@ -26,6 +26,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -427,6 +428,19 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
+        # Posting runs before the commit and may fail the approval, matching the
+        # sales side. Goods value clears the receipt accrual rather than touching
+        # inventory, which was already valued at what the receipt cost.
+        DocumentPostingService(self._session).post_purchase_invoice(
+            firm_id=firm_scope,
+            invoice_id=row.id,
+            invoice_number=row.invoice_number,
+            invoice_date=row.invoice_date,
+            goods_amount=self._q(row.grand_total - row.tax_total),
+            tax_amount=self._q(row.tax_total),
+            total_amount=self._q(row.grand_total),
+            actor_id=actor_id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
