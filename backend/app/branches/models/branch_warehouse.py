@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -48,6 +49,17 @@ class Branch(BaseEntity):
         UniqueConstraint("firm_id", "code", name="UQ_branches_firm_code"),
         Index("IX_branches_firm_name", "firm_id", "name"),
         Index("IX_branches_firm_status", "firm_id", "status"),
+        # A firm has one default branch. Nothing enforced it, so every branch
+        # could carry the flag and "the default" resolved to an arbitrary row.
+        # Mirrors UQ_user_firms_active_primary; MySQL ignores the predicate, so
+        # BranchWarehouseService stays the authoritative check.
+        Index(
+            "UQ_branches_default_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("is_default AND NOT is_deleted"),
+            sqlite_where=text("is_default = 1 AND is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -146,6 +158,14 @@ class Warehouse(BaseEntity):
         UniqueConstraint("firm_id", "code", name="UQ_warehouses_firm_code"),
         Index("IX_warehouses_firm_name", "firm_id", "name"),
         Index("IX_warehouses_branch_status", "branch_id", "status"),
+        # One default warehouse per branch, for the same reason.
+        Index(
+            "UQ_warehouses_default_active",
+            "branch_id",
+            unique=True,
+            postgresql_where=text("is_default AND NOT is_deleted"),
+            sqlite_where=text("is_default = 1 AND is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -255,7 +275,9 @@ class WarehouseStorageNode(BaseEntity):
             "parent_id",
             name="UQ_warehouse_storage_nodes_warehouse_name_parent",
         ),
-        Index("IX_warehouse_storage_nodes_warehouse_parent", "warehouse_id", "parent_id"),
+        Index(
+            "IX_warehouse_storage_nodes_warehouse_parent", "warehouse_id", "parent_id"
+        ),
         Index("IX_warehouse_storage_nodes_warehouse_type", "warehouse_id", "node_type"),
     )
 
@@ -274,7 +296,9 @@ class WarehouseStorageNode(BaseEntity):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     path: Mapped[str] = mapped_column(String(1000), nullable=False)
-    sort_order: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    sort_order: Mapped[int] = mapped_column(
+        nullable=False, default=0, server_default="0"
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
