@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class BatchStatus(StrEnum):
+    """Supported batch lifecycle statuses."""
+
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
     BLOCKED = "BLOCKED"
@@ -21,18 +23,24 @@ class BatchStatus(StrEnum):
 
 
 class LotStatus(StrEnum):
+    """Supported production lot statuses."""
+
     ACTIVE = "ACTIVE"
     CLOSED = "CLOSED"
     CANCELLED = "CANCELLED"
 
 
 class LotType(StrEnum):
+    """Supported production lot types."""
+
     PRODUCTION = "PRODUCTION"
     MIXING = "MIXING"
     MANUFACTURING = "MANUFACTURING"
 
 
 class SerialStatus(StrEnum):
+    """Supported serial number statuses."""
+
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
     SOLD = "SOLD"
@@ -44,10 +52,14 @@ class SerialStatus(StrEnum):
 
 
 class BatchSchema(BaseModel):
+    """Apply strict validation and ORM response behaviour."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class BatchCreate(BatchSchema):
+    """Fields accepted when recording a batch."""
+
     product_id: UUID
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -66,6 +78,8 @@ class BatchCreate(BatchSchema):
 
 
 class BatchUpdate(BatchSchema):
+    """Fields that may be changed on a batch."""
+
     product_id: UUID | None = None
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -84,6 +98,8 @@ class BatchUpdate(BatchSchema):
 
 
 class BatchResponse(BatchSchema):
+    """A batch as exposed by the API."""
+
     id: UUID
     firm_id: UUID
     product_id: UUID
@@ -118,6 +134,8 @@ class BatchResponse(BatchSchema):
 
 
 class BatchListFilters(BatchSchema):
+    """Validated filters for batch listing."""
+
     product_id: UUID | None = None
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -127,6 +145,8 @@ class BatchListFilters(BatchSchema):
 
 
 class BatchSummary(BatchSchema):
+    """Aggregate batch counts for the firm."""
+
     total_batches: int
     near_expiry: int
     expired: int
@@ -134,6 +154,8 @@ class BatchSummary(BatchSchema):
 
 
 class ExpiryDashboard(BatchSchema):
+    """Expiry counts across the reporting windows."""
+
     expired_today: int
     expire_in_7_days: int
     expire_in_30_days: int
@@ -144,11 +166,16 @@ class ExpiryDashboard(BatchSchema):
 
 # ── Lot schemas ──────────────────────────────────────────────────────────────
 
+
 class LotSchema(BaseModel):
+    """Apply strict validation and ORM response behaviour."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class LotCreate(LotSchema):
+    """Fields accepted when recording a lot."""
+
     product_id: UUID
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -163,6 +190,8 @@ class LotCreate(LotSchema):
 
 
 class LotUpdate(LotSchema):
+    """Fields that may be changed on a lot."""
+
     product_id: UUID | None = None
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -177,6 +206,8 @@ class LotUpdate(LotSchema):
 
 
 class LotResponse(LotSchema):
+    """A production lot as exposed by the API."""
+
     id: UUID
     firm_id: UUID
     product_id: UUID
@@ -197,6 +228,8 @@ class LotResponse(LotSchema):
 
 
 class LotListFilters(LotSchema):
+    """Validated filters for lot listing."""
+
     product_id: UUID | None = None
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None
@@ -206,11 +239,16 @@ class LotListFilters(LotSchema):
 
 # ── Serial schemas ────────────────────────────────────────────────────────────
 
+
 class SerialSchema(BaseModel):
+    """Apply strict validation and ORM response behaviour."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class SerialCreate(SerialSchema):
+    """Fields accepted when recording a serial number."""
+
     product_id: UUID
     inventory_id: UUID | None = None
     warehouse_id: UUID | None = None
@@ -227,6 +265,8 @@ class SerialCreate(SerialSchema):
 
 
 class SerialUpdate(SerialSchema):
+    """Fields that may be changed on a serial number."""
+
     product_id: UUID | None = None
     inventory_id: UUID | None = None
     warehouse_id: UUID | None = None
@@ -243,6 +283,8 @@ class SerialUpdate(SerialSchema):
 
 
 class SerialResponse(SerialSchema):
+    """A serial number as exposed by the API."""
+
     id: UUID
     firm_id: UUID
     product_id: UUID
@@ -264,6 +306,8 @@ class SerialResponse(SerialSchema):
 
 
 class SerialListFilters(SerialSchema):
+    """Validated filters for serial number listing."""
+
     product_id: UUID | None = None
     warehouse_id: UUID | None = None
     branch_id: UUID | None = None

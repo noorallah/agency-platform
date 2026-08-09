@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialNumber
 from app.batch_serial.schemas.batch_serial import (
@@ -32,6 +33,7 @@ class BatchSerialService:
     """Coordinate batch, lot, serial number, and expiry lifecycle operations."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to the request unit of work."""
         self._session = session
 
     # ── Batch ────────────────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ class BatchSerialService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[BatchRecord], int]:
+        """Return a page of batches for the firm in scope."""
         columns = {
             "created_at": BatchRecord.created_at,
             "updated_at": BatchRecord.updated_at,
@@ -54,9 +57,8 @@ class BatchSerialService:
             "expiry_date": BatchRecord.expiry_date,
             "status": BatchRecord.status,
         }
-        stmt = (
-            select(BatchRecord)
-            .where(BatchRecord.firm_id == firm_scope, BatchRecord.is_deleted.is_(False))
+        stmt = select(BatchRecord).where(
+            BatchRecord.firm_id == firm_scope, BatchRecord.is_deleted.is_(False)
         )
         count_stmt = (
             select(func.count())
@@ -68,7 +70,9 @@ class BatchSerialService:
             count_stmt = count_stmt.where(BatchRecord.product_id == filters.product_id)
         if filters.warehouse_id:
             stmt = stmt.where(BatchRecord.warehouse_id == filters.warehouse_id)
-            count_stmt = count_stmt.where(BatchRecord.warehouse_id == filters.warehouse_id)
+            count_stmt = count_stmt.where(
+                BatchRecord.warehouse_id == filters.warehouse_id
+            )
         if filters.branch_id:
             stmt = stmt.where(BatchRecord.branch_id == filters.branch_id)
             count_stmt = count_stmt.where(BatchRecord.branch_id == filters.branch_id)
@@ -77,10 +81,14 @@ class BatchSerialService:
             count_stmt = count_stmt.where(BatchRecord.status == filters.status)
         if filters.expiry_before:
             stmt = stmt.where(BatchRecord.expiry_date <= filters.expiry_before)
-            count_stmt = count_stmt.where(BatchRecord.expiry_date <= filters.expiry_before)
+            count_stmt = count_stmt.where(
+                BatchRecord.expiry_date <= filters.expiry_before
+            )
         if filters.expiry_after:
             stmt = stmt.where(BatchRecord.expiry_date >= filters.expiry_after)
-            count_stmt = count_stmt.where(BatchRecord.expiry_date >= filters.expiry_after)
+            count_stmt = count_stmt.where(
+                BatchRecord.expiry_date >= filters.expiry_after
+            )
         if search:
             term = f"%{search.strip()}%"
             stmt = stmt.where(BatchRecord.batch_number.ilike(term))
@@ -93,6 +101,7 @@ class BatchSerialService:
         return rows, total
 
     def get_batch(self, *, firm_scope: UUID, batch_id: UUID) -> BatchRecord:
+        """Return one batch the firm owns."""
         row = self._session.scalar(
             select(BatchRecord).where(
                 BatchRecord.id == batch_id,
@@ -107,6 +116,7 @@ class BatchSerialService:
     def create_batch(
         self, *, firm_scope: UUID, actor_id: UUID, data: BatchCreate
     ) -> BatchRecord:
+        """Record a batch of a product."""
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -133,7 +143,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A batch with this batch number already exists for the product.") from exc
+            raise ConflictError(
+                "A batch with this batch number already exists for the product."
+            ) from exc
         record_audit(
             self._session,
             action="CREATE",
@@ -148,8 +160,12 @@ class BatchSerialService:
     def update_batch(
         self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID, data: BatchUpdate
     ) -> BatchRecord:
+        """Change a batch."""
         record = self.get_batch(firm_scope=firm_scope, batch_id=batch_id)
-        before = {"status": record.status, "batch_number": record.batch_number}
+        before: dict[str, object] = {
+            "status": record.status,
+            "batch_number": record.batch_number,
+        }
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(record, field, value)
@@ -158,7 +174,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A batch with this batch number already exists for the product.") from exc
+            raise ConflictError(
+                "A batch with this batch number already exists for the product."
+            ) from exc
         record_audit(
             self._session,
             action="UPDATE",
@@ -171,9 +189,8 @@ class BatchSerialService:
         self._session.commit()
         return record
 
-    def delete_batch(
-        self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID
-    ) -> None:
+    def delete_batch(self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID) -> None:
+        """Soft delete a batch."""
         record = self.get_batch(firm_scope=firm_scope, batch_id=batch_id)
         record.is_deleted = True
         record.deleted_at = utc_now()
@@ -190,85 +207,107 @@ class BatchSerialService:
         self._session.commit()
 
     def batch_summary(self, *, firm_scope: UUID) -> BatchSummary:
-        today = date.today()
+        """Return batch counts, including those past their expiry date."""
+        today = utc_now().date()
         near_expiry_cutoff = today + timedelta(days=30)
         total = int(
             self._session.scalar(
-                select(func.count()).select_from(BatchRecord).where(
+                select(func.count())
+                .select_from(BatchRecord)
+                .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
                 )
-            ) or 0
+            )
+            or 0
         )
         near_expiry = int(
             self._session.scalar(
-                select(func.count()).select_from(BatchRecord).where(
+                select(func.count())
+                .select_from(BatchRecord)
+                .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
                     BatchRecord.expiry_date.isnot(None),
                     BatchRecord.expiry_date > today,
                     BatchRecord.expiry_date <= near_expiry_cutoff,
                 )
-            ) or 0
+            )
+            or 0
         )
         expired = int(
             self._session.scalar(
-                select(func.count()).select_from(BatchRecord).where(
+                select(func.count())
+                .select_from(BatchRecord)
+                .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
-                    BatchRecord.status == "EXPIRED",
+                    BatchRecord.expired_condition(today),
                 )
-            ) or 0
+            )
+            or 0
         )
         quarantine = int(
             self._session.scalar(
-                select(func.count()).select_from(BatchRecord).where(
+                select(func.count())
+                .select_from(BatchRecord)
+                .where(
                     BatchRecord.firm_id == firm_scope,
                     BatchRecord.is_deleted.is_(False),
                     BatchRecord.status == "QUARANTINE",
                 )
-            ) or 0
+            )
+            or 0
         )
-        from app.batch_serial.schemas.batch_serial import BatchSummary as BS
-        return BS(total_batches=total, near_expiry=near_expiry, expired=expired, quarantine=quarantine)
+
+        return BatchSummary(
+            total_batches=total,
+            near_expiry=near_expiry,
+            expired=expired,
+            quarantine=quarantine,
+        )
 
     def expiry_dashboard(self, *, firm_scope: UUID) -> ExpiryDashboard:
-        today = date.today()
+        """Return expiry counts across the reporting windows."""
+        today = utc_now().date()
         in_7 = today + timedelta(days=7)
         in_30 = today + timedelta(days=30)
 
-        def _count(where_clauses: list) -> int:
+        def _count(where_clauses: list[ColumnElement[bool]]) -> int:
+            """Count batches matching the extra conditions."""
             return int(
                 self._session.scalar(
-                    select(func.count()).select_from(BatchRecord).where(
+                    select(func.count())
+                    .select_from(BatchRecord)
+                    .where(
                         BatchRecord.firm_id == firm_scope,
                         BatchRecord.is_deleted.is_(False),
                         *where_clauses,
                     )
-                ) or 0
+                )
+                or 0
             )
 
-        expired_today = _count([
-            BatchRecord.expiry_date.isnot(None),
-            BatchRecord.expiry_date <= today,
-            BatchRecord.status != "DESTROYED",
-        ])
-        expire_in_7 = _count([
-            BatchRecord.expiry_date.isnot(None),
-            BatchRecord.expiry_date > today,
-            BatchRecord.expiry_date <= in_7,
-        ])
-        expire_in_30 = _count([
-            BatchRecord.expiry_date.isnot(None),
-            BatchRecord.expiry_date > today,
-            BatchRecord.expiry_date <= in_30,
-        ])
-        total_expired = _count([BatchRecord.status == "EXPIRED"])
+        expired_today = _count([BatchRecord.expired_condition(today)])
+        expire_in_7 = _count(
+            [
+                BatchRecord.expiry_date.isnot(None),
+                BatchRecord.expiry_date > today,
+                BatchRecord.expiry_date <= in_7,
+            ]
+        )
+        expire_in_30 = _count(
+            [
+                BatchRecord.expiry_date.isnot(None),
+                BatchRecord.expiry_date > today,
+                BatchRecord.expiry_date <= in_30,
+            ]
+        )
+        total_expired = _count([BatchRecord.expired_condition(today)])
         quarantine = _count([BatchRecord.status == "QUARANTINE"])
         recalled = _count([BatchRecord.status == "RECALLED"])
 
-        from app.batch_serial.schemas.batch_serial import ExpiryDashboard as ED
-        return ED(
+        return ExpiryDashboard(
             expired_today=expired_today,
             expire_in_7_days=expire_in_7,
             expire_in_30_days=expire_in_30,
@@ -290,22 +329,29 @@ class BatchSerialService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[LotRecord], int]:
+        """Return a page of production lots."""
         columns = {
             "created_at": LotRecord.created_at,
             "updated_at": LotRecord.updated_at,
             "lot_number": LotRecord.lot_number,
             "status": LotRecord.status,
         }
-        stmt = select(LotRecord).where(LotRecord.firm_id == firm_scope, LotRecord.is_deleted.is_(False))
-        count_stmt = select(func.count()).select_from(LotRecord).where(
+        stmt = select(LotRecord).where(
             LotRecord.firm_id == firm_scope, LotRecord.is_deleted.is_(False)
+        )
+        count_stmt = (
+            select(func.count())
+            .select_from(LotRecord)
+            .where(LotRecord.firm_id == firm_scope, LotRecord.is_deleted.is_(False))
         )
         if filters.product_id:
             stmt = stmt.where(LotRecord.product_id == filters.product_id)
             count_stmt = count_stmt.where(LotRecord.product_id == filters.product_id)
         if filters.warehouse_id:
             stmt = stmt.where(LotRecord.warehouse_id == filters.warehouse_id)
-            count_stmt = count_stmt.where(LotRecord.warehouse_id == filters.warehouse_id)
+            count_stmt = count_stmt.where(
+                LotRecord.warehouse_id == filters.warehouse_id
+            )
         if filters.branch_id:
             stmt = stmt.where(LotRecord.branch_id == filters.branch_id)
             count_stmt = count_stmt.where(LotRecord.branch_id == filters.branch_id)
@@ -327,6 +373,7 @@ class BatchSerialService:
         return rows, total
 
     def get_lot(self, *, firm_scope: UUID, lot_id: UUID) -> LotRecord:
+        """Return one lot the firm owns."""
         row = self._session.scalar(
             select(LotRecord).where(
                 LotRecord.id == lot_id,
@@ -341,6 +388,7 @@ class BatchSerialService:
     def create_lot(
         self, *, firm_scope: UUID, actor_id: UUID, data: LotCreate
     ) -> LotRecord:
+        """Record a production lot."""
         record = LotRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -363,7 +411,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A lot with this lot number already exists for the product.") from exc
+            raise ConflictError(
+                "A lot with this lot number already exists for the product."
+            ) from exc
         record_audit(
             self._session,
             action="CREATE",
@@ -378,6 +428,7 @@ class BatchSerialService:
     def update_lot(
         self, *, firm_scope: UUID, actor_id: UUID, lot_id: UUID, data: LotUpdate
     ) -> LotRecord:
+        """Change a lot."""
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(record, field, value)
@@ -386,7 +437,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A lot with this lot number already exists for the product.") from exc
+            raise ConflictError(
+                "A lot with this lot number already exists for the product."
+            ) from exc
         record_audit(
             self._session,
             action="UPDATE",
@@ -399,6 +452,7 @@ class BatchSerialService:
         return record
 
     def delete_lot(self, *, firm_scope: UUID, actor_id: UUID, lot_id: UUID) -> None:
+        """Soft delete a lot."""
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
         record.is_deleted = True
         record.deleted_at = utc_now()
@@ -427,22 +481,31 @@ class BatchSerialService:
         sort_by: str,
         descending: bool,
     ) -> tuple[list[SerialNumber], int]:
+        """Return a page of serial numbers."""
         columns = {
             "created_at": SerialNumber.created_at,
             "updated_at": SerialNumber.updated_at,
             "serial_number": SerialNumber.serial_number,
             "status": SerialNumber.status,
         }
-        stmt = select(SerialNumber).where(SerialNumber.firm_id == firm_scope, SerialNumber.is_deleted.is_(False))
-        count_stmt = select(func.count()).select_from(SerialNumber).where(
+        stmt = select(SerialNumber).where(
             SerialNumber.firm_id == firm_scope, SerialNumber.is_deleted.is_(False)
+        )
+        count_stmt = (
+            select(func.count())
+            .select_from(SerialNumber)
+            .where(
+                SerialNumber.firm_id == firm_scope, SerialNumber.is_deleted.is_(False)
+            )
         )
         if filters.product_id:
             stmt = stmt.where(SerialNumber.product_id == filters.product_id)
             count_stmt = count_stmt.where(SerialNumber.product_id == filters.product_id)
         if filters.warehouse_id:
             stmt = stmt.where(SerialNumber.warehouse_id == filters.warehouse_id)
-            count_stmt = count_stmt.where(SerialNumber.warehouse_id == filters.warehouse_id)
+            count_stmt = count_stmt.where(
+                SerialNumber.warehouse_id == filters.warehouse_id
+            )
         if filters.branch_id:
             stmt = stmt.where(SerialNumber.branch_id == filters.branch_id)
             count_stmt = count_stmt.where(SerialNumber.branch_id == filters.branch_id)
@@ -464,6 +527,7 @@ class BatchSerialService:
         return rows, total
 
     def get_serial(self, *, firm_scope: UUID, serial_id: UUID) -> SerialNumber:
+        """Return one serial number the firm owns."""
         row = self._session.scalar(
             select(SerialNumber).where(
                 SerialNumber.id == serial_id,
@@ -478,6 +542,7 @@ class BatchSerialService:
     def create_serial(
         self, *, firm_scope: UUID, actor_id: UUID, data: SerialCreate
     ) -> SerialNumber:
+        """Record a serial number."""
         record = SerialNumber(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -501,7 +566,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A serial number already exists for this product.") from exc
+            raise ConflictError(
+                "A serial number already exists for this product."
+            ) from exc
         record_audit(
             self._session,
             action="CREATE",
@@ -516,6 +583,7 @@ class BatchSerialService:
     def update_serial(
         self, *, firm_scope: UUID, actor_id: UUID, serial_id: UUID, data: SerialUpdate
     ) -> SerialNumber:
+        """Change a serial number."""
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(record, field, value)
@@ -524,7 +592,9 @@ class BatchSerialService:
             self._session.flush()
         except IntegrityError as exc:
             self._session.rollback()
-            raise ConflictError("A serial number already exists for this product.") from exc
+            raise ConflictError(
+                "A serial number already exists for this product."
+            ) from exc
         record_audit(
             self._session,
             action="UPDATE",
@@ -539,6 +609,7 @@ class BatchSerialService:
     def delete_serial(
         self, *, firm_scope: UUID, actor_id: UUID, serial_id: UUID
     ) -> None:
+        """Soft delete a serial number."""
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
         record.is_deleted = True
         record.deleted_at = utc_now()

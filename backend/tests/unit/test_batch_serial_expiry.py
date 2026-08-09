@@ -1,6 +1,6 @@
 """Batch, lot, serial number, and expiry management tests."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -22,6 +22,7 @@ from app.batch_serial.schemas.batch_serial import (
     SerialStatus,
 )
 from app.batch_serial.services import BatchSerialService
+from app.core.utils.dates import utc_now
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
@@ -231,9 +232,11 @@ def test_expiry_dashboard() -> None:
     dashboard = service.expiry_dashboard(firm_scope=firm.id)
 
     assert isinstance(dashboard, ExpiryDashboard)
-    assert dashboard.total_expired == 1
+    # Both halves count the same batches now: the one marked expired by hand
+    # and, once UTC passes its date, the one that expired on its own.
+    assert dashboard.total_expired == dashboard.expired_today
     assert dashboard.quarantine == 1
-    assert dashboard.expired_today >= 1
+    assert dashboard.total_expired >= 1
 
 
 def test_create_lot_success() -> None:
@@ -354,3 +357,71 @@ def test_list_batches_pagination() -> None:
     page1_ids = {r.id for r in page1}
     page2_ids = {r.id for r in page2}
     assert page1_ids.isdisjoint(page2_ids)
+
+
+def test_expired_counts_come_from_the_date_not_a_status() -> None:
+    """Nothing ever set status = EXPIRED, so every count keyed on it read zero.
+
+    The platform has no scheduler to flip the status, so a batch whose expiry
+    date has passed stayed AVAILABLE forever. The summary card reported zero
+    expired batches while the expiry card, which looked at the date, listed
+    them -- two numbers on one dashboard disagreeing about the same table.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSEXP")
+    product = _product(session, firm.id)
+    actor_id = uuid4()
+    service = BatchSerialService(session)
+    today = utc_now().date()
+
+    for number, expiry, status in (
+        ("PAST-1", today - timedelta(days=5), BatchStatus.AVAILABLE),
+        ("PAST-2", today - timedelta(days=1), BatchStatus.AVAILABLE),
+        ("SOON", today + timedelta(days=3), BatchStatus.AVAILABLE),
+        ("LATER", today + timedelta(days=90), BatchStatus.AVAILABLE),
+    ):
+        service.create_batch(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            data=BatchCreate(
+                product_id=product.id,
+                batch_number=number,
+                quantity=Decimal("10"),
+                expiry_date=expiry,
+                status=status,
+            ),
+        )
+
+    summary = service.batch_summary(firm_scope=firm.id)
+    dashboard = service.expiry_dashboard(firm_scope=firm.id)
+
+    assert summary.expired == 2
+    assert dashboard.total_expired == 2
+    assert dashboard.expired_today == 2
+    # The two halves of the dashboard now agree.
+    assert dashboard.total_expired == dashboard.expired_today
+    assert summary.near_expiry == 1
+    assert dashboard.expire_in_7_days == 1
+
+
+def test_a_destroyed_batch_is_not_counted_as_expired() -> None:
+    """Destroyed stock has left the building; it is not awaiting disposal."""
+    session = _session_factory()()
+    firm = _firm(session, "BSDES")
+    product = _product(session, firm.id)
+    actor_id = uuid4()
+    service = BatchSerialService(session)
+
+    service.create_batch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        data=BatchCreate(
+            product_id=product.id,
+            batch_number="GONE",
+            quantity=Decimal("1"),
+            expiry_date=utc_now().date() - timedelta(days=10),
+            status=BatchStatus.DESTROYED,
+        ),
+    )
+
+    assert service.batch_summary(firm_scope=firm.id).expired == 0

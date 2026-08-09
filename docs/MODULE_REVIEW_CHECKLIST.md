@@ -182,6 +182,17 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 - [ ] A recorded setting that changes nothing recurred here: `rounding_mode` was
       stored per rule and the conversion always rounded half up.
 
+### Defects the `batch_serial` pass added to this list
+
+- [ ] **A status nobody transitions is not a state.** Expiry counts filtered on
+      `status = 'EXPIRED'`, which nothing ever set -- the platform has no
+      scheduler -- so the summary reported zero expired batches while the
+      expiry card, reading the date, listed them, and the guard blocking
+      purchases of expired stock never fired **(found a real bug)**. Derive the
+      state from the fact that decides it.
+- [ ] **Two numbers describing the same rows must be computed the same way.**
+      One dashboard held both, disagreeing.
+
 ### Defects the `inventory` pass added to this list
 
 - [ ] **A response builder is not reusable just because the rows look alike.**
@@ -231,7 +242,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `search` | 1 | 55 | 1 | `test_global_search` | typed |
 | `vendors` | 23 | 82 | 6 | `test_vendor_management` | typed |
 | `purchase` | 12 | 105 | 5 | `test_purchase_management` | typed |
-| `batch_serial` | 17 | 121 | 2 | `test_batch_serial_expiry` | typed |
+| `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 134 | 1 | **none** | typed |
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
@@ -288,7 +299,7 @@ and typed; mostly cleanup.
 | 9 | `uom` | 2026-08-09 | a product's own conversion factor lost to the firm-wide one on PostgreSQL only; the rule's published version was the same column as the concurrency counter, so any edit moved it; the configured `rounding_mode` was ignored; a unit in use could be deleted out from under other firms | yes — module is now clean under ruff, black and mypy |
 | 10 | `branches` | 2026-08-10 | the six bulk endpoints wrote no audit entries at all; a branch could be deleted with live warehouses under it and a warehouse deleted with stock in it; `is_default` was maintained by nothing, so every branch could be the firm default | yes — module is now clean under ruff, black and mypy |
 | 11 | `inventory` | 2026-08-10 | `GET /inventory/ledger` raised AttributeError for every firm that had ever moved stock, because the ledger row was fed to the transaction response builder | yes — module is now clean under ruff, black and mypy |
-| 12 | `batch_serial` | | | |
+| 12 | `batch_serial` | 2026-08-10 | expiry counts keyed on a `status` nothing ever sets, so the summary reported zero expired batches while the expiry card listed them; the guard blocking purchases of expired stock never fired for the same reason; expiry windows used the server's local date | yes — module is now clean under ruff, black and mypy |
 | 13 | `customers` | | | |
 | 14 | `products` | | | |
 | 15 | `vendors` | | | |
