@@ -236,7 +236,7 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `firms` | 5 | 0 | 0 | `test_firms_module` | typed |
 | `document_framework` | 15 | 0 | 1 | `test_document_framework` | widgets only |
 | `business` | 28 | 0 | 0 | `test_business_profile_framework` | typed |
-| `sales` (territory) | 44 | 2 | 0 | `test_sales_territory_route_management` | typed |
+| `sales` (territory) | 44 | 0 | 0 | `test_sales_territory_route_management` | typed |
 | `customers` | 14 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 55 | 1 | `test_global_search` | typed |
@@ -305,6 +305,6 @@ and typed; mostly cleanup.
 | 15 | `vendors` | 2026-08-10 | all five bulk endpoints wrote no audit entries — the third module with this gap | yes — module is now clean under ruff, black and mypy |
 | 16 | `purchase` | 2026-08-10 | a purchase order with goods receipts against it could be deleted, though cancelling the same order was refused; a CSV import helper closed over its loop variable | yes — module is now clean under ruff, black and mypy |
 | 17 | `business` | 2026-08-10 | deleting a feature or module a profile still enabled silently revoked the capability for every firm on that profile, so `require_feature` began rejecting writes those firms made the day before | yes |
-| 18 | `sales` (territory) | | | |
+| 18 | `sales` (territory) | 2026-08-10 | bulk status changes and moves wrote one summary audit row keyed on the first id, so the trail recorded that N territories changed without naming any of them | yes |
 | 19 | `search` | | | |
 | 20 | `document_framework` | | | |

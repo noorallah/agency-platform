@@ -1546,18 +1546,22 @@ class SalesTerritoryService:
         affected = 0
         for territory_id in payload.territory_ids:
             row = self._territory(territory_id, firm_scope, include_deleted=True)
+            before = row.status
             row.status = payload.status.value
             row.updated_by = actor_id
+            # One row per territory: a single summary entry keyed on the first
+            # id recorded that N territories changed without saying which.
+            record_audit(
+                self._session,
+                action="sales_territory.status_changed",
+                entity_type="sales_territory",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=firm_scope,
+                before_data={"status": before},
+                after_data={"status": row.status},
+            )
             affected += 1
-        record_audit(
-            self._session,
-            action="sales_territory.bulk_status_changed",
-            entity_type="sales_territory",
-            entity_id=payload.territory_ids[0],
-            actor_id=actor_id,
-            firm_id=firm_scope,
-            after_data={"affected": affected, "status": payload.status.value},
-        )
         self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
@@ -1591,16 +1595,17 @@ class SalesTerritoryService:
             )
             row.updated_by = actor_id
             self._repath_descendants(row.id, before_path, row.path, actor_id)
+            record_audit(
+                self._session,
+                action="sales_territory.moved",
+                entity_type="sales_territory",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=firm_scope,
+                before_data={"path": before_path},
+                after_data={"path": row.path},
+            )
             affected += 1
-        record_audit(
-            self._session,
-            action="sales_territory.bulk_moved",
-            entity_type="sales_territory",
-            entity_id=payload.territory_ids[0],
-            actor_id=actor_id,
-            firm_id=firm_scope,
-            after_data={"affected": affected},
-        )
         self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
@@ -1883,7 +1888,8 @@ class SalesTerritoryService:
             )
             if in_use is not None:
                 raise ValidationError(
-                    "Cannot remove hierarchy levels that are already used by territories."
+                    "Cannot remove hierarchy levels that are already used by "
+                    "territories."
                 )
             self._session.delete(row)
         for item in levels:
