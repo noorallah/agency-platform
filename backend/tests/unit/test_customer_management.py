@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -22,7 +27,6 @@ from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.customers.api.router import (
     create_customer,
-    customer_scope,
     delete_customer,
     list_customers,
     restore_customer,
@@ -38,6 +42,18 @@ from app.customers.services import CustomerService
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for API and service tests."""
@@ -348,7 +364,7 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
     }
     principal = _principal(user_id, permissions)
     session = factory()
-    scope = customer_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     created = create_customer(_customer_data(), scope, session)
     customer_id = created.data.id
 
@@ -372,7 +388,7 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
     assert listed.pagination.total_records == 1
 
     with pytest.raises(AuthorizationError):
-        customer_scope(principal, session, other_firm.id)
+        _firm_scope(principal, session, other_firm.id)
 
     delete_customer(customer_id, scope, session)
     restored = restore_customer(customer_id, scope, session)

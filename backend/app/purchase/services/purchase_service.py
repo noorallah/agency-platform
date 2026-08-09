@@ -1393,17 +1393,6 @@ class PurchaseService:
             if existing_batch is not None and existing_batch.status == "EXPIRED":
                 raise ValidationError("Expired products cannot be purchased.")
 
-    def _next_po_number(self, firm_id: UUID) -> str:
-        total = int(
-            self._session.scalar(
-                select(func.count()).select_from(PurchaseOrder).where(
-                    PurchaseOrder.firm_id == firm_id
-                )
-            )
-            or 0
-        )
-        return f"PO-{total + 1:06d}"
-
     def _assert_tax_profile_available(
         self, profile_id: UUID, *, firm_id: UUID, document_date: date | None = None
     ) -> None:

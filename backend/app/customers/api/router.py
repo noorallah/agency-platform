@@ -6,21 +6,16 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.customers.schemas import (
     CustomerAddressResponse,
     CustomerContactResponse,
@@ -39,8 +34,6 @@ from app.customers.schemas.customer import (
     CustomerType,
 )
 from app.customers.services import CustomerService
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -49,83 +42,31 @@ router = APIRouter(
 )
 
 
-class CustomerScope:
-    """Carry the authenticated principal and optional firm restriction."""
-
-    def __init__(self, principal: Principal, firm_id: UUID | None) -> None:
-        """Store the authenticated identity and validated firm scope."""
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        """Return the user UUID responsible for mutations."""
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Customer management requires a user principal.")
-        return self.principal.subject
-
-
-def customer_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> CustomerScope:
-    """Validate active firm access for every customer operation."""
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return CustomerScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return CustomerScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    """Compose permission and customer-scope dependencies."""
-
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[CustomerScope, Depends(customer_scope)],
-    ) -> CustomerScope:
-        return scope
-
-    return Depends(dependency)
-
-
-CustomerViewScope = Annotated[CustomerScope, _permission("CUSTOMER_VIEW")]
-CustomerCreateScope = Annotated[CustomerScope, _permission("CUSTOMER_CREATE")]
-CustomerUpdateScope = Annotated[CustomerScope, _permission("CUSTOMER_UPDATE")]
-CustomerDeleteScope = Annotated[CustomerScope, _permission("CUSTOMER_DELETE")]
-CustomerRestoreScope = Annotated[CustomerScope, _permission("CUSTOMER_RESTORE")]
-CustomerExportScope = Annotated[CustomerScope, _permission("CUSTOMER_EXPORT")]
-CustomerImportScope = Annotated[CustomerScope, _permission("CUSTOMER_IMPORT")]
+CustomerViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("CUSTOMER_VIEW")]
+CustomerCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_CREATE")
+]
+CustomerUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_UPDATE")
+]
+CustomerDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_DELETE")
+]
+CustomerRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_RESTORE")
+]
+CustomerExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_EXPORT")
+]
+CustomerImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_IMPORT")
+]
 # Posting a receivable moves money, so it needs the accounting grant rather than
 # the master-data one. Under CUSTOMER_UPDATE anyone who could edit a customer's
 # phone number could also post a receipt against their balance.
-CustomerReceiptScope = Annotated[CustomerScope, _permission("RECEIPT_CREATE")]
+CustomerReceiptScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("RECEIPT_CREATE")
+]
 
 
 def _filters(

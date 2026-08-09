@@ -4,24 +4,26 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.purchase.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderHistoryResponse,
@@ -42,82 +44,37 @@ router = APIRouter(
 )
 
 
-class PurchaseScope:
-    """Carry principal and firm scope for purchase handlers."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Purchase management requires a user principal.")
-        return self.principal.subject
-
-
 class ActionReasonRequest(BaseModel):
     """Optional reason payload for cancellation/closure actions."""
 
     reason: str | None = Field(default=None, max_length=500)
 
 
-def purchase_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> PurchaseScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return PurchaseScope(principal=principal, firm_id=x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return PurchaseScope(principal=principal, firm_id=x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[PurchaseScope, Depends(purchase_scope)],
-    ) -> PurchaseScope:
-        return scope
-
-    return Depends(dependency)
-
-
-PurchaseViewScope = Annotated[PurchaseScope, _permission("PURCHASE_VIEW")]
-PurchaseCreateScope = Annotated[PurchaseScope, _permission("PURCHASE_CREATE")]
-PurchaseUpdateScope = Annotated[PurchaseScope, _permission("PURCHASE_UPDATE")]
-PurchaseDeleteScope = Annotated[PurchaseScope, _permission("PURCHASE_DELETE")]
-PurchaseRestoreScope = Annotated[PurchaseScope, _permission("PURCHASE_RESTORE")]
-PurchaseImportScope = Annotated[PurchaseScope, _permission("PURCHASE_IMPORT")]
-PurchaseExportScope = Annotated[PurchaseScope, _permission("PURCHASE_EXPORT")]
-PurchaseApproveScope = Annotated[PurchaseScope, _permission("PURCHASE_APPROVE")]
-PurchaseCancelScope = Annotated[PurchaseScope, _permission("PURCHASE_CANCEL")]
+PurchaseViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")]
+PurchaseCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
+]
+PurchaseUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_UPDATE")
+]
+PurchaseDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_DELETE")
+]
+PurchaseRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_RESTORE")
+]
+PurchaseImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_IMPORT")
+]
+PurchaseExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_EXPORT")
+]
+PurchaseApproveScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_APPROVE")
+]
+PurchaseCancelScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
+]
 
 
 def _filters(
@@ -207,7 +164,9 @@ def purchase_summary(
 
 
 @router.post(
-    "", response_model=ApiResponse[PurchaseOrderResponse], status_code=status.HTTP_201_CREATED
+    "",
+    response_model=ApiResponse[PurchaseOrderResponse],
+    status_code=status.HTTP_201_CREATED,
 )
 def create_purchase_order(
     data: PurchaseOrderCreate,
@@ -269,7 +228,9 @@ def export_purchase_orders(
         return StreamingResponse(
             iter([content]),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": 'attachment; filename="purchase_orders.xlsx"'},
+            headers={
+                "Content-Disposition": 'attachment; filename="purchase_orders.xlsx"'
+            },
         )
     text = service.export_orders_csv(firm_scope=scope.firm_id, search=search)
     return StreamingResponse(
@@ -287,7 +248,9 @@ def get_purchase_order(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
     service = PurchaseService(db)
-    row = service.get_order(order_id, firm_scope=scope.firm_id, include_deleted=include_deleted)
+    row = service.get_order(
+        order_id, firm_scope=scope.firm_id, include_deleted=include_deleted
+    )
     return ApiResponse(data=service.order_response(row))
 
 
@@ -311,7 +274,9 @@ def delete_purchase_order(
     scope: PurchaseDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
-    PurchaseService(db).delete_order(order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    PurchaseService(db).delete_order(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -322,7 +287,9 @@ def restore_purchase_order(
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
     service = PurchaseService(db)
-    row = service.restore_order(order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.restore_order(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.order_response(row))
 
 
@@ -335,7 +302,10 @@ def cancel_purchase_order(
 ) -> ApiResponse[PurchaseOrderResponse]:
     service = PurchaseService(db)
     row = service.cancel_order(
-        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id, reason=request.reason
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=request.reason,
     )
     return ApiResponse(data=service.order_response(row))
 
@@ -349,7 +319,10 @@ def close_purchase_order(
 ) -> ApiResponse[PurchaseOrderResponse]:
     service = PurchaseService(db)
     row = service.close_order(
-        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id, reason=request.reason
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=request.reason,
     )
     return ApiResponse(data=service.order_response(row))
 
@@ -363,7 +336,9 @@ def purchase_order_history(
     scope: PurchaseViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderHistoryResponse]]:
-    rows = PurchaseService(db).order_history(order_id=order_id, firm_scope=scope.firm_id)
+    rows = PurchaseService(db).order_history(
+        order_id=order_id, firm_scope=scope.firm_id
+    )
     return ApiResponse(
         data=[PurchaseOrderHistoryResponse.model_validate(item) for item in rows]
     )

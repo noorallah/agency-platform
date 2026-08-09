@@ -12,7 +12,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.common.audit.models.audit_log import AuditLog
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -33,9 +32,7 @@ from app.tax.schemas import (
     TaxRuleConditionOperator,
     TaxRuleConditionWrite,
     TaxRuleEvaluationDecision,
-    TaxRuleExecutionLogResponse,
     TaxRulePriorityRecord,
-    TaxRuleResponse,
     TaxRuleSimulationRequest,
     TaxRuleSimulationResponse,
     TaxRuleWrite,

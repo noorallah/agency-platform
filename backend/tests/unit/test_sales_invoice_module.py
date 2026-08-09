@@ -21,6 +21,11 @@ from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa
 from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.pagination import PaginationParams
@@ -40,7 +45,6 @@ from app.sales_invoice.api.router import (
     SalesInvoiceCreateScope,
     SalesInvoiceExportScope,
     SalesInvoiceImportScope,
-    SalesInvoiceScope,
     SalesInvoiceUpdateScope,
     SalesInvoiceViewScope,
     cancel_sales_invoice,
@@ -61,6 +65,18 @@ from app.sales_order.services import SalesOrderService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     """Build an isolated in-memory schema for one test."""
@@ -150,7 +166,7 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
     return row
 
 
-def _scope(firm_id: UUID) -> SalesInvoiceScope:
+def _scope(firm_id: UUID) -> ResolvedFirmScope:
     """Build the firm scope a router handler receives once authorized."""
     user_id = uuid4()
     principal = Principal(
@@ -164,7 +180,7 @@ def _scope(firm_id: UUID) -> SalesInvoiceScope:
             exp=4_102_444_800,
         ),
     )
-    return SalesInvoiceScope(principal=principal, firm_id=firm_id)
+    return ResolvedFirmScope(principal=principal, firm_id=firm_id)
 
 
 def _invoice_from_sales_order(
@@ -248,7 +264,7 @@ def test_sales_invoice_router_enforces_seeded_sales_permissions() -> None:
     }
     catalogue = set(SYSTEM_PERMISSION_CODES)
     for name, alias in aliases.items():
-        assert get_args(alias)[0] is SalesInvoiceScope, name
+        assert get_args(alias)[0] is ResolvedFirmScope, name
 
     source = inspect.getsourcefile(list_sales_invoices)
     assert source is not None
@@ -263,7 +279,7 @@ def test_sales_invoice_router_enforces_seeded_sales_permissions() -> None:
         "SALES_EXPORT",
         "SALES_IMPORT",
     ):
-        assert f'_permission("{code}")' in text
+        assert f'firm_permission_scope("{code}")' in text
         assert code in catalogue
 
 

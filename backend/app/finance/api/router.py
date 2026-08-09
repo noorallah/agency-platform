@@ -3,19 +3,13 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.finance.schemas import (
     AccountGroupCreate,
     AccountGroupResponse,
@@ -52,8 +46,6 @@ from app.finance.services import (
     JournalEntryEngine,
     JournalLineData,
 )
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -62,86 +54,34 @@ router = APIRouter(
 )
 
 
-class FinanceScope:
-    """Carry the authenticated principal and its validated firm context."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        """Store the authenticated identity and active firm."""
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        """Return the user UUID responsible for mutations."""
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Finance operations require a user principal.")
-        return self.principal.subject
-
-
-def finance_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    platform_db: Annotated[Session, Depends(get_platform_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> FinanceScope:
-    """Validate active firm access for every finance operation."""
-    if x_firm_id is None:
-        raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-    if "platform_admin" in principal.roles:
-        firm = platform_db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return FinanceScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID):
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = platform_db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return FinanceScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    """Compose the permission check and finance scope into one dependency."""
-
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[FinanceScope, Depends(finance_scope)],
-    ) -> FinanceScope:
-        return scope
-
-    return Depends(dependency)
-
-
 # Codes come from the seeded `accounting` and `financial_year` permission groups
 # in app.identity.system_seed rather than a finance-specific namespace, so the
 # existing ACCOUNTANT role grants these endpoints without further mapping.
-MasterViewScope = Annotated[FinanceScope, _permission("ACCOUNT_VIEW")]
-MasterManageScope = Annotated[FinanceScope, _permission("ACCOUNT_MANAGE")]
-YearViewScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_VIEW")]
-YearManageScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_CREATE")]
-PeriodCloseScope = Annotated[FinanceScope, _permission("FINANCIAL_YEAR_CLOSE")]
-JournalViewScope = Annotated[FinanceScope, _permission("JOURNAL_VIEW")]
-JournalCreateScope = Annotated[FinanceScope, _permission("JOURNAL_CREATE")]
-JournalPostScope = Annotated[FinanceScope, _permission("JOURNAL_POST")]
-JournalReverseScope = Annotated[FinanceScope, _permission("JOURNAL_REVERSE")]
-LedgerViewScope = Annotated[FinanceScope, _permission("LEDGER_VIEW")]
-TrialBalanceScope = Annotated[FinanceScope, _permission("TRIAL_BALANCE_VIEW")]
+MasterViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("ACCOUNT_VIEW")]
+MasterManageScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("ACCOUNT_MANAGE")
+]
+YearViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("FINANCIAL_YEAR_VIEW")
+]
+YearManageScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("FINANCIAL_YEAR_CREATE")
+]
+PeriodCloseScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("FINANCIAL_YEAR_CLOSE")
+]
+JournalViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("JOURNAL_VIEW")]
+JournalCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("JOURNAL_CREATE")
+]
+JournalPostScope = Annotated[ResolvedFirmScope, firm_permission_scope("JOURNAL_POST")]
+JournalReverseScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("JOURNAL_REVERSE")
+]
+LedgerViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("LEDGER_VIEW")]
+TrialBalanceScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TRIAL_BALANCE_VIEW")
+]
 
 
 # ----------------------------------------------------------------------

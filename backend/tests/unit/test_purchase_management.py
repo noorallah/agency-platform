@@ -16,6 +16,11 @@ from app.batch_serial.models import batch_serial as _batch_models  # noqa: F401
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -46,7 +51,6 @@ from app.purchase.api.router import (
     import_purchase_orders,
     list_purchase_orders,
     purchase_order_history,
-    purchase_scope,
     purchase_summary,
     restore_purchase_order,
     update_purchase_order,
@@ -68,6 +72,18 @@ from app.uom.schemas import ConversionRuleCreate, UomCreate
 from app.uom.services import UomService
 from app.vendors.models import Vendor
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -971,7 +987,7 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     }
     principal = _principal(actor_id, permissions, firm_id=firm.id)
     session = factory()
-    scope = purchase_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
 
     created = create_purchase_order(
         _purchase_data(

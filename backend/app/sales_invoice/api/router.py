@@ -7,28 +7,19 @@ from uuid import UUID
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     Query,
     status,
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceCustomerOutstandingRecord,
@@ -49,78 +40,31 @@ router = APIRouter(
 )
 
 
-class SalesInvoiceScope:
-    """Carry principal and firm scope for invoice handlers."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Sales invoice operations require a user principal.")
-        return self.principal.subject
-
-
 class ActionReasonRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-def sales_invoice_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> SalesInvoiceScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return SalesInvoiceScope(principal=principal, firm_id=x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return SalesInvoiceScope(principal=principal, firm_id=x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[SalesInvoiceScope, Depends(sales_invoice_scope)],
-    ) -> SalesInvoiceScope:
-        return scope
-
-    return Depends(dependency)
-
-
-SalesInvoiceViewScope = Annotated[SalesInvoiceScope, _permission("SALES_VIEW")]
-SalesInvoiceCreateScope = Annotated[SalesInvoiceScope, _permission("SALES_CREATE")]
-SalesInvoiceUpdateScope = Annotated[SalesInvoiceScope, _permission("SALES_UPDATE")]
-SalesInvoiceApproveScope = Annotated[SalesInvoiceScope, _permission("SALES_APPROVE")]
-SalesInvoiceCancelScope = Annotated[SalesInvoiceScope, _permission("SALES_CANCEL")]
-SalesInvoiceExportScope = Annotated[SalesInvoiceScope, _permission("SALES_EXPORT")]
-SalesInvoiceImportScope = Annotated[SalesInvoiceScope, _permission("SALES_IMPORT")]
+SalesInvoiceViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+]
+SalesInvoiceCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
+]
+SalesInvoiceUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_UPDATE")
+]
+SalesInvoiceApproveScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_APPROVE")
+]
+SalesInvoiceCancelScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+]
+SalesInvoiceExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
+]
+SalesInvoiceImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
 
 
 @router.get(

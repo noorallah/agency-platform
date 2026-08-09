@@ -8,7 +8,7 @@ from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueCon
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UTCDateTime, UUIDType
+from app.core.database.types import UUIDType
 
 
 class InventoryRecord(BaseEntity):

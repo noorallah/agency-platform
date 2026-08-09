@@ -10,29 +10,24 @@ from fastapi import (
     Depends,
     File,
     Form,
-    Header,
     Query,
     Response,
     UploadFile,
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import (
     Principal,
-    get_current_principal,
-    require_permission,
     require_platform_admin,
 )
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
@@ -81,81 +76,33 @@ router = APIRouter(
 )
 
 
-class TerritoryScope:
-    """Carry principal and validated firm scope for territory endpoints."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Territory management requires a user principal.")
-        return self.principal.subject
-
-
-def territory_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> TerritoryScope:
-    """Validate firm scope for territory requests."""
-    if x_firm_id is None:
-        raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-    firm = db.scalar(
-        select(Firm.id).where(
-            Firm.id == x_firm_id,
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if firm is None:
-        raise AuthorizationError("The selected firm is inactive or unavailable.")
-    if "platform_admin" in principal.roles:
-        return TerritoryScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID):
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return TerritoryScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[TerritoryScope, Depends(territory_scope)],
-    ) -> TerritoryScope:
-        return scope
-
-    return Depends(dependency)
-
-
-TerritoryViewScope = Annotated[TerritoryScope, _permission("TERRITORY_VIEW")]
-TerritoryCreateScope = Annotated[TerritoryScope, _permission("TERRITORY_CREATE")]
-TerritoryUpdateScope = Annotated[TerritoryScope, _permission("TERRITORY_UPDATE")]
-TerritoryDeleteScope = Annotated[TerritoryScope, _permission("TERRITORY_DELETE")]
-TerritoryRestoreScope = Annotated[TerritoryScope, _permission("TERRITORY_RESTORE")]
+TerritoryViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_VIEW")
+]
+TerritoryCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_CREATE")
+]
+TerritoryUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_UPDATE")
+]
+TerritoryDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_DELETE")
+]
+TerritoryRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_RESTORE")
+]
 TerritoryAssignCustomersScope = Annotated[
-    TerritoryScope, _permission("TERRITORY_ASSIGN_CUSTOMERS")
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_ASSIGN_CUSTOMERS")
 ]
 TerritoryAssignSalesmenScope = Annotated[
-    TerritoryScope, _permission("TERRITORY_ASSIGN_SALESMEN")
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_ASSIGN_SALESMEN")
 ]
-TerritoryImportScope = Annotated[TerritoryScope, _permission("TERRITORY_IMPORT")]
-TerritoryExportScope = Annotated[TerritoryScope, _permission("TERRITORY_EXPORT")]
+TerritoryImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_IMPORT")
+]
+TerritoryExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TERRITORY_EXPORT")
+]
 PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
 
@@ -175,7 +122,7 @@ def get_hierarchy(
 def update_hierarchy(
     payload: HierarchyUpdateRequest,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[HierarchyResponse]:
     data = _service(db).update_hierarchy(
@@ -222,7 +169,7 @@ def list_geo_countries(
 def create_geo_country(
     payload: GeoCountryWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCountryResponse]:
     return ApiResponse(
@@ -246,7 +193,7 @@ def list_geo_states(
 def create_geo_state(
     payload: GeoStateWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoStateResponse]:
     return ApiResponse(data=_service(db).create_state(payload, actor_id=scope.actor_id))
@@ -268,7 +215,7 @@ def list_geo_districts(
 def create_geo_district(
     payload: GeoDistrictWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoDistrictResponse]:
     return ApiResponse(
@@ -292,7 +239,7 @@ def list_geo_cities(
 def create_geo_city(
     payload: GeoCityWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCityResponse]:
     return ApiResponse(data=_service(db).create_city(payload, actor_id=scope.actor_id))
@@ -316,7 +263,7 @@ def list_geo_postal_codes(
 def create_geo_postal_code(
     payload: GeoPostalCodeWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoPostalCodeResponse]:
     return ApiResponse(
@@ -340,7 +287,7 @@ def list_geo_localities(
 def create_geo_locality(
     payload: GeoLocalityWrite,
     _: PlatformPrincipal,
-    scope: Annotated[TerritoryScope, Depends(territory_scope)],
+    scope: ResolvedFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoLocalityResponse]:
     return ApiResponse(

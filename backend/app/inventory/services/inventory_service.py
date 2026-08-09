@@ -19,7 +19,6 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
-from app.core.utils.dates import utc_now
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,

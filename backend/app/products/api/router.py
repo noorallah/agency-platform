@@ -10,28 +10,20 @@ from fastapi import (
     Depends,
     File,
     Form,
-    Header,
     Query,
     Response,
     UploadFile,
     status,
 )
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.products.models import Product
 from app.products.schemas import (
     BulkProductRequest,
@@ -49,6 +41,16 @@ from app.products.schemas import (
 )
 from app.products.services import ProductService
 
+
+def _can_view_cost(scope: ResolvedFirmScope) -> bool:
+    """Return whether the caller may see cost prices.
+
+    This was a field on a bespoke product scope class; it is only a projection
+    of a permission, so it does not justify a private scope resolver.
+    """
+    return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+
+
 router = APIRouter(
     prefix="/api/v1/products",
     tags=["Products"],
@@ -56,87 +58,25 @@ router = APIRouter(
 )
 
 
-class ProductScope:
-    """Carry principal, firm scope, and permission projection for product APIs."""
-
-    def __init__(
-        self, principal: Principal, firm_id: UUID, can_view_cost: bool
-    ) -> None:
-        """Store resolved authorization scope for product handlers."""
-        self.principal = principal
-        self.firm_id = firm_id
-        self.can_view_cost = can_view_cost
-
-    @property
-    def actor_id(self) -> UUID:
-        """Return authenticated user identifier for auditing."""
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Product management requires a user principal.")
-        return self.principal.subject
-
-
-def product_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_platform_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> ProductScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return ProductScope(
-            principal=principal,
-            firm_id=x_firm_id,
-            can_view_cost=principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
-        )
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return ProductScope(
-        principal=principal,
-        firm_id=x_firm_id,
-        can_view_cost=principal.has_permission("PRODUCT_VIEW_COST_PRICE"),
-    )
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[ProductScope, Depends(product_scope)],
-    ) -> ProductScope:
-        return scope
-
-    return Depends(dependency)
-
-
-ProductViewScope = Annotated[ProductScope, _permission("PRODUCT_VIEW")]
-ProductCreateScope = Annotated[ProductScope, _permission("PRODUCT_CREATE")]
-ProductUpdateScope = Annotated[ProductScope, _permission("PRODUCT_UPDATE")]
-ProductDeleteScope = Annotated[ProductScope, _permission("PRODUCT_DELETE")]
-ProductRestoreScope = Annotated[ProductScope, _permission("PRODUCT_RESTORE")]
-ProductImportScope = Annotated[ProductScope, _permission("PRODUCT_IMPORT")]
-ProductExportScope = Annotated[ProductScope, _permission("PRODUCT_EXPORT")]
+ProductViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PRODUCT_VIEW")]
+ProductCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_CREATE")
+]
+ProductUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_UPDATE")
+]
+ProductDeleteScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_DELETE")
+]
+ProductRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_RESTORE")
+]
+ProductImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_IMPORT")
+]
+ProductExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PRODUCT_EXPORT")
+]
 
 
 @router.get("", response_model=PaginatedResponse[ProductResponse])
@@ -184,7 +124,9 @@ def list_products(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows],
+        data=[
+            _response(row, can_view_cost=_can_view_cost(scope), db=db) for row in rows
+        ],
         pagination=params.metadata(total),
     )
 
@@ -225,7 +167,7 @@ def create_product(
     row = ProductService(db).create_product(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
+    return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
 @router.post(
@@ -250,7 +192,8 @@ async def import_products(
         )
         return ApiResponse(
             data=[
-                _response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows
+                _response(row, can_view_cost=_can_view_cost(scope), db=db)
+                for row in rows
             ]
         )
     if file is None:
@@ -265,7 +208,9 @@ async def import_products(
             content, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
     return ApiResponse(
-        data=[_response(row, can_view_cost=scope.can_view_cost, db=db) for row in rows]
+        data=[
+            _response(row, can_view_cost=_can_view_cost(scope), db=db) for row in rows
+        ]
     )
 
 
@@ -363,7 +308,7 @@ def get_product(
     row = ProductService(db).get_product(
         product_id, firm_scope=scope.firm_id, include_deleted=include_deleted
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
+    return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
 @router.put("/{product_id}", response_model=ApiResponse[ProductResponse])
@@ -376,7 +321,7 @@ def update_product(
     row = ProductService(db).update_product(
         product_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
+    return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
 @router.post(
@@ -392,7 +337,7 @@ def duplicate_product(
     row = ProductService(db).duplicate_product(
         product_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
+    return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -416,7 +361,7 @@ def restore_product(
     row = ProductService(db).restore_product(
         product_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(row, can_view_cost=scope.can_view_cost, db=db))
+    return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
 @router.post("/bulk-delete", response_model=ApiResponse[dict[str, int]])

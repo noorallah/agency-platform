@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -22,7 +27,6 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
-    finance_scope,
     post_journal_entry,
     trial_balance,
 )
@@ -55,6 +59,18 @@ from app.finance.services import (
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for service and API tests."""
@@ -491,13 +507,13 @@ def test_finance_api_scope_enforces_membership_and_permissions() -> None:
 
     # A missing firm header is refused.
     with pytest.raises(AuthorizationError, match="X-Firm-ID is required"):
-        finance_scope(principal, session, None)
+        _firm_scope(principal, session, None)
 
     # A firm the user does not belong to is refused.
     with pytest.raises(AuthorizationError, match="not authorized"):
-        finance_scope(principal, session, outsider_firm.id)
+        _firm_scope(principal, session, outsider_firm.id)
 
-    scope = finance_scope(principal, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     assert scope.firm_id == firm.id
     assert scope.actor_id == user_id
 

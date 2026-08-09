@@ -2,10 +2,12 @@
 
 import inspect
 from datetime import date
+from pathlib import Path
 from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import params
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -13,6 +15,7 @@ from sqlalchemy.pool import StaticPool
 from app.business.models import BusinessProfile
 from app.common.scope import FirmScope, OptionalFirmScope, optional_firm_scope
 from app.core.database.base import Base
+from app.core.database.dependencies import get_platform_db
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError
 from app.core.security.authorization import Principal
@@ -272,3 +275,42 @@ def test_global_search_route_resolves_a_validated_firm_scope() -> None:
         "principal" not in annotations
     ), "global search must not take an unvalidated principal directly"
     assert get_args(OptionalFirmScope)[0] is FirmScope
+
+
+def test_firm_scope_is_resolved_against_the_platform_store() -> None:
+    """Membership must be checked on a platform session, never the tenant one.
+
+    ``firms`` and ``user_firms`` exist only in the platform schema. Every
+    firm-owned router used to resolve them on the request's tenant session,
+    whose search_path is the firm schema, so on PostgreSQL the check raised
+    UndefinedTable for every firm whose data does not live in the platform
+    schema. SQLite puts every table in one schema, which is why the unit suite
+    never noticed.
+    """
+    annotation = inspect.get_annotations(optional_firm_scope)["db"]
+    depends = next(
+        arg for arg in get_args(annotation) if isinstance(arg, params.Depends)
+    )
+    assert depends.dependency is get_platform_db
+
+
+def test_no_firm_owned_router_declares_its_own_scope_resolver() -> None:
+    """Firm-owned routers must compose the shared scope, not re-implement it.
+
+    A private copy is how the tenant-session defect spread to nineteen routers,
+    and how global search ended up with no membership check at all.
+    """
+    allowed = {
+        # Platform paths: these legitimately run on the platform session and
+        # manage the membership records themselves.
+        "app/identity/api/router.py",
+        # Passes an explicit platform session to its own resolver.
+        "app/business/api/router.py",
+    }
+    offenders = sorted(
+        path.as_posix()
+        for path in Path("app").glob("*/api/router.py")
+        if "UserFirm" in path.read_text(encoding="utf-8")
+        and path.as_posix() not in allowed
+    )
+    assert not offenders, f"routers with a private firm-scope resolver: {offenders}"

@@ -4,24 +4,26 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.database.dependencies import get_db
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
 from app.core.utils.dates import utc_now
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -51,78 +53,30 @@ router = APIRouter(
 )
 
 
-class InventoryScope:
-    """Carry the authenticated principal and resolved inventory firm scope."""
-
-    def __init__(self, principal: Principal, firm_id: UUID) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Inventory operations require a user principal.")
-        return self.principal.subject
-
-
-def inventory_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    platform_db: Annotated[Session, Depends(get_platform_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> InventoryScope:
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = platform_db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return InventoryScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = platform_db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return InventoryScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[InventoryScope, Depends(inventory_scope)],
-    ) -> InventoryScope:
-        return scope
-
-    return Depends(dependency)
-
-
-InventoryViewScope = Annotated[InventoryScope, _permission("INVENTORY_VIEW")]
-OpeningStockCreateScope = Annotated[InventoryScope, _permission("OPENING_STOCK_CREATE")]
-OpeningStockUpdateScope = Annotated[InventoryScope, _permission("OPENING_STOCK_UPDATE")]
-InventoryLedgerViewScope = Annotated[InventoryScope, _permission("INVENTORY_LEDGER_VIEW")]
-InventoryExportScope = Annotated[InventoryScope, _permission("INVENTORY_EXPORT")]
-InventoryImportScope = Annotated[InventoryScope, _permission("INVENTORY_IMPORT")]
-InventoryTransactionViewScope = Annotated[
-    InventoryScope, _permission("INVENTORY_TRANSACTION_VIEW")
+InventoryViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_VIEW")
 ]
-InventoryAdjustScope = Annotated[InventoryScope, _permission("INVENTORY_ADJUST")]
+OpeningStockCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("OPENING_STOCK_CREATE")
+]
+OpeningStockUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("OPENING_STOCK_UPDATE")
+]
+InventoryLedgerViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_LEDGER_VIEW")
+]
+InventoryExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_EXPORT")
+]
+InventoryImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_IMPORT")
+]
+InventoryTransactionViewScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_TRANSACTION_VIEW")
+]
+InventoryAdjustScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("INVENTORY_ADJUST")
+]
 
 
 @router.get("", response_model=PaginatedResponse[InventoryResponse])
@@ -132,7 +86,12 @@ def list_inventory(
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "created_at", "updated_at", "current_quantity", "available_quantity", "status", "product_code"
+        "created_at",
+        "updated_at",
+        "current_quantity",
+        "available_quantity",
+        "status",
+        "product_code",
     ] = "updated_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     status_value: str | None = Query(default=None, alias="status"),
@@ -191,20 +150,28 @@ def inventory_summary(
     return ApiResponse(data=summary)
 
 
-@router.get("/summary/by-firm", response_model=ApiResponse[list[InventoryLocationSummary]])
+@router.get(
+    "/summary/by-firm", response_model=ApiResponse[list[InventoryLocationSummary]]
+)
 def stock_by_firm(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
-    return ApiResponse(data=InventoryService(db).stock_by_firm(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=InventoryService(db).stock_by_firm(firm_scope=scope.firm_id)
+    )
 
 
-@router.get("/summary/by-branch", response_model=ApiResponse[list[InventoryLocationSummary]])
+@router.get(
+    "/summary/by-branch", response_model=ApiResponse[list[InventoryLocationSummary]]
+)
 def stock_by_branch(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
-    return ApiResponse(data=InventoryService(db).stock_by_branch(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=InventoryService(db).stock_by_branch(firm_scope=scope.firm_id)
+    )
 
 
 @router.get(
@@ -214,28 +181,42 @@ def stock_by_warehouse(
     scope: InventoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[InventoryLocationSummary]]:
-    return ApiResponse(data=InventoryService(db).stock_by_warehouse(firm_scope=scope.firm_id))
+    return ApiResponse(
+        data=InventoryService(db).stock_by_warehouse(firm_scope=scope.firm_id)
+    )
 
 
-@router.post("", response_model=ApiResponse[InventoryResponse], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ApiResponse[InventoryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
 def create_inventory(
     data: InventoryCreate,
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryResponse]:
     service = InventoryService(db)
-    row = service.create_inventory_record(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create_inventory_record(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.inventory_response(row))
 
 
-@router.get("/transactions", response_model=PaginatedResponse[InventoryTransactionResponse])
+@router.get(
+    "/transactions", response_model=PaginatedResponse[InventoryTransactionResponse]
+)
 def list_transactions(
     scope: InventoryTransactionViewScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "created_at", "transaction_date", "transaction_type", "reference_number", "quantity"
+        "created_at",
+        "transaction_date",
+        "transaction_type",
+        "reference_number",
+        "quantity",
     ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     transaction_type: str | None = None,
@@ -286,7 +267,11 @@ def list_ledger(
     page_size: int = 20,
     search: str | None = None,
     sort_by: Literal[
-        "created_at", "transaction_date", "transaction_type", "reference_number", "quantity"
+        "created_at",
+        "transaction_date",
+        "transaction_type",
+        "reference_number",
+        "quantity",
     ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     transaction_type: str | None = None,
@@ -341,17 +326,23 @@ def create_opening_stock(
     db: Session = Depends(get_db),
 ) -> ApiResponse[OpeningStockBatchResponse]:
     service = InventoryService(db)
-    row = service.create_opening_stock_batch(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create_opening_stock_batch(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.opening_stock_batch_response(row))
 
 
-@router.get("/opening-stock", response_model=PaginatedResponse[OpeningStockBatchResponse])
+@router.get(
+    "/opening-stock", response_model=PaginatedResponse[OpeningStockBatchResponse]
+)
 def list_opening_stock(
     scope: InventoryViewScope,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
-    sort_by: Literal["created_at", "posting_date", "reference_number", "status"] = "created_at",
+    sort_by: Literal[
+        "created_at", "posting_date", "reference_number", "status"
+    ] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     status_value: str | None = Query(default=None, alias="status"),
     branch_id: UUID | None = None,
@@ -388,7 +379,9 @@ def list_opening_stock(
     )
 
 
-@router.get("/opening-stock/{batch_id}", response_model=ApiResponse[OpeningStockBatchResponse])
+@router.get(
+    "/opening-stock/{batch_id}", response_model=ApiResponse[OpeningStockBatchResponse]
+)
 def get_opening_stock(
     batch_id: UUID,
     scope: InventoryViewScope,
@@ -402,7 +395,9 @@ def get_opening_stock(
     return ApiResponse(data=service.opening_stock_batch_response(row))
 
 
-@router.put("/opening-stock/{batch_id}", response_model=ApiResponse[OpeningStockBatchResponse])
+@router.put(
+    "/opening-stock/{batch_id}", response_model=ApiResponse[OpeningStockBatchResponse]
+)
 def update_opening_stock(
     batch_id: UUID,
     data: OpeningStockUpdate,
@@ -460,7 +455,13 @@ async def import_opening_stock(
             actor_id=scope.actor_id,
         )
         return ApiResponse(data=service.opening_stock_batch_response(row))
-    if file is None or reference_number is None or posting_date is None or branch_id is None or warehouse_id is None:
+    if (
+        file is None
+        or reference_number is None
+        or posting_date is None
+        or branch_id is None
+        or warehouse_id is None
+    ):
         raise ValidationError(
             "file, reference_number, posting_date, branch_id, and warehouse_id are required for CSV/XLSX import."
         )
@@ -507,7 +508,9 @@ def create_adjustment(
     db: Session = Depends(get_db),
 ) -> ApiResponse[InventoryTransactionResponse]:
     service = InventoryService(db)
-    row = service.create_adjustment(data, firm_scope=scope.firm_id, actor_id=scope.actor_id)
+    row = service.create_adjustment(
+        data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=service.transaction_response(row))
 
 
@@ -522,11 +525,15 @@ def export_inventory(
     service = InventoryService(db)
     if dataset == "ledger":
         if format == "xlsx":
-            content = service.export_ledger_xlsx(firm_scope=scope.firm_id, search=search)
+            content = service.export_ledger_xlsx(
+                firm_scope=scope.firm_id, search=search
+            )
             return StreamingResponse(
                 iter([content]),
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": 'attachment; filename="stock-ledger.xlsx"'},
+                headers={
+                    "Content-Disposition": 'attachment; filename="stock-ledger.xlsx"'
+                },
             )
         text = service.export_ledger_csv(firm_scope=scope.firm_id, search=search)
         return StreamingResponse(
@@ -583,7 +590,9 @@ def delete_inventory(
     scope: InventoryAdjustScope,
     db: Session = Depends(get_db),
 ) -> Response:
-    row = InventoryService(db).get_inventory_record(inventory_id, firm_scope=scope.firm_id)
+    row = InventoryService(db).get_inventory_record(
+        inventory_id, firm_scope=scope.firm_id
+    )
     if any(
         value != 0
         for value in (

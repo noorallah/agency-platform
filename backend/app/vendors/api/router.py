@@ -6,24 +6,17 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.core.security.authorization import (
-    Principal,
-    get_current_principal,
-    require_permission,
-)
-from app.firms.models import Firm
-from app.identity.models import UserFirm
 from app.vendors.schemas import (
     VendorCategoryResponse,
     VendorCategoryWrite,
@@ -44,20 +37,6 @@ router = APIRouter(
     tags=["Vendors"],
     responses=STANDARD_ERROR_RESPONSES,
 )
-
-
-class VendorScope:
-    """Carry the authenticated principal and optional firm restriction."""
-
-    def __init__(self, principal: Principal, firm_id: UUID | None) -> None:
-        self.principal = principal
-        self.firm_id = firm_id
-
-    @property
-    def actor_id(self) -> UUID:
-        if not isinstance(self.principal.subject, UUID):
-            raise RuntimeError("Vendor management requires a user principal.")
-        return self.principal.subject
 
 
 class BulkIdsRequest(BaseModel):
@@ -84,66 +63,20 @@ class BulkBusinessProfileRequest(BulkIdsRequest):
     business_profile_id: UUID | None = None
 
 
-def vendor_scope(
-    principal: Annotated[Principal, Depends(get_current_principal)],
-    db: Annotated[Session, Depends(get_db)],
-    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
-) -> VendorScope:
-    """Validate active firm access for every vendor operation."""
-    if "platform_admin" in principal.roles:
-        if x_firm_id is None:
-            raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-        firm = db.scalar(
-            select(Firm.id).where(
-                Firm.id == x_firm_id,
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
-            )
-        )
-        if firm is None:
-            raise AuthorizationError("The selected firm is inactive or unavailable.")
-        return VendorScope(principal, x_firm_id)
-    if not isinstance(principal.subject, UUID) or x_firm_id is None:
-        raise AuthorizationError("An authorized active firm is required.")
-    membership = db.scalar(
-        select(UserFirm.id)
-        .join(Firm, Firm.id == UserFirm.firm_id)
-        .where(
-            UserFirm.user_id == principal.subject,
-            UserFirm.firm_id == x_firm_id,
-            UserFirm.is_active.is_(True),
-            UserFirm.is_deleted.is_(False),
-            Firm.is_active.is_(True),
-            Firm.is_deleted.is_(False),
-        )
-    )
-    if membership is None:
-        raise AuthorizationError("You are not authorized for the selected firm.")
-    return VendorScope(principal, x_firm_id)
-
-
-def _permission(code: str) -> object:
-    def dependency(
-        _: Annotated[Principal, Depends(require_permission(code))],
-        scope: Annotated[VendorScope, Depends(vendor_scope)],
-    ) -> VendorScope:
-        return scope
-
-    return Depends(dependency)
-
-
-VendorViewScope = Annotated[VendorScope, _permission("VENDOR_VIEW")]
-VendorCreateScope = Annotated[VendorScope, _permission("VENDOR_CREATE")]
-VendorUpdateScope = Annotated[VendorScope, _permission("VENDOR_UPDATE")]
-VendorDeleteScope = Annotated[VendorScope, _permission("VENDOR_DELETE")]
-VendorRestoreScope = Annotated[VendorScope, _permission("VENDOR_RESTORE")]
-VendorExportScope = Annotated[VendorScope, _permission("VENDOR_EXPORT")]
-VendorImportScope = Annotated[VendorScope, _permission("VENDOR_IMPORT")]
+VendorViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_VIEW")]
+VendorCreateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_CREATE")]
+VendorUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_UPDATE")]
+VendorDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_DELETE")]
+VendorRestoreScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("VENDOR_RESTORE")
+]
+VendorExportScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_EXPORT")]
+VendorImportScope = Annotated[ResolvedFirmScope, firm_permission_scope("VENDOR_IMPORT")]
 VendorBankManageScope = Annotated[
-    VendorScope, _permission("VENDOR_MANAGE_BANK_DETAILS")
+    ResolvedFirmScope, firm_permission_scope("VENDOR_MANAGE_BANK_DETAILS")
 ]
 VendorCategoryManageScope = Annotated[
-    VendorScope, _permission("VENDOR_MANAGE_CATEGORIES")
+    ResolvedFirmScope, firm_permission_scope("VENDOR_MANAGE_CATEGORIES")
 ]
 
 

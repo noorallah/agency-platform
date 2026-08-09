@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 

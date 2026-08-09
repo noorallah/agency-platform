@@ -10,8 +10,8 @@ from app.customers.schemas.customer import (
     CustomerReceivableSummary,
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionResponse,
-    CustomerResponse,
     CustomerReceivableTransactionType,
+    CustomerResponse,
     CustomerSummary,
     CustomerUpdate,
 )

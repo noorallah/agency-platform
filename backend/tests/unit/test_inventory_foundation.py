@@ -11,6 +11,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError
@@ -20,7 +25,7 @@ from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.identity.models import UserFirm
-from app.inventory.api.router import create_inventory, inventory_scope, list_inventory
+from app.inventory.api.router import create_inventory, list_inventory
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
@@ -34,6 +39,18 @@ from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.vendors.models import vendor as _vendor_models  # noqa: F401
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -269,9 +286,7 @@ def test_inventory_api_scope_enforces_membership_and_permissions() -> None:
     }
     session = factory()
     # One SQLite session backs both the tenant and platform dependencies here.
-    scope = inventory_scope(
-        _principal(user_id, permissions), session, session, firm.id
-    )
+    scope = _firm_scope(_principal(user_id, permissions), session, firm.id)
     created = create_inventory(
         InventoryCreate(
             branch_id=branch.id,

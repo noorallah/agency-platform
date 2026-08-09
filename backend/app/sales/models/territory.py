@@ -17,7 +17,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
-from app.customers.models import Customer
 
 
 class SalesHierarchyConfig(BaseEntity):

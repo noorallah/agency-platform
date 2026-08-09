@@ -13,11 +13,15 @@ from app.branches.api.router import (
     create_warehouse,
     list_branches,
     list_warehouses,
-    branch_warehouse_scope,
 )
 from app.branches.schemas import BranchCreate, WarehouseCreate
 from app.branches.schemas.branch_warehouse import BranchListFilters, WarehouseListFilters
 from app.branches.services import BranchWarehouseService
+from app.common.scope import (
+    ResolvedFirmScope,
+    optional_firm_scope,
+    required_firm_scope,
+)
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ConflictError, ResourceNotFoundError
@@ -26,6 +30,18 @@ from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
+
+def _firm_scope(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> ResolvedFirmScope:
+    """Resolve firm scope exactly as a request does, through the shared helper.
+
+    Routers no longer carry a private resolver; membership is validated once in
+    ``app.common.scope`` against the platform store.
+    """
+    return required_firm_scope(
+        optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
+    )
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(
@@ -180,7 +196,7 @@ def test_branch_and_warehouse_api_scope_permissions_and_listing() -> None:
     principal = _principal(user_id, permissions)
     session = factory()
     # One SQLite session backs both the tenant and platform dependencies here.
-    scope = branch_warehouse_scope(principal, session, session, firm.id)
+    scope = _firm_scope(principal, session, firm.id)
     branch = create_branch(_branch_data("BR-API-1"), scope, session)
     assert branch.data.code == "BR-API-1"
     warehouse = create_warehouse(

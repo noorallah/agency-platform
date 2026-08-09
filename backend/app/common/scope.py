@@ -20,7 +20,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database.dependencies import get_platform_db
 from app.core.exceptions import AuthorizationError
-from app.core.security.authorization import Principal, get_current_principal
+from app.core.security.authorization import (
+    Principal,
+    get_current_principal,
+    require_permission,
+)
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -31,6 +35,26 @@ class FirmScope:
 
     principal: Principal
     firm_id: UUID | None
+
+    @property
+    def actor_id(self) -> UUID:
+        """Return the acting user id.
+
+        Raises:
+            RuntimeError: If the principal is not a user.
+
+        """
+        if not isinstance(self.principal.subject, UUID):
+            raise RuntimeError("This operation requires a user principal.")
+        return self.principal.subject
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedFirmScope:
+    """A firm scope that is guaranteed to carry a firm."""
+
+    principal: Principal
+    firm_id: UUID
 
     @property
     def actor_id(self) -> UUID:
@@ -103,7 +127,7 @@ def optional_firm_scope(
 
 def required_firm_scope(
     scope: Annotated[FirmScope, Depends(optional_firm_scope)],
-) -> FirmScope:
+) -> ResolvedFirmScope:
     """Resolve firm scope, refusing requests that carry no firm.
 
     Args:
@@ -118,8 +142,35 @@ def required_firm_scope(
     """
     if scope.firm_id is None:
         raise AuthorizationError("X-Firm-ID is required for firm-owned resources.")
-    return scope
+    return ResolvedFirmScope(principal=scope.principal, firm_id=scope.firm_id)
+
+
+def firm_permission_scope(code: str) -> object:
+    """Compose a permission check with firm-scope resolution.
+
+    Every firm-owned router declared its own copy of this pair. Beyond the
+    duplication, those copies resolved ``Firm`` and ``UserFirm`` on the *tenant*
+    session, and those tables exist only in the platform store — so on
+    PostgreSQL the check raised ``UndefinedTable`` for every firm whose data does
+    not live in the platform schema. Resolving through ``get_platform_db`` here
+    is what makes the check work at all outside SQLite tests.
+
+    Args:
+        code: The permission code the caller must hold.
+
+    Returns:
+        A FastAPI dependency yielding the resolved firm scope.
+
+    """
+
+    def dependency(
+        _: Annotated[Principal, Depends(require_permission(code))],
+        scope: Annotated[ResolvedFirmScope, Depends(required_firm_scope)],
+    ) -> ResolvedFirmScope:
+        return scope
+
+    return Depends(dependency)
 
 
 OptionalFirmScope = Annotated[FirmScope, Depends(optional_firm_scope)]
-RequiredFirmScope = Annotated[FirmScope, Depends(required_firm_scope)]
+RequiredFirmScope = Annotated[ResolvedFirmScope, Depends(required_firm_scope)]
