@@ -375,8 +375,9 @@ class _BranchWarehouseManagementPageState
   }
 
   Widget _branchGrid() {
-    if (_branches.isEmpty)
+    if (_branches.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return LoadingOverlay(
       loading: _loading,
       child: EnterpriseDataGrid<BranchRecord>(
@@ -435,8 +436,9 @@ class _BranchWarehouseManagementPageState
   }
 
   Widget _warehouseGrid() {
-    if (_warehouses.isEmpty)
+    if (_warehouses.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return LoadingOverlay(
       loading: _loading,
       child: EnterpriseDataGrid<WarehouseRecord>(
@@ -495,8 +497,9 @@ class _BranchWarehouseManagementPageState
   }
 
   Widget _typeGrid() {
-    if (_types.isEmpty)
+    if (_types.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return LoadingOverlay(
       loading: _loading,
       child: EnterpriseDataGrid<TypeRecord>(
@@ -531,8 +534,9 @@ class _BranchWarehouseManagementPageState
         message: 'Create a warehouse first to configure storage structure.',
       );
     }
-    if (_storageNodes.isEmpty)
+    if (_storageNodes.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return LoadingOverlay(
       loading: _loading,
       child: EnterpriseDataGrid<StorageNodeRecord>(
@@ -670,8 +674,9 @@ class _BranchWarehouseManagementPageState
         if (_selectedBranch != null) await _deleteBranch(_selectedBranch!);
         break;
       case BranchWarehouseSection.warehouses:
-        if (_selectedWarehouse != null)
+        if (_selectedWarehouse != null) {
           await _deleteWarehouse(_selectedWarehouse!);
+        }
         break;
       case BranchWarehouseSection.storageAreas:
         if (_selectedStorageNode != null) {

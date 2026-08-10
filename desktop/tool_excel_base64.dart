@@ -1,3 +1,7 @@
+// ignore_for_file: avoid_print
+//
+// A developer script run with `dart run`, not part of the shipped app:
+// stdout is the whole point of it.
 import 'dart:convert';
 import 'package:excel/excel.dart' as xls;
 

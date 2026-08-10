@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -420,7 +419,6 @@ PermissionService _permissionsFor(List<String> perms) {
 class _InventoryImportApi extends ApiClient {
   _InventoryImportApi({
     this.adjustmentDelay = Duration.zero,
-    this.onAdjustmentCall,
     this.failAdjustmentCalls = const <int>{},
   })
       : super(
@@ -431,7 +429,9 @@ class _InventoryImportApi extends ApiClient {
         );
 
   final Duration adjustmentDelay;
-  final void Function(int callNumber)? onAdjustmentCall;
+  // A seam the fake keeps for callers that want to observe retries; no
+  // test supplies one today, so it is a field rather than a parameter.
+  final void Function(int callNumber)? onAdjustmentCall = null;
   final Set<int> failAdjustmentCalls;
   int createOpeningStockCalls = 0;
   int postOpeningStockCalls = 0;
@@ -712,8 +712,6 @@ const InventoryTransactionRecord _transaction = InventoryTransactionRecord(
 class _BatchSerialApi extends ApiClient {
   _BatchSerialApi({
     this.batchItems = const [],
-    this.lotItems = const [],
-    this.serialItems = const [],
   }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -722,8 +720,8 @@ class _BatchSerialApi extends ApiClient {
         );
 
   final List<BatchRecord> batchItems;
-  final List<LotRecord> lotItems;
-  final List<SerialRecord> serialItems;
+  final List<LotRecord> lotItems = const [];
+  final List<SerialRecord> serialItems = const [];
 
   @override
   Future<PagedResult<BatchRecord>> batches({

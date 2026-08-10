@@ -521,10 +521,10 @@ class ImportWizard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => EditorDialog(
         title: title,
-        child: body,
         onCancel: onClose,
         onSave: onImport,
         loading: loading,
+        child: body,
       );
 }
 
@@ -547,10 +547,10 @@ class ExportWizard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => EditorDialog(
         title: title,
-        child: body,
         onCancel: onClose,
         onSave: onExport,
         loading: loading,
+        child: body,
       );
 }
 

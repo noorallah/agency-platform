@@ -375,13 +375,14 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     }
   }
 
-  Future<void> _openEditor(_PurchaseDialogMode mode,
+  Future<void> _openEditor(PurchaseDialogMode mode,
       [PurchaseOrder? seed]) async {
-    if (mode == _PurchaseDialogMode.create && !_canCreate) return;
-    if (mode == _PurchaseDialogMode.edit && (!_canUpdate || seed == null))
+    if (mode == PurchaseDialogMode.create && !_canCreate) return;
+    if (mode == PurchaseDialogMode.edit && (!_canUpdate || seed == null)) {
       return;
-    if ((mode == _PurchaseDialogMode.view ||
-            mode == _PurchaseDialogMode.duplicate) &&
+    }
+    if ((mode == PurchaseDialogMode.view ||
+            mode == PurchaseDialogMode.duplicate) &&
         seed == null) {
       return;
     }
@@ -414,7 +415,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     if (!mounted) return;
     NotificationService.show(
       context,
-      'Purchase order ${mode == _PurchaseDialogMode.create || mode == _PurchaseDialogMode.duplicate ? 'created' : 'updated'}.',
+      'Purchase order ${mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate ? 'created' : 'updated'}.',
       kind: AppNotificationKind.success,
     );
     await _load();
@@ -695,12 +696,12 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           phone: '',
           mobile: '',
           remarks: '',
-          businessAttributes: const {},
+          businessAttributes: {},
           createdAt: '',
           updatedAt: '',
           isDeleted: false,
-          contacts: const [],
-          addresses: const [],
+          contacts: [],
+          addresses: [],
         ),
       )
       .displayName
@@ -819,13 +820,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     return WorkspaceShortcuts(
       bindings: WorkspaceShortcutBindings(
         create:
-            _canCreate ? () => _openEditor(_PurchaseDialogMode.create) : null,
+            _canCreate ? () => _openEditor(PurchaseDialogMode.create) : null,
         focusSearch: () => _searchFocus.requestFocus(),
         refresh: _loading ? null : _load,
         delete: _canDelete ? _deleteSelected : null,
         globalSearch: widget.onOpenGlobalSearch,
         edit: _canUpdate && _selected != null && !_selected!.isDeleted
-            ? () => _openEditor(_PurchaseDialogMode.edit, _selected)
+            ? () => _openEditor(PurchaseDialogMode.edit, _selected)
             : null,
         export: _canExport ? _openExport : null,
         copyRow: _selected != null ? _copySelectedRow : null,
@@ -1093,7 +1094,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       children: [
         FilledButton.icon(
           onPressed:
-              _canCreate ? () => _openEditor(_PurchaseDialogMode.create) : null,
+              _canCreate ? () => _openEditor(PurchaseDialogMode.create) : null,
           icon: const Icon(Icons.add),
           label: const Text('New'),
         ),
@@ -1101,13 +1102,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           tooltip: 'View',
           onPressed: selected == null
               ? null
-              : () => _openEditor(_PurchaseDialogMode.view, selected),
+              : () => _openEditor(PurchaseDialogMode.view, selected),
           icon: const Icon(Icons.visibility_outlined),
         ),
         IconButton(
           tooltip: 'Edit',
           onPressed: canEditSelected
-              ? () => _openEditor(_PurchaseDialogMode.edit, selected)
+              ? () => _openEditor(PurchaseDialogMode.edit, selected)
               : null,
           icon: const Icon(Icons.edit_outlined),
         ),
@@ -1115,7 +1116,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           tooltip: 'Duplicate',
           onPressed: selected == null || !_canCreate
               ? null
-              : () => _openEditor(_PurchaseDialogMode.duplicate, selected),
+              : () => _openEditor(PurchaseDialogMode.duplicate, selected),
           icon: const Icon(Icons.copy_outlined),
         ),
         IconButton(
@@ -1469,7 +1470,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         item.grandTotal,
       ],
       onSelect: _selectOrder,
-      onOpen: (item) => _openEditor(_PurchaseDialogMode.view, item),
+      onOpen: (item) => _openEditor(PurchaseDialogMode.view, item),
       onPageChanged: (offset) {
         final int next = offset ~/ _rowsPerPage + 1;
         if (next != _page) {
@@ -1486,10 +1487,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       onContextAction: (action, item) {
         switch (action) {
           case WorkspaceContextAction.view:
-            _openEditor(_PurchaseDialogMode.view, item);
+            _openEditor(PurchaseDialogMode.view, item);
             break;
           case WorkspaceContextAction.edit:
-            _openEditor(_PurchaseDialogMode.edit, item);
+            _openEditor(PurchaseDialogMode.edit, item);
             break;
           case WorkspaceContextAction.delete:
             setState(() {
@@ -1568,9 +1569,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     return QuickSummaryPanel(
       title: 'Purchase Order',
       lines: lines,
-      onView: () => _openEditor(_PurchaseDialogMode.view, selected),
+      onView: () => _openEditor(PurchaseDialogMode.view, selected),
       onEdit: _canUpdate && !selected.isDeleted
-          ? () => _openEditor(_PurchaseDialogMode.edit, selected)
+          ? () => _openEditor(PurchaseDialogMode.edit, selected)
           : null,
     );
   }
@@ -1681,7 +1682,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   });
 
   final ApiClient api;
-  final _PurchaseDialogMode mode;
+  final PurchaseDialogMode mode;
   final PurchaseOrder? order;
   final List<Vendor> vendors;
   final List<BranchRecord> branches;
@@ -1691,10 +1692,10 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   final List<TaxProfileRecord> taxProfiles;
   final List<StorageNodeRecord> storageNodes;
 
-  bool get isReadOnly => mode == _PurchaseDialogMode.view;
+  bool get isReadOnly => mode == PurchaseDialogMode.view;
   bool get isCreating =>
-      mode == _PurchaseDialogMode.create ||
-      mode == _PurchaseDialogMode.duplicate;
+      mode == PurchaseDialogMode.create ||
+      mode == PurchaseDialogMode.duplicate;
 
   @override
   State<PurchaseOrderEditorDialog> createState() =>
@@ -1702,7 +1703,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
 }
 
 class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
-  late PurchaseOrder _draft = widget.mode == _PurchaseDialogMode.duplicate
+  late PurchaseOrder _draft = widget.mode == PurchaseDialogMode.duplicate
       ? _duplicateDraft(widget.order!)
       : (widget.order ?? _blankOrder());
   bool _saving = false;
@@ -1828,10 +1829,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
               children: [
                 _DialogHeader(
                   title: switch (widget.mode) {
-                    _PurchaseDialogMode.create => 'New Purchase Order',
-                    _PurchaseDialogMode.view => 'Purchase Order',
-                    _PurchaseDialogMode.edit => 'Edit Purchase Order',
-                    _PurchaseDialogMode.duplicate => 'Duplicate Purchase Order',
+                    PurchaseDialogMode.create => 'New Purchase Order',
+                    PurchaseDialogMode.view => 'Purchase Order',
+                    PurchaseDialogMode.edit => 'Edit Purchase Order',
+                    PurchaseDialogMode.duplicate => 'Duplicate Purchase Order',
                   },
                   subtitle: _draft.poNumber.ifEmpty('Draft workspace'),
                   onClose: _saving ? null : _close,
@@ -2936,7 +2937,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           status: '',
           isHistorical: false,
           isDeleted: false,
-          components: const [],
+          components: [],
         ),
       )
       .label
@@ -2970,8 +2971,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           isDeleted: false,
           createdAt: '',
           updatedAt: '',
-          attributes: const [],
-          media: const [],
+          attributes: [],
+          media: [],
         ),
       )
       .name
@@ -3482,7 +3483,7 @@ class _ColumnChooserDialog extends StatefulWidget {
 }
 
 class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
-  late Map<String, bool> _columns =
+  late final Map<String, bool> _columns =
       Map<String, bool>.from(widget.visibleColumns);
   final TextEditingController _viewName = TextEditingController();
 
@@ -3825,7 +3826,7 @@ class _VendorSpend {
   final double total;
 }
 
-enum _PurchaseDialogMode { create, view, edit, duplicate }
+enum PurchaseDialogMode { create, view, edit, duplicate }
 
 enum _PurchaseExportScope { selected, currentView, filteredView }
 

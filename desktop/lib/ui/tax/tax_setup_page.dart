@@ -185,8 +185,12 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
   }
 
   void _resetForm() {
-    for (final c in _components) c.dispose();
-    for (final p in _profiles) p.dispose();
+    for (final c in _components) {
+      c.dispose();
+    }
+    for (final p in _profiles) {
+      p.dispose();
+    }
     setState(() {
       _codeCtrl.clear();
       _nameCtrl.clear();

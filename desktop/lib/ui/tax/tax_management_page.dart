@@ -390,8 +390,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       };
 
   Widget _systemsGrid() {
-    if (_systems.isEmpty)
+    if (_systems.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<TaxSystemRecord>(
       items: _systems,
       total: _total,
@@ -419,8 +420,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Widget _componentsGrid() {
-    if (_components.isEmpty)
+    if (_components.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<TaxComponentRecord>(
       items: _components,
       total: _total,
@@ -448,8 +450,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Widget _profilesGrid() {
-    if (_profiles.isEmpty)
+    if (_profiles.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<TaxProfileRecord>(
       items: _profiles,
       total: _total,
@@ -533,8 +536,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Widget _rulesGrid() {
-    if (_rules.isEmpty)
+    if (_rules.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<TaxRuleRecord>(
       items: _rules,
       total: _total,
@@ -801,8 +805,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Widget _effectiveDatesGrid() {
-    if (_effectiveDates.isEmpty)
+    if (_effectiveDates.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<EffectiveDateRecord>(
       items: _effectiveDates,
       total: _effectiveDates.length,
@@ -827,8 +832,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Widget _historyGrid() {
-    if (_history.isEmpty)
+    if (_history.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
+    }
     return EnterpriseDataGrid<TaxHistoryRecord>(
       items: _history,
       total: _history.length,

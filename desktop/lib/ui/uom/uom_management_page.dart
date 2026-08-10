@@ -199,8 +199,9 @@ class _UomManagementPageState extends State<UomManagementPage> {
         WorkspaceContextAction.delete
       ],
       onContextAction: (action, row) {
-        if (action == WorkspaceContextAction.edit)
+        if (action == WorkspaceContextAction.edit) {
           _openUomDialog(existing: row);
+        }
         if (action == WorkspaceContextAction.delete) _deleteUom(row);
       },
     );
@@ -230,8 +231,9 @@ class _UomManagementPageState extends State<UomManagementPage> {
         WorkspaceContextAction.delete
       ],
       onContextAction: (action, row) {
-        if (action == WorkspaceContextAction.edit)
+        if (action == WorkspaceContextAction.edit) {
           _openGroupDialog(existing: row);
+        }
         if (action == WorkspaceContextAction.delete) _deleteGroup(row);
       },
     );
@@ -337,8 +339,9 @@ class _UomManagementPageState extends State<UomManagementPage> {
         WorkspaceContextAction.delete
       ],
       onContextAction: (action, row) {
-        if (action == WorkspaceContextAction.edit)
+        if (action == WorkspaceContextAction.edit) {
           _openTemplateDialog(existing: row);
+        }
         if (action == WorkspaceContextAction.delete) _deleteTemplate(row);
       },
     );
