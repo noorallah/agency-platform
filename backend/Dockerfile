@@ -14,6 +14,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
+# The retention jobs run from this image; without them the purge scripts are
+# not present to schedule.
+COPY scripts ./scripts
 
 EXPOSE 8000
 

@@ -59,5 +59,42 @@ services:
       retries: 5
       start_period: 20s
 
+  # refresh_tokens, login_history, password_history and
+  # tax_rule_execution_logs all grow without bound. The retention services
+  # existed and nothing ran them, so this is what runs them.
+  #
+  # It enumerates every firm store from the registry, so it prunes dedicated
+  # schemas and dedicated databases too -- doing it by hand meant knowing the
+  # tenancy layout and missing a store the moment one was added.
+  #
+  # Set AGENCY_RETENTION_MODE=--dry-run to watch it before letting it delete.
+  # Remove the service, or `docker compose stop retention`, to turn it off.
+  retention:
+    build:
+      context: .
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    environment:
+      AGENCY_DATABASE_DIALECT: postgresql
+      AGENCY_DATABASE_HOST: postgres
+      AGENCY_DATABASE_PORT: 5432
+      AGENCY_DATABASE_NAME: agency_platform
+      AGENCY_DATABASE_USERNAME: postgres
+      AGENCY_DATABASE_PASSWORD: ${AGENCY_DATABASE_PASSWORD:?set AGENCY_DATABASE_PASSWORD}
+      AGENCY_RETENTION_MODE: ${AGENCY_RETENTION_MODE:---yes}
+      AGENCY_RETENTION_INTERVAL_SECONDS: ${AGENCY_RETENTION_INTERVAL_SECONDS:-86400}
+      AGENCY_RETENTION_LOGIN_HISTORY_DAYS: ${AGENCY_RETENTION_LOGIN_HISTORY_DAYS:-365}
+      AGENCY_RETENTION_EXECUTION_LOG_DAYS: ${AGENCY_RETENTION_EXECUTION_LOG_DAYS:-365}
+    depends_on:
+      api:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-c",
+        "while true; do uv run --no-sync python scripts/purge_retention.py            \"$$AGENCY_RETENTION_MODE\"            --login-history-days \"$$AGENCY_RETENTION_LOGIN_HISTORY_DAYS\"            --execution-log-days \"$$AGENCY_RETENTION_EXECUTION_LOG_DAYS\" || true;          sleep \"$$AGENCY_RETENTION_INTERVAL_SECONDS\"; done",
+      ]
+
 volumes:
   postgres_data:
