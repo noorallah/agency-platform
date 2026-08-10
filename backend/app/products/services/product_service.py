@@ -13,11 +13,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
+from app.business.gating import assert_feature_fields, resolve_capabilities
 from app.business.models import (
     BusinessProfile,
     CategoryAttributeRule,
     FirmBusinessProfile,
-    ProfileFeature,
 )
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
@@ -138,7 +138,6 @@ class ProductService:
     ) -> Product:
         self._assert_unique_code(firm_id, data.code)
         self._assert_unique_barcode(firm_id, data.barcode)
-        feature_codes = self._active_feature_codes(firm_id)
         category = self._validate_category_reference(firm_id, data.category_id)
         self._validate_sub_category_reference(
             firm_id=firm_id,
@@ -147,7 +146,7 @@ class ProductService:
         )
         self._validate_tax_profile_group_code(firm_id, data.tax_profile_group_code)
         self._validate_uom_references(data)
-        self._validate_feature_gated_fields(data, feature_codes)
+        self._validate_feature_gated_fields(data, firm_id)
         product = Product(
             **self._product_values(data),
             firm_id=firm_id,
@@ -215,8 +214,7 @@ class ProductService:
         )
         self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
         self._validate_uom_references(data)
-        feature_codes = self._active_feature_codes(firm_scope)
-        self._validate_feature_gated_fields(data, feature_codes)
+        self._validate_feature_gated_fields(data, firm_scope)
         before: dict[str, object] = {
             "code": product.code,
             "category_id": str(product.category_id),
@@ -372,8 +370,9 @@ class ProductService:
     def metadata(
         self, *, firm_scope: UUID, category_id: UUID | None = None
     ) -> ProductMetadataResponse:
+        capabilities = resolve_capabilities(self._session, firm_scope)
         profile = self._resolved_profile(firm_scope)
-        feature_codes = self._active_feature_codes(firm_scope)
+        feature_codes = capabilities.features
         categories = self._session.scalars(
             select(ProductCategory)
             .where(
@@ -731,30 +730,6 @@ class ProductService:
             count = count.where(Product.hsn_sac == filters.hsn_sac.strip().upper())
         return statement, count
 
-    def _active_feature_codes(self, firm_id: UUID) -> set[str]:
-        profile = self._resolved_profile(firm_id)
-        feature_ids = {
-            row.feature_id
-            for row in self._session.scalars(
-                select(ProfileFeature).where(
-                    ProfileFeature.business_profile_id == profile.id,
-                    ProfileFeature.is_deleted.is_(False),
-                    ProfileFeature.is_enabled.is_(True),
-                )
-            )
-        }
-        if not feature_ids:
-            return set()
-        # Import lazily to avoid cyclic imports.
-        from app.business.models import BusinessFeature
-
-        return {
-            row.code
-            for row in self._session.scalars(
-                select(BusinessFeature).where(BusinessFeature.id.in_(feature_ids))
-            )
-        }
-
     def _resolved_profile(self, firm_id: UUID) -> BusinessProfile:
         assignment = self._session.scalar(
             select(FirmBusinessProfile).where(
@@ -813,12 +788,24 @@ class ProductService:
         return required, optional
 
     def _validate_feature_gated_fields(
-        self, data: ProductCreate | ProductUpdate, feature_codes: set[str]
+        self, data: ProductCreate | ProductUpdate, firm_id: UUID
     ) -> None:
-        if data.barcode and "BARCODE" not in feature_codes:
-            raise ValidationError("Barcode is disabled by feature configuration.")
-        if data.qr_code and "QR_CODE" not in feature_codes:
-            raise ValidationError("QR code is disabled by feature configuration.")
+        """Check the optional product fields against the firm's profile.
+
+        This used to resolve the firm's features through a private query that
+        filtered neither ``is_active`` nor ``is_deleted``, so deactivating or
+        deleting BARCODE in the catalogue left barcodes still accepted here
+        while every ``require_feature`` endpoint correctly refused. One
+        resolver, one answer.
+        """
+        for feature, fields in (
+            ("BARCODE", {"barcode": data.barcode}),
+            ("QR_CODE", {"qr_code": data.qr_code}),
+            ("WARRANTY", {"track_warranty": data.track_warranty}),
+        ):
+            assert_feature_fields(
+                self._session, firm_id, feature=feature, values=fields
+            )
 
     def _attribute_inputs_for(self, product: Product) -> list[dict[str, object]]:
         """Return a product's attributes shaped for ProductCreate validation."""

@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.business.api.router import _resolve_firm_scope
-from app.business.models import BusinessProfile
+from app.business.gating import assert_feature_fields
+from app.business.models import (
+    BusinessFeature,
+    BusinessProfile,
+    ProfileFeature,
+)
 from app.business.schemas import (
     BusinessFeatureCreate,
     BusinessModuleCreate,
@@ -329,3 +334,111 @@ def test_a_feature_is_presumed_implemented_when_it_is_created() -> None:
     )
 
     assert feature.is_implemented is True
+
+
+def _profile_with(session: Session, *codes: str) -> None:
+    """Seed the default profile, enabling only the named features."""
+    profile = BusinessProfile(
+        code="GENERIC",
+        name="Generic",
+        industry_type="GENERIC",
+        status="ACTIVE",
+        is_default=True,
+    )
+    session.add(profile)
+    session.flush()
+    for code in ("EXPIRY_TRACKING", "BARCODE", "DRUG_LICENSE"):
+        feature = BusinessFeature(code=code, name=code.title())
+        session.add(feature)
+        session.flush()
+        session.add(
+            ProfileFeature(
+                business_profile_id=profile.id,
+                feature_id=feature.id,
+                is_enabled=code in codes,
+            )
+        )
+    session.commit()
+
+
+def test_a_disabled_feature_blocks_only_the_field_it_owns() -> None:
+    """The capability is gated, not the record.
+
+    ``require_feature`` gates a whole endpoint, which suits BATCH_TRACKING: a
+    firm that does not track batches has no business posting one. Expiry dates
+    are not like that. A firm without EXPIRY_TRACKING still records batches --
+    it just cannot date them -- so gating the endpoint would have stopped it
+    creating batches at all.
+    """
+    session = _session_factory()()
+    _profile_with(session, "BARCODE")
+    firm = uuid4()
+
+    # The field belonging to the disabled feature is refused...
+    with pytest.raises(AuthorizationError, match="EXPIRY_TRACKING"):
+        assert_feature_fields(
+            session,
+            firm,
+            feature="EXPIRY_TRACKING",
+            values={"expiry_date": date(2027, 1, 1)},
+        )
+
+    # ...while the rest of the write is untouched.
+    assert_feature_fields(
+        session, firm, feature="BARCODE", values={"barcode": "890100001"}
+    )
+
+
+def test_leaving_a_gated_field_blank_is_always_allowed() -> None:
+    """Turning a feature off must not freeze the records that predate it.
+
+    A write that does not populate the field is not exercising the feature, so
+    it passes whatever the profile says. Clearing the field is the same case.
+    """
+    session = _session_factory()()
+    _profile_with(session)
+    firm = uuid4()
+
+    for value in (None, "", False):
+        assert_feature_fields(
+            session, firm, feature="EXPIRY_TRACKING", values={"expiry_date": value}
+        )
+
+
+def test_the_message_names_every_field_that_was_refused() -> None:
+    """One error listing all of them, not one round trip per field."""
+    session = _session_factory()()
+    _profile_with(session)
+    firm = uuid4()
+
+    with pytest.raises(AuthorizationError) as error:
+        assert_feature_fields(
+            session,
+            firm,
+            feature="EXPIRY_TRACKING",
+            values={
+                "expiry_date": date(2027, 1, 1),
+                "best_before_date": date(2026, 12, 1),
+            },
+        )
+
+    message = str(error.value)
+    assert "best_before_date" in message
+    assert "expiry_date" in message
+
+
+def test_a_firm_with_no_profile_at_all_is_not_locked_out() -> None:
+    """A configuration gap is not a decision.
+
+    resolve_capabilities already treats "no profile and no platform default"
+    as a gap rather than a denial. Gating fields on it would lock every firm
+    out of every optional field in a database where nobody has seeded the
+    catalogue yet.
+    """
+    session = _session_factory()()
+    assert_feature_fields(
+        session,
+        uuid4(),
+        feature="EXPIRY_TRACKING",
+        values={"expiry_date": date(2027, 1, 1)},
+    )

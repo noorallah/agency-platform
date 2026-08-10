@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import timedelta
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from app.batch_serial.schemas.batch_serial import (
     SerialListFilters,
     SerialUpdate,
 )
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
@@ -113,10 +115,32 @@ class BatchSerialService:
             raise ResourceNotFoundError(f"Batch {batch_id} not found.")
         return row
 
+    def _assert_batch_features(
+        self, firm_scope: UUID, values: Mapping[str, object]
+    ) -> None:
+        """Check the optional batch fields against the firm's profile.
+
+        A firm without EXPIRY_TRACKING can still record batches; it just
+        cannot date them. Gating the endpoint would have stopped it recording
+        batches at all, which is BATCH_TRACKING's job, not this one.
+        """
+        for feature, fields in (
+            ("EXPIRY_TRACKING", ("expiry_date", "best_before_date")),
+            ("MANUFACTURING_DATE", ("manufacturing_date",)),
+            ("SHELF_LIFE", ("shelf_life_days",)),
+        ):
+            assert_feature_fields(
+                self._session,
+                firm_scope,
+                feature=feature,
+                values={name: values.get(name) for name in fields},
+            )
+
     def create_batch(
         self, *, firm_scope: UUID, actor_id: UUID, data: BatchCreate
     ) -> BatchRecord:
         """Record a batch of a product."""
+        self._assert_batch_features(firm_scope, data.model_dump())
         record = BatchRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -167,6 +191,7 @@ class BatchSerialService:
             "batch_number": record.batch_number,
         }
         update_data = data.model_dump(exclude_unset=True)
+        self._assert_batch_features(firm_scope, update_data)
         for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
@@ -389,6 +414,12 @@ class BatchSerialService:
         self, *, firm_scope: UUID, actor_id: UUID, data: LotCreate
     ) -> LotRecord:
         """Record a production lot."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="EXPIRY_TRACKING",
+            values={"expiry_date": data.expiry_date},
+        )
         record = LotRecord(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -430,7 +461,14 @@ class BatchSerialService:
     ) -> LotRecord:
         """Change a lot."""
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
-        for field, value in data.model_dump(exclude_unset=True).items():
+        update_data = data.model_dump(exclude_unset=True)
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="EXPIRY_TRACKING",
+            values={"expiry_date": update_data.get("expiry_date")},
+        )
+        for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
         try:
@@ -543,6 +581,15 @@ class BatchSerialService:
         self, *, firm_scope: UUID, actor_id: UUID, data: SerialCreate
     ) -> SerialNumber:
         """Record a serial number."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="WARRANTY",
+            values={
+                "warranty_start": data.warranty_start,
+                "warranty_end": data.warranty_end,
+            },
+        )
         record = SerialNumber(
             firm_id=firm_scope,
             product_id=data.product_id,
@@ -585,7 +632,17 @@ class BatchSerialService:
     ) -> SerialNumber:
         """Change a serial number."""
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
-        for field, value in data.model_dump(exclude_unset=True).items():
+        update_data = data.model_dump(exclude_unset=True)
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="WARRANTY",
+            values={
+                name: update_data.get(name)
+                for name in ("warranty_start", "warranty_end")
+            },
+        )
+        for field, value in update_data.items():
             setattr(record, field, value)
         record.updated_by = actor_id
         try:

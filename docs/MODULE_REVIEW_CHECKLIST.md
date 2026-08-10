@@ -241,6 +241,18 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       `UQ_user_firms_active_primary` does. Flush the demotion before writing the
       promoted row or the index rejects the statement.
 
+- [ ] **Two resolvers give two answers.** `product_service` resolved a firm's
+      features through a private query filtering neither `is_active` nor
+      `is_deleted`, so deactivating BARCODE in the catalogue left barcodes
+      accepted on products while every `require_feature` endpoint correctly
+      refused **(found a real bug)**. Same shape as the bulk endpoints that
+      skipped their single-row twins' guards. Route every caller through
+      `app/business/gating.py`.
+- [ ] **Gate the capability, not the record.** A feature that owns a resource
+      gates the endpoint; a feature that is one optional field on a shared
+      resource must gate the field, or a firm loses the whole resource because
+      it does not use one column of it.
+
 ### Defects the feature-catalogue survey added to this list
 
 - [ ] **A declared capability with no implementation is a promise you cannot
