@@ -143,6 +143,10 @@ class AttributeEntityType(StrEnum):
     VENDOR = "VENDOR"
     BRANCH = "BRANCH"
     WAREHOUSE = "WAREHOUSE"
+    TAX_PROFILE = "TAX_PROFILE"
+    #: Units are a shared catalogue: one row serves every firm in a shared
+    #: store, so unlike the others its values must be read firm-scoped.
+    UOM = "UOM"
 
 
 class AttributeDataType(StrEnum):

@@ -153,7 +153,16 @@ class AttributeService:
         existing = {
             row.attribute_definition_id: row
             for row in self._session.scalars(
-                select(model).where(model.owner_column() == owner_id)
+                # Scoped to the firm, not only the record. Most owners are
+                # firm-owned, so the owner already implies the firm and this
+                # changes nothing -- but `uoms` carries no `firm_id` and one row
+                # is shared by every SHARED-mode firm in `firm_shared`. Without
+                # this, saving a unit's attributes for one firm would treat
+                # another firm's values as its own and clear them.
+                select(model).where(
+                    model.owner_column() == owner_id,
+                    model.firm_id == firm_id,
+                )
             ).all()
         }
         # Disabling a definition stops new data; it must not block edits to a
@@ -214,9 +223,20 @@ class AttributeService:
             row.updated_by = actor_id
 
     def values_for(
-        self, model: type[AttributeValueBase], owner_id: UUID
+        self,
+        model: type[AttributeValueBase],
+        owner_id: UUID,
+        *,
+        firm_id: UUID | None = None,
     ) -> list[ResolvedAttribute]:
-        """Return the stored attributes of one record in definition-code order."""
+        """Return the stored attributes of one record in definition-code order.
+
+        Pass ``firm_id`` whenever the owning table is a shared catalogue rather
+        than firm-owned data. For a firm-owned owner the record already belongs
+        to exactly one firm and the filter is redundant; for a shared owner such
+        as a unit of measure it is the only thing keeping one firm's annotations
+        out of another's.
+        """
         rows = self._session.execute(
             select(model, AttributeDefinition)
             .join(
@@ -226,6 +246,7 @@ class AttributeService:
             .where(
                 model.owner_column() == owner_id,
                 model.is_deleted.is_(False),
+                *([] if firm_id is None else [model.firm_id == firm_id]),
             )
             .order_by(AttributeDefinition.code.asc())
         ).all()
@@ -237,9 +258,16 @@ class AttributeService:
         ]
 
     def values_for_many(
-        self, model: type[AttributeValueBase], owner_ids: list[UUID]
+        self,
+        model: type[AttributeValueBase],
+        owner_ids: list[UUID],
+        *,
+        firm_id: UUID | None = None,
     ) -> dict[UUID, list[ResolvedAttribute]]:
-        """Return attributes for several records without a query per record."""
+        """Return attributes for several records without a query per record.
+
+        ``firm_id`` scopes a shared-catalogue owner; see :meth:`values_for`.
+        """
         if not owner_ids:
             return {}
         owner = model.owner_column()
@@ -249,7 +277,11 @@ class AttributeService:
                 AttributeDefinition,
                 AttributeDefinition.id == model.attribute_definition_id,
             )
-            .where(owner.in_(owner_ids), model.is_deleted.is_(False))
+            .where(
+                owner.in_(owner_ids),
+                model.is_deleted.is_(False),
+                *([] if firm_id is None else [model.firm_id == firm_id]),
+            )
             .order_by(AttributeDefinition.code.asc())
         ).all()
         grouped: dict[UUID, list[ResolvedAttribute]] = {}

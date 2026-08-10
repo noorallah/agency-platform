@@ -8,6 +8,7 @@ from app.uom.models.uom import (
     ProductPackagingLevel,
     ProductUomConfig,
     Uom,
+    UomAttributeValue,
     UomGroup,
     UomGroupUnit,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "ProductPackagingLevel",
     "ProductUomConfig",
     "Uom",
+    "UomAttributeValue",
     "UomGroup",
     "UomGroupUnit",
 ]

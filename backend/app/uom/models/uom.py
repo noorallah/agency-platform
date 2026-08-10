@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
@@ -17,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
@@ -378,4 +380,42 @@ class ProductPackagingLevel(BaseEntity):
     )
     display_order: Mapped[int] = mapped_column(
         nullable=False, default=0, server_default="0"
+    )
+
+
+class UomAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a unit of measure.
+
+    Unlike every other value table, the owning record is **not** firm-owned:
+    ``uoms`` carries no ``firm_id`` and a single row serves every firm sharing a
+    store. So the firm is part of this table's identity. The uniqueness rule is
+    (firm, unit, attribute) rather than (unit, attribute) -- keying it on the
+    unit alone would let whichever firm saved first claim the attribute and
+    lock every other firm in the store out of setting it.
+
+    Reads must pass ``firm_id`` to :class:`AttributeService` for the same
+    reason; the owner id alone does not identify one firm's data here.
+    """
+
+    __tablename__ = "uom_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "firm_id",
+            "uom_id",
+            "attribute_definition_id",
+            name="UQ_uom_attribute_values_firm_uom_attribute",
+        ),
+        Index("IX_uom_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_uom_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_uom_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.UOM
+    OWNER_COLUMN: ClassVar[str] = "uom_id"
+
+    uom_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("uoms.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )

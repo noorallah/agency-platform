@@ -245,7 +245,11 @@ uv run python -m alembic downgrade base
 > the pre-reconciliation bootstrap SQL with
 > `uv run python -m alembic upgrade 20260728_0003 --sql`.
 
-Latest schema head is `20260802_0021` (UOM and packaging framework).
+Do not trust a schema head written down anywhere, including here — confirm it
+with `alembic heads`. Note also that a migration run advances **one schema**,
+chosen by `AGENCY_DATABASE_SCHEMA`; firm-owned tables live in `firm_shared` and
+in each dedicated firm store, so every target must be upgraded separately. See
+[`docs/RUNNING.md`](../docs/RUNNING.md).
 
 ## Administration workflow
 

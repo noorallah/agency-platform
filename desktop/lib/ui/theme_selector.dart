@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/preferences/desktop_preferences_service.dart';
 import '../core/theme/theme_manager.dart';
 
 /// Appearance controls: how bright, which accent, and whether to raise contrast.
@@ -43,6 +44,16 @@ class ThemeSelector extends StatelessWidget {
             child: Text(palette.label),
           ),
         const Divider(height: 8),
+        const _SectionLabel('Density'),
+        for (final GridDensity density in GridDensity.values)
+          MenuItemButton(
+            leadingIcon: Icon(_densityIcon(density), size: 18),
+            trailingIcon:
+                manager.density == density ? const Icon(Icons.check, size: 16) : null,
+            onPressed: () => manager.selectDensity(density),
+            child: Text(_densityLabel(density)),
+          ),
+        const Divider(height: 8),
         MenuItemButton(
           leadingIcon: const Icon(Icons.contrast, size: 18),
           trailingIcon:
@@ -76,6 +87,18 @@ class ThemeSelector extends StatelessWidget {
     final String contrast = manager.highContrast ? ', higher contrast' : '';
     return '${manager.mode.label} · ${manager.palette.label}$contrast';
   }
+
+  static String _densityLabel(GridDensity density) => switch (density) {
+        GridDensity.compact => 'Compact — more rows',
+        GridDensity.comfortable => 'Comfortable',
+        GridDensity.spacious => 'Spacious — easier to read',
+      };
+
+  static IconData _densityIcon(GridDensity density) => switch (density) {
+        GridDensity.compact => Icons.density_small,
+        GridDensity.comfortable => Icons.density_medium,
+        GridDensity.spacious => Icons.density_large,
+      };
 
   static IconData _modeIcon(ThemeMode mode) => switch (mode) {
         ThemeMode.system => Icons.brightness_auto_outlined,

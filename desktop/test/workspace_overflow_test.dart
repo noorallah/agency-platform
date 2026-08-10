@@ -3,21 +3,109 @@ import 'dart:io';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/core/theme/theme_manager.dart';
+import 'package:agency_desktop/ui/dashboard_page.dart';
+import 'package:agency_desktop/ui/customers/customer_management_page.dart';
+import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.dart';
+import 'package:agency_desktop/ui/goods_receipts/goods_receipt_management_page.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
+import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
+import 'package:agency_desktop/ui/sales/sales_invoice_management_page.dart';
+import 'package:agency_desktop/ui/sales/sales_order_management_page.dart';
+import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Every screen must stay overflow-free from 1366x768 up (UX_GUIDELINES.md).
 ///
-/// This pass added two blocks that consume vertical space in workspaces which
-/// were already full: a pager under six lists, and a four-card summary row
-/// above the batch grid. The smallest supported window is where that shows.
+/// This is the regression net for the UX work. Spacing, type scale, density
+/// and chrome changes all move layouts, and the smallest supported window is
+/// where that shows first -- so the matrix is deliberately widened here
+/// *before* those changes land rather than after they break something.
+///
+/// Each screen is pumped at both supported sizes and in both brightnesses,
+/// because the theme now supplies a designed pair rather than one palette, and
+/// a layout that fits in light can still fail in dark where a container is a
+/// different tone and a border appears.
 const List<Size> _sizes = [
   Size(1366, 768),
   Size(1600, 900),
 ];
+
+typedef _PageBuilder = Widget Function(_Deps deps);
+
+/// The collaborators every page needs, none of which touch the network while
+/// `hasActiveFirm` is false.
+class _Deps {
+  _Deps(this.api, this.preferences, this.permissions);
+
+  final ApiClient api;
+  final DesktopPreferencesService preferences;
+  final PermissionService permissions;
+}
+
+/// The screens an operator is in every day, plus the two that already had
+/// coverage. Named so a failure says which screen broke.
+final Map<String, _PageBuilder> _screens = {
+  'sales orders': (d) => SalesOrderManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'sales invoices': (d) => SalesInvoiceManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'delivery notes': (d) => DeliveryNoteManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'delivery-notes',
+      ),
+  'goods receipts': (d) => GoodsReceiptManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'receipts',
+      ),
+  'purchase invoices': (d) => PurchaseInvoiceManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'purchase returns': (d) => PurchaseReturnManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'customers': (d) => CustomerManagementPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'vendors': (d) => VendorManagementPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'dashboard': (d) => DashboardPage(api: d.api, permissions: d.permissions),
+  'batches': (d) => BatchManagementPage(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        section: BatchSerialSection.batches,
+      ),
+};
 
 void _fixSize(WidgetTester tester, Size size) {
   tester.view.devicePixelRatio = 1;
@@ -28,11 +116,55 @@ void _fixSize(WidgetTester tester, Size size) {
   });
 }
 
+_Deps _dependencies() {
+  final Directory temp = Directory.systemTemp.createTempSync('overflow-test');
+  addTearDown(() => temp.deleteSync(recursive: true));
+  return _Deps(
+    ApiClient(
+      baseUrl: 'http://localhost:8000',
+      accessToken: () => null,
+      refreshAccessToken: () async => false,
+      activeFirmId: () => null,
+    ),
+    DesktopPreferencesService(directory: temp),
+    PermissionService(),
+  );
+}
+
 void main() {
   for (final Size size in _sizes) {
-    final String label = '${size.width.toInt()}x${size.height.toInt()}';
+    final String dimensions = '${size.width.toInt()}x${size.height.toInt()}';
 
-    testWidgets('the pager fits beneath a full list at $label', (tester) async {
+    for (final Brightness brightness in Brightness.values) {
+      final String mode = brightness == Brightness.dark ? 'dark' : 'light';
+
+      for (final MapEntry<String, _PageBuilder> screen in _screens.entries) {
+        testWidgets('${screen.key} fits at $dimensions in $mode', (tester) async {
+          _fixSize(tester, size);
+          final _Deps deps = _dependencies();
+          final ThemeManager themes = ThemeManager(deps.preferences);
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: themes.lightTheme,
+              darkTheme: themes.darkTheme,
+              themeMode: brightness == Brightness.dark
+                  ? ThemeMode.dark
+                  : ThemeMode.light,
+              home: Scaffold(body: screen.value(deps)),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // A RenderFlex overflow surfaces here, which is what makes this a
+          // guardrail rather than a smoke test.
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
+    testWidgets('the pager fits beneath a full list at $dimensions',
+        (tester) async {
       _fixSize(tester, size);
 
       await tester.pumpWidget(
@@ -66,63 +198,6 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('41–60 of 137'), findsOneWidget);
-    });
-
-    testWidgets('the batch workspace stays bounded at $label', (tester) async {
-      _fixSize(tester, size);
-      final Directory temp =
-          Directory.systemTemp.createTempSync('batch-overflow-test');
-      addTearDown(() => temp.deleteSync(recursive: true));
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: BatchManagementPage(
-              api: ApiClient(
-                baseUrl: 'http://localhost:8000',
-                accessToken: () => null,
-                refreshAccessToken: () async => false,
-                activeFirmId: () => null,
-              ),
-              preferences: DesktopPreferencesService(directory: temp),
-              permissions: PermissionService(),
-              hasActiveFirm: false,
-              section: BatchSerialSection.batches,
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-    });
-
-    testWidgets('a document workspace stays bounded at $label', (tester) async {
-      _fixSize(tester, size);
-      final Directory temp =
-          Directory.systemTemp.createTempSync('document-overflow-test');
-      addTearDown(() => temp.deleteSync(recursive: true));
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: PurchaseReturnManagementPage(
-              api: ApiClient(
-                baseUrl: 'http://localhost:8000',
-                accessToken: () => null,
-                refreshAccessToken: () async => false,
-                activeFirmId: () => null,
-              ),
-              preferences: DesktopPreferencesService(directory: temp),
-              permissions: PermissionService(),
-              hasActiveFirm: false,
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
     });
   }
 }
