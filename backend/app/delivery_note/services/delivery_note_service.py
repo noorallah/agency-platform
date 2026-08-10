@@ -41,6 +41,7 @@ from app.delivery_note.schemas import (
     DeliveryNoteSummary,
 )
 from app.document_framework.models import (
+    DocumentLifecycleEvent,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
@@ -107,6 +108,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[DeliveryNote], int]:
+        """List delivery notes for the visible firm scope."""
         columns = {
             "delivery_note_number": DeliveryNote.delivery_note_number,
             "delivery_date": DeliveryNote.delivery_date,
@@ -177,6 +179,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> DeliveryNoteSummary:
+        """Return aggregate delivery note values for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -220,6 +223,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def create_note(
         self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID
     ) -> DeliveryNote:
+        """Create one delivery note."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -331,6 +335,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> DeliveryNote:
+        """Replace one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be updated.")
@@ -399,6 +404,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def approve_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
+        """Approve one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
@@ -428,6 +434,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def dispatch_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
+        """Dispatch one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.DISPATCHED.value:
             return row
@@ -460,6 +467,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def complete_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
+        """Complete one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.COMPLETED.value:
             return row
@@ -509,6 +517,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
+        """Cancel one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status in {
             DeliveryNoteStatus.DISPATCHED.value,
@@ -550,6 +559,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
+        """Close one delivery note."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
             return row
@@ -582,6 +592,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         return row
 
     def get_note(self, note_id: UUID, *, firm_scope: UUID) -> DeliveryNote:
+        """Return one delivery note."""
         row = self._session.scalar(
             select(DeliveryNote).where(
                 DeliveryNote.id == note_id,
@@ -594,6 +605,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         return row
 
     def note_response(self, row: DeliveryNote) -> DeliveryNoteResponse:
+        """Render one delivery note row as its API contract."""
         lines = list(
             self._session.scalars(
                 select(DeliveryNoteLine)
@@ -660,7 +672,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             duplicate_warning=self._duplicate_warning(row),
         )
 
-    def timeline(self, *, note_id: UUID, firm_scope: UUID, page: int, page_size: int):
+    def timeline(
+        self, *, note_id: UUID, firm_scope: UUID, page: int, page_size: int
+    ) -> tuple[list[DocumentLifecycleEvent], int]:
+        """Return the lifecycle timeline for one delivery note."""
         return self._documents.list_timeline(
             firm_id=firm_scope,
             document_id=note_id,
@@ -670,6 +685,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
 
     def register_report(self, *, firm_scope: UUID) -> list[DeliveryNoteRegisterRecord]:
+        """Return the register report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(DeliveryNote)
@@ -699,6 +715,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         ]
 
     def pending_notes(self, *, firm_scope: UUID) -> list[DeliveryNote]:
+        """List notes still open: draft or approved, not yet dispatched."""
         return list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -717,6 +734,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def partially_delivered_orders(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteOrderProgressRecord]:
+        """Show how much of each sales order has actually been delivered."""
         order_rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -774,6 +792,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def by_route_report(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteByDimensionRecord]:
+        """Return the by route report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -788,6 +807,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def by_salesman_report(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteByDimensionRecord]:
+        """Return the by salesman report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -804,6 +824,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def by_warehouse_report(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteByDimensionRecord]:
+        """Return the by warehouse report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(DeliveryNote).where(
@@ -818,6 +839,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
 
     def export_notes_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+        """Export matching delivery notes as CSV."""
         rows, _ = self.list_notes(
             firm_scope=firm_scope,
             filters=DeliveryNoteListFilters(),
@@ -859,6 +881,7 @@ class DeliveryNoteService(TransactionalDocumentService):
     def import_notes(
         self, data: DeliveryNoteImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[DeliveryNote]:
+        """Import a validated batch of delivery notes atomically."""
         return [
             self.create_note(record, firm_id=firm_scope, actor_id=actor_id)
             for record in data.records
@@ -1508,20 +1531,28 @@ class DeliveryNoteService(TransactionalDocumentService):
             quantities[key] += delivered
             if key not in labels:
                 if dimension == "route":
-                    entity = self._session.scalar(
-                        select(TerritoryRouteProfile).where(
-                            TerritoryRouteProfile.id == key
+                    # A route profile has no name of its own -- it is a
+                    # one-to-one extension of a territory, and the territory
+                    # carries the name. Reading ``profile.name`` raised
+                    # AttributeError for every firm that ran this report with a
+                    # route on any note.
+                    route_name = self._session.scalar(
+                        select(SalesTerritoryNode.name)
+                        .join(
+                            TerritoryRouteProfile,
+                            TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
                         )
+                        .where(TerritoryRouteProfile.id == key)
                     )
-                    labels[key] = entity.name if entity is not None else str(key)
+                    labels[key] = route_name or str(key)
                 elif dimension == "salesman":
-                    entity = self._session.scalar(select(User).where(User.id == key))
-                    labels[key] = entity.full_name if entity is not None else str(key)
+                    user = self._session.scalar(select(User).where(User.id == key))
+                    labels[key] = user.full_name if user is not None else str(key)
                 else:
-                    entity = self._session.scalar(
+                    warehouse = self._session.scalar(
                         select(Warehouse).where(Warehouse.id == key)
                     )
-                    labels[key] = entity.name if entity is not None else str(key)
+                    labels[key] = warehouse.name if warehouse is not None else str(key)
         return [
             DeliveryNoteByDimensionRecord(
                 dimension_id=key,

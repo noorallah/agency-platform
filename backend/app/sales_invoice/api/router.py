@@ -41,6 +41,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Carry the optional reason a lifecycle action was taken for."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 

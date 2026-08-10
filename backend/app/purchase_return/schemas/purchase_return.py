@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PurchaseReturnSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class PurchaseReturnStatus(StrEnum):
+    """Supported purchase return lifecycle statuses."""
+
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
     COMPLETED = "COMPLETED"
@@ -21,6 +25,8 @@ class PurchaseReturnStatus(StrEnum):
 
 
 class PurchaseReturnSourceType(StrEnum):
+    """Documents a purchase return can be raised from."""
+
     GOODS_RECEIPT = "GOODS_RECEIPT"
     PURCHASE_INVOICE = "PURCHASE_INVOICE"
     PURCHASE_ORDER = "PURCHASE_ORDER"
@@ -28,12 +34,16 @@ class PurchaseReturnSourceType(StrEnum):
 
 
 class PurchaseReturnAccountingEventType(StrEnum):
+    """Accounting events a purchase return can raise."""
+
     PURCHASE_RETURN = "PURCHASE_RETURN"
     INPUT_TAX_REVERSAL = "INPUT_TAX_REVERSAL"
     VENDOR_RECEIVABLE = "VENDOR_RECEIVABLE"
 
 
 class PurchaseReturnAttachmentWrite(PurchaseReturnSchema):
+    """Carry one purchase return attachment into a request."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -43,16 +53,22 @@ class PurchaseReturnAttachmentWrite(PurchaseReturnSchema):
 
 
 class PurchaseReturnNoteWrite(PurchaseReturnSchema):
+    """Carry one purchase return note into a request."""
+
     note_type: str = Field(default="INTERNAL", min_length=1, max_length=30)
     note: str = Field(min_length=1)
 
 
 class PurchaseReturnSourceWrite(PurchaseReturnSchema):
+    """Carry one purchase return source into a request."""
+
     source_document_type: PurchaseReturnSourceType
     source_document_id: UUID
 
 
 class PurchaseReturnLineWrite(PurchaseReturnSchema):
+    """Carry one purchase return line into a request."""
+
     source_document_type: PurchaseReturnSourceType
     source_document_id: UUID
     source_document_line_id: UUID
@@ -93,6 +109,8 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
 
 
 class PurchaseReturnCreate(PurchaseReturnSchema):
+    """Create one purchase return."""
+
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
     business_profile_id: UUID | None = None
@@ -140,14 +158,20 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
 
 
 class PurchaseReturnUpdate(PurchaseReturnCreate):
+    """Replace one purchase return."""
+
     pass
 
 
 class PurchaseReturnImportRequest(PurchaseReturnSchema):
+    """Import a validated batch of purchase returns."""
+
     records: list[PurchaseReturnCreate] = Field(min_length=1, max_length=500)
 
 
 class PurchaseReturnAttachmentResponse(PurchaseReturnSchema):
+    """Return one purchase return attachment."""
+
     id: UUID
     purchase_return_id: UUID
     file_name: str
@@ -159,6 +183,8 @@ class PurchaseReturnAttachmentResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnNoteResponse(PurchaseReturnSchema):
+    """Return one purchase return note."""
+
     id: UUID
     note_type: str
     note: str
@@ -167,6 +193,8 @@ class PurchaseReturnNoteResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnSourceResponse(PurchaseReturnSchema):
+    """Return one purchase return source."""
+
     id: UUID
     source_document_type: PurchaseReturnSourceType
     source_document_id: UUID
@@ -179,6 +207,8 @@ class PurchaseReturnSourceResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnAccountingEventResponse(PurchaseReturnSchema):
+    """Return one purchase return accounting event."""
+
     id: UUID
     event_type: PurchaseReturnAccountingEventType
     account_name: str
@@ -191,6 +221,8 @@ class PurchaseReturnAccountingEventResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnLineResponse(PurchaseReturnSchema):
+    """Return one purchase return line."""
+
     id: UUID
     purchase_return_id: UUID
     line_number: int
@@ -237,6 +269,8 @@ class PurchaseReturnLineResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnResponse(PurchaseReturnSchema):
+    """Return one purchase return."""
+
     id: UUID
     firm_id: UUID
     vendor_id: UUID
@@ -287,6 +321,8 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
 
 
 class PurchaseReturnListFilters(PurchaseReturnSchema):
+    """Narrow a purchase return list to the rows a caller asked for."""
+
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
     status: PurchaseReturnStatus | None = None
@@ -297,6 +333,8 @@ class PurchaseReturnListFilters(PurchaseReturnSchema):
 
 
 class PurchaseReturnSummary(PurchaseReturnSchema):
+    """Aggregate purchase return counts for the visible firm scope."""
+
     total: int
     draft: int
     approved: int
@@ -307,6 +345,8 @@ class PurchaseReturnSummary(PurchaseReturnSchema):
 
 
 class PurchaseReturnRegisterRecord(PurchaseReturnSchema):
+    """One row of the purchase return register report."""
+
     return_id: UUID
     return_number: str
     supplier_return_number: str | None
@@ -319,6 +359,8 @@ class PurchaseReturnRegisterRecord(PurchaseReturnSchema):
 
 
 class PurchaseReturnReconciliationRecord(PurchaseReturnSchema):
+    """One row of the purchase return reconciliation report."""
+
     source_document_type: PurchaseReturnSourceType
     source_document_id: UUID
     source_document_number: str
@@ -331,6 +373,8 @@ class PurchaseReturnReconciliationRecord(PurchaseReturnSchema):
 
 
 class PurchaseReturnVendorOutstandingRecord(PurchaseReturnSchema):
+    """One row of the purchase return vendor outstanding report."""
+
     vendor_id: UUID
     vendor_name: str
     return_amount: Decimal

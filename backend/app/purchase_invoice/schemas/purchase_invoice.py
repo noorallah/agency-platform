@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PurchaseInvoiceSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class PurchaseInvoiceStatus(StrEnum):
+    """Supported purchase invoice lifecycle statuses."""
+
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
     CANCELLED = "CANCELLED"
@@ -20,18 +24,24 @@ class PurchaseInvoiceStatus(StrEnum):
 
 
 class PurchaseInvoiceSourceType(StrEnum):
+    """Documents a purchase invoice can be raised from."""
+
     GOODS_RECEIPT = "GOODS_RECEIPT"
     PURCHASE_ORDER = "PURCHASE_ORDER"
     MANUAL = "MANUAL"
 
 
 class PurchaseInvoiceAccountingEventType(StrEnum):
+    """Accounting events a purchase invoice can raise."""
+
     PURCHASE_EXPENSE = "PURCHASE_EXPENSE"
     INPUT_TAX = "INPUT_TAX"
     ACCOUNTS_PAYABLE = "ACCOUNTS_PAYABLE"
 
 
 class PurchaseInvoiceAttachmentWrite(PurchaseInvoiceSchema):
+    """Carry one purchase invoice attachment into a request."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -41,16 +51,22 @@ class PurchaseInvoiceAttachmentWrite(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceNoteWrite(PurchaseInvoiceSchema):
+    """Carry one purchase invoice note into a request."""
+
     note_type: str = Field(default="INTERNAL", min_length=1, max_length=30)
     note: str = Field(min_length=1)
 
 
 class PurchaseInvoiceSourceWrite(PurchaseInvoiceSchema):
+    """Carry one purchase invoice source into a request."""
+
     source_document_type: PurchaseInvoiceSourceType
     source_document_id: UUID
 
 
 class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
+    """Carry one purchase invoice line into a request."""
+
     source_document_type: PurchaseInvoiceSourceType
     source_document_id: UUID
     source_document_line_id: UUID
@@ -81,6 +97,8 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
+    """Create one purchase invoice."""
+
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
     business_profile_id: UUID | None = None
@@ -124,14 +142,20 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceUpdate(PurchaseInvoiceCreate):
+    """Replace one purchase invoice."""
+
     pass
 
 
 class PurchaseInvoiceImportRequest(PurchaseInvoiceSchema):
+    """Import a validated batch of purchase invoices."""
+
     records: list[PurchaseInvoiceCreate] = Field(min_length=1, max_length=500)
 
 
 class PurchaseInvoiceAttachmentResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice attachment."""
+
     id: UUID
     purchase_invoice_id: UUID
     file_name: str
@@ -143,6 +167,8 @@ class PurchaseInvoiceAttachmentResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceNoteResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice note."""
+
     id: UUID
     note_type: str
     note: str
@@ -151,6 +177,8 @@ class PurchaseInvoiceNoteResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceSourceResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice source."""
+
     id: UUID
     source_document_type: PurchaseInvoiceSourceType
     source_document_id: UUID
@@ -163,6 +191,8 @@ class PurchaseInvoiceSourceResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceAccountingEventResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice accounting event."""
+
     id: UUID
     event_type: PurchaseInvoiceAccountingEventType
     account_name: str
@@ -175,6 +205,8 @@ class PurchaseInvoiceAccountingEventResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice line."""
+
     id: UUID
     purchase_invoice_id: UUID
     line_number: int
@@ -213,6 +245,8 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
+    """Return one purchase invoice."""
+
     id: UUID
     firm_id: UUID
     vendor_id: UUID
@@ -259,6 +293,8 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceListFilters(PurchaseInvoiceSchema):
+    """Narrow a purchase invoice list to the rows a caller asked for."""
+
     vendor_id: UUID | None = None
     branch_id: UUID | None = None
     status: PurchaseInvoiceStatus | None = None
@@ -270,6 +306,8 @@ class PurchaseInvoiceListFilters(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceSummary(PurchaseInvoiceSchema):
+    """Aggregate purchase invoice counts for the visible firm scope."""
+
     total: int
     draft: int
     approved: int
@@ -281,6 +319,8 @@ class PurchaseInvoiceSummary(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceRegisterRecord(PurchaseInvoiceSchema):
+    """One row of the purchase invoice register report."""
+
     invoice_id: UUID
     invoice_number: str
     supplier_invoice_number: str
@@ -293,6 +333,8 @@ class PurchaseInvoiceRegisterRecord(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceReconciliationRecord(PurchaseInvoiceSchema):
+    """One row of the purchase invoice reconciliation report."""
+
     source_document_type: PurchaseInvoiceSourceType
     source_document_id: UUID
     source_document_number: str
@@ -305,6 +347,8 @@ class PurchaseInvoiceReconciliationRecord(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceVendorOutstandingRecord(PurchaseInvoiceSchema):
+    """One row of the purchase invoice vendor outstanding report."""
+
     vendor_id: UUID
     vendor_name: str
     outstanding_amount: Decimal

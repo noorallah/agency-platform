@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SalesOrderSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class SalesOrderStatus(StrEnum):
+    """Supported sales order lifecycle statuses."""
+
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
     CANCELLED = "CANCELLED"
@@ -20,6 +24,8 @@ class SalesOrderStatus(StrEnum):
 
 
 class SalesOrderAttachmentWrite(SalesOrderSchema):
+    """Carry one sales order attachment into a request."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -29,11 +35,15 @@ class SalesOrderAttachmentWrite(SalesOrderSchema):
 
 
 class SalesOrderNoteWrite(SalesOrderSchema):
+    """Carry one sales order note into a request."""
+
     note_type: str = Field(default="INTERNAL", min_length=1, max_length=30)
     note: str = Field(min_length=1)
 
 
 class SalesOrderLineWrite(SalesOrderSchema):
+    """Carry one sales order line into a request."""
+
     line_number: int = Field(ge=1)
     product_id: UUID
     description: str | None = Field(default=None, max_length=500)
@@ -60,6 +70,8 @@ class SalesOrderLineWrite(SalesOrderSchema):
 
 
 class SalesOrderCreate(SalesOrderSchema):
+    """Create one sales order."""
+
     customer_id: UUID
     salesman_id: UUID | None = None
     territory_id: UUID | None = None
@@ -105,14 +117,20 @@ class SalesOrderCreate(SalesOrderSchema):
 
 
 class SalesOrderUpdate(SalesOrderCreate):
+    """Replace one sales order."""
+
     pass
 
 
 class SalesOrderImportRequest(SalesOrderSchema):
+    """Import a validated batch of sales orders."""
+
     records: list[SalesOrderCreate] = Field(min_length=1, max_length=500)
 
 
 class SalesOrderAttachmentResponse(SalesOrderSchema):
+    """Return one sales order attachment."""
+
     id: UUID
     sales_order_id: UUID
     file_name: str
@@ -124,6 +142,8 @@ class SalesOrderAttachmentResponse(SalesOrderSchema):
 
 
 class SalesOrderNoteResponse(SalesOrderSchema):
+    """Return one sales order note."""
+
     id: UUID
     note_type: str
     note: str
@@ -132,6 +152,8 @@ class SalesOrderNoteResponse(SalesOrderSchema):
 
 
 class SalesOrderLineResponse(SalesOrderSchema):
+    """Return one sales order line."""
+
     id: UUID
     sales_order_id: UUID
     line_number: int
@@ -164,6 +186,8 @@ class SalesOrderLineResponse(SalesOrderSchema):
 
 
 class SalesOrderResponse(SalesOrderSchema):
+    """Return one sales order."""
+
     id: UUID
     firm_id: UUID
     customer_id: UUID
@@ -203,6 +227,8 @@ class SalesOrderResponse(SalesOrderSchema):
 
 
 class SalesOrderListFilters(SalesOrderSchema):
+    """Narrow a sales order list to the rows a caller asked for."""
+
     customer_id: UUID | None = None
     salesman_id: UUID | None = None
     territory_id: UUID | None = None
@@ -215,6 +241,8 @@ class SalesOrderListFilters(SalesOrderSchema):
 
 
 class SalesOrderSummary(SalesOrderSchema):
+    """Aggregate sales order counts for the visible firm scope."""
+
     total: int
     draft: int
     approved: int
@@ -224,6 +252,8 @@ class SalesOrderSummary(SalesOrderSchema):
 
 
 class SalesOrderRegisterRecord(SalesOrderSchema):
+    """One row of the sales order register report."""
+
     order_id: UUID
     order_number: str
     order_date: date
@@ -237,6 +267,8 @@ class SalesOrderRegisterRecord(SalesOrderSchema):
 
 
 class SalesOrderPendingRecord(SalesOrderSchema):
+    """One row of the sales order pending report."""
+
     order_id: UUID
     order_number: str
     customer_id: UUID
@@ -246,6 +278,8 @@ class SalesOrderPendingRecord(SalesOrderSchema):
 
 
 class SalesOrderBackOrderRecord(SalesOrderSchema):
+    """One row of the sales order back order report."""
+
     order_id: UUID
     order_number: str
     line_id: UUID
@@ -256,6 +290,8 @@ class SalesOrderBackOrderRecord(SalesOrderSchema):
 
 
 class SalesOrderByCustomerRecord(SalesOrderSchema):
+    """One row of the sales order by customer report."""
+
     customer_id: UUID
     customer_name: str
     order_count: int
@@ -263,6 +299,8 @@ class SalesOrderByCustomerRecord(SalesOrderSchema):
 
 
 class SalesOrderBySalesmanRecord(SalesOrderSchema):
+    """One row of the sales order by salesman report."""
+
     salesman_id: UUID
     salesman_name: str
     order_count: int
@@ -270,6 +308,8 @@ class SalesOrderBySalesmanRecord(SalesOrderSchema):
 
 
 class SalesOrderByTerritoryRecord(SalesOrderSchema):
+    """One row of the sales order by territory report."""
+
     territory_id: UUID
     territory_name: str
     order_count: int

@@ -46,6 +46,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Carry the optional reason a lifecycle action was taken for."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -122,6 +124,7 @@ def list_purchase_returns(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PurchaseReturnResponse]:
+    """List purchase returns for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     service = PurchaseReturnService(db)
     rows, total = service.list_returns(
@@ -152,6 +155,7 @@ def purchase_return_summary(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnSummary]:
+    """Return aggregate purchase return values for the visible firm scope."""
     return ApiResponse(data=PurchaseReturnService(db).summary(firm_scope=scope.firm_id))
 
 
@@ -165,6 +169,7 @@ def create_purchase_return(
     scope: PurchaseReturnCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Create one purchase return."""
     service = PurchaseReturnService(db)
     row = service.create_return(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.return_response(row))
@@ -177,6 +182,7 @@ def update_purchase_return(
     scope: PurchaseReturnUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Replace one purchase return."""
     service = PurchaseReturnService(db)
     row = service.update_return(
         return_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -190,6 +196,7 @@ def approve_purchase_return(
     scope: PurchaseReturnApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Approve one purchase return."""
     service = PurchaseReturnService(db)
     row = service.approve_return(
         return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -204,6 +211,7 @@ def cancel_purchase_return(
     scope: PurchaseReturnCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Cancel one purchase return."""
     service = PurchaseReturnService(db)
     row = service.cancel_return(
         return_id,
@@ -221,6 +229,7 @@ def close_purchase_return(
     scope: PurchaseReturnApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Close one purchase return."""
     service = PurchaseReturnService(db)
     row = service.close_return(
         return_id,
@@ -239,6 +248,7 @@ def complete_purchase_return(
     scope: PurchaseReturnApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Complete one purchase return."""
     service = PurchaseReturnService(db)
     row = service.complete_return(
         return_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -252,6 +262,7 @@ def get_purchase_return(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseReturnResponse]:
+    """Return one purchase return."""
     service = PurchaseReturnService(db)
     return ApiResponse(
         data=service.return_response(
@@ -269,6 +280,7 @@ def purchase_return_history(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
+    """Return the lifecycle timeline for one purchase return."""
     rows = PurchaseReturnService(db).timeline(
         return_id=return_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
@@ -284,6 +296,7 @@ def purchase_return_register(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnRegisterRecord]]:
+    """Return the purchase return register report for the visible firm scope."""
     return ApiResponse(
         data=PurchaseReturnService(db).register_report(firm_scope=scope.firm_id)
     )
@@ -297,6 +310,7 @@ def returns_by_vendor(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
+    """Total returned value and count per vendor."""
     return ApiResponse(
         data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
     )
@@ -310,6 +324,7 @@ def returns_by_product(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+    """Total returned quantity and value per product."""
     return ApiResponse(
         data=PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
     )
@@ -323,6 +338,7 @@ def damaged_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+    """Return the damaged goods report for the visible firm scope."""
     rows = [
         item
         for item in PurchaseReturnService(db).reconciliation_report(
@@ -341,6 +357,7 @@ def expired_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+    """Return the expired goods report for the visible firm scope."""
     rows = [
         item
         for item in PurchaseReturnService(db).reconciliation_report(
@@ -359,6 +376,7 @@ def supplier_return_analysis(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
+    """Report the balance still owing per vendor."""
     return ApiResponse(
         data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
     )
@@ -370,6 +388,7 @@ def export_purchase_returns(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Export matching purchase returns as CSV."""
     csv_content = PurchaseReturnService(db).export_returns_csv(
         firm_scope=scope.firm_id, search=search
     )
@@ -392,6 +411,7 @@ async def import_purchase_returns(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[PurchaseReturnResponse]]:
+    """Import a validated batch of purchase returns atomically."""
     if format != "json":
         raise ValidationError("Only JSON import is supported for purchase returns.")
     if payload is None:

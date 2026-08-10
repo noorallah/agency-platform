@@ -48,6 +48,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Carry the optional reason a lifecycle action was taken for."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -122,6 +124,7 @@ def list_delivery_notes(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[DeliveryNoteResponse]:
+    """List delivery notes for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     service = DeliveryNoteService(db)
     rows, total = service.list_notes(
@@ -153,6 +156,7 @@ def delivery_note_summary(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteSummary]:
+    """Return aggregate delivery note values for the visible firm scope."""
     return ApiResponse(data=DeliveryNoteService(db).summary(firm_scope=scope.firm_id))
 
 
@@ -166,6 +170,7 @@ def create_delivery_note(
     scope: DeliveryNoteCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Create one delivery note."""
     service = DeliveryNoteService(db)
     row = service.create_note(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.note_response(row))
@@ -179,6 +184,7 @@ def update_delivery_note(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Replace one delivery note."""
     service = DeliveryNoteService(db)
     assert_version(
         service.get_note(note_id, firm_scope=scope.firm_id).version, expected_version
@@ -195,6 +201,7 @@ def approve_delivery_note(
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Approve one delivery note."""
     service = DeliveryNoteService(db)
     row = service.approve_note(
         note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -208,6 +215,7 @@ def dispatch_delivery_note(
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Dispatch one delivery note."""
     service = DeliveryNoteService(db)
     row = service.dispatch_note(
         note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -221,6 +229,7 @@ def complete_delivery_note(
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Complete one delivery note."""
     service = DeliveryNoteService(db)
     row = service.complete_note(
         note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -235,6 +244,7 @@ def cancel_delivery_note(
     scope: DeliveryNoteCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Cancel one delivery note."""
     service = DeliveryNoteService(db)
     row = service.cancel_note(
         note_id,
@@ -252,6 +262,7 @@ def close_delivery_note(
     scope: DeliveryNoteApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Close one delivery note."""
     service = DeliveryNoteService(db)
     row = service.close_note(
         note_id,
@@ -268,6 +279,7 @@ def get_delivery_note(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
+    """Return one delivery note."""
     service = DeliveryNoteService(db)
     return ApiResponse(
         data=service.note_response(service.get_note(note_id, firm_scope=scope.firm_id))
@@ -283,6 +295,7 @@ def delivery_note_history(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
+    """Return the lifecycle timeline for one delivery note."""
     rows = DeliveryNoteService(db).timeline(
         note_id=note_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
@@ -298,6 +311,7 @@ def delivery_note_register(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteRegisterRecord]]:
+    """Return the delivery note register report for the visible firm scope."""
     return ApiResponse(
         data=DeliveryNoteService(db).register_report(firm_scope=scope.firm_id)
     )
@@ -308,6 +322,7 @@ def pending_delivery_notes(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteResponse]]:
+    """List notes still open: draft or approved, not yet dispatched."""
     service = DeliveryNoteService(db)
     return ApiResponse(
         data=[
@@ -325,6 +340,7 @@ def partial_delivery_report(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteOrderProgressRecord]]:
+    """Return the partial delivery report for the visible firm scope."""
     return ApiResponse(
         data=DeliveryNoteService(db).partially_delivered_orders(
             firm_scope=scope.firm_id
@@ -339,6 +355,7 @@ def delivery_by_route(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+    """Total delivered value and count per route."""
     return ApiResponse(
         data=DeliveryNoteService(db).by_route_report(firm_scope=scope.firm_id)
     )
@@ -352,6 +369,7 @@ def delivery_by_salesman(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+    """Total delivered value and count per salesman."""
     return ApiResponse(
         data=DeliveryNoteService(db).by_salesman_report(firm_scope=scope.firm_id)
     )
@@ -365,6 +383,7 @@ def delivery_by_warehouse(
     scope: DeliveryNoteViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+    """Total delivered value and count per warehouse."""
     return ApiResponse(
         data=DeliveryNoteService(db).by_warehouse_report(firm_scope=scope.firm_id)
     )
@@ -376,6 +395,7 @@ def export_delivery_notes(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Export matching delivery notes as CSV."""
     csv_content = DeliveryNoteService(db).export_notes_csv(
         firm_scope=scope.firm_id, search=search
     )
@@ -398,6 +418,7 @@ async def import_delivery_notes(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[DeliveryNoteResponse]]:
+    """Import a validated batch of delivery notes atomically."""
     if format != "json":
         raise ValidationError("Only JSON import is supported for delivery notes.")
     if payload is None:

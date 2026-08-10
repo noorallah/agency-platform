@@ -16,6 +16,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
+    DocumentLifecycleEvent,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
@@ -68,6 +69,16 @@ from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 
+# The line shapes this document can be raised from. Naming the union lets the
+# helpers below say what they accept instead of taking ``object`` and reaching
+# for attributes mypy cannot see.
+SourceLine = GoodsReceiptLine | PurchaseInvoiceLine | PurchaseOrderLine
+
+
+def _optional_uuid(value: object) -> UUID | None:
+    """Read a UUID out of an untyped line spec."""
+    return value if isinstance(value, UUID) else None
+
 
 class PurchaseReturnService(TransactionalDocumentService):
     """Coordinate supplier return lifecycle and source-document validation."""
@@ -106,6 +117,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[PurchaseReturn], int]:
+        """List purchase returns for the visible firm scope."""
         columns = {
             "return_number": PurchaseReturn.return_number,
             "return_date": PurchaseReturn.return_date,
@@ -169,6 +181,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseReturnSummary:
+        """Return aggregate purchase return values for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn).where(
@@ -200,6 +213,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def create_return(
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseReturn:
+        """Create one purchase return."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -329,6 +343,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> PurchaseReturn:
+        """Replace one purchase return."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be updated.")
@@ -419,6 +434,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def approve_return(
         self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseReturn:
+        """Approve one purchase return."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be approved.")
@@ -449,6 +465,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def complete_return(
         self, return_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseReturn:
+        """Complete one purchase return."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status == PurchaseReturnStatus.COMPLETED.value:
             return row
@@ -539,6 +556,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> PurchaseReturn:
+        """Cancel one purchase return."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseReturnStatus.CANCELLED.value,
@@ -629,6 +647,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> PurchaseReturn:
+        """Close one purchase return."""
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status == PurchaseReturnStatus.CLOSED.value:
             raise ValidationError("This purchase return is already closed.")
@@ -660,6 +679,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return row
 
     def get_return(self, return_id: UUID, *, firm_scope: UUID) -> PurchaseReturn:
+        """Return one purchase return."""
         row = self._session.scalar(
             select(PurchaseReturn).where(
                 PurchaseReturn.id == return_id,
@@ -672,6 +692,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return row
 
     def return_response(self, row: PurchaseReturn) -> PurchaseReturnResponse:
+        """Render one purchase return row as its API contract."""
         sources = list(
             self._session.scalars(
                 select(PurchaseReturnSource).where(
@@ -770,7 +791,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             duplicate_warning=warning,
         )
 
-    def timeline(self, *, return_id: UUID, firm_scope: UUID, page: int, page_size: int):
+    def timeline(
+        self, *, return_id: UUID, firm_scope: UUID, page: int, page_size: int
+    ) -> tuple[list[DocumentLifecycleEvent], int]:
+        """Return the lifecycle timeline for one purchase return."""
         return self._documents.list_timeline(
             firm_id=firm_scope,
             document_id=return_id,
@@ -780,6 +804,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
     def pending_returns(self, *, firm_scope: UUID) -> list[PurchaseReturn]:
+        """List returns still in draft, not yet approved."""
         return list(
             self._session.scalars(
                 select(PurchaseReturn).where(
@@ -791,6 +816,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
     def overdue_returns(self, *, firm_scope: UUID) -> list[PurchaseReturn]:
+        """List live returns past their due date.
+
+        Cancelled and closed returns are excluded: neither is still owing.
+        """
         today = date.today()
         return list(
             self._session.scalars(
@@ -812,6 +841,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def register_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseReturnRegisterRecord]:
+        """Return the register report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn)
@@ -842,6 +872,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def outstanding_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseReturnVendorOutstandingRecord]:
+        """Return the outstanding report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn).where(
@@ -877,6 +908,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def reconciliation_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseReturnReconciliationRecord]:
+        """Return the reconciliation report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(PurchaseReturnLine)
@@ -916,6 +948,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return result
 
     def export_returns_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+        """Export matching purchase returns as CSV."""
         rows, _ = self.list_returns(
             firm_scope=firm_scope,
             filters=PurchaseReturnListFilters(),
@@ -955,6 +988,7 @@ class PurchaseReturnService(TransactionalDocumentService):
     def import_returns(
         self, data: PurchaseReturnImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[PurchaseReturn]:
+        """Import a validated batch of purchase returns atomically."""
         return [
             self.create_return(record, firm_id=firm_scope, actor_id=actor_id)
             for record in data.records
@@ -999,9 +1033,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         self._session.query(PurchaseReturnLine).filter(
             PurchaseReturnLine.purchase_return_id == row.id
         ).delete(synchronize_session=False)
-        totals = defaultdict(lambda: ZERO)
+        totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
+            source_line: SourceLine | None
             if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
                 source_line = self._session.scalar(
                     select(GoodsReceiptLine).where(
@@ -1064,9 +1099,9 @@ class PurchaseReturnService(TransactionalDocumentService):
                 business_profile_id=business_profile_id,
                 vendor_id=row.vendor_id,
                 branch_id=row.branch_id,
-                warehouse_id=spec.get("warehouse_id"),
+                warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 product_id=self._product_id(source_line),
-                tax_profile_id=spec.get("tax_profile_id"),
+                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 invoice_value=self._line_net_amount(
                     quantity=return_quantity,
                     unit_price=Decimal(str(spec.get("unit_price", ZERO))),
@@ -1113,7 +1148,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
-                tax_profile_id=spec.get("tax_profile_id"),
+                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -1121,7 +1156,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 return_uom_id=spec.get("return_uom_id"),
                 conversion_factor=conversion_factor,
                 conversion_version=spec.get("conversion_version"),
-                warehouse_id=spec.get("warehouse_id"),
+                warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
                 batch_number=spec.get("batch_number"),
                 expiry_date=spec.get("expiry_date"),
@@ -1261,65 +1296,65 @@ class PurchaseReturnService(TransactionalDocumentService):
             source_type = self._source_type(source["source_document_type"])
             source_id = source["source_document_id"]
             if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
-                document = self._session.scalar(
+                receipt = self._session.scalar(
                     select(GoodsReceipt).where(
                         GoodsReceipt.id == source_id,
                         GoodsReceipt.firm_id == firm_id,
                         GoodsReceipt.is_deleted.is_(False),
                     )
                 )
-                if document is None:
+                if receipt is None:
                     raise ResourceNotFoundError("Goods receipt not found.")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
-                        "source_document_id": document.id,
-                        "source_document_number": document.grn_number,
-                        "source_document_date": document.receipt_date,
-                        "vendor_id": document.vendor_id,
-                        "branch_id": document.branch_id,
+                        "source_document_id": receipt.id,
+                        "source_document_number": receipt.grn_number,
+                        "source_document_date": receipt.receipt_date,
+                        "vendor_id": receipt.vendor_id,
+                        "branch_id": receipt.branch_id,
                     }
                 )
             elif source_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
-                document = self._session.scalar(
+                invoice = self._session.scalar(
                     select(PurchaseInvoice).where(
                         PurchaseInvoice.id == source_id,
                         PurchaseInvoice.firm_id == firm_id,
                         PurchaseInvoice.is_deleted.is_(False),
                     )
                 )
-                if document is None:
+                if invoice is None:
                     raise ResourceNotFoundError("Purchase invoice not found.")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
-                        "source_document_id": document.id,
-                        "source_document_number": document.invoice_number,
-                        "source_document_date": document.invoice_date,
-                        "vendor_id": document.vendor_id,
-                        "branch_id": document.branch_id,
+                        "source_document_id": invoice.id,
+                        "source_document_number": invoice.invoice_number,
+                        "source_document_date": invoice.invoice_date,
+                        "vendor_id": invoice.vendor_id,
+                        "branch_id": invoice.branch_id,
                     }
                 )
             elif source_type == PurchaseReturnSourceType.PURCHASE_ORDER.value:
                 if not data.allow_direct_purchase_order:
                     raise ValidationError("Direct purchase order return is disabled.")
-                document = self._session.scalar(
+                order = self._session.scalar(
                     select(PurchaseOrder).where(
                         PurchaseOrder.id == source_id,
                         PurchaseOrder.firm_id == firm_id,
                         PurchaseOrder.is_deleted.is_(False),
                     )
                 )
-                if document is None:
+                if order is None:
                     raise ResourceNotFoundError("Purchase order not found.")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
-                        "source_document_id": document.id,
-                        "source_document_number": document.po_number,
-                        "source_document_date": document.purchase_date,
-                        "vendor_id": document.vendor_id,
-                        "branch_id": document.branch_id,
+                        "source_document_id": order.id,
+                        "source_document_number": order.po_number,
+                        "source_document_date": order.purchase_date,
+                        "vendor_id": order.vendor_id,
+                        "branch_id": order.branch_id,
                     }
                 )
             else:
@@ -1327,8 +1362,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         if not source_rows:
             raise ValidationError("At least one source document is required.")
         first = source_rows[0]
-        header["vendor_id"] = first["vendor_id"]
-        header["branch_id"] = first["branch_id"]
+        for field in ("vendor_id", "branch_id"):
+            value = _optional_uuid(first.get(field))
+            if value is not None:
+                header[field] = value
         for source in source_rows[1:]:
             if (
                 source["vendor_id"] != header["vendor_id"]
@@ -1338,7 +1375,12 @@ class PurchaseReturnService(TransactionalDocumentService):
                     "All source documents must belong to the same vendor and branch."
                 )
         self._validate_line_sources(
-            lines, {row["source_document_id"] for row in source_rows}
+            lines,
+            {
+                source_id
+                for row in source_rows
+                if (source_id := _optional_uuid(row["source_document_id"])) is not None
+            },
         )
         return header, source_rows, lines
 
@@ -1419,7 +1461,9 @@ class PurchaseReturnService(TransactionalDocumentService):
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return self._q(response.total_tax_amount)
 
-    def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
+    def _source_quantity(
+        self, spec: dict[str, object], source_line: SourceLine
+    ) -> Decimal:
         source_type = self._source_type(spec["source_document_type"])
         if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
             return self._q(getattr(source_line, "accepted_quantity", ZERO))
@@ -1456,52 +1500,55 @@ class PurchaseReturnService(TransactionalDocumentService):
     def _source_type(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
 
-    def _source_uom_id(self, source_line: object) -> UUID | None:
+    def _source_uom_id(self, source_line: SourceLine) -> UUID | None:
         return (
             getattr(source_line, "purchase_uom_id", None)
             or getattr(source_line, "invoice_uom_id", None)
             or getattr(source_line, "inventory_uom_id", None)
         )
 
-    def _source_line_number(self, source_line: object) -> int:
+    def _source_line_number(self, source_line: SourceLine) -> int:
         return int(source_line.line_number)
 
-    def _source_description(self, source_line: object) -> str | None:
+    def _source_description(self, source_line: SourceLine) -> str | None:
         return getattr(source_line, "description", None)
 
     def _source_document_number(
-        self, spec: dict[str, object], source_line: object
+        self, spec: dict[str, object], source_line: SourceLine
     ) -> str:
         source_number = spec.get("source_document_number")
         if source_number:
             return str(source_number)
-        source_type = self._source_type(spec["source_document_type"])
-        if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
-            document = self._session.scalar(
+        # Narrowed on the line's own class rather than on the parallel
+        # ``source_document_type`` string, which can disagree with it.
+        if isinstance(source_line, GoodsReceiptLine):
+            receipt = self._session.scalar(
                 select(GoodsReceipt).where(
                     GoodsReceipt.id == source_line.goods_receipt_id
                 )
             )
-            if document is not None:
-                return document.grn_number
-        if source_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
-            document = self._session.scalar(
+            if receipt is not None:
+                return receipt.grn_number
+            return str(source_number or "")
+        if isinstance(source_line, PurchaseInvoiceLine):
+            invoice = self._session.scalar(
                 select(PurchaseInvoice).where(
                     PurchaseInvoice.id == source_line.purchase_invoice_id
                 )
             )
-            if document is not None:
-                return document.invoice_number
-        document = self._session.scalar(
+            if invoice is not None:
+                return invoice.invoice_number
+            return str(source_number or "")
+        order = self._session.scalar(
             select(PurchaseOrder).where(
                 PurchaseOrder.id == source_line.purchase_order_id
             )
         )
-        if document is not None:
-            return document.po_number
+        if order is not None:
+            return order.po_number
         return str(source_number or "")
 
-    def _product_id(self, source_line: object) -> UUID:
+    def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
 
     def _line_net_amount(

@@ -19,6 +19,7 @@ from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.services import CreditAssessment, CreditControlService
 from app.document_framework.models import (
+    DocumentLifecycleEvent,
     DocumentTypeDefinition,
 )
 from app.document_framework.schemas import (
@@ -105,6 +106,7 @@ class SalesOrderService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[SalesOrder], int]:
+        """List sales orders for the visible firm scope."""
         columns = {
             "order_number": SalesOrder.order_number,
             "order_date": SalesOrder.order_date,
@@ -170,6 +172,7 @@ class SalesOrderService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesOrderSummary:
+        """Return aggregate sales order values for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -196,6 +199,7 @@ class SalesOrderService(TransactionalDocumentService):
     def create_order(
         self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesOrder:
+        """Create one sales order."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -291,6 +295,7 @@ class SalesOrderService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
     ) -> SalesOrder:
+        """Replace one sales order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be updated.")
@@ -370,6 +375,7 @@ class SalesOrderService(TransactionalDocumentService):
     def approve_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> SalesOrder:
+        """Approve one sales order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
@@ -411,6 +417,7 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesOrder:
+        """Cancel one sales order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             SalesOrderStatus.CANCELLED.value,
@@ -454,6 +461,7 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesOrder:
+        """Close one sales order."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             SalesOrderStatus.CANCELLED.value,
@@ -491,6 +499,7 @@ class SalesOrderService(TransactionalDocumentService):
         return row
 
     def get_order(self, order_id: UUID, *, firm_scope: UUID) -> SalesOrder:
+        """Return one sales order."""
         row = self._session.scalar(
             select(SalesOrder).where(
                 SalesOrder.id == order_id,
@@ -503,6 +512,7 @@ class SalesOrderService(TransactionalDocumentService):
         return row
 
     def order_response(self, row: SalesOrder) -> SalesOrderResponse:
+        """Render one sales order row as its API contract."""
         lines = list(
             self._session.scalars(
                 select(SalesOrderLine)
@@ -561,7 +571,10 @@ class SalesOrderService(TransactionalDocumentService):
             notes=[self._note_response(item) for item in notes],
         )
 
-    def timeline(self, *, order_id: UUID, firm_scope: UUID, page: int, page_size: int):
+    def timeline(
+        self, *, order_id: UUID, firm_scope: UUID, page: int, page_size: int
+    ) -> tuple[list[DocumentLifecycleEvent], int]:
+        """Return the lifecycle timeline for one sales order."""
         return self._documents.list_timeline(
             firm_id=firm_scope,
             document_id=order_id,
@@ -571,6 +584,7 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def register_report(self, *, firm_scope: UUID) -> list[SalesOrderRegisterRecord]:
+        """Return the register report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder)
@@ -597,6 +611,7 @@ class SalesOrderService(TransactionalDocumentService):
         ]
 
     def pending_orders(self, *, firm_scope: UUID) -> list[SalesOrderPendingRecord]:
+        """List orders still open: draft or approved, not yet closed."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -621,6 +636,7 @@ class SalesOrderService(TransactionalDocumentService):
         ]
 
     def back_orders(self, *, firm_scope: UUID) -> list[SalesOrderBackOrderRecord]:
+        """List order lines whose requested quantity exceeds free stock."""
         rows = list(
             self._session.scalars(
                 select(SalesOrderLine)
@@ -656,6 +672,7 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_customer(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByCustomerRecord]:
+        """Total order value and count per customer, cancellations excluded."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -693,6 +710,7 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_salesman(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderBySalesmanRecord]:
+        """Total order value and count per salesman, cancellations excluded."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -733,6 +751,7 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_territory(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByTerritoryRecord]:
+        """Total order value and count per territory, cancellations excluded."""
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -773,6 +792,7 @@ class SalesOrderService(TransactionalDocumentService):
         ]
 
     def export_orders_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+        """Export matching sales orders as CSV."""
         rows, _ = self.list_orders(
             firm_scope=firm_scope,
             filters=SalesOrderListFilters(),
@@ -812,6 +832,7 @@ class SalesOrderService(TransactionalDocumentService):
     def import_orders(
         self, data: SalesOrderImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[SalesOrder]:
+        """Import a validated batch of sales orders atomically."""
         return [
             self.create_order(record, firm_id=firm_scope, actor_id=actor_id)
             for record in data.records

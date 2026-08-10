@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SalesInvoiceSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class SalesInvoiceStatus(StrEnum):
+    """Supported sales invoice lifecycle statuses."""
+
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
     CANCELLED = "CANCELLED"
@@ -20,18 +24,24 @@ class SalesInvoiceStatus(StrEnum):
 
 
 class SalesInvoiceSourceType(StrEnum):
+    """Documents a sales invoice can be raised from."""
+
     DELIVERY_NOTE = "DELIVERY_NOTE"
     SALES_ORDER = "SALES_ORDER"
     MANUAL = "MANUAL"
 
 
 class SalesInvoiceAccountingEventType(StrEnum):
+    """Accounting events a sales invoice can raise."""
+
     SALES_REVENUE = "SALES_REVENUE"
     OUTPUT_TAX = "OUTPUT_TAX"
     ACCOUNTS_RECEIVABLE = "ACCOUNTS_RECEIVABLE"
 
 
 class SalesInvoiceAttachmentWrite(SalesInvoiceSchema):
+    """Carry one sales invoice attachment into a request."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -41,16 +51,22 @@ class SalesInvoiceAttachmentWrite(SalesInvoiceSchema):
 
 
 class SalesInvoiceNoteWrite(SalesInvoiceSchema):
+    """Carry one sales invoice note into a request."""
+
     note_type: str = Field(default="INTERNAL", min_length=1, max_length=30)
     note: str = Field(min_length=1)
 
 
 class SalesInvoiceSourceWrite(SalesInvoiceSchema):
+    """Carry one sales invoice source into a request."""
+
     source_document_type: SalesInvoiceSourceType
     source_document_id: UUID
 
 
 class SalesInvoiceLineWrite(SalesInvoiceSchema):
+    """Carry one sales invoice line into a request."""
+
     source_document_type: SalesInvoiceSourceType
     source_document_id: UUID
     source_document_line_id: UUID
@@ -81,6 +97,8 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
 
 
 class SalesInvoiceCreate(SalesInvoiceSchema):
+    """Create one sales invoice."""
+
     customer_id: UUID | None = None
     branch_id: UUID | None = None
     business_profile_id: UUID | None = None
@@ -126,14 +144,20 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
 
 
 class SalesInvoiceUpdate(SalesInvoiceCreate):
+    """Replace one sales invoice."""
+
     pass
 
 
 class SalesInvoiceImportRequest(SalesInvoiceSchema):
+    """Import a validated batch of sales invoices."""
+
     records: list[SalesInvoiceCreate] = Field(min_length=1, max_length=500)
 
 
 class SalesInvoiceAttachmentResponse(SalesInvoiceSchema):
+    """Return one sales invoice attachment."""
+
     id: UUID
     sales_invoice_id: UUID
     file_name: str
@@ -145,6 +169,8 @@ class SalesInvoiceAttachmentResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceNoteResponse(SalesInvoiceSchema):
+    """Return one sales invoice note."""
+
     id: UUID
     note_type: str
     note: str
@@ -153,6 +179,8 @@ class SalesInvoiceNoteResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceSourceResponse(SalesInvoiceSchema):
+    """Return one sales invoice source."""
+
     id: UUID
     source_document_type: SalesInvoiceSourceType
     source_document_id: UUID
@@ -165,6 +193,8 @@ class SalesInvoiceSourceResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceAccountingEventResponse(SalesInvoiceSchema):
+    """Return one sales invoice accounting event."""
+
     id: UUID
     event_type: SalesInvoiceAccountingEventType
     account_name: str
@@ -177,6 +207,8 @@ class SalesInvoiceAccountingEventResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceLineResponse(SalesInvoiceSchema):
+    """Return one sales invoice line."""
+
     id: UUID
     sales_invoice_id: UUID
     line_number: int
@@ -215,6 +247,8 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceResponse(SalesInvoiceSchema):
+    """Return one sales invoice."""
+
     id: UUID
     firm_id: UUID
     customer_id: UUID
@@ -263,6 +297,8 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
 
 
 class SalesInvoiceListFilters(SalesInvoiceSchema):
+    """Narrow a sales invoice list to the rows a caller asked for."""
+
     customer_id: UUID | None = None
     branch_id: UUID | None = None
     salesman_id: UUID | None = None
@@ -276,6 +312,8 @@ class SalesInvoiceListFilters(SalesInvoiceSchema):
 
 
 class SalesInvoiceSummary(SalesInvoiceSchema):
+    """Aggregate sales invoice counts for the visible firm scope."""
+
     total: int
     draft: int
     approved: int
@@ -287,6 +325,8 @@ class SalesInvoiceSummary(SalesInvoiceSchema):
 
 
 class SalesInvoiceRegisterRecord(SalesInvoiceSchema):
+    """One row of the sales invoice register report."""
+
     invoice_id: UUID
     invoice_number: str
     customer_invoice_number: str | None
@@ -299,6 +339,8 @@ class SalesInvoiceRegisterRecord(SalesInvoiceSchema):
 
 
 class SalesInvoiceReconciliationRecord(SalesInvoiceSchema):
+    """One row of the sales invoice reconciliation report."""
+
     source_document_type: SalesInvoiceSourceType
     source_document_id: UUID
     source_document_number: str
@@ -311,6 +353,8 @@ class SalesInvoiceReconciliationRecord(SalesInvoiceSchema):
 
 
 class SalesInvoiceCustomerOutstandingRecord(SalesInvoiceSchema):
+    """One row of the sales invoice customer outstanding report."""
+
     customer_id: UUID
     customer_name: str
     outstanding_amount: Decimal

@@ -46,6 +46,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Carry the optional reason a lifecycle action was taken for."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -125,6 +127,7 @@ def list_purchase_invoices(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PurchaseInvoiceResponse]:
+    """List purchase invoices for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     service = PurchaseInvoiceService(db)
     rows, total = service.list_invoices(
@@ -156,6 +159,7 @@ def purchase_invoice_summary(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceSummary]:
+    """Return aggregate purchase invoice values for the visible firm scope."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).summary(firm_scope=scope.firm_id)
     )
@@ -171,6 +175,7 @@ def create_purchase_invoice(
     scope: PurchaseInvoiceCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Create one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.invoice_response(row))
@@ -183,6 +188,7 @@ def update_purchase_invoice(
     scope: PurchaseInvoiceUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Replace one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.update_invoice(
         invoice_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -198,6 +204,7 @@ def approve_purchase_invoice(
     scope: PurchaseInvoiceApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Approve one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.approve_invoice(
         invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -214,6 +221,7 @@ def cancel_purchase_invoice(
     scope: PurchaseInvoiceCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Cancel one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.cancel_invoice(
         invoice_id,
@@ -231,6 +239,7 @@ def close_purchase_invoice(
     scope: PurchaseInvoiceApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Close one purchase invoice."""
     service = PurchaseInvoiceService(db)
     row = service.close_invoice(
         invoice_id,
@@ -247,6 +256,7 @@ def get_purchase_invoice(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseInvoiceResponse]:
+    """Return one purchase invoice."""
     service = PurchaseInvoiceService(db)
     return ApiResponse(
         data=service.invoice_response(
@@ -264,6 +274,7 @@ def purchase_invoice_history(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
+    """Return the lifecycle timeline for one purchase invoice."""
     rows = PurchaseInvoiceService(db).timeline(
         invoice_id=invoice_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
@@ -279,6 +290,7 @@ def pending_purchase_invoices(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
+    """List invoices still in draft, not yet approved."""
     service = PurchaseInvoiceService(db)
     return ApiResponse(
         data=[
@@ -295,6 +307,7 @@ def overdue_purchase_invoices(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
+    """List live invoices whose due date has passed, cancelled and closed excluded."""
     service = PurchaseInvoiceService(db)
     return ApiResponse(
         data=[
@@ -311,6 +324,7 @@ def purchase_invoice_register(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceRegisterRecord]]:
+    """Return the purchase invoice register report for the visible firm scope."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).register_report(firm_scope=scope.firm_id)
     )
@@ -324,6 +338,7 @@ def vendor_outstanding_placeholder(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]]:
+    """Report the balance still owing per vendor."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id)
     )
@@ -337,6 +352,7 @@ def invoice_reconciliation_report(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceReconciliationRecord]]:
+    """Return the invoice reconciliation report for the visible firm scope."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).reconciliation_report(firm_scope=scope.firm_id)
     )
@@ -348,6 +364,7 @@ def export_purchase_invoices(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Export matching purchase invoices as CSV."""
     csv_content = PurchaseInvoiceService(db).export_invoices_csv(
         firm_scope=scope.firm_id, search=search
     )
@@ -370,6 +387,7 @@ async def import_purchase_invoices(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
+    """Import a validated batch of purchase invoices atomically."""
     if format != "json":
         raise ValidationError("Only JSON import is supported for purchase invoices.")
     if payload is None:
