@@ -253,6 +253,27 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       resource must gate the field, or a firm loses the whole resource because
       it does not use one column of it.
 
+### Defects the tax gate-clearing pass added to this list
+
+- [ ] **Verify a claim against the whole target, not the parts you happened to
+      touch.** "Every module is clean" was written after re-measuring five
+      modules; `tax` still had 184 ruff findings and 14 mypy errors, and the
+      inventory table had recorded 0/0 for it since 2026-08-09. Run the tool
+      against `app/` entire before saying so.
+- [ ] **`.any()` takes one criterion.** `TaxRule.conditions.any(a, b, c)` is a
+      TypeError at runtime, so `GET /tax-framework/rules?transaction_type=` was
+      a 500 for every caller **(found a real bug)**. mypy reported it as "too
+      many arguments for any of PropComparator" and nobody was reading the
+      output. Combine with `and_()`.
+- [ ] **An unreachable `else` after an exhaustive enum chain is dead, not
+      defensive.** Default the variable before the chain instead: the branch
+      then actually runs if a member is added later, rather than raising
+      UnboundLocalError or being silently removed.
+- [ ] **`Any` on a helper parameter is usually a missing type, not a
+      requirement.** Most of `tax`'s were `row: Any` where `BaseEntity` was
+      meant, or `value: Any` where `object` was. Reserve the `noqa` for the
+      handful that genuinely accept any mapped class, and say why on the line.
+
 ### Open: three features deliberately left ungated
 
 Feature gating landed for nine of the twelve features that have backing code.
@@ -366,8 +387,11 @@ debt; a wrongly enforced one silently removes a capability a firm was using.
 
 ## Module inventory
 
-Endpoint counts measured 2026-08-09. Every module is now clean under `ruff`,
-`black` and `mypy` as of 2026-08-10. `ruff`/`mypy` are current error
+Endpoint counts measured 2026-08-09. As of 2026-08-10 the **whole** of `app/`
+is clean under `ruff`, `black` and `mypy` — verified by running each against
+`app/` as a whole, not module by module. An earlier claim to that effect was
+wrong: `tax` still carried 184 ruff findings and 14 mypy errors because only
+the five transactional modules had been re-measured. `ruff`/`mypy` are current error
 counts for that package — they are the size of the cleanup, not a pass/fail.
 
 | Module | Endpoints | ruff | mypy | Unit test | Desktop |
