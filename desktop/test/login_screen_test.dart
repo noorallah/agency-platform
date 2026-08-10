@@ -291,14 +291,14 @@ void main() {
     await tester.tap(find.text('Sign in'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Unable to sign in.'), findsOneWidget);
+    expect(find.text('Invalid email or password.'), findsOneWidget);
     final EditableText passwordField =
         tester.widget(find.byType(EditableText).at(1));
     expect(passwordField.focusNode.hasFocus, isTrue);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
-    expect(find.textContaining('Unable to sign in.'), findsNothing);
+    expect(find.text('Invalid email or password.'), findsNothing);
   });
 
   testWidgets('trims credentials and validates whitespace-only input',
@@ -351,8 +351,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Caps Lock is ON'), findsOneWidget);
-    expect(find.text('Remember username'), findsOneWidget);
-    expect(find.text('Remember me on this device'), findsOneWidget);
+    expect(find.text('Remember my username'), findsOneWidget);
+    expect(find.text('Keep me signed in on this device'), findsOneWidget);
   });
 
   testWidgets('selects remembered username suggestions in username field',
@@ -383,6 +383,101 @@ void main() {
     final TextFormField usernameField =
         tester.widget(find.byType(TextFormField).at(0));
     expect(usernameField.controller!.text, 'superadmin@agency.local');
+  });
+
+  testWidgets('fits without scrolling at every supported window size',
+      (tester) async {
+    // The screen scrolled at 1920x1080 before this was fixed. 960x640 is the
+    // window minimum set in DesktopWindowController.
+    for (final Size size in const <Size>[
+      Size(1920, 1080),
+      Size(1600, 900),
+      Size(1366, 768),
+      Size(960, 640),
+    ]) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      final prefs = await _preferences();
+      final themes = await _themes(prefs);
+      final session = await _session(prefs);
+
+      await tester.pumpWidget(
+        _TestHarness(session: session, preferences: prefs, themes: themes),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull, reason: 'overflow at $size');
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byType(SingleChildScrollView).first,
+          matching: find.byType(Scrollable),
+          // Each text field carries its own internal Scrollable; the
+          // outermost descendant is the page's.
+        ).first,
+      );
+      expect(
+        scrollable.position.maxScrollExtent,
+        0,
+        reason: 'login content should not scroll at $size',
+      );
+    }
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
+
+  testWidgets('drops the introduction panel on a narrow window',
+      (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1024, 768);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final prefs = await _preferences();
+    final themes = await _themes(prefs);
+    final session = await _session(prefs);
+
+    await tester.pumpWidget(
+      _TestHarness(session: session, preferences: prefs, themes: themes),
+    );
+
+    // The form is what a narrow window is for; the marketing copy goes.
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Fast access'), findsNothing);
+    expect(find.text('Modern. Secure. Built for agencies.'), findsNothing);
+  });
+
+  testWidgets('surfaces the real failure rather than a generic one',
+      (tester) async {
+    await _useDesktopViewport(tester);
+    final prefs = await _preferences();
+    final themes = await _themes(prefs);
+    final session = await _session(prefs);
+
+    await tester.pumpWidget(
+      _TestHarness(session: session, preferences: prefs, themes: themes),
+    );
+    // A banner that always reads "check your username or password" tells a
+    // user with an unreachable backend the wrong thing entirely.
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: themes.lightTheme,
+        home: LoginScreen(
+          session: session,
+          preferences: prefs,
+          branding: BrandingConfig.defaults,
+          themes: themes,
+          error: 'Could not reach the server. Check the API URL.',
+          notice: null,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('Could not reach the server. Check the API URL.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('opens application settings and toggles theme', (tester) async {
