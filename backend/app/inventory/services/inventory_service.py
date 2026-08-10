@@ -142,11 +142,12 @@ class InventoryService:
             )
             statement = statement.where(condition)
             count = count.where(condition)
+        ordering = columns.get(sort_by, InventoryRecord.created_at)
         rows = self._session.scalars(
             statement.order_by(
-                columns.get(sort_by, InventoryRecord.created_at).desc()
-                if descending
-                else columns.get(sort_by, InventoryRecord.created_at).asc()
+                ordering.desc() if descending else ordering.asc(),
+                # Tiebreaker: see list_ledger for why every paged query needs one.
+                InventoryRecord.id.desc() if descending else InventoryRecord.id.asc(),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -534,11 +535,16 @@ class InventoryService:
             )
             statement = statement.where(condition)
             count = count.where(condition)
+        ordering = columns.get(sort_by, InventoryTransaction.created_at)
         rows = self._session.scalars(
             statement.order_by(
-                columns.get(sort_by, InventoryTransaction.created_at).desc()
-                if descending
-                else columns.get(sort_by, InventoryTransaction.created_at).asc()
+                ordering.desc() if descending else ordering.asc(),
+                # Tiebreaker: see list_ledger for why every paged query needs one.
+                (
+                    InventoryTransaction.id.desc()
+                    if descending
+                    else InventoryTransaction.id.asc()
+                ),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -600,11 +606,17 @@ class InventoryService:
             )
             statement = statement.where(condition)
             count = count.where(condition)
+        ordering = columns.get(sort_by, StockLedgerEntry.created_at)
         rows = self._session.scalars(
             statement.order_by(
-                columns.get(sort_by, StockLedgerEntry.created_at).desc()
-                if descending
-                else columns.get(sort_by, StockLedgerEntry.created_at).asc()
+                ordering.desc() if descending else ordering.asc(),
+                # A sort column alone is not a total order. `created_at` is not
+                # unique -- a dispatch writes its DISPATCH and UNRESERVE rows in
+                # one flush, so they share a timestamp to the microsecond -- and
+                # OFFSET/LIMIT over a tie is free to hand the same row to two
+                # pages and never show another. Paging the seeded ledger showed
+                # one row twice and hid one entirely until this tiebreaker.
+                StockLedgerEntry.id.desc() if descending else StockLedgerEntry.id.asc(),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -655,11 +667,16 @@ class InventoryService:
             )
             statement = statement.where(condition)
             count = count.where(condition)
+        ordering = columns.get(sort_by, OpeningStockBatch.created_at)
         rows = self._session.scalars(
             statement.order_by(
-                columns.get(sort_by, OpeningStockBatch.created_at).desc()
-                if descending
-                else columns.get(sort_by, OpeningStockBatch.created_at).asc()
+                ordering.desc() if descending else ordering.asc(),
+                # Tiebreaker: see list_ledger for why every paged query needs one.
+                (
+                    OpeningStockBatch.id.desc()
+                    if descending
+                    else OpeningStockBatch.id.asc()
+                ),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
