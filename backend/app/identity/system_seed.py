@@ -73,6 +73,7 @@ PERMISSION_GROUPS = {
         "CUSTOMER_RESTORE",
         "CUSTOMER_IMPORT",
         "CUSTOMER_EXPORT",
+        "CUSTOMER_MANAGE_SETTINGS",
     ),
     "vendor": (
         "VENDOR_CREATE",
@@ -291,8 +292,22 @@ ROLE_PERMISSION_CODES = {
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
     "ACCOUNTANT": _codes("accounting", "report")
-    | frozenset({"CUSTOMER_VIEW", "VENDOR_VIEW", "PRODUCT_VIEW"}),
-    "SALES_MANAGER": _codes("customer", "sales", "report")
+    | frozenset(
+        {
+            "CUSTOMER_VIEW",
+            "VENDOR_VIEW",
+            "PRODUCT_VIEW",
+            # Credit policy governs receivables, so it belongs to the role that
+            # owns them rather than to the role it constrains.
+            "CUSTOMER_MANAGE_SETTINGS",
+        }
+    ),
+    "SALES_MANAGER": (
+        _codes("customer", "sales", "report")
+        # A sales manager must not be able to switch off the credit block that
+        # limits their own sales.
+        - frozenset({"CUSTOMER_MANAGE_SETTINGS"})
+    )
     | frozenset({"PRODUCT_VIEW", "TERRITORY_VIEW", "TERRITORY_ASSIGN_CUSTOMERS"}),
     "SALES_EXECUTIVE": frozenset(
         {

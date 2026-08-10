@@ -34,7 +34,7 @@ from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import CreditControlSettings, Customer
-from app.customers.services import CreditEnforcement
+from app.customers.schemas import CreditEnforcement
 from app.finance.models import JournalEntry, JournalLine, JournalStatus
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
