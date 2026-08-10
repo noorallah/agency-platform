@@ -7,6 +7,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import 'credit_settings_dialog.dart';
 
 class CustomerController extends ChangeNotifier {
   CustomerController(this._api);
@@ -126,6 +127,15 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
   bool get _canDelete => widget.permissions.hasPermission('CUSTOMER_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('CUSTOMER_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('CUSTOMER_EXPORT');
+
+  /// Show the firm's credit policy, and let the right role change it.
+  Future<void> _openCreditSettings() => showDialog<bool>(
+        context: context,
+        builder: (_) => CreditSettingsDialog(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      );
 
   @override
   void initState() {
@@ -352,6 +362,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ToolbarAction.delete,
         ToolbarAction.refresh,
         ToolbarAction.export,
+        ToolbarAction.settings,
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
@@ -369,6 +380,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             ToolbarAction.delete => selected != null && !selected.isDeleted,
             ToolbarAction.refresh => true,
             ToolbarAction.export => _controller.items.isNotEmpty,
+            // Reading the policy needs only CUSTOMER_VIEW: someone the policy
+            // warns should be able to see the rule behind the warning.
+            ToolbarAction.settings => true,
             _ => false,
           },
       onAction: (action) {
@@ -391,9 +405,11 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           case ToolbarAction.export:
             _export();
             break;
+          case ToolbarAction.settings:
+            _openCreditSettings();
+            break;
           case ToolbarAction.import:
           case ToolbarAction.print:
-          case ToolbarAction.settings:
             break;
         }
       },
