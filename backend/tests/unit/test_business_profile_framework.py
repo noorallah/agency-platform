@@ -20,7 +20,11 @@ from app.business.services import BusinessProfileFrameworkService
 from app.business.system_seed import seed_business_profiles
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ConflictError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ValidationError,
+)
 from app.core.security.authorization import Principal, require_platform_admin
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
@@ -261,3 +265,67 @@ def test_a_feature_a_profile_enables_cannot_be_deleted() -> None:
     # Disabled everywhere, it can go.
     service.set_profile_features(profile.id, [], actor)
     service.delete_feature(feature.id, actor)
+
+
+def test_a_roadmap_feature_is_listed_but_cannot_be_switched_on() -> None:
+    """Seven catalogue entries name a subsystem nothing has built.
+
+    They stay listed so the intent is visible, but enabling one would tell a
+    firm it had a capability that can never do anything, so the write is
+    refused rather than silently stored.
+    """
+    session = _session_factory()()
+    service = BusinessProfileFrameworkService(session)
+    actor = uuid4()
+    profile = service.create_profile(
+        BusinessProfileCreate(
+            code="FOOD",
+            name="Food",
+            industry_type="FOOD",
+            status="ACTIVE",
+            is_default=True,
+        ),
+        actor,
+    )
+    built = service.create_feature(
+        BusinessFeatureCreate(code="BARCODE", name="Barcode"), actor
+    )
+    roadmap = service.create_feature(
+        BusinessFeatureCreate(code="RECIPE_MANAGEMENT", name="Recipes"), actor
+    )
+    roadmap.is_implemented = False
+    session.commit()
+
+    # Still in the catalogue: roadmap is not the same as removed.
+    codes = {
+        row.code
+        for row in service.list_features(
+            page=1,
+            page_size=50,
+            search=None,
+            sort_by="code",
+            descending=False,
+        )[0]
+    }
+    assert "RECIPE_MANAGEMENT" in codes
+
+    with pytest.raises(ValidationError) as error:
+        service.set_profile_features(profile.id, [built.id, roadmap.id], actor)
+    assert "RECIPE_MANAGEMENT" in str(error.value)
+
+    # And nothing was stored, including the feature that was implemented.
+    assert service.active_features(None) == []
+
+
+def test_a_feature_is_presumed_implemented_when_it_is_created() -> None:
+    """Whoever adds a feature is asserting it exists; the flag defaults true.
+
+    Only the migration clears it, for the seven entries surveyed as unbacked.
+    """
+    session = _session_factory()()
+    service = BusinessProfileFrameworkService(session)
+    feature = service.create_feature(
+        BusinessFeatureCreate(code="WARRANTY", name="Warranty"), uuid4()
+    )
+
+    assert feature.is_implemented is True

@@ -58,6 +58,18 @@ class BusinessFeature(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: Whether anything in the codebase actually implements this feature.
+    #:
+    #: Distinct from ``is_active``, which is a choice an administrator makes.
+    #: This is a statement of fact: seven catalogue entries -- IMEI,
+    #: PRESCRIPTION_REQUIRED, RECIPE_MANAGEMENT, KITCHEN_MANAGEMENT,
+    #: COMMISSION, SERVICE_CONTRACTS and PROJECT_MANAGEMENT -- had no backing
+    #: code in either application, so enabling one promised a customer
+    #: something that could never happen. They stay in the catalogue as
+    #: roadmap, and this flag stops them being switched on.
+    is_implemented: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class BusinessModule(BaseEntity):

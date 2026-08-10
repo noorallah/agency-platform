@@ -34,7 +34,11 @@ from app.business.schemas import (
 )
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 
 
@@ -588,6 +592,7 @@ class BusinessProfileFrameworkService:
     ) -> None:
         profile = self.get_profile(profile_id)
         self._validate_catalog_ids(BusinessFeature, feature_ids, "feature")
+        self._reject_unimplemented(feature_ids)
         existing = {
             row.feature_id: row
             for row in self._session.scalars(
@@ -823,6 +828,34 @@ class BusinessProfileFrameworkService:
             statement.order_by(ordering).offset((page - 1) * page_size).limit(page_size)
         ).all()
         return list(rows), int(self._session.scalar(count) or 0)
+
+    def _reject_unimplemented(self, feature_ids: list[UUID]) -> None:
+        """Refuse to enable a feature nothing in the codebase implements.
+
+        Seven catalogue entries are roadmap: they name a subsystem that does
+        not exist. They stay listed so the intent is not lost, but switching
+        one on would tell a firm it had a capability that can never do
+        anything, so the write is refused rather than silently stored.
+
+        Raises:
+            ValidationError: If any requested feature is not implemented.
+
+        """
+        if not feature_ids:
+            return
+        unimplemented = self._session.scalars(
+            select(BusinessFeature.code).where(
+                BusinessFeature.id.in_(feature_ids),
+                BusinessFeature.is_implemented.is_(False),
+                BusinessFeature.is_deleted.is_(False),
+            )
+        ).all()
+        if unimplemented:
+            names = ", ".join(sorted(unimplemented))
+            raise ValidationError(
+                f"These features are not implemented yet and cannot be "
+                f"enabled: {names}."
+            )
 
     def _validate_catalog_ids(
         self,

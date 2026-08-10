@@ -344,10 +344,17 @@ class BusinessFeatureRecord {
     required this.category,
     required this.defaultEnabled,
     required this.isActive,
+    required this.isImplemented,
   });
 
   final String id, code, name, category;
   final bool defaultEnabled, isActive;
+
+  /// False for catalogue entries that name a subsystem nothing has built.
+  ///
+  /// They are listed so the roadmap is visible, but the server refuses to
+  /// enable one, so a UI must show them as unavailable rather than switchable.
+  final bool isImplemented;
 
   factory BusinessFeatureRecord.fromJson(Json json) => BusinessFeatureRecord(
         id: stringValue(json['id']),
@@ -356,6 +363,9 @@ class BusinessFeatureRecord {
         category: stringValue(json['category']),
         defaultEnabled: boolValue(json['default_enabled']),
         isActive: boolValue(json['is_active'], fallback: true),
+        // Older servers omit the field; assume a feature works rather than
+        // hiding a real one behind a flag they never sent.
+        isImplemented: boolValue(json['is_implemented'], fallback: true),
       );
 }
 
