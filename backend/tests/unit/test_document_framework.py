@@ -149,3 +149,97 @@ def test_document_framework_supports_configuration_and_timeline() -> None:
         )
         is not None
     )
+
+
+def test_back_dating_a_document_does_not_renumber_the_current_year() -> None:
+    """Each numbering scope keeps its own counter.
+
+    The rule used to carry one ``next_sequence`` and the last scope it had
+    seen, resetting to 1 whenever the scope changed. Entering a missed invoice
+    dated in the previous financial year -- ordinary accounting -- reset the
+    counter, and the next current-year document was then handed a number that
+    year had already issued. Document numbers are unique per firm, so that
+    second document failed outright and the only way to carry on was to stop
+    back-dating.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = DocumentFrameworkService(session)
+    document_type = service.create_type(
+        firm.id,
+        DocumentTypeCreate(code="SALES_INVOICE", name="Sales Invoice"),
+        actor_id,
+    )
+    rule = service.create_numbering_rule(
+        firm.id,
+        DocumentNumberingRuleCreate(
+            document_type_id=document_type.id,
+            code="DEFAULT",
+            name="Default Numbering",
+            prefix="INV",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    def reserve(label: str, on: date) -> str:
+        return service.reserve_number(
+            rule.id,
+            firm_id=firm.id,
+            document_date=on,
+            financial_year_label=label,
+            actor_id=actor_id,
+        )
+
+    # Three invoices in the current year.
+    current = [reserve("2026-2027", date(2026, 8, day)) for day in (1, 2, 3)]
+    assert current == ["INV-2026-2027-000001", "INV-2026-2027-000002", "INV-2026-2027-000003"]
+
+    # A missed invoice from last year. It starts its own series at one.
+    assert reserve("2025-2026", date(2026, 3, 30)) == "INV-2025-2026-000001"
+
+    # Back in the current year, numbering continues where it left off. It used
+    # to restart at 000001 and collide with the first invoice above.
+    assert reserve("2026-2027", date(2026, 8, 4)) == "INV-2026-2027-000004"
+
+    # And last year continues independently too.
+    assert reserve("2025-2026", date(2026, 3, 31)) == "INV-2025-2026-000002"
+
+
+def test_every_number_a_rule_issues_is_unique() -> None:
+    """Interleave two scopes heavily and check nothing repeats."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = DocumentFrameworkService(session)
+    document_type = service.create_type(
+        firm.id, DocumentTypeCreate(code="DELIVERY_NOTE", name="Delivery Note"), actor_id
+    )
+    rule = service.create_numbering_rule(
+        firm.id,
+        DocumentNumberingRuleCreate(
+            document_type_id=document_type.id,
+            code="DEFAULT",
+            name="Default Numbering",
+            prefix="DN",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    issued: list[str] = []
+    for index in range(12):
+        label = "2026-2027" if index % 2 else "2025-2026"
+        on = date(2026, 8, 1) if index % 2 else date(2026, 2, 1)
+        issued.append(
+            service.reserve_number(
+                rule.id,
+                firm_id=firm.id,
+                document_date=on,
+                financial_year_label=label,
+                actor_id=actor_id,
+            )
+        )
+
+    assert len(set(issued)) == len(issued), f"duplicate numbers issued: {issued}"

@@ -46,23 +46,31 @@ def upgrade() -> None:
         s = schema  # alias for f-strings
 
         # ── tax_systems: drop effective date columns ──────────────────────────
-        bind.execute(sa.text(
-            f'ALTER TABLE "{s}".tax_systems DROP COLUMN IF EXISTS effective_from'
-        ))
-        bind.execute(sa.text(
-            f'ALTER TABLE "{s}".tax_systems DROP COLUMN IF EXISTS effective_to'
-        ))
+        bind.execute(
+            sa.text(
+                f'ALTER TABLE "{s}".tax_systems DROP COLUMN IF EXISTS effective_from'
+            )
+        )
+        bind.execute(
+            sa.text(f'ALTER TABLE "{s}".tax_systems DROP COLUMN IF EXISTS effective_to')
+        )
 
         # ── tax_components: drop effective date columns ───────────────────────
-        bind.execute(sa.text(
-            f'ALTER TABLE "{s}".tax_components DROP COLUMN IF EXISTS effective_from'
-        ))
-        bind.execute(sa.text(
-            f'ALTER TABLE "{s}".tax_components DROP COLUMN IF EXISTS effective_to'
-        ))
+        bind.execute(
+            sa.text(
+                f'ALTER TABLE "{s}".tax_components DROP COLUMN IF EXISTS effective_from'
+            )
+        )
+        bind.execute(
+            sa.text(
+                f'ALTER TABLE "{s}".tax_components DROP COLUMN IF EXISTS effective_to'
+            )
+        )
 
         # ── tax_profiles: add group_code + index ──────────────────────────────
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -74,28 +82,50 @@ def upgrade() -> None:
                         ADD COLUMN group_code VARCHAR(50);
                 END IF;
             END $$;
-        """))
-        bind.execute(sa.text(
-            f'UPDATE "{s}".tax_profiles SET group_code = code WHERE group_code IS NULL'
-        ))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f'UPDATE "{s}".tax_profiles SET group_code = code WHERE group_code IS NULL'
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             CREATE INDEX IF NOT EXISTS "IX_tax_profiles_firm_group_code"
             ON "{s}".tax_profiles (firm_id, group_code)
-        """))
+        """
+            )
+        )
 
         # ── products: swap tax_profile_id FK → tax_profile_group_code string ──
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DROP INDEX IF EXISTS "{s}"."IX_products_firm_tax_profile"
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             ALTER TABLE "{s}".products
                 DROP CONSTRAINT IF EXISTS "FK_products_tax_profile"
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             ALTER TABLE "{s}".products
                 DROP COLUMN IF EXISTS tax_profile_id
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -107,11 +137,17 @@ def upgrade() -> None:
                         ADD COLUMN tax_profile_group_code VARCHAR(50);
                 END IF;
             END $$;
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             CREATE INDEX IF NOT EXISTS "IX_products_firm_tax_group_code"
             ON "{s}".products (firm_id, tax_profile_group_code)
-        """))
+        """
+            )
+        )
 
 
 def downgrade() -> None:
@@ -120,14 +156,24 @@ def downgrade() -> None:
         s = schema
 
         # ── products: restore tax_profile_id ──────────────────────────────────
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DROP INDEX IF EXISTS "{s}"."IX_products_firm_tax_group_code"
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             ALTER TABLE "{s}".products
                 DROP COLUMN IF EXISTS tax_profile_group_code
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -139,8 +185,12 @@ def downgrade() -> None:
                         ADD COLUMN tax_profile_id UUID;
                 END IF;
             END $$;
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.table_constraints
@@ -155,22 +205,34 @@ def downgrade() -> None:
                         ON DELETE RESTRICT;
                 END IF;
             END $$;
-        """))
-        bind.execute(sa.text(f"""
+        """
+            )
+        )
+        bind.execute(
+            sa.text(
+                f"""
             CREATE INDEX IF NOT EXISTS "IX_products_firm_tax_profile"
             ON "{s}".products (firm_id, tax_profile_id)
-        """))
+        """
+            )
+        )
 
         # ── tax_profiles: drop group_code ─────────────────────────────────────
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DROP INDEX IF EXISTS "{s}"."IX_tax_profiles_firm_group_code"
-        """))
-        bind.execute(sa.text(
-            f'ALTER TABLE "{s}".tax_profiles DROP COLUMN IF EXISTS group_code'
-        ))
+        """
+            )
+        )
+        bind.execute(
+            sa.text(f'ALTER TABLE "{s}".tax_profiles DROP COLUMN IF EXISTS group_code')
+        )
 
         # ── tax_components: restore effective date columns ────────────────────
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -182,10 +244,14 @@ def downgrade() -> None:
                     ALTER TABLE "{s}".tax_components ADD COLUMN effective_to   DATE;
                 END IF;
             END $$;
-        """))
+        """
+            )
+        )
 
         # ── tax_systems: restore effective date columns ───────────────────────
-        bind.execute(sa.text(f"""
+        bind.execute(
+            sa.text(
+                f"""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
@@ -197,4 +263,6 @@ def downgrade() -> None:
                     ALTER TABLE "{s}".tax_systems ADD COLUMN effective_to   DATE;
                 END IF;
             END $$;
-        """))
+        """
+            )
+        )
