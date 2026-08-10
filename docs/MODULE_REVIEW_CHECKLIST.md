@@ -241,9 +241,39 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       `UQ_user_firms_active_primary` does. Flush the demotion before writing the
       promoted row or the index rejects the statement.
 
+### Defects the `finance` pass added to this list
+
+- [ ] **Validate the values you are about to store, not the ones you were
+      handed.** The journal engine summed the raw legs, rounded the two totals,
+      and compared those — then stored each leg rounded individually. Sum-then-
+      round and round-then-sum are different operations, so a document that
+      balanced exactly at its own four decimals could be written as lines a cent
+      apart with `is_balanced` set to true, and the general ledger copies line
+      amounts verbatim **(found a real bug)**. Wherever a value is rounded on
+      the way into storage, do the rounding first and check afterwards.
+- [ ] **A caller that feeds a coarser store must derive the balancing figure,
+      not round every component.** Rounding taxable, tax and total
+      independently can leave them a cent apart. Derive one leg from the others
+      at the destination's scale so the set agrees by construction.
+- [ ] **A report's date column is the business date, not the wall clock.** The
+      ledger statement dated and ordered its lines by `posting_date`, the moment
+      someone pressed Post, so a back-dated entry appeared under today and the
+      running balance ran in the order of clicks rather than of trade
+      **(found a real bug)**. Keep the timestamp for the audit trail and report
+      the document's own date.
+- [ ] **Do not fall back through a field nothing writes.** The statement showed
+      `posting.error_message or entry.description`; `error_message` is never
+      assigned, so the branch was dead — and the line's own narration, captured
+      on every posting, was never displayed. Same shape as a status nobody
+      transitions.
+- [ ] **Never assign to `version` by hand.** It is the mapper's version id;
+      SQLAlchemy computes the next value and overwrites the assignment, so
+      `row.version += 1` is dead code that reads as load-bearing concurrency
+      control. Eight of them were in `finance`.
+
 ## Module inventory
 
-Endpoint counts and debt measured 2026-08-09. `ruff`/`mypy` are current error
+Endpoint counts measured 2026-08-09; `ruff`/`mypy` counts re-measured 2026-08-10. `ruff`/`mypy` are current error
 counts for that package — they are the size of the cleanup, not a pass/fail.
 
 | Module | Endpoints | ruff | mypy | Unit test | Desktop |
@@ -265,11 +295,11 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
-| `sales_order` | 17 | 170 | 1 | `test_sales_order_module` | typed |
-| `sales_invoice` | 16 | 185 | 34 | `test_sales_invoice_module` | typed |
-| `purchase_invoice` | 16 | 208 | 15 | `test_purchase_invoice_module` | typed |
-| `delivery_note` | 19 | 210 | 6 | `test_delivery_note_module` | typed |
-| `purchase_return` | 18 | 212 | 22 | `test_purchase_return_module` | typed |
+| `sales_order` | 17 | 57 | 1 | `test_sales_order_module` | typed |
+| `sales_invoice` | 16 | 39 | 21 | `test_sales_invoice_module` | typed |
+| `purchase_invoice` | 16 | 57 | 19 | `test_purchase_invoice_module` | typed |
+| `delivery_note` | 19 | 58 | 6 | `test_delivery_note_module` | typed |
+| `purchase_return` | 18 | 60 | 22 | `test_purchase_return_module` | typed |
 | `tax` | 52 | 0 | 0 | `test_tax_framework` | typed |
 
 As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
@@ -328,3 +358,4 @@ and typed; mostly cleanup.
 | 18 | `sales` (territory) | 2026-08-10 | bulk status changes and moves wrote one summary audit row keyed on the first id, so the trail recorded that N territories changed without naming any of them | yes |
 | 19 | `search` | 2026-08-10 | the firm filter was skipped entirely for platform admins, so an admin with no firm selected saw every firm's rows in one result list — in a SHARED store that is one schema holding all of them | yes |
 | 20 | `document_framework` | 2026-08-10 | none — the commit-per-method defect was fixed in the 2026-08-09 pass and lifecycle, numbering and timeline events all hold | gates only |
+| 21 | `finance` | 2026-08-10 | the journal engine checked the balance on the summed-then-rounded totals but stored each leg rounded, so a document balanced at four decimals could store lines a cent apart with `is_balanced` true — and `_post_line` copies line amounts straight into the general ledger; the ledger statement was dated and ordered by the wall clock at posting rather than the journal date; line narration was collected and never displayed, the report preferring a field nothing writes | yes — no stored data was affected |

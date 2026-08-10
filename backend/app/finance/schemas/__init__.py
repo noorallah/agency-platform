@@ -497,10 +497,15 @@ class TrialBalanceReport(FinanceSchema):
 
 
 class GeneralLedgerLine(FinanceSchema):
-    """Return one movement row of a general-ledger statement."""
+    """Return one movement row of a general-ledger statement.
+
+    Dated by the journal date, not by when someone pressed Post. A ledger
+    statement is a record of when business happened; ``GLPosting.posting_date``
+    is the wall clock at the moment of posting and belongs to the audit trail.
+    """
 
     journal_entry_id: UUID
-    posting_date: datetime
+    journal_date: date
     reference_number: str
     description: str | None
     debit_amount: Decimal
