@@ -95,6 +95,9 @@ class BusinessFeatureResponse(BusinessFrameworkSchema):
     category: str | None
     default_enabled: bool
     is_active: bool
+    #: False for catalogue entries that name a subsystem nothing has built.
+    #: They are listed so the intent is visible, and refused if switched on.
+    is_implemented: bool
     created_at: datetime
     updated_at: datetime
 
