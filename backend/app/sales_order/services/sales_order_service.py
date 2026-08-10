@@ -1066,7 +1066,7 @@ class SalesOrderService(TransactionalDocumentService):
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 reference_number=row.order_number,
-                transaction_date=date.today(),
+                transaction_date=utc_now().date(),
                 release_quantity=line.reserved_quantity,
                 entered_quantity=self._q(line.quantity + line.free_quantity),
                 entered_uom_id=line.sales_uom_id,

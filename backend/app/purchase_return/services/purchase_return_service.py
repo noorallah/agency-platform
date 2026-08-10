@@ -820,7 +820,7 @@ class PurchaseReturnService(TransactionalDocumentService):
 
         Cancelled and closed returns are excluded: neither is still owing.
         """
-        today = date.today()
+        today = utc_now().date()
         return list(
             self._session.scalars(
                 select(PurchaseReturn).where(
