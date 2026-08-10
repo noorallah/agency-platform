@@ -31,3 +31,4 @@ Thumbs.db
 # Local verification artefacts
 .tok
 uvicorn-*.log
+coverage.json
