@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import 'credit_notice.dart';
 
 class SalesOrderManagementPage extends StatefulWidget {
   const SalesOrderManagementPage({
@@ -154,6 +155,18 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     await _load();
   }
 
+  /// Warn before approving, because approval is where credit is committed.
+  ///
+  /// The check has to run *before* the call: once the order is approved the
+  /// exposure already includes it, and asking afterwards with the same amount
+  /// would count the order twice.
+  Future<void> _warnOnCredit(Map<String, dynamic> order) => warnOnCreditExposure(
+        context,
+        widget.api,
+        customerId: order['customer_id'] as String?,
+        amount: '${order['grand_total'] ?? '0'}',
+      );
+
   @override
   Widget build(BuildContext context) {
     final Map<String, dynamic>? selected = _selected;
@@ -285,6 +298,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                               try {
                                 switch (action) {
                                   case DocumentToolbarAction.approve:
+                                    await _warnOnCredit(selected);
                                     await _act('/approve');
                                     break;
                                   case DocumentToolbarAction.cancel:
