@@ -241,6 +241,24 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       `UQ_user_firms_active_primary` does. Flush the demotion before writing the
       promoted row or the index rejects the statement.
 
+### Defects the feature-catalogue survey added to this list
+
+- [ ] **A declared capability with no implementation is a promise you cannot
+      keep.** Seven of the twenty-one framework features had no backing code in
+      either application, and seven industry profiles had them switched on — a
+      pharmacy profile advertised `PRESCRIPTION_REQUIRED`, a restaurant profile
+      advertised `KITCHEN_MANAGEMENT`, and neither did anything
+      **(found a real bug)**. Before gating a feature, check something
+      implements it. Same defect as the eleven docstring-only packages deleted
+      on 2026-08-09, and worse: a catalogue is customer-facing.
+- [ ] **"Not built" is not "switched off".** `is_active` is an administrator's
+      choice; whether code exists is a fact. Keep them in separate columns, or
+      an administrator can "activate" something that cannot run.
+- [ ] **Check which store a table actually lives in before writing its
+      migration.** The framework catalogue is firm-owned and has no row in
+      `platform`, the opposite of what its name suggests. A platform-only
+      migration would have silently done nothing.
+
 ### Defects the import pass added to this list
 
 - [ ] **A batch endpoint that loops over a committing method is not a batch.**
