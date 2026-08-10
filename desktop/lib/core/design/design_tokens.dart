@@ -94,6 +94,106 @@ abstract final class AppRadius {
   static const BorderRadius large = BorderRadius.all(Radius.circular(12));
 }
 
+/// How tightly the interface packs, as real measurements rather than a label.
+///
+/// `GridDensity` has existed in preferences since the beginning with a setter
+/// nothing called and a value nothing read. The one place density was honoured
+/// changed rows-per-page and not row height, which is the opposite of what the
+/// word means. These are the numbers that make it real, and because they are
+/// applied through `ThemeData` every grid, list and field inherits them without
+/// a single call site changing.
+@immutable
+class AppDensityTokens extends ThemeExtension<AppDensityTokens> {
+  const AppDensityTokens({
+    required this.rowHeight,
+    required this.headerHeight,
+    required this.pagePadding,
+    required this.cardPadding,
+    required this.fieldGap,
+    required this.sectionGap,
+    required this.visualDensity,
+  });
+
+  final double rowHeight;
+  final double headerHeight;
+  final double pagePadding;
+  final double cardPadding;
+  final double fieldGap;
+  final double sectionGap;
+  final VisualDensity visualDensity;
+
+  /// Compact is the default on a small screen. At 1366x768 the chrome already
+  /// costs a third of the height, so every reclaimed row is a row of data.
+  static const AppDensityTokens compact = AppDensityTokens(
+    rowHeight: 34,
+    headerHeight: 38,
+    pagePadding: AppSpacing.md,
+    cardPadding: AppSpacing.md,
+    fieldGap: AppSpacing.sm,
+    sectionGap: AppSpacing.lg,
+    visualDensity: VisualDensity(horizontal: -2, vertical: -2),
+  );
+
+  static const AppDensityTokens comfortable = AppDensityTokens(
+    rowHeight: 42,
+    headerHeight: 46,
+    pagePadding: AppSpacing.lg,
+    cardPadding: AppSpacing.lg,
+    fieldGap: AppSpacing.md,
+    sectionGap: AppSpacing.xl,
+    visualDensity: VisualDensity(horizontal: -1, vertical: -1),
+  );
+
+  static const AppDensityTokens spacious = AppDensityTokens(
+    rowHeight: 50,
+    headerHeight: 54,
+    pagePadding: AppSpacing.xl,
+    cardPadding: AppSpacing.xl,
+    fieldGap: AppSpacing.lg,
+    sectionGap: AppSpacing.xxl,
+    visualDensity: VisualDensity.standard,
+  );
+
+  @override
+  AppDensityTokens copyWith({
+    double? rowHeight,
+    double? headerHeight,
+    double? pagePadding,
+    double? cardPadding,
+    double? fieldGap,
+    double? sectionGap,
+    VisualDensity? visualDensity,
+  }) =>
+      AppDensityTokens(
+        rowHeight: rowHeight ?? this.rowHeight,
+        headerHeight: headerHeight ?? this.headerHeight,
+        pagePadding: pagePadding ?? this.pagePadding,
+        cardPadding: cardPadding ?? this.cardPadding,
+        fieldGap: fieldGap ?? this.fieldGap,
+        sectionGap: sectionGap ?? this.sectionGap,
+        visualDensity: visualDensity ?? this.visualDensity,
+      );
+
+  @override
+  AppDensityTokens lerp(
+    covariant ThemeExtension<AppDensityTokens>? other,
+    double t,
+  ) {
+    if (other is! AppDensityTokens) return this;
+    return AppDensityTokens(
+      rowHeight: lerpDouble(rowHeight, other.rowHeight, t),
+      headerHeight: lerpDouble(headerHeight, other.headerHeight, t),
+      pagePadding: lerpDouble(pagePadding, other.pagePadding, t),
+      cardPadding: lerpDouble(cardPadding, other.cardPadding, t),
+      fieldGap: lerpDouble(fieldGap, other.fieldGap, t),
+      sectionGap: lerpDouble(sectionGap, other.sectionGap, t),
+      visualDensity: t < 0.5 ? visualDensity : other.visualDensity,
+    );
+  }
+
+  static double lerpDouble(double a, double b, double t) => a + (b - a) * t;
+}
+
 @immutable
 class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   const AppSemanticColors({
@@ -176,6 +276,11 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
 }
 
 extension AppThemeTokens on BuildContext {
+  /// Spacing and sizing for the density the user has chosen.
+  AppDensityTokens get density =>
+      Theme.of(this).extension<AppDensityTokens>() ??
+      AppDensityTokens.comfortable;
+
   AppSemanticColors get semanticColors =>
       Theme.of(this).extension<AppSemanticColors>() ??
       AppSemanticColors.forScheme(Theme.of(this).colorScheme);

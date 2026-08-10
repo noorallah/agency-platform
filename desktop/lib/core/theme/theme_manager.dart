@@ -72,24 +72,28 @@ class ThemeManager extends ChangeNotifier {
         _mode = AppThemeModeDetails.fromWireName(
           _preferences.current.cachedThemeMode,
         ),
-        _highContrast = _preferences.current.cachedHighContrast;
+        _highContrast = _preferences.current.cachedHighContrast,
+        _density = _preferences.current.gridDensity;
 
   final DesktopPreferencesService _preferences;
   AppPalette _palette;
   ThemeMode _mode;
   bool _highContrast;
+  GridDensity _density;
   Future<void> Function(String palette, String mode, bool highContrast)?
       _serverSync;
 
   AppPalette get palette => _palette;
   ThemeMode get mode => _mode;
   bool get highContrast => _highContrast;
+  GridDensity get density => _density;
 
   /// The light half of the pair. `MaterialApp.theme`.
   ThemeData get lightTheme => ThemeRegistry.themeFor(
         palette: _palette,
         brightness: Brightness.light,
         highContrast: _highContrast,
+        density: _density,
       );
 
   /// The dark half of the pair. `MaterialApp.darkTheme`.
@@ -100,6 +104,7 @@ class ThemeManager extends ChangeNotifier {
         palette: _palette,
         brightness: Brightness.dark,
         highContrast: _highContrast,
+        density: _density,
       );
 
   void bindServerSync(
@@ -117,6 +122,16 @@ class ThemeManager extends ChangeNotifier {
 
   Future<void> setHighContrast(bool enabled) =>
       _apply(palette: _palette, mode: _mode, highContrast: enabled);
+
+  /// Change how tightly the interface packs.
+  ///
+  /// Stored through the setter that has existed unused since the beginning.
+  Future<void> selectDensity(GridDensity density) async {
+    if (density == _density) return;
+    _density = density;
+    notifyListeners();
+    await _preferences.saveGridDensity(density);
+  }
 
   /// Adopt the appearance stored on the server without echoing it back.
   Future<void> applyServerAppearance({
@@ -163,7 +178,13 @@ class ThemeRegistry {
     required AppPalette palette,
     required Brightness brightness,
     bool highContrast = false,
+    GridDensity density = GridDensity.comfortable,
   }) {
+    final AppDensityTokens spacing = switch (density) {
+      GridDensity.compact => AppDensityTokens.compact,
+      GridDensity.comfortable => AppDensityTokens.comfortable,
+      GridDensity.spacious => AppDensityTokens.spacious,
+    };
     // High contrast is a modifier on whatever the user is already using, not a
     // theme of its own. It used to be a yellow-seeded dark theme, which is not
     // what anyone means by high contrast and forced a palette change to get it.
@@ -204,10 +225,21 @@ class ThemeRegistry {
       colorScheme: tuned,
       useMaterial3: true,
       scaffoldBackgroundColor: tuned.surface,
-      // Slightly denser than Material's desktop default: this is an operator
-      // tool on a 1366x768 screen, where every reclaimed row is a row of data.
-      visualDensity: VisualDensity.compact,
-      extensions: [AppSemanticColors.forScheme(tuned)],
+      visualDensity: spacing.visualDensity,
+      extensions: [AppSemanticColors.forScheme(tuned), spacing],
+      // Applied here rather than at ~20 grid call sites, which is the whole
+      // reason density is a theme concern and not a widget parameter.
+      dataTableTheme: DataTableThemeData(
+        headingRowHeight: spacing.headerHeight,
+        dataRowMinHeight: spacing.rowHeight,
+        dataRowMaxHeight: spacing.rowHeight,
+        headingTextStyle: textTheme.labelSmall,
+        dataTextStyle: textTheme.bodyMedium,
+      ),
+      listTileTheme: ListTileThemeData(
+        minVerticalPadding: spacing.fieldGap / 2,
+        dense: density == GridDensity.compact,
+      ),
       textTheme: textTheme,
       dividerTheme: DividerThemeData(color: tuned.outlineVariant, space: 1),
       cardTheme: CardThemeData(
@@ -222,9 +254,9 @@ class ThemeRegistry {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: tuned.surfaceContainerLowest,
-        contentPadding: const EdgeInsets.symmetric(
+        contentPadding: EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
-          vertical: AppSpacing.md,
+          vertical: spacing.fieldGap,
         ),
         hintStyle: textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
         labelStyle: textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),

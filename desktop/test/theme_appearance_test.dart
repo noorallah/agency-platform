@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:agency_desktop/core/design/design_tokens.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +23,8 @@ DesktopPreferencesService _preferences() {
 }
 
 void main() {
+  _densityTests();
+
   test('a user who has never chosen follows the operating system', () {
     expect(ThemeManager(_preferences()).mode, ThemeMode.system);
   });
@@ -130,5 +133,58 @@ void main() {
 
     expect(light, isNot(dark));
     expect(light.computeLuminance(), greaterThan(dark.computeLuminance()));
+  });
+}
+
+/// Density used to be a preference nothing read.
+///
+/// `GridDensity` has existed since the beginning with a `saveGridDensity()`
+/// nobody called and a value nobody consumed. The single place it was honoured
+/// changed rows-per-page rather than row height, which is the opposite of what
+/// the word means. These pin that it now changes real measurements, applied
+/// through the theme so every grid inherits it without a call site changing.
+void _densityTests() {
+  test('each density produces a different row height', () async {
+    final ThemeManager manager = ThemeManager(_preferences());
+    final Map<GridDensity, double> heights = {};
+
+    for (final GridDensity density in GridDensity.values) {
+      await manager.selectDensity(density);
+      heights[density] =
+          manager.lightTheme.dataTableTheme.dataRowMinHeight ?? -1;
+    }
+
+    expect(heights.values.toSet(), hasLength(GridDensity.values.length));
+    expect(
+      heights[GridDensity.compact]!,
+      lessThan(heights[GridDensity.spacious]!),
+      reason: 'compact must fit more rows, which is the point of it',
+    );
+  });
+
+  test('density is persisted and reaches the theme extension', () async {
+    final DesktopPreferencesService preferences = _preferences();
+    await ThemeManager(preferences).selectDensity(GridDensity.compact);
+
+    final ThemeManager reopened = ThemeManager(preferences);
+
+    expect(reopened.density, GridDensity.compact);
+    expect(
+      reopened.lightTheme.extension<AppDensityTokens>()!.rowHeight,
+      AppDensityTokens.compact.rowHeight,
+    );
+  });
+
+  test('compact reclaims real vertical space against spacious', () async {
+    final ThemeManager manager = ThemeManager(_preferences());
+    await manager.selectDensity(GridDensity.spacious);
+    final double spacious =
+        manager.lightTheme.dataTableTheme.dataRowMinHeight ?? 0;
+    await manager.selectDensity(GridDensity.compact);
+    final double compact =
+        manager.lightTheme.dataTableTheme.dataRowMinHeight ?? 0;
+
+    // Over a 500px grid that is several extra rows on the smallest screen.
+    expect(spacious - compact, greaterThanOrEqualTo(12));
   });
 }
