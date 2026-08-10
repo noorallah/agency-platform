@@ -253,6 +253,34 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       resource must gate the field, or a firm loses the whole resource because
       it does not use one column of it.
 
+### Open: three features deliberately left ungated
+
+Feature gating landed for nine of the twelve features that have backing code.
+The remaining three are **not** oversights — each needs a product decision that
+the code cannot supply, and gating one on a guess would take a working
+capability away from real firms.
+
+- **`TERRITORY`** — only AGENCY and WHOLESALE enable it. Enforcing it would
+  remove territory and route management from the other nine profiles, including
+  PHARMACY, FOOD and RETAIL, all of which plausibly sell by territory on a
+  distribution platform. The seed assignment looks wrong, not the code. Decide
+  whether territory is core to every selling firm (in which case it should not
+  be a switch), or genuinely optional (in which case the profiles that need it
+  must be granted it first). Raised 2026-08-10; parked for more product
+  knowledge.
+- **`MULTIPLE_WAREHOUSES`** — needs two answers before it can be written: does
+  disabling it refuse a *second* warehouse, and what happens to a firm that
+  already has several when it is turned on? The framework's rule is that
+  enabling enforcement never takes away what a firm already has, which argues
+  for blocking new ones only, but that is a decision not a deduction.
+- **`APPROVAL_WORKFLOW`** — the document framework has approval states, but
+  what "no approval workflow" means is undecided: documents skip straight to
+  approved, or the approve action is simply unavailable, or approval is
+  self-service. Different answers, different code.
+
+Do not gate any of these to close the gap. An unenforced feature is visible
+debt; a wrongly enforced one silently removes a capability a firm was using.
+
 ### Defects the feature-catalogue survey added to this list
 
 - [ ] **A declared capability with no implementation is a promise you cannot
