@@ -43,4 +43,3 @@ class DatabaseProvider(ABC):
     @abstractmethod
     def dispose(self) -> None:
         """Dispose any internally owned database managers."""
-

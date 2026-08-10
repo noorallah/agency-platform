@@ -93,6 +93,7 @@ def list_tax_systems(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[TaxSystemResponse]:
+    """List tax systems for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = TaxFrameworkService(db).list_systems(
         firm_scope=scope.firm_id,
@@ -120,6 +121,7 @@ def create_tax_system(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSystemResponse]:
+    """Create one tax system."""
     row = TaxFrameworkService(db).create_system(
         data,
         firm_id=scope.firm_id,
@@ -135,6 +137,7 @@ def update_tax_system(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSystemResponse]:
+    """Replace one tax system."""
     row = TaxFrameworkService(db).update_system(
         system_id,
         data,
@@ -150,6 +153,7 @@ def delete_tax_system(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one system."""
     TaxFrameworkService(db).delete_system(
         system_id,
         firm_scope=scope.firm_id,
@@ -166,6 +170,7 @@ def restore_tax_system(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSystemResponse]:
+    """Restore one system."""
     row = TaxFrameworkService(db).restore_system(
         system_id,
         firm_scope=scope.firm_id,
@@ -180,6 +185,7 @@ def bulk_delete_systems(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Soft delete several tax systems."""
     affected = TaxFrameworkService(db).bulk_delete_systems(
         data.ids,
         firm_scope=scope.firm_id,
@@ -194,6 +200,7 @@ def bulk_restore_systems(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Restore several soft-deleted tax systems."""
     affected = TaxFrameworkService(db).bulk_restore_systems(
         data.ids,
         firm_scope=scope.firm_id,
@@ -208,6 +215,7 @@ def export_tax_systems(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Export systems as CSV."""
     text = TaxFrameworkService(db).export_systems_csv(
         firm_scope=scope.firm_id,
         search=search,
@@ -229,6 +237,7 @@ def import_tax_systems(
     scope: TaxImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxSystemResponse]]:
+    """Import a validated batch of tax systems."""
     rows = TaxFrameworkService(db).import_systems(
         data.systems,
         firm_scope=scope.firm_id,
@@ -256,6 +265,7 @@ def create_tax_setup(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSetupResponse]:
+    """Create one setup."""
     system, components, profiles = TaxFrameworkService(db).create_setup(
         data,
         firm_id=scope.firm_id,
@@ -287,6 +297,7 @@ def update_tax_setup(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSetupResponse]:
+    """Replace one setup."""
     system, components, profiles = TaxFrameworkService(db).update_setup(
         system_id,
         data,
@@ -313,6 +324,7 @@ def get_tax_setup(
     scope: TaxViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSetupResponse]:
+    """Return one setup."""
     system, components, profiles = TaxFrameworkService(db).get_setup(
         system_id,
         firm_scope=scope.firm_id,
@@ -337,6 +349,7 @@ def list_tax_components(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[TaxComponentResponse]:
+    """List tax components for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = TaxFrameworkService(db).list_components(
         firm_scope=scope.firm_id,
@@ -363,6 +376,7 @@ def create_tax_component(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxComponentResponse]:
+    """Create one tax component."""
     row = TaxFrameworkService(db).create_component(
         data,
         firm_id=scope.firm_id,
@@ -380,6 +394,7 @@ def update_tax_component(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxComponentResponse]:
+    """Replace one tax component."""
     row = TaxFrameworkService(db).update_component(
         component_id,
         data,
@@ -395,6 +410,7 @@ def delete_tax_component(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one component."""
     TaxFrameworkService(db).delete_component(
         component_id,
         firm_scope=scope.firm_id,
@@ -412,6 +428,7 @@ def restore_tax_component(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxComponentResponse]:
+    """Restore one component."""
     row = TaxFrameworkService(db).restore_component(
         component_id,
         firm_scope=scope.firm_id,
@@ -426,6 +443,7 @@ def bulk_delete_components(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Soft delete several tax components."""
     affected = TaxFrameworkService(db).bulk_delete_components(
         data.ids,
         firm_scope=scope.firm_id,
@@ -440,6 +458,7 @@ def bulk_restore_components(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Restore several soft-deleted tax components."""
     affected = TaxFrameworkService(db).bulk_restore_components(
         data.ids,
         firm_scope=scope.firm_id,
@@ -460,6 +479,7 @@ def list_tax_profiles(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[TaxProfileResponse]:
+    """List tax profiles for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = TaxFrameworkService(db).list_profiles(
         firm_scope=scope.firm_id,
@@ -487,6 +507,7 @@ def create_tax_profile(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxProfileResponse]:
+    """Create one tax profile."""
     row = TaxFrameworkService(db).create_profile(
         data,
         firm_id=scope.firm_id,
@@ -502,6 +523,7 @@ def update_tax_profile(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxProfileResponse]:
+    """Replace one tax profile."""
     row = TaxFrameworkService(db).update_profile(
         profile_id,
         data,
@@ -517,6 +539,7 @@ def delete_tax_profile(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one profile."""
     TaxFrameworkService(db).delete_profile(
         profile_id,
         firm_scope=scope.firm_id,
@@ -533,6 +556,7 @@ def restore_tax_profile(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxProfileResponse]:
+    """Restore one profile."""
     row = TaxFrameworkService(db).restore_profile(
         profile_id,
         firm_scope=scope.firm_id,
@@ -547,6 +571,7 @@ def bulk_delete_profiles(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Soft delete several tax profiles."""
     affected = TaxFrameworkService(db).bulk_delete_profiles(
         data.ids,
         firm_scope=scope.firm_id,
@@ -561,6 +586,7 @@ def bulk_restore_profiles(
     scope: TaxRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Restore several soft-deleted tax profiles."""
     affected = TaxFrameworkService(db).bulk_restore_profiles(
         data.ids,
         firm_scope=scope.firm_id,
@@ -575,6 +601,7 @@ def bulk_profile_status(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[dict[str, int]]:
+    """Set the status of several tax profiles at once."""
     affected = TaxFrameworkService(db).bulk_profile_status(
         data.ids,
         data.status,
@@ -592,6 +619,7 @@ def list_country_mappings(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxCountryMappingResponse]]:
+    """List country mappings for the visible firm scope."""
     rows = TaxFrameworkService(db).list_country_mappings(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
@@ -611,6 +639,7 @@ def create_country_mapping(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxCountryMappingResponse]:
+    """Create one country mapping."""
     row = TaxFrameworkService(db).create_country_mapping(
         data,
         firm_id=scope.firm_id,
@@ -629,6 +658,7 @@ def update_country_mapping(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxCountryMappingResponse]:
+    """Replace one country mapping."""
     row = TaxFrameworkService(db).update_country_mapping(
         mapping_id,
         data,
@@ -644,6 +674,7 @@ def delete_country_mapping(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one country mapping."""
     TaxFrameworkService(db).delete_country_mapping(
         mapping_id,
         firm_scope=scope.firm_id,
@@ -661,6 +692,7 @@ def list_migration_mappings(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxMigrationMappingResponse]]:
+    """List migration mappings for the visible firm scope."""
     rows = TaxFrameworkService(db).list_migration_mappings(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
@@ -680,6 +712,7 @@ def create_migration_mapping(
     scope: TaxCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxMigrationMappingResponse]:
+    """Create one migration mapping."""
     row = TaxFrameworkService(db).create_migration_mapping(
         data,
         firm_id=scope.firm_id,
@@ -698,6 +731,7 @@ def update_migration_mapping(
     scope: TaxUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxMigrationMappingResponse]:
+    """Replace one migration mapping."""
     row = TaxFrameworkService(db).update_migration_mapping(
         mapping_id,
         data,
@@ -715,6 +749,7 @@ def delete_migration_mapping(
     scope: TaxDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one migration mapping."""
     TaxFrameworkService(db).delete_migration_mapping(
         mapping_id,
         firm_scope=scope.firm_id,
@@ -728,6 +763,7 @@ def effective_dates(
     scope: TaxViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[EffectiveDateRecord]]:
+    """List the dates on which tax records change."""
     rows = TaxFrameworkService(db).effective_dates(firm_scope=scope.firm_id)
     return ApiResponse(data=rows)
 
@@ -737,6 +773,7 @@ def get_tax_settings(
     scope: TaxViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSettingsResponse]:
+    """Return the firm's tax settings."""
     row = TaxFrameworkService(db).get_settings(firm_scope=scope.firm_id)
     return ApiResponse(data=TaxSettingsResponse.model_validate(row))
 
@@ -747,6 +784,7 @@ def update_tax_settings(
     scope: TaxSettingsScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxSettingsResponse]:
+    """Replace the firm's tax settings."""
     row = TaxFrameworkService(db).update_settings(
         data,
         firm_scope=scope.firm_id,
@@ -761,6 +799,7 @@ def tax_history(
     limit: int = Query(default=200, ge=1, le=2000),
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxHistoryRecord]]:
+    """Return the change history for one tax record."""
     rows = TaxFrameworkService(db).history(firm_scope=scope.firm_id, limit=limit)
     return ApiResponse(data=rows)
 
@@ -779,6 +818,7 @@ def list_tax_rules(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[TaxRuleResponse]:
+    """List tax rules for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     rows, total = TaxRuleService(db).list_rules(
         firm_scope=scope.firm_id,
@@ -808,6 +848,7 @@ def create_tax_rule(
     scope: TaxRuleCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxRuleResponse]:
+    """Create one tax rule."""
     row = TaxRuleService(db).create_rule(
         data,
         firm_id=scope.firm_id,
@@ -823,6 +864,7 @@ def update_tax_rule(
     scope: TaxRuleUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxRuleResponse]:
+    """Replace one tax rule."""
     row = TaxRuleService(db).update_rule(
         rule_id,
         data,
@@ -838,6 +880,7 @@ def delete_tax_rule(
     scope: TaxRuleDeleteScope,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Soft delete one rule."""
     TaxRuleService(db).delete_rule(
         rule_id,
         firm_scope=scope.firm_id,
@@ -852,6 +895,7 @@ def restore_tax_rule(
     scope: TaxRuleRestoreScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[TaxRuleResponse]:
+    """Restore one rule."""
     row = TaxRuleService(db).restore_rule(
         rule_id,
         firm_scope=scope.firm_id,
@@ -868,6 +912,7 @@ def list_tax_rule_conditions(
     rule_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRuleConditionResponse]]:
+    """List rule conditions for the visible firm scope."""
     rows = TaxRuleService(db).list_conditions(firm_scope=scope.firm_id, rule_id=rule_id)
     return ApiResponse(
         data=[TaxRuleConditionResponse.model_validate(row) for row in rows]
@@ -879,6 +924,7 @@ def list_tax_rule_priorities(
     scope: TaxRuleViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRulePriorityRecord]]:
+    """List rule priorities for the visible firm scope."""
     return ApiResponse(
         data=TaxRuleService(db).list_priorities(firm_scope=scope.firm_id)
     )
@@ -891,6 +937,7 @@ def list_tax_rule_history(
     version_group_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRuleResponse]]:
+    """List rule history for the visible firm scope."""
     rows = TaxRuleService(db).rule_history(
         firm_scope=scope.firm_id,
         code=code,
@@ -908,6 +955,7 @@ def list_tax_rule_execution_logs(
     matched_rule_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRuleExecutionLogResponse]]:
+    """List rule execution logs for the visible firm scope."""
     rows = TaxRuleService(db).list_execution_logs(
         firm_scope=scope.firm_id,
         limit=limit,
@@ -926,6 +974,7 @@ def simulate_tax_rule(
 ) -> ApiResponse[TaxRuleSimulationResponse]:
     # The endpoint owns the transaction: simulate() runs inside every document
     # write too, where committing would publish a half-written document.
+    """Simulate the tax a document line attracts."""
     response = TaxRuleService(db).simulate(
         data,
         firm_scope=scope.firm_id,
@@ -941,6 +990,7 @@ def export_tax_rules(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    """Export rules as CSV."""
     text = TaxRuleService(db).export_rules_csv(
         firm_scope=scope.firm_id,
         search=search,
@@ -962,6 +1012,7 @@ def import_tax_rules(
     scope: TaxImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxRuleResponse]]:
+    """Import a validated batch of tax rules."""
     rows = TaxRuleService(db).import_rules(
         data.rules,
         firm_scope=scope.firm_id,
@@ -980,6 +1031,7 @@ def import_legacy_tax_mapping_csv(
     payload: str = Body(..., media_type="text/plain"),
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TaxMigrationMappingResponse]]:
+    """Import one legacy mapping csv."""
     reader = csv.DictReader(StringIO(payload))
     rows: list[TaxMigrationMappingResponse] = []
     service = TaxFrameworkService(db)

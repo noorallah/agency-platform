@@ -120,9 +120,7 @@ class FirmConnectionResolver(ConnectionResolver):
                 f"({base.dialect.value})."
             )
         config_class = (
-            PostgreSQLConfig
-            if dialect is DatabaseDialect.POSTGRESQL
-            else MySQLConfig
+            PostgreSQLConfig if dialect is DatabaseDialect.POSTGRESQL else MySQLConfig
         )
         default_port = 5432 if dialect is DatabaseDialect.POSTGRESQL else 3306
         return config_class(

@@ -21,7 +21,8 @@ def get_db(request: Request) -> Generator[Session]:
     """Yield a tenant-aware session while hiding deployment-model details."""
     if _is_platform_path(request.url.path):
         database = cast(DatabaseManager, request.app.state.database)
-        with database.sessions(schema=database.config.default_schema).session() as session:
+        sessions = database.sessions(schema=database.config.default_schema)
+        with sessions.session() as session:
             yield session
         return
     provider = cast(MultiTenantDatabaseProvider, request.app.state.database_provider)
@@ -29,7 +30,8 @@ def get_db(request: Request) -> Generator[Session]:
     tenant = resolver.resolve(request)
     if tenant is None:
         database = cast(DatabaseManager, request.app.state.database)
-        with database.sessions(schema=database.config.default_schema).session() as session:
+        sessions = database.sessions(schema=database.config.default_schema)
+        with sessions.session() as session:
             yield session
         return
     manager = provider.manager_for(tenant)

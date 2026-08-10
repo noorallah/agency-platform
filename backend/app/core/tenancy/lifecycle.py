@@ -94,7 +94,7 @@ class TenantStorageLifecycleService:
                 TenantContext(
                     firm_id=firm.id,
                     deployment_mode=mode,
-                    database_name=firm.database_name,
+                    database_name=database_name,
                     schema_name=schema,
                     database_type=target_config.dialect.value,
                 )
@@ -116,7 +116,7 @@ class TenantStorageLifecycleService:
             TenantContext(
                 firm_id=firm.id,
                 deployment_mode=mode,
-                database_name=firm.database_name,
+                database_name=database_name,
                 schema_name=schema,
                 database_type=target_config.dialect.value,
             )
@@ -210,9 +210,7 @@ class TenantStorageLifecycleService:
             )
         dialect = base.dialect
         config_class = (
-            PostgreSQLConfig
-            if dialect is DatabaseDialect.POSTGRESQL
-            else MySQLConfig
+            PostgreSQLConfig if dialect is DatabaseDialect.POSTGRESQL else MySQLConfig
         )
         default_port = 5432 if dialect is DatabaseDialect.POSTGRESQL else 3306
         return config_class(

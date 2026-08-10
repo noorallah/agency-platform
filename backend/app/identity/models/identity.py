@@ -80,8 +80,8 @@ class User(BaseEntity):
     # Structured, optional profile sub-records. Modeled as JSON for now since
     # no shared cross-module address/attachment framework exists yet; this is
     # the reference shape future modules should normalize toward.
-    profile_addresses: Mapped[list | None] = mapped_column(JSON)
-    profile_documents: Mapped[list | None] = mapped_column(JSON)
+    profile_addresses: Mapped[list[dict[str, object]] | None] = mapped_column(JSON)
+    profile_documents: Mapped[list[dict[str, object]] | None] = mapped_column(JSON)
 
     platform_admin: Mapped["PlatformAdmin | None"] = relationship(
         back_populates="user", uselist=False
