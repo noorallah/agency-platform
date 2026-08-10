@@ -241,6 +241,22 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       `UQ_user_firms_active_primary` does. Flush the demotion before writing the
       promoted row or the index rejects the statement.
 
+### Defects the time-convention pass added to this list
+
+- [ ] **Never read the server's local clock.** Everything persisted here is
+      UTC, so `date.today()` compares against a date the data does not use: on
+      a non-UTC deployment it is already tomorrow, or still yesterday, for part
+      of every day. This shipped three separate times — `uom` picked a
+      conversion rule that was not yet effective, `batch_serial` bucketed
+      expiry a day out, and the overdue reports plus document numbering carried
+      it until 2026-08-10 **(found real bugs)**. Call `utc_now().date()`.
+      `tests/unit/test_time_conventions.py` now fails the build on any new
+      occurrence, so this should not need a fourth fix.
+- [ ] **`func.now()` is not a local clock.** It is SQL evaluated by the
+      database and is the correct default for a timestamp column. The first
+      version of the guard above flagged all four uses of it — check what
+      evaluates an expression before calling it a defect.
+
 ### Defects the `finance` pass added to this list
 
 - [ ] **Validate the values you are about to store, not the ones you were
