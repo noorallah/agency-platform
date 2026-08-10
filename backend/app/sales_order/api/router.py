@@ -50,6 +50,8 @@ router = APIRouter(
 
 
 class ActionReasonRequest(BaseModel):
+    """Carry the optional reason a lifecycle action was taken for."""
+
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -130,6 +132,7 @@ def list_sales_orders(
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[SalesOrderResponse]:
+    """List sales orders for the visible firm scope."""
     params = PaginationParams(page=page, page_size=page_size)
     service = SalesOrderService(db)
     rows, total = service.list_orders(
@@ -162,6 +165,7 @@ def sales_order_summary(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderSummary]:
+    """Return aggregate sales order values for the visible firm scope."""
     return ApiResponse(data=SalesOrderService(db).summary(firm_scope=scope.firm_id))
 
 
@@ -175,6 +179,7 @@ def create_sales_order(
     scope: SalesOrderCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
+    """Create one sales order."""
     service = SalesOrderService(db)
     row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.order_response(row))
@@ -188,6 +193,7 @@ def update_sales_order(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesOrderResponse]:
+    """Replace one sales order."""
     service = SalesOrderService(db)
     assert_version(
         service.get_order(order_id, firm_scope=scope.firm_id).version, expected_version
@@ -204,6 +210,7 @@ def approve_sales_order(
     scope: SalesOrderApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
+    """Approve one sales order."""
     service = SalesOrderService(db)
     row = service.approve_order(
         order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
@@ -218,6 +225,7 @@ def cancel_sales_order(
     scope: SalesOrderCancelScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
+    """Cancel one sales order."""
     service = SalesOrderService(db)
     row = service.cancel_order(
         order_id,
@@ -235,6 +243,7 @@ def close_sales_order(
     scope: SalesOrderApproveScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
+    """Close one sales order."""
     service = SalesOrderService(db)
     row = service.close_order(
         order_id,
@@ -251,6 +260,7 @@ def get_sales_order(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
+    """Return one sales order."""
     service = SalesOrderService(db)
     return ApiResponse(
         data=service.order_response(
@@ -268,6 +278,7 @@ def sales_order_history(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DocumentLifecycleEventResponse]]:
+    """Return the lifecycle timeline for one sales order."""
     rows = SalesOrderService(db).timeline(
         order_id=order_id, firm_scope=scope.firm_id, page=1, page_size=200
     )[0]
@@ -283,6 +294,7 @@ def sales_order_register(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderRegisterRecord]]:
+    """Return the sales order register report for the visible firm scope."""
     return ApiResponse(
         data=SalesOrderService(db).register_report(firm_scope=scope.firm_id)
     )
@@ -295,6 +307,7 @@ def pending_sales_orders(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderPendingRecord]]:
+    """List orders still open: draft or approved, not yet closed."""
     return ApiResponse(
         data=SalesOrderService(db).pending_orders(firm_scope=scope.firm_id)
     )
@@ -307,6 +320,7 @@ def back_order_report(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBackOrderRecord]]:
+    """Return the back order report for the visible firm scope."""
     return ApiResponse(data=SalesOrderService(db).back_orders(firm_scope=scope.firm_id))
 
 
@@ -317,6 +331,7 @@ def orders_by_customer(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByCustomerRecord]]:
+    """Total order value and count per customer, cancellations excluded."""
     return ApiResponse(
         data=SalesOrderService(db).orders_by_customer(firm_scope=scope.firm_id)
     )
@@ -329,6 +344,7 @@ def orders_by_salesman(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBySalesmanRecord]]:
+    """Total order value and count per salesman, cancellations excluded."""
     return ApiResponse(
         data=SalesOrderService(db).orders_by_salesman(firm_scope=scope.firm_id)
     )
@@ -342,6 +358,7 @@ def orders_by_territory(
     scope: SalesOrderViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByTerritoryRecord]]:
+    """Total order value and count per territory, cancellations excluded."""
     return ApiResponse(
         data=SalesOrderService(db).orders_by_territory(firm_scope=scope.firm_id)
     )
@@ -353,6 +370,7 @@ def export_sales_orders(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> Response:
+    """Export matching sales orders as CSV."""
     csv_content = SalesOrderService(db).export_orders_csv(
         firm_scope=scope.firm_id, search=search
     )
@@ -375,6 +393,7 @@ async def import_sales_orders(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[SalesOrderResponse]]:
+    """Import a validated batch of sales orders atomically."""
     if format != "json":
         raise ValidationError("Only JSON import is supported for sales orders.")
     if payload is None:

@@ -8,14 +8,18 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
-from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote
-from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite, DeliveryNoteStatus
+from app.delivery_note.schemas import (
+    DeliveryNoteCreate,
+    DeliveryNoteLineWrite,
+    DeliveryNoteStatus,
+)
 from app.delivery_note.services import DeliveryNoteService
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
@@ -25,6 +29,7 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
@@ -116,6 +121,7 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
 
 
 def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
+    """A note raised from an approved order dispatches the stock it names."""
     session_factory = _session_factory()
     session = session_factory()
     firm = _firm(session)
@@ -158,8 +164,12 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
         firm_id=firm.id,
         actor_id=actor_id,
     )
-    approved_order = sales_service.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
-    source_line = session.scalar(select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved_order.id))
+    approved_order = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved_order.id)
+    )
     assert source_line is not None
 
     service = DeliveryNoteService(session)
@@ -185,16 +195,24 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
     assert response.status == DeliveryNoteStatus.DRAFT
     assert response.delivery_note_number.startswith("DN")
     assert response.grand_total == Decimal("400.0000")
-    assert session.scalar(
-        select(DocumentTypeDefinition).where(
-            DocumentTypeDefinition.firm_id == firm.id,
-            DocumentTypeDefinition.code == "DELIVERY_NOTE",
+    assert (
+        session.scalar(
+            select(DocumentTypeDefinition).where(
+                DocumentTypeDefinition.firm_id == firm.id,
+                DocumentTypeDefinition.code == "DELIVERY_NOTE",
+            )
         )
-    ) is not None
-    assert session.scalar(select(DeliveryNote).where(DeliveryNote.id == row.id)) is not None
+        is not None
+    )
+    assert (
+        session.scalar(select(DeliveryNote).where(DeliveryNote.id == row.id))
+        is not None
+    )
 
     approved_note = service.approve_note(row.id, firm_scope=firm.id, actor_id=actor_id)
-    dispatched_note = service.dispatch_note(approved_note.id, firm_scope=firm.id, actor_id=actor_id)
+    dispatched_note = service.dispatch_note(
+        approved_note.id, firm_scope=firm.id, actor_id=actor_id
+    )
     assert dispatched_note.status == DeliveryNoteStatus.DISPATCHED.value
     released = session.scalar(
         select(InventoryTransaction).where(
@@ -206,7 +224,8 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
     dispatched = session.scalar(
         select(InventoryTransaction).where(
             InventoryTransaction.reference_type == "DELIVERY_NOTE",
-            InventoryTransaction.reference_number == dispatched_note.delivery_note_number,
+            InventoryTransaction.reference_number
+            == dispatched_note.delivery_note_number,
             InventoryTransaction.transaction_type == "DISPATCH",
         )
     )
@@ -216,3 +235,103 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
     assert dispatched.current_quantity_delta == Decimal("-4.0000")
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None
+
+
+def test_delivery_by_route_labels_the_route_without_crashing() -> None:
+    """A route profile has no name of its own; the territory carries it.
+
+    ``by_route_report`` read ``TerritoryRouteProfile.name``, which does not
+    exist -- the model is a one-to-one extension of a territory and holds only
+    the route-specific fields. Every firm with a route on any delivery note got
+    an AttributeError from this report, and mypy had been saying so the whole
+    time.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    territory = SalesTerritoryNode(
+        firm_id=firm.id,
+        hierarchy_level_id=uuid4(),
+        code="RT-01",
+        name="North City Route",
+        path="RT-01",
+    )
+    session.add(territory)
+    session.flush()
+    # A route profile carries no firm of its own; it belongs to its territory.
+    profile = TerritoryRouteProfile(territory_id=territory.id)
+    session.add(profile)
+    session.commit()
+
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-ROUTE",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            route_id=profile.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved_order = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved_order.id)
+    )
+    assert source_line is not None
+
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=approved_order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    assert note.route_id == profile.id
+
+    rows = service.by_route_report(firm_scope=firm.id)
+
+    assert len(rows) == 1
+    assert rows[0].dimension_id == profile.id
+    assert rows[0].dimension_name == "North City Route"

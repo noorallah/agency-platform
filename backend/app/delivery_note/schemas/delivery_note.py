@@ -9,10 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DeliveryNoteSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
 
 class DeliveryNoteStatus(StrEnum):
+    """Supported delivery note lifecycle statuses."""
+
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
     DISPATCHED = "DISPATCHED"
@@ -22,6 +26,8 @@ class DeliveryNoteStatus(StrEnum):
 
 
 class DeliveryNoteAttachmentWrite(DeliveryNoteSchema):
+    """Carry one delivery note attachment into a request."""
+
     file_name: str = Field(min_length=1, max_length=260)
     mime_type: str | None = Field(default=None, max_length=120)
     file_path: str = Field(min_length=1, max_length=1024)
@@ -31,11 +37,15 @@ class DeliveryNoteAttachmentWrite(DeliveryNoteSchema):
 
 
 class DeliveryNoteNoteWrite(DeliveryNoteSchema):
+    """Carry one delivery note note into a request."""
+
     note_type: str = Field(default="INTERNAL", min_length=1, max_length=30)
     note: str = Field(min_length=1)
 
 
 class DeliveryNoteLineWrite(DeliveryNoteSchema):
+    """Carry one delivery note line into a request."""
+
     sales_order_line_id: UUID
     line_number: int = Field(ge=1)
     description: str | None = Field(default=None, max_length=500)
@@ -69,6 +79,8 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
 
 
 class DeliveryNoteCreate(DeliveryNoteSchema):
+    """Create one delivery note."""
+
     sales_order_id: UUID
     delivery_date: date
     vehicle: str | None = Field(default=None, max_length=120)
@@ -99,14 +111,20 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
 
 
 class DeliveryNoteUpdate(DeliveryNoteCreate):
+    """Replace one delivery note."""
+
     pass
 
 
 class DeliveryNoteImportRequest(DeliveryNoteSchema):
+    """Import a validated batch of delivery notes."""
+
     records: list[DeliveryNoteCreate] = Field(min_length=1, max_length=500)
 
 
 class DeliveryNoteAttachmentResponse(DeliveryNoteSchema):
+    """Return one delivery note attachment."""
+
     id: UUID
     delivery_note_id: UUID
     file_name: str
@@ -118,6 +136,8 @@ class DeliveryNoteAttachmentResponse(DeliveryNoteSchema):
 
 
 class DeliveryNoteNoteResponse(DeliveryNoteSchema):
+    """Return one delivery note note."""
+
     id: UUID
     note_type: str
     note: str
@@ -126,6 +146,8 @@ class DeliveryNoteNoteResponse(DeliveryNoteSchema):
 
 
 class DeliveryNoteLineResponse(DeliveryNoteSchema):
+    """Return one delivery note line."""
+
     id: UUID
     delivery_note_id: UUID
     line_number: int
@@ -167,6 +189,8 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
 
 
 class DeliveryNoteResponse(DeliveryNoteSchema):
+    """Return one delivery note."""
+
     id: UUID
     firm_id: UUID
     sales_order_id: UUID
@@ -212,6 +236,8 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
 
 
 class DeliveryNoteListFilters(DeliveryNoteSchema):
+    """Narrow a delivery note list to the rows a caller asked for."""
+
     sales_order_id: UUID | None = None
     customer_id: UUID | None = None
     branch_id: UUID | None = None
@@ -223,6 +249,8 @@ class DeliveryNoteListFilters(DeliveryNoteSchema):
 
 
 class DeliveryNoteSummary(DeliveryNoteSchema):
+    """Aggregate delivery note counts for the visible firm scope."""
+
     total: int
     draft: int
     approved: int
@@ -236,6 +264,8 @@ class DeliveryNoteSummary(DeliveryNoteSchema):
 
 
 class DeliveryNoteRegisterRecord(DeliveryNoteSchema):
+    """One row of the delivery note register report."""
+
     delivery_note_id: UUID
     delivery_note_number: str
     delivery_date: date
@@ -249,6 +279,8 @@ class DeliveryNoteRegisterRecord(DeliveryNoteSchema):
 
 
 class DeliveryNoteByDimensionRecord(DeliveryNoteSchema):
+    """One row of the delivery note by dimension report."""
+
     dimension_id: UUID | None
     dimension_name: str
     note_count: int
@@ -257,6 +289,8 @@ class DeliveryNoteByDimensionRecord(DeliveryNoteSchema):
 
 
 class DeliveryNoteOrderProgressRecord(DeliveryNoteSchema):
+    """One row of the delivery note order progress report."""
+
     sales_order_id: UUID
     sales_order_number: str
     ordered_quantity: Decimal

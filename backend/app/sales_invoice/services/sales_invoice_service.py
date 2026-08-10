@@ -76,6 +76,16 @@ from app.uom.services import UomService
 
 ZERO = Decimal("0")
 
+# The two line shapes a sales invoice can be raised from. Naming the union lets
+# the helpers below say what they accept instead of taking ``object`` and
+# reaching for attributes mypy cannot see.
+SourceLine = DeliveryNoteLine | SalesOrderLine
+
+
+def _optional_uuid(value: object) -> UUID | None:
+    """Read a UUID out of an untyped line spec."""
+    return value if isinstance(value, UUID) else None
+
 
 class SalesInvoiceService(TransactionalDocumentService):
     """Coordinate customer invoice lifecycle and source-document validation."""
@@ -112,6 +122,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         sort_by: str,
         descending: bool,
     ) -> tuple[list[SalesInvoice], int]:
+        """List sales invoices for the visible firm scope."""
         columns = {
             "invoice_number": SalesInvoice.invoice_number,
             "invoice_date": SalesInvoice.invoice_date,
@@ -184,6 +195,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesInvoiceSummary:
+        """Return aggregate sales invoice values for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(SalesInvoice).where(
@@ -224,6 +236,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def create_invoice(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesInvoice:
+        """Create one sales invoice."""
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -376,6 +389,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
     ) -> SalesInvoice:
+        """Replace one sales invoice."""
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
@@ -492,6 +506,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def approve_invoice(
         self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> SalesInvoice:
+        """Approve one sales invoice."""
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
@@ -568,6 +583,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesInvoice:
+        """Cancel one sales invoice."""
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status in {
             SalesInvoiceStatus.CANCELLED.value,
@@ -625,6 +641,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesInvoice:
+        """Close one sales invoice."""
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status == SalesInvoiceStatus.CLOSED.value:
             raise ValidationError("This sales invoice is already closed.")
@@ -656,6 +673,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def get_invoice(self, invoice_id: UUID, *, firm_scope: UUID) -> SalesInvoice:
+        """Return one sales invoice."""
         row = self._session.scalar(
             select(SalesInvoice).where(
                 SalesInvoice.id == invoice_id,
@@ -668,6 +686,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def invoice_response(self, row: SalesInvoice) -> SalesInvoiceResponse:
+        """Render one sales invoice row as its API contract."""
         sources = list(
             self._session.scalars(
                 select(SalesInvoiceSource).where(
@@ -777,6 +796,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def pending_invoices(self, *, firm_scope: UUID) -> list[SalesInvoice]:
+        """List invoices still in draft, not yet approved."""
         return list(
             self._session.scalars(
                 select(SalesInvoice).where(
@@ -788,6 +808,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def overdue_invoices(self, *, firm_scope: UUID) -> list[SalesInvoice]:
+        """List live invoices past their due date.
+
+        Cancelled and closed invoices are excluded: neither is still owing.
+        """
         today = date.today()
         return list(
             self._session.scalars(
@@ -807,6 +831,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def register_report(self, *, firm_scope: UUID) -> list[SalesInvoiceRegisterRecord]:
+        """Return the register report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(SalesInvoice)
@@ -837,6 +862,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def outstanding_report(
         self, *, firm_scope: UUID
     ) -> list[SalesInvoiceCustomerOutstandingRecord]:
+        """Return the outstanding report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(Customer).where(
@@ -868,6 +894,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def reconciliation_report(
         self, *, firm_scope: UUID
     ) -> list[SalesInvoiceReconciliationRecord]:
+        """Return the reconciliation report for the visible firm scope."""
         rows = list(
             self._session.scalars(
                 select(SalesInvoiceLine)
@@ -908,6 +935,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def export_invoices_csv(
         self, *, firm_scope: UUID, search: str | None = None
     ) -> str:
+        """Export matching sales invoices as CSV."""
         rows, _ = self.list_invoices(
             firm_scope=firm_scope,
             filters=SalesInvoiceListFilters(),
@@ -947,6 +975,7 @@ class SalesInvoiceService(TransactionalDocumentService):
     def import_invoices(
         self, data: SalesInvoiceImportRequest, *, firm_id: UUID, actor_id: UUID
     ) -> list[SalesInvoice]:
+        """Import a validated batch of sales invoices atomically."""
         return [
             self.create_invoice(record, firm_id=firm_id, actor_id=actor_id)
             for record in data.records
@@ -991,9 +1020,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         self._session.query(SalesInvoiceLine).filter(
             SalesInvoiceLine.sales_invoice_id == row.id
         ).delete(synchronize_session=False)
-        totals = defaultdict(lambda: ZERO)
+        totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
+            source_line: SourceLine | None
             if source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value:
                 source_line = self._session.scalar(
                     select(DeliveryNoteLine).where(
@@ -1057,9 +1087,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 business_profile_id=business_profile_id,
                 customer_id=row.customer_id,
                 branch_id=row.branch_id,
-                warehouse_id=spec.get("warehouse_id"),
+                warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 product_id=self._product_id(source_line),
-                tax_profile_id=spec.get("tax_profile_id"),
+                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 invoice_value=self._line_net_amount(
                     quantity=invoice_quantity,
                     unit_price=Decimal(str(spec.get("unit_price", ZERO))),
@@ -1096,7 +1126,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
-                tax_profile_id=spec.get("tax_profile_id"),
+                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -1104,7 +1134,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 invoice_uom_id=spec.get("invoice_uom_id"),
                 conversion_factor=conversion_factor,
                 conversion_version=spec.get("conversion_version"),
-                warehouse_id=spec.get("warehouse_id"),
+                warehouse_id=_optional_uuid(spec.get("warehouse_id")),
                 storage_node_id=spec.get("storage_node_id"),
                 batch_number=spec.get("batch_number"),
                 expiry_date=spec.get("expiry_date"),
@@ -1244,51 +1274,51 @@ class SalesInvoiceService(TransactionalDocumentService):
             source_type = self._source_type(source["source_document_type"])
             source_id = source["source_document_id"]
             if source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value:
-                document = self._session.scalar(
+                note = self._session.scalar(
                     select(DeliveryNote).where(
                         DeliveryNote.id == source_id,
                         DeliveryNote.firm_id == firm_id,
                         DeliveryNote.is_deleted.is_(False),
                     )
                 )
-                if document is None:
+                if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
-                        "source_document_id": document.id,
-                        "source_document_number": document.delivery_note_number,
-                        "source_document_date": document.delivery_date,
-                        "customer_id": document.customer_id,
-                        "branch_id": document.branch_id,
-                        "salesman_id": document.salesman_id,
-                        "territory_id": document.territory_id,
-                        "route_id": document.route_id,
+                        "source_document_id": note.id,
+                        "source_document_number": note.delivery_note_number,
+                        "source_document_date": note.delivery_date,
+                        "customer_id": note.customer_id,
+                        "branch_id": note.branch_id,
+                        "salesman_id": note.salesman_id,
+                        "territory_id": note.territory_id,
+                        "route_id": note.route_id,
                     }
                 )
             elif source_type == SalesInvoiceSourceType.SALES_ORDER.value:
                 if not data.allow_direct_sales_order:
                     raise ValidationError("Direct sales order invoicing is disabled.")
-                document = self._session.scalar(
+                order = self._session.scalar(
                     select(SalesOrder).where(
                         SalesOrder.id == source_id,
                         SalesOrder.firm_id == firm_id,
                         SalesOrder.is_deleted.is_(False),
                     )
                 )
-                if document is None:
+                if order is None:
                     raise ResourceNotFoundError("Sales order not found.")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
-                        "source_document_id": document.id,
-                        "source_document_number": document.order_number,
-                        "source_document_date": document.order_date,
-                        "customer_id": document.customer_id,
-                        "branch_id": document.branch_id,
-                        "salesman_id": document.salesman_id,
-                        "territory_id": document.territory_id,
-                        "route_id": document.route_id,
+                        "source_document_id": order.id,
+                        "source_document_number": order.order_number,
+                        "source_document_date": order.order_date,
+                        "customer_id": order.customer_id,
+                        "branch_id": order.branch_id,
+                        "salesman_id": order.salesman_id,
+                        "territory_id": order.territory_id,
+                        "route_id": order.route_id,
                     }
                 )
             else:
@@ -1296,14 +1326,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         if not source_rows:
             raise ValidationError("At least one source document is required.")
         first = source_rows[0]
-        header["customer_id"] = first["customer_id"]
-        header["branch_id"] = first["branch_id"]
-        if first.get("salesman_id") is not None:
-            header["salesman_id"] = first["salesman_id"]
-        if first.get("territory_id") is not None:
-            header["territory_id"] = first["territory_id"]
-        if first.get("route_id") is not None:
-            header["route_id"] = first["route_id"]
+        for field in (
+            "customer_id",
+            "branch_id",
+            "salesman_id",
+            "territory_id",
+            "route_id",
+        ):
+            value = _optional_uuid(first.get(field))
+            if value is not None:
+                header[field] = value
         for source in source_rows[1:]:
             if (
                 source["customer_id"] != header["customer_id"]
@@ -1334,7 +1366,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "All source documents must belong to the same route."
                 )
         self._validate_line_sources(
-            lines, {row["source_document_id"] for row in source_rows}
+            lines,
+            {
+                source_id
+                for row in source_rows
+                if (source_id := _optional_uuid(row["source_document_id"])) is not None
+            },
         )
         return header, source_rows, lines
 
@@ -1447,40 +1484,40 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _source_type(self, value: object) -> str:
         return value.value if hasattr(value, "value") else str(value)
 
-    def _source_uom_id(self, source_line: object) -> UUID | None:
+    def _source_uom_id(self, source_line: SourceLine) -> UUID | None:
         return getattr(source_line, "sales_uom_id", None) or getattr(
             source_line, "inventory_uom_id", None
         )
 
-    def _source_line_number(self, source_line: object) -> int:
+    def _source_line_number(self, source_line: SourceLine) -> int:
         return int(source_line.line_number)
 
-    def _source_description(self, source_line: object) -> str | None:
+    def _source_description(self, source_line: SourceLine) -> str | None:
         return getattr(source_line, "description", None)
 
     def _source_document_number(
-        self, spec: dict[str, object], source_line: object
+        self, spec: dict[str, object], source_line: SourceLine
     ) -> str:
         source_number = spec.get("source_document_number")
         if source_number:
             return str(source_number)
-        source_type = self._source_type(spec["source_document_type"])
-        if source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value:
-            document = self._session.scalar(
+        if isinstance(source_line, DeliveryNoteLine):
+            note = self._session.scalar(
                 select(DeliveryNote).where(
                     DeliveryNote.id == source_line.delivery_note_id
                 )
             )
-            if document is not None:
-                return document.delivery_note_number
-        document = self._session.scalar(
+            if note is not None:
+                return note.delivery_note_number
+            return str(source_number or "")
+        order = self._session.scalar(
             select(SalesOrder).where(SalesOrder.id == source_line.sales_order_id)
         )
-        if document is not None:
-            return document.order_number
+        if order is not None:
+            return order.order_number
         return str(source_number or "")
 
-    def _product_id(self, source_line: object) -> UUID:
+    def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
 
     def _line_net_amount(
