@@ -43,6 +43,7 @@ class TokenResponse(ApiSchema):
 
 
 ThemeName = Literal["light", "dark", "blue", "green", "high_contrast"]
+ThemeModeName = Literal["system", "light", "dark"]
 DateFormat = Literal["yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy"]
 TimeFormat = Literal["12h", "24h"]
 NumberFormat = Literal["1,234.56", "1.234,56"]
@@ -54,6 +55,8 @@ class UserPreferencesUpdate(ApiSchema):
 
     preferences_version: int | None = Field(default=None, ge=1, le=1000)
     preferred_theme: ThemeName | None = None
+    preferred_theme_mode: ThemeModeName | None = None
+    preferred_high_contrast: bool | None = None
     language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}(-[A-Z]{2})?$")
     date_format: DateFormat | None = None
     time_format: TimeFormat | None = None
@@ -75,6 +78,8 @@ class UserPreferencesResponse(ApiSchema):
 
     preferences_version: int
     preferred_theme: ThemeName
+    preferred_theme_mode: ThemeModeName = "system"
+    preferred_high_contrast: bool = False
     language: str
     date_format: DateFormat
     time_format: TimeFormat

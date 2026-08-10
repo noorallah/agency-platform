@@ -61,8 +61,16 @@ class _FakePreferencesService extends DesktopPreferencesService {
   }
 
   @override
-  Future<void> saveTheme(String theme) async {
-    _current = _current.copyWith(cachedTheme: theme);
+  Future<void> saveAppearance({
+    required String palette,
+    required String themeMode,
+    required bool highContrast,
+  }) async {
+    _current = _current.copyWith(
+      cachedPalette: palette,
+      cachedThemeMode: themeMode,
+      cachedHighContrast: highContrast,
+    );
   }
 
   @override
@@ -167,7 +175,9 @@ class _TestHarness extends StatelessWidget {
         builder: (context, _) => AnimatedBuilder(
           animation: session,
           builder: (context, _) => MaterialApp(
-            theme: themes.theme,
+            theme: themes.lightTheme,
+            darkTheme: themes.darkTheme,
+            themeMode: themes.mode,
             home: LoginScreen(
               session: session,
               preferences: preferences,
@@ -385,13 +395,12 @@ void main() {
       _TestHarness(session: session, preferences: prefs, themes: themes),
     );
 
-    await tester.tap(find.byTooltip('Choose theme'));
+    await tester.tap(find.byTooltip('Appearance'));
     await tester.pumpAndSettle();
-    await tester
-        .tap(find.widgetWithText(CheckedPopupMenuItem<AppTheme>, 'Dark'));
+    await tester.tap(find.widgetWithText(MenuItemButton, 'Dark'));
     await tester.pumpAndSettle();
 
-    expect(themes.current, AppTheme.dark);
+    expect(themes.mode, ThemeMode.dark);
 
     await tester.tap(find.byTooltip('Application Settings'));
     await tester.pumpAndSettle();
