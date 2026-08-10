@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
@@ -18,6 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
@@ -206,4 +208,30 @@ class CreditControlSettings(BaseEntity):
     #: WARN, so lowering it cannot surprise a firm that has not opted in.
     block_at_percent: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False, default=Decimal("100"), server_default="100"
+    )
+
+
+class CustomerAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a customer."""
+
+    __tablename__ = "customer_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "attribute_definition_id",
+            name="UQ_customer_attribute_values_owner_attribute",
+        ),
+        Index("IX_customer_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_customer_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_customer_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.CUSTOMER
+    OWNER_COLUMN: ClassVar[str] = "customer_id"
+
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )

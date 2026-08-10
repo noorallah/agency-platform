@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
@@ -19,6 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
@@ -509,4 +511,30 @@ class TaxRuleExecutionLog(BaseEntity):
     matched_rule: Mapped[TaxRule | None] = relationship(
         foreign_keys=[matched_rule_id],
         lazy="selectin",
+    )
+
+
+class TaxProfileAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a tax profile."""
+
+    __tablename__ = "tax_profile_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "tax_profile_id",
+            "attribute_definition_id",
+            name="UQ_tax_profile_attribute_values_owner_attribute",
+        ),
+        Index("IX_tax_profile_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_tax_profile_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_tax_profile_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.TAX_PROFILE
+    OWNER_COLUMN: ClassVar[str] = "tax_profile_id"
+
+    tax_profile_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("tax_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )

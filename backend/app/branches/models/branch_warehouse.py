@@ -1,6 +1,7 @@
 """Firm-scoped branch, warehouse, and storage structure persistence models."""
 
 from decimal import Decimal
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import (
@@ -17,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
@@ -304,3 +306,55 @@ class WarehouseStorageNode(BaseEntity):
     )
 
     warehouse: Mapped[Warehouse] = relationship(back_populates="storage_nodes")
+
+
+class BranchAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a branch."""
+
+    __tablename__ = "branch_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "branch_id",
+            "attribute_definition_id",
+            name="UQ_branch_attribute_values_owner_attribute",
+        ),
+        Index("IX_branch_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_branch_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_branch_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.BRANCH
+    OWNER_COLUMN: ClassVar[str] = "branch_id"
+
+    branch_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("branches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+
+class WarehouseAttributeValue(AttributeValueBase):
+    """Store one configurable attribute value for a warehouse."""
+
+    __tablename__ = "warehouse_attribute_values"
+    __table_args__ = (
+        UniqueConstraint(
+            "warehouse_id",
+            "attribute_definition_id",
+            name="UQ_warehouse_attribute_values_owner_attribute",
+        ),
+        Index("IX_warehouse_attribute_values_firm_text", "firm_id", "value_text"),
+        Index("IX_warehouse_attribute_values_firm_number", "firm_id", "value_number"),
+        Index("IX_warehouse_attribute_values_firm_date", "firm_id", "value_date"),
+    )
+
+    ENTITY_TYPE: ClassVar[AttributeEntityType] = AttributeEntityType.WAREHOUSE
+    OWNER_COLUMN: ClassVar[str] = "warehouse_id"
+
+    warehouse_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("warehouses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )

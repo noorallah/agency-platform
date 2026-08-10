@@ -89,6 +89,7 @@ dedicated firm schema/database). Only `firms` is a platform table, which is why
 | --- | ---: | --- |
 | `firm_business_profiles` | 2 | Assigns one profile to one firm. Unique on `firm_id`. |
 | `product_attribute_values` | 0 | Custom field values for products. One table per module, all extending `AttributeValueBase`. |
+| `customer_attribute_values`, `vendor_attribute_values`, `branch_attribute_values`, `warehouse_attribute_values`, `tax_profile_attribute_values`, `uom_attribute_values` | 0 | The same, for the other supported objects (`20260810_0063`). Storage and validation are live; **the owning modules do not call `AttributeService` yet**, so values are not reachable through those modules' APIs. |
 
 ## How a firm resolves its capabilities
 
@@ -207,7 +208,7 @@ Ordered by what blocks the most.
 | 1 | **Desktop attribute inputs are untyped** | The product form *does* render an Attributes tab with a field per applicable attribute and required-field validation. But every field is a plain text box regardless of `data_type`, and the payload always sends a string. Harmless today because all 13 seeded definitions are `TEXT`; the moment a DATE, NUMBER or BOOLEAN definition is created the user gets a free-text box and must type exact ISO format or a lowercase boolean, or the backend rejects it. Needs type-aware inputs: date picker, checkbox, numeric field. |
 | 2 | **`require_module` is defined but applied nowhere** | Module gating exists as a mechanism only. A firm whose profile disables a module can still call its endpoints. |
 | 3 | **18 of 21 features have no enforcement** | Only `BARCODE`, `QR_CODE` and `TERRITORY` are read outside `app/business`. Each remaining feature needs a product decision about what it actually does before it can be wired. |
-| 4 | **Only products have custom fields** | `CUSTOMER`, `VENDOR`, `BRANCH` and `WAREHOUSE` are declared in `AttributeEntityType` but have no value table. See the coverage table below. |
+| 4 | **Only products *read and write* custom fields** | Every declared object now has a value table (`20260810_0063`), and `AttributeService` stores and returns values for all of them. What is missing is the last mile: only `ProductService` calls `replace_values`/`values_for`, so the other six modules' create, update and read paths ignore attributes entirely. Each needs the same ~10 lines products already has, plus a schema field. |
 | 5 | **`vendors.business_attributes` is an untyped JSON blob** | Unvalidated, unlinked to the catalogue, looks like this feature but is not. Should migrate onto the framework before anyone stores data in it. |
 | 6 | **UOM defaults are not applied** | `business_profile_uom_defaults` is readable and editable but nothing consumes it when a product is created. |
 | 7 | **ELEC01 and WHOLE01 have no profile** | Both fall back to GENERIC, so neither gets the electronics or wholesale capabilities its business implies. A data gap, not a code one. |
@@ -273,10 +274,19 @@ raise questions the header case does not: are line attributes copied when a
 purchase order becomes a goods receipt, and then an invoice? Do they survive an
 amendment? Treat it as its own design round.
 
-`AttributeEntityType` currently declares `PRODUCT`, `CUSTOMER`, `VENDOR`,
-`BRANCH`, `WAREHOUSE`. Only `PRODUCT` has a value table; the others are
-declared so the intent is visible, and adding one is the ~20-line change
-described above.
+`AttributeEntityType` declares `PRODUCT`, `CUSTOMER`, `VENDOR`, `BRANCH`,
+`WAREHOUSE`, `TAX_PROFILE` and `UOM`. Every one now has a value table.
+
+**`UOM` is the exception to the pattern and worth reading before copying it.**
+Every other owning table is firm-owned, so the owning record already belongs
+to exactly one firm and the owner id alone identifies one firm's data. `uoms`
+carries no `firm_id` and a single row serves every firm sharing a store, so
+the firm is part of that table's identity: uniqueness is (firm, unit,
+attribute), and reads must pass `firm_id` to `values_for` / `values_for_many`.
+Keyed on the unit alone, the first firm to save would have claimed the
+attribute and locked every other firm in the store out of setting it, and one
+firm saving a unit's fields would have cleared another firm's values. Apply
+the same shape to any future catalogue table that has no `firm_id`.
 
 ## Design decisions worth knowing
 
