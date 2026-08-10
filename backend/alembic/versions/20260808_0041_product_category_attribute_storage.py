@@ -23,9 +23,18 @@ def upgrade() -> None:
     if "category_attribute_values" not in columns:
         op.add_column(
             "products",
-            sa.Column("category_attribute_values", sa.JSON(), nullable=False, server_default="[]"),
+            sa.Column(
+                "category_attribute_values",
+                sa.JSON(),
+                nullable=False,
+                server_default="[]",
+            ),
         )
-        op.execute(sa.text("UPDATE products SET category_attribute_values = '[]'::json WHERE category_attribute_values IS NULL"))
+        op.execute(
+            sa.text(
+                "UPDATE products SET category_attribute_values = '[]'::json WHERE category_attribute_values IS NULL"
+            )
+        )
 
 
 def downgrade() -> None:

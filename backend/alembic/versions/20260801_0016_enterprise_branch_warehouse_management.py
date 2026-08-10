@@ -100,8 +100,12 @@ def upgrade() -> None:
         sa.Column("pan", sa.String(length=32), nullable=True),
         sa.Column("license_number", sa.String(length=64), nullable=True),
         sa.Column("working_hours", sa.JSON(), nullable=False, server_default="{}"),
-        sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="ACTIVE"),
+        sa.Column(
+            "is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
+        sa.Column(
+            "status", sa.String(length=20), nullable=False, server_default="ACTIVE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
         sa.ForeignKeyConstraint(["business_profile_id"], ["business_profiles.id"]),
         sa.ForeignKeyConstraint(["branch_type_id"], ["branch_types.id"]),
@@ -159,14 +163,21 @@ def upgrade() -> None:
         sa.Column("address_line2", sa.String(length=250), nullable=True),
         sa.Column("capacity", sa.Numeric(precision=18, scale=3), nullable=True),
         sa.Column("capacity_unit", sa.String(length=20), nullable=True),
-        sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         sa.Column(
             "temperature_controlled",
             sa.Boolean(),
             nullable=False,
             server_default=sa.text("false"),
         ),
-        sa.Column("cold_storage", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "cold_storage",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
         sa.Column(
             "hazardous_storage",
             sa.Boolean(),
@@ -209,7 +220,9 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("false"),
         ),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="ACTIVE"),
+        sa.Column(
+            "status", sa.String(length=20), nullable=False, server_default="ACTIVE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
         sa.ForeignKeyConstraint(["branch_id"], ["branches.id"]),
         sa.ForeignKeyConstraint(["warehouse_type_id"], ["warehouse_types.id"]),
@@ -225,7 +238,9 @@ def upgrade() -> None:
     )
     op.create_index("IX_warehouses_firm_id", "warehouses", ["firm_id"])
     op.create_index("IX_warehouses_firm_name", "warehouses", ["firm_id", "name"])
-    op.create_index("IX_warehouses_branch_status", "warehouses", ["branch_id", "status"])
+    op.create_index(
+        "IX_warehouses_branch_status", "warehouses", ["branch_id", "status"]
+    )
 
     op.create_table(
         "warehouse_storage_nodes",
@@ -237,8 +252,12 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=120), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("path", sa.String(length=1000), nullable=False),
-        sa.Column("sort_order", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column(
+            "sort_order", sa.Integer(), nullable=False, server_default=sa.text("0")
+        ),
+        sa.Column(
+            "is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")
+        ),
         sa.ForeignKeyConstraint(["warehouse_id"], ["warehouses.id"]),
         sa.ForeignKeyConstraint(["parent_id"], ["warehouse_storage_nodes.id"]),
         sa.UniqueConstraint(

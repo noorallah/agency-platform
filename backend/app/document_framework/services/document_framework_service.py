@@ -15,6 +15,7 @@ from app.core.utils.dates import utc_now
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentNumberingRule,
+    DocumentNumberSequence,
     DocumentStateDefinition,
     DocumentTypeDefinition,
 )
@@ -509,9 +510,7 @@ class DocumentFrameworkService:
             company_code=company_code,
             document_date=document_date or utc_now().date(),
         )
-        if rule.auto_reset and rule.last_scope_signature != scope_signature:
-            rule.next_sequence = 1
-            rule.last_scope_signature = scope_signature
+        counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
         number = self._build_document_number(
             rule,
             financial_year_label=financial_year_label,
@@ -522,11 +521,53 @@ class DocumentFrameworkService:
         )
         if manual_number is not None and rule.manual_allowed:
             return number
-        rule.next_sequence = rule.next_sequence + 1
+        counter.next_sequence += 1
+        # Kept in step so anything reading the rule still sees a sensible
+        # number, and so a rule that has never been used starts where it says.
+        rule.next_sequence = counter.next_sequence
         rule.last_scope_signature = scope_signature
         if actor_id is not None:
             rule.updated_by = actor_id
+            counter.updated_by = actor_id
         return number
+
+    def _sequence_for(
+        self,
+        rule: DocumentNumberingRule,
+        scope_signature: str,
+        *,
+        actor_id: UUID | None,
+    ) -> DocumentNumberSequence:
+        """Return this scope's counter, creating it the first time it is used.
+
+        A scope not seen before starts at the rule's configured
+        ``next_sequence`` when the rule has never issued anything, and at 1
+        otherwise -- a new financial year begins at one, which is the point of
+        ``auto_reset``.
+        """
+        counter = self._session.scalar(
+            select(DocumentNumberSequence)
+            .where(
+                DocumentNumberSequence.numbering_rule_id == rule.id,
+                DocumentNumberSequence.scope_signature == scope_signature,
+                DocumentNumberSequence.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        if counter is not None:
+            return counter
+        start = 1 if rule.last_scope_signature else rule.next_sequence
+        counter = DocumentNumberSequence(
+            firm_id=rule.firm_id,
+            numbering_rule_id=rule.id,
+            scope_signature=scope_signature,
+            next_sequence=max(start, 1),
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(counter)
+        self._session.flush()
+        return counter
 
     def record_event(
         self, firm_id: UUID, data: DocumentLifecycleEventCreate, actor_id: UUID
@@ -648,9 +689,17 @@ class DocumentFrameworkService:
             company_code=company_code,
             document_date=document_date,
         )
-        sequence = rule.next_sequence
-        if rule.auto_reset and rule.last_scope_signature != scope_signature:
-            sequence = 1
+        counter = self._session.scalar(
+            select(DocumentNumberSequence).where(
+                DocumentNumberSequence.numbering_rule_id == rule.id,
+                DocumentNumberSequence.scope_signature == scope_signature,
+                DocumentNumberSequence.is_deleted.is_(False),
+            )
+        )
+        if counter is not None:
+            sequence = counter.next_sequence
+        else:
+            sequence = 1 if rule.last_scope_signature else rule.next_sequence
         if rule.format_pattern:
             return rule.format_pattern.format(
                 prefix=rule.prefix or "",

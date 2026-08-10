@@ -27,7 +27,9 @@ def _base_columns() -> list[sa.Column[object]]:
             nullable=False,
             server_default=sa.func.now(),
         ),
-        sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        sa.Column(
+            "is_deleted", sa.Boolean(), nullable=False, server_default=sa.text("false")
+        ),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_by", sa.Uuid(), nullable=True),
         sa.Column("updated_by", sa.Uuid(), nullable=True),
@@ -55,17 +57,50 @@ def upgrade() -> None:
         sa.Column("due_date", sa.Date(), nullable=True),
         sa.Column("reference_number", sa.String(length=120), nullable=True),
         sa.Column("remarks", sa.Text(), nullable=True),
-        sa.Column("allow_direct_purchase_order", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("allow_over_invoice", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("over_invoice_percent", sa.Numeric(9, 4), nullable=False, server_default="0"),
-        sa.Column("status", sa.String(length=30), nullable=False, server_default="DRAFT"),
-        sa.Column("total_source_quantity", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("total_already_invoiced_quantity", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("total_current_invoice_quantity", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("line_discount_total", sa.Numeric(18, 4), nullable=False, server_default="0"),
+        sa.Column(
+            "allow_direct_purchase_order",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        sa.Column(
+            "allow_over_invoice",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("false"),
+        ),
+        sa.Column(
+            "over_invoice_percent", sa.Numeric(9, 4), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "status", sa.String(length=30), nullable=False, server_default="DRAFT"
+        ),
+        sa.Column(
+            "total_source_quantity",
+            sa.Numeric(18, 4),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "total_already_invoiced_quantity",
+            sa.Numeric(18, 4),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "total_current_invoice_quantity",
+            sa.Numeric(18, 4),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "line_discount_total", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
         sa.Column("subtotal", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("tax_total", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("additional_charges", sa.Numeric(18, 4), nullable=False, server_default="0"),
+        sa.Column(
+            "additional_charges", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
         sa.Column("round_off", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("grand_total", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
@@ -75,15 +110,37 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
         sa.ForeignKeyConstraint(["vendor_id"], ["vendors.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["branch_id"], ["branches.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["business_profile_id"], ["business_profiles.id"], ondelete="RESTRICT"),
-        sa.UniqueConstraint("firm_id", "invoice_number", name="UQ_purchase_invoices_firm_invoice_number"),
+        sa.ForeignKeyConstraint(
+            ["business_profile_id"], ["business_profiles.id"], ondelete="RESTRICT"
+        ),
+        sa.UniqueConstraint(
+            "firm_id", "invoice_number", name="UQ_purchase_invoices_firm_invoice_number"
+        ),
     )
     op.create_index("IX_purchase_invoices_firm_id", "purchase_invoices", ["firm_id"])
-    op.create_index("IX_purchase_invoices_firm_status", "purchase_invoices", ["firm_id", "status"])
-    op.create_index("IX_purchase_invoices_firm_date", "purchase_invoices", ["firm_id", "invoice_date"])
-    op.create_index("IX_purchase_invoices_firm_vendor", "purchase_invoices", ["firm_id", "vendor_id"])
-    op.create_index("IX_purchase_invoices_firm_branch", "purchase_invoices", ["firm_id", "branch_id"])
-    op.create_index("IX_purchase_invoices_firm_due_date", "purchase_invoices", ["firm_id", "due_date"])
+    op.create_index(
+        "IX_purchase_invoices_firm_status", "purchase_invoices", ["firm_id", "status"]
+    )
+    op.create_index(
+        "IX_purchase_invoices_firm_date",
+        "purchase_invoices",
+        ["firm_id", "invoice_date"],
+    )
+    op.create_index(
+        "IX_purchase_invoices_firm_vendor",
+        "purchase_invoices",
+        ["firm_id", "vendor_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoices_firm_branch",
+        "purchase_invoices",
+        ["firm_id", "branch_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoices_firm_due_date",
+        "purchase_invoices",
+        ["firm_id", "due_date"],
+    )
 
     op.create_table(
         "purchase_invoice_sources",
@@ -96,7 +153,9 @@ def upgrade() -> None:
         sa.Column("source_document_date", sa.Date(), nullable=False),
         sa.Column("vendor_id", sa.Uuid(), nullable=False),
         sa.Column("branch_id", sa.Uuid(), nullable=False),
-        sa.ForeignKeyConstraint(["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
         sa.ForeignKeyConstraint(["vendor_id"], ["vendors.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["branch_id"], ["branches.id"], ondelete="RESTRICT"),
@@ -107,8 +166,16 @@ def upgrade() -> None:
             name="UQ_purchase_invoice_sources_document",
         ),
     )
-    op.create_index("IX_purchase_invoice_sources_purchase_invoice_id", "purchase_invoice_sources", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_sources_invoice", "purchase_invoice_sources", ["purchase_invoice_id"])
+    op.create_index(
+        "IX_purchase_invoice_sources_purchase_invoice_id",
+        "purchase_invoice_sources",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_sources_invoice",
+        "purchase_invoice_sources",
+        ["purchase_invoice_id"],
+    )
 
     op.create_table(
         "purchase_invoice_lines",
@@ -124,20 +191,40 @@ def upgrade() -> None:
         sa.Column("product_id", sa.Uuid(), nullable=False),
         sa.Column("description", sa.String(length=500), nullable=True),
         sa.Column("received_quantity", sa.Numeric(18, 4), nullable=False),
-        sa.Column("already_invoiced_quantity", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("current_invoice_quantity", sa.Numeric(18, 4), nullable=False, server_default="0"),
+        sa.Column(
+            "already_invoiced_quantity",
+            sa.Numeric(18, 4),
+            nullable=False,
+            server_default="0",
+        ),
+        sa.Column(
+            "current_invoice_quantity",
+            sa.Numeric(18, 4),
+            nullable=False,
+            server_default="0",
+        ),
         sa.Column("unit_price", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("discount_percent", sa.Numeric(9, 4), nullable=False, server_default="0"),
-        sa.Column("discount_amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("charges_amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
-        sa.Column("gross_amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
+        sa.Column(
+            "discount_percent", sa.Numeric(9, 4), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "discount_amount", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "charges_amount", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
+        sa.Column(
+            "gross_amount", sa.Numeric(18, 4), nullable=False, server_default="0"
+        ),
         sa.Column("tax_profile_id", sa.Uuid(), nullable=True),
         sa.Column("tax_amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("net_amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("packaging_type_id", sa.Uuid(), nullable=True),
         sa.Column("purchase_uom_id", sa.Uuid(), nullable=True),
         sa.Column("invoice_uom_id", sa.Uuid(), nullable=True),
-        sa.Column("conversion_factor", sa.Numeric(24, 10), nullable=False, server_default="1"),
+        sa.Column(
+            "conversion_factor", sa.Numeric(24, 10), nullable=False, server_default="1"
+        ),
         sa.Column("conversion_version", sa.Integer(), nullable=True),
         sa.Column("warehouse_id", sa.Uuid(), nullable=True),
         sa.Column("storage_node_id", sa.Uuid(), nullable=True),
@@ -146,11 +233,17 @@ def upgrade() -> None:
         sa.Column("manufacturing_date", sa.Date(), nullable=True),
         sa.Column("accounting_event_reference", sa.String(length=120), nullable=True),
         sa.Column("remarks", sa.Text(), nullable=True),
-        sa.ForeignKeyConstraint(["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
         sa.ForeignKeyConstraint(["product_id"], ["products.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["tax_profile_id"], ["tax_profiles.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["packaging_type_id"], ["packaging_types.id"], ondelete="RESTRICT"),
+        sa.ForeignKeyConstraint(
+            ["tax_profile_id"], ["tax_profiles.id"], ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["packaging_type_id"], ["packaging_types.id"], ondelete="RESTRICT"
+        ),
         sa.ForeignKeyConstraint(
             ["purchase_uom_id"],
             ["uoms.id"],
@@ -163,14 +256,38 @@ def upgrade() -> None:
             name="FK_purchase_invoice_lines_invoice_uom",
             ondelete="RESTRICT",
         ),
-        sa.ForeignKeyConstraint(["warehouse_id"], ["warehouses.id"], ondelete="RESTRICT"),
-        sa.ForeignKeyConstraint(["storage_node_id"], ["warehouse_storage_nodes.id"], ondelete="RESTRICT"),
-        sa.UniqueConstraint("purchase_invoice_id", "line_number", name="UQ_purchase_invoice_lines_invoice_line"),
+        sa.ForeignKeyConstraint(
+            ["warehouse_id"], ["warehouses.id"], ondelete="RESTRICT"
+        ),
+        sa.ForeignKeyConstraint(
+            ["storage_node_id"], ["warehouse_storage_nodes.id"], ondelete="RESTRICT"
+        ),
+        sa.UniqueConstraint(
+            "purchase_invoice_id",
+            "line_number",
+            name="UQ_purchase_invoice_lines_invoice_line",
+        ),
     )
-    op.create_index("IX_purchase_invoice_lines_purchase_invoice_id", "purchase_invoice_lines", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_lines_invoice", "purchase_invoice_lines", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_lines_firm_source", "purchase_invoice_lines", ["firm_id", "source_document_line_id"])
-    op.create_index("IX_purchase_invoice_lines_firm_product", "purchase_invoice_lines", ["firm_id", "product_id"])
+    op.create_index(
+        "IX_purchase_invoice_lines_purchase_invoice_id",
+        "purchase_invoice_lines",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_lines_invoice",
+        "purchase_invoice_lines",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_lines_firm_source",
+        "purchase_invoice_lines",
+        ["firm_id", "source_document_line_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_lines_firm_product",
+        "purchase_invoice_lines",
+        ["firm_id", "product_id"],
+    )
 
     op.create_table(
         "purchase_invoice_attachments",
@@ -180,25 +297,52 @@ def upgrade() -> None:
         sa.Column("file_name", sa.String(length=260), nullable=False),
         sa.Column("mime_type", sa.String(length=120), nullable=True),
         sa.Column("file_path", sa.String(length=1024), nullable=False),
-        sa.Column("attachment_kind", sa.String(length=40), nullable=False, server_default="PURCHASE_INVOICE_FILE"),
-        sa.ForeignKeyConstraint(["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"),
+        sa.Column(
+            "attachment_kind",
+            sa.String(length=40),
+            nullable=False,
+            server_default="PURCHASE_INVOICE_FILE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
     )
-    op.create_index("IX_purchase_invoice_attachments_purchase_invoice_id", "purchase_invoice_attachments", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_attachments_invoice", "purchase_invoice_attachments", ["purchase_invoice_id"])
+    op.create_index(
+        "IX_purchase_invoice_attachments_purchase_invoice_id",
+        "purchase_invoice_attachments",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_attachments_invoice",
+        "purchase_invoice_attachments",
+        ["purchase_invoice_id"],
+    )
 
     op.create_table(
         "purchase_invoice_notes",
         *_base_columns(),
         sa.Column("purchase_invoice_id", sa.Uuid(), nullable=False),
         sa.Column("firm_id", sa.Uuid(), nullable=False),
-        sa.Column("note_type", sa.String(length=30), nullable=False, server_default="INTERNAL"),
+        sa.Column(
+            "note_type", sa.String(length=30), nullable=False, server_default="INTERNAL"
+        ),
         sa.Column("note", sa.Text(), nullable=False),
-        sa.ForeignKeyConstraint(["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
     )
-    op.create_index("IX_purchase_invoice_notes_purchase_invoice_id", "purchase_invoice_notes", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_notes_invoice", "purchase_invoice_notes", ["purchase_invoice_id"])
+    op.create_index(
+        "IX_purchase_invoice_notes_purchase_invoice_id",
+        "purchase_invoice_notes",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_notes_invoice",
+        "purchase_invoice_notes",
+        ["purchase_invoice_id"],
+    )
 
     op.create_table(
         "purchase_invoice_accounting_events",
@@ -211,36 +355,84 @@ def upgrade() -> None:
         sa.Column("amount", sa.Numeric(18, 4), nullable=False, server_default="0"),
         sa.Column("narration", sa.Text(), nullable=True),
         sa.Column("source_line_id", sa.Uuid(), nullable=True),
-        sa.ForeignKeyConstraint(["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["purchase_invoice_id"], ["purchase_invoices.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["firm_id"], ["firms.id"]),
     )
-    op.create_index("IX_purchase_invoice_accounting_events_purchase_invoice_id", "purchase_invoice_accounting_events", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_accounting_events_invoice", "purchase_invoice_accounting_events", ["purchase_invoice_id"])
-    op.create_index("IX_purchase_invoice_accounting_events_type", "purchase_invoice_accounting_events", ["firm_id", "event_type"])
+    op.create_index(
+        "IX_purchase_invoice_accounting_events_purchase_invoice_id",
+        "purchase_invoice_accounting_events",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_accounting_events_invoice",
+        "purchase_invoice_accounting_events",
+        ["purchase_invoice_id"],
+    )
+    op.create_index(
+        "IX_purchase_invoice_accounting_events_type",
+        "purchase_invoice_accounting_events",
+        ["firm_id", "event_type"],
+    )
 
 
 def downgrade() -> None:
-    op.drop_index("IX_purchase_invoice_accounting_events_type", table_name="purchase_invoice_accounting_events")
-    op.drop_index("IX_purchase_invoice_accounting_events_invoice", table_name="purchase_invoice_accounting_events")
-    op.drop_index("IX_purchase_invoice_accounting_events_purchase_invoice_id", table_name="purchase_invoice_accounting_events")
+    op.drop_index(
+        "IX_purchase_invoice_accounting_events_type",
+        table_name="purchase_invoice_accounting_events",
+    )
+    op.drop_index(
+        "IX_purchase_invoice_accounting_events_invoice",
+        table_name="purchase_invoice_accounting_events",
+    )
+    op.drop_index(
+        "IX_purchase_invoice_accounting_events_purchase_invoice_id",
+        table_name="purchase_invoice_accounting_events",
+    )
     op.drop_table("purchase_invoice_accounting_events")
 
-    op.drop_index("IX_purchase_invoice_notes_invoice", table_name="purchase_invoice_notes")
-    op.drop_index("IX_purchase_invoice_notes_purchase_invoice_id", table_name="purchase_invoice_notes")
+    op.drop_index(
+        "IX_purchase_invoice_notes_invoice", table_name="purchase_invoice_notes"
+    )
+    op.drop_index(
+        "IX_purchase_invoice_notes_purchase_invoice_id",
+        table_name="purchase_invoice_notes",
+    )
     op.drop_table("purchase_invoice_notes")
 
-    op.drop_index("IX_purchase_invoice_attachments_invoice", table_name="purchase_invoice_attachments")
-    op.drop_index("IX_purchase_invoice_attachments_purchase_invoice_id", table_name="purchase_invoice_attachments")
+    op.drop_index(
+        "IX_purchase_invoice_attachments_invoice",
+        table_name="purchase_invoice_attachments",
+    )
+    op.drop_index(
+        "IX_purchase_invoice_attachments_purchase_invoice_id",
+        table_name="purchase_invoice_attachments",
+    )
     op.drop_table("purchase_invoice_attachments")
 
-    op.drop_index("IX_purchase_invoice_lines_firm_product", table_name="purchase_invoice_lines")
-    op.drop_index("IX_purchase_invoice_lines_firm_source", table_name="purchase_invoice_lines")
-    op.drop_index("IX_purchase_invoice_lines_invoice", table_name="purchase_invoice_lines")
-    op.drop_index("IX_purchase_invoice_lines_purchase_invoice_id", table_name="purchase_invoice_lines")
+    op.drop_index(
+        "IX_purchase_invoice_lines_firm_product", table_name="purchase_invoice_lines"
+    )
+    op.drop_index(
+        "IX_purchase_invoice_lines_firm_source", table_name="purchase_invoice_lines"
+    )
+    op.drop_index(
+        "IX_purchase_invoice_lines_invoice", table_name="purchase_invoice_lines"
+    )
+    op.drop_index(
+        "IX_purchase_invoice_lines_purchase_invoice_id",
+        table_name="purchase_invoice_lines",
+    )
     op.drop_table("purchase_invoice_lines")
 
-    op.drop_index("IX_purchase_invoice_sources_invoice", table_name="purchase_invoice_sources")
-    op.drop_index("IX_purchase_invoice_sources_purchase_invoice_id", table_name="purchase_invoice_sources")
+    op.drop_index(
+        "IX_purchase_invoice_sources_invoice", table_name="purchase_invoice_sources"
+    )
+    op.drop_index(
+        "IX_purchase_invoice_sources_purchase_invoice_id",
+        table_name="purchase_invoice_sources",
+    )
     op.drop_table("purchase_invoice_sources")
 
     op.drop_index("IX_purchase_invoices_firm_due_date", table_name="purchase_invoices")

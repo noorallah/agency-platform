@@ -239,3 +239,43 @@ class DocumentTotal(BaseEntity):
     round_off: Mapped[str | None] = mapped_column(String(40))
     grand_total: Mapped[str | None] = mapped_column(String(40))
     remarks: Mapped[str | None] = mapped_column(Text)
+
+
+class DocumentNumberSequence(BaseEntity):
+    """Track the next number for one numbering rule in one scope.
+
+    A numbering rule used to carry a single ``next_sequence`` plus the last
+    scope it had seen, and reset the counter whenever the scope changed. That
+    works only if documents are created in scope order and never revisited:
+    enter one document dated in the previous financial year and the counter
+    resets, and the next current-year document collides with a number already
+    issued. Back-dating a missed invoice is ordinary accounting, so this keeps
+    a counter per scope instead of one counter and a memory.
+
+    The scope signature is whatever the rule includes in the number -- the
+    financial year, branch and company code -- so two scopes number
+    independently and neither disturbs the other.
+    """
+
+    __tablename__ = "document_number_sequences"
+    __table_args__ = (
+        UniqueConstraint(
+            "numbering_rule_id",
+            "scope_signature",
+            name="UQ_document_number_sequences_rule_scope",
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    numbering_rule_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("document_numbering_rules.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    scope_signature: Mapped[str] = mapped_column(String(200), nullable=False)
+    next_sequence: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )

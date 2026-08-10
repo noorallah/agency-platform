@@ -119,8 +119,13 @@ def downgrade() -> None:
     if not inspector.has_table("customers"):
         return
     if inspector.has_table("customer_receivable_transactions"):
-        op.drop_index("IX_customer_ar_tx_firm_type", table_name="customer_receivable_transactions")
-        op.drop_index("IX_customer_ar_tx_customer_date", table_name="customer_receivable_transactions")
+        op.drop_index(
+            "IX_customer_ar_tx_firm_type", table_name="customer_receivable_transactions"
+        )
+        op.drop_index(
+            "IX_customer_ar_tx_customer_date",
+            table_name="customer_receivable_transactions",
+        )
         op.drop_index(
             "IX_customer_receivable_transactions_customer_id",
             table_name="customer_receivable_transactions",

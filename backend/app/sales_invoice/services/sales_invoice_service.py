@@ -6,7 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -86,6 +86,19 @@ SourceLine = DeliveryNoteLine | SalesOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _receivable_amount(value: Decimal) -> Decimal:
+    """Round an invoice total to the scale the receivable ledger stores.
+
+    Documents carry four decimals; ``customer_receivable_transactions`` and the
+    customer balances built from it are ``Numeric(18, 2)``, and the schema
+    enforces that. Passing the document's own scale straight through raised a
+    validation error inside ``approve_invoice`` for any invoice whose total ran
+    to a fraction of a paisa -- 45 at 158.75 plus 18% tax is 8429.625 -- so the
+    approval failed with a 500 rather than posting.
+    """
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class SalesInvoiceService(TransactionalDocumentService):
@@ -539,7 +552,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             CustomerReceivableTransactionCreate(
                 transaction_type=CustomerReceivableTransactionType.INVOICE,
                 transaction_date=row.invoice_date,
-                amount=self._q(row.grand_total),
+                amount=_receivable_amount(row.grand_total),
                 reference_type="SALES_INVOICE",
                 reference_id=row.id,
                 reference_number=row.invoice_number,
@@ -613,7 +626,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
                     transaction_date=utc_now().date(),
-                    amount=self._q(row.grand_total),
+                    amount=_receivable_amount(row.grand_total),
                     reference_type="SALES_INVOICE",
                     reference_id=row.id,
                     reference_number=row.invoice_number,

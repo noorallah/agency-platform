@@ -109,7 +109,14 @@ class AccountingPeriod(BaseEntity):
             "period_number",
             name="UQ_accounting_periods_year_number",
         ),
-        UniqueConstraint("firm_id", "code", name="UQ_accounting_periods_firm_code"),
+        # Scoped to the year, like the number above. It was scoped to the firm,
+        # which contradicted it: a period's code identifies it *within* its
+        # year, and the seeder writes P01..P12 for every year, so a firm could
+        # never hold a second financial year at all -- no year-end, no
+        # comparatives, no prior-year reporting.
+        UniqueConstraint(
+            "financial_year_id", "code", name="UQ_accounting_periods_year_code"
+        ),
         Index("IX_accounting_periods_firm_status", "firm_id", "status"),
     )
 

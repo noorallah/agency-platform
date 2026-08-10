@@ -1,6 +1,22 @@
-"""Seed four demo firms across shared, schema, and database tenancy modes."""
+"""Seed four demo firms across shared, schema, and database tenancy modes.
+
+Masters first -- firms, users, branches, vendors, customers, products and
+opening stock -- and then two financial years of trading on top, so the
+demo data has a history rather than a single day's activity. History is
+generated through the real services, so what it produces is what the
+application itself would have produced.
+
+    uv run python scripts/seed_multi_firm_demo.py
+    uv run python scripts/seed_multi_firm_demo.py --history-years 3
+    uv run python scripts/seed_multi_firm_demo.py --no-history
+
+Re-running replaces each firm's trading history and leaves its masters
+alone, so the demo can be refreshed without rebuilding everything.
+"""
 
 from __future__ import annotations
+
+import argparse
 
 from dataclasses import dataclass
 from datetime import date
@@ -84,6 +100,7 @@ from app.vendors.schemas import (
 )
 from app.vendors.schemas.vendor import AddressType as VendorAddressType
 from app.vendors.services.vendor_service import VendorService
+from generate_transaction_history import generate_history
 from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
 
 DEMO_PASSWORD = "DemoAdmin@12345"
@@ -417,6 +434,20 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--history-years",
+        type=int,
+        default=2,
+        help="Prior financial years of trading to generate, plus the current one.",
+    )
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Seed masters only, the way this script behaved before.",
+    )
+    args = parser.parse_args()
+
     # Keep batch/lot/serial mappers loaded so inventory transaction FKs resolve.
     assert batch_serial_models is not None
     settings = get_settings()
@@ -488,6 +519,15 @@ def main() -> int:
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
                 _seed_products(tenant_session, firm, blueprint, actor_id)
                 _seed_inventory_opening_stock(tenant_session, firm, blueprint, actor_id)
+                if not args.no_history:
+                    tally = generate_history(
+                        tenant_session,
+                        firm_id=target.firm_id,
+                        firm_code=blueprint.code,
+                        years=args.history_years,
+                        reset=True,
+                    )
+                    print(f"{blueprint.code} history: {tally.line()}")
 
         _print_summary(platform, settings)
     finally:
