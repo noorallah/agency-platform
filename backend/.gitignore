@@ -27,3 +27,7 @@ storage/*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local verification artefacts
+.tok
+uvicorn-*.log
