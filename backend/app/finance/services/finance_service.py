@@ -142,7 +142,6 @@ class FinanceService:
         if data.is_locked is not None:
             year.is_locked = data.is_locked
         year.updated_by = actor_id
-        year.version += 1
         record_audit(
             self._session,
             action="finance.financial_year.updated",
@@ -287,7 +286,6 @@ class FinanceService:
         if data.status is not None:
             period.status = data.status.value
         period.updated_by = actor_id
-        period.version += 1
         record_audit(
             self._session,
             action="finance.accounting_period.updated",
@@ -386,7 +384,6 @@ class FinanceService:
         if data.is_active is not None:
             group.is_active = data.is_active
         group.updated_by = actor_id
-        group.version += 1
         record_audit(
             self._session,
             action="finance.account_group.updated",
@@ -504,7 +501,6 @@ class FinanceService:
         if data.is_active is not None:
             account.is_active = data.is_active
         account.updated_by = actor_id
-        account.version += 1
         record_audit(
             self._session,
             action="finance.ledger_account.updated",
@@ -581,7 +577,6 @@ class FinanceService:
         if data.is_active is not None:
             centre.is_active = data.is_active
         centre.updated_by = actor_id
-        centre.version += 1
         record_audit(
             self._session,
             action="finance.cost_center.updated",
@@ -653,7 +648,6 @@ class FinanceService:
         if data.is_active is not None:
             centre.is_active = data.is_active
         centre.updated_by = actor_id
-        centre.version += 1
         record_audit(
             self._session,
             action="finance.profit_center.updated",

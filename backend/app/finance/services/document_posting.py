@@ -31,7 +31,13 @@ from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
 )
-from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
+from app.finance.services.journal_engine import (
+    JournalEntryEngine,
+    JournalLineData,
+)
+from app.finance.services.journal_engine import (
+    quantize_money as quantize_ledger,
+)
 
 SALES_INVOICE_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
@@ -191,23 +197,32 @@ class DocumentPostingService:
                 f"plus tax {tax} is not total {total}."
             )
 
+        # The document is consistent at its own four decimals; the ledger holds
+        # two. Derive the revenue leg from the two figures the customer sees --
+        # the total they owe and the tax they were charged -- so the three legs
+        # still agree once rounded. Rounding all three independently can leave
+        # them a cent apart, which the engine now refuses outright.
+        ledger_total = quantize_ledger(total)
+        ledger_tax = quantize_ledger(tax)
+        ledger_taxable = ledger_total - ledger_tax
+
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
-                debit_amount=total,
+                debit_amount=ledger_total,
                 description=f"Invoice {invoice_number}",
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.SALES_REVENUE],
-                credit_amount=taxable,
+                credit_amount=ledger_taxable,
                 description=f"Invoice {invoice_number}",
             ),
         ]
-        if tax != ZERO:
+        if ledger_tax != ZERO:
             lines.append(
                 JournalLineData(
                     ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
-                    credit_amount=tax,
+                    credit_amount=ledger_tax,
                     description=f"Output tax on {invoice_number}",
                 )
             )
@@ -263,7 +278,11 @@ class DocumentPostingService:
             ValidationError: If accounts or an open period are missing.
 
         """
-        cost = quantize_money(cost_amount)
+        # Round to the ledger's scale before the zero test, not the document's:
+        # a movement worth 0.004 is not zero at four decimals but is nothing at
+        # two, and it would reach the engine as a journal whose legs both round
+        # to nil -- which the engine rejects, failing the dispatch.
+        cost = quantize_ledger(cost_amount)
         if cost == ZERO:
             return None
         accounts = self._require_mapping(firm_id, GOODS_ISSUE_PURPOSES)
@@ -329,7 +348,7 @@ class DocumentPostingService:
             ValidationError: If accounts or an open period are missing.
 
         """
-        cost = quantize_money(cost_amount)
+        cost = quantize_ledger(cost_amount)
         if cost == ZERO:
             return None
         accounts = self._require_mapping(firm_id, GOODS_RECEIPT_PURPOSES)
@@ -397,6 +416,9 @@ class DocumentPostingService:
             tax_amount: Recoverable input tax.
             total_amount: What is owed to the supplier.
             actor_id: The approving user.
+            accrued_amount: What the receipt actually accrued, when it differs
+                from what the supplier billed. Defaults to the invoice's own
+                goods value, which posts no variance.
 
         Returns:
             The posted journal entry.
@@ -423,8 +445,17 @@ class DocumentPostingService:
         # variance, and it belongs in the P&L: clearing the accrual at the
         # invoice price instead would leave the difference sitting in the
         # accrual forever, growing quietly and explaining nothing.
-        accrued = goods if accrued_amount is None else quantize_money(accrued_amount)
-        variance = quantize_money(goods - accrued)
+        # As on the sales side: derive the goods leg at the ledger's scale from
+        # the total and the tax, so payables, input tax, the accrual and the
+        # variance still balance once each is rounded to two decimals.
+        ledger_total = quantize_ledger(total)
+        ledger_tax = quantize_ledger(tax)
+        ledger_goods = ledger_total - ledger_tax
+
+        accrued = (
+            ledger_goods if accrued_amount is None else quantize_ledger(accrued_amount)
+        )
+        variance = ledger_goods - accrued
         lines = [
             JournalLineData(
                 ledger_account_id=accounts[
@@ -435,16 +466,16 @@ class DocumentPostingService:
             ),
             JournalLineData(
                 ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
-                credit_amount=total,
+                credit_amount=ledger_total,
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
-        if tax != ZERO:
+        if ledger_tax != ZERO:
             lines.insert(
                 1,
                 JournalLineData(
                     ledger_account_id=accounts[ControlAccountPurpose.INPUT_TAX],
-                    debit_amount=tax,
+                    debit_amount=ledger_tax,
                     description=f"Input tax on {invoice_number}",
                 ),
             )

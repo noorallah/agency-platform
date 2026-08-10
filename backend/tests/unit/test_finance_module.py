@@ -1115,3 +1115,212 @@ def test_a_supplier_price_change_lands_in_purchase_price_variance() -> None:
         actor_id=actor_id,
     )
     assert variance not in _legs(exact.id)
+
+
+def _engine_book() -> tuple[Session, UUID, UUID, _Book]:
+    """Build one firm with the masters a journal needs."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    return session, firm.id, actor, _Book(session, firm.id, actor)
+
+
+def test_a_journal_entry_cannot_be_stored_with_lines_that_do_not_balance() -> None:
+    """The check must run on the values that get stored, not on their sum.
+
+    Legs of 100.0100 against 100.0050 + 0.0050 balance exactly at four
+    decimals. Rounded to the ledger's two they become 100.01 against
+    100.01 + 0.01. The old check summed first and rounded after, saw 100.01 on
+    both sides, and wrote an entry whose lines were a cent apart with
+    ``is_balanced`` true -- and ``_post_line`` copies line amounts straight
+    into the general ledger, so the trial balance carried the cent forever.
+    """
+    session, firm_id, actor, book = _engine_book()
+    engine = JournalEntryEngine(session)
+
+    with pytest.raises(ValidationError) as error:
+        engine.create_entry(
+            firm_id=firm_id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number="JV-ROUND",
+            description="Rounding",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=book.cash.id, debit_amount=Decimal("100.0100")
+                ),
+                JournalLineData(
+                    ledger_account_id=book.sales.id, credit_amount=Decimal("100.0050")
+                ),
+                JournalLineData(
+                    ledger_account_id=book.sales.id, credit_amount=Decimal("0.0050")
+                ),
+            ],
+            actor_id=actor,
+        )
+
+    assert "not balanced" in str(error.value)
+    assert "100.02" in str(error.value), "the message must show the stored totals"
+
+
+def test_every_stored_journal_entry_has_lines_that_sum_to_its_header() -> None:
+    """The header totals are only trustworthy if the lines produce them."""
+    session, firm_id, actor, book = _engine_book()
+
+    entry = JournalEntryEngine(session).create_entry(
+        firm_id=firm_id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-SUM",
+        description="Balanced",
+        lines=_sale_lines(book, "250.5550"),
+        actor_id=actor,
+    )
+    session.commit()
+
+    assert sum(line.debit_amount for line in entry.lines) == entry.total_debit
+    assert sum(line.credit_amount for line in entry.lines) == entry.total_credit
+    assert entry.total_debit == entry.total_credit
+
+
+def test_a_sales_invoice_that_rounds_awkwardly_still_posts_and_balances() -> None:
+    """The engine's stricter check must not start refusing real invoices.
+
+    A document is consistent at its own four decimals; the ledger holds two.
+    The poster derives the revenue leg from the total and the tax so the three
+    legs still agree once rounded, rather than rounding each independently.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor
+    )
+    session.commit()
+
+    entry = DocumentPostingService(session).post_sales_invoice(
+        firm_id=firm.id,
+        invoice_id=uuid4(),
+        invoice_number="SI-ROUND",
+        invoice_date=date(2026, 4, 10),
+        taxable_amount=Decimal("100.0050"),
+        tax_amount=Decimal("0.0050"),
+        total_amount=Decimal("100.0100"),
+        actor_id=actor,
+    )
+    session.commit()
+
+    assert entry.status == JournalStatus.POSTED.value
+    debit = sum(line.debit_amount for line in entry.lines)
+    credit = sum(line.credit_amount for line in entry.lines)
+    assert debit == credit == Decimal("100.01")
+
+
+def test_a_movement_worth_less_than_a_cent_posts_nothing_rather_than_failing() -> None:
+    """Sub-cent cost is nothing in the ledger, and nothing is not an error.
+
+    Rounding at the document's four decimals made 0.0040 non-zero, so it
+    reached the engine as a journal whose two legs both round to nil -- which
+    the engine rejects, failing the dispatch that raised it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor
+    )
+    session.commit()
+
+    posted = DocumentPostingService(session).post_goods_issue(
+        firm_id=firm.id,
+        document_id=uuid4(),
+        document_number="DN-TINY",
+        issue_date=date(2026, 4, 10),
+        cost_amount=Decimal("0.0040"),
+        source_module="delivery_note",
+        actor_id=actor,
+    )
+
+    assert posted is None
+
+
+def test_the_ledger_statement_is_dated_and_ordered_by_the_journal_date() -> None:
+    """A statement records when business happened, not when someone posted.
+
+    Both entries are posted in the same run, so their ``posting_date`` wall
+    clocks are effectively identical and cannot order anything. The later
+    entry is deliberately created first.
+    """
+    session, firm_id, actor, book = _engine_book()
+    engine = JournalEntryEngine(session)
+
+    for reference, on in (
+        ("JV-LATE", date(2026, 4, 20)),
+        ("JV-EARLY", date(2026, 4, 2)),
+    ):
+        entry = engine.create_entry(
+            firm_id=firm_id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=on,
+            reference_number=reference,
+            description=f"Entry {reference}",
+            lines=_sale_lines(book, "100.00"),
+            actor_id=actor,
+        )
+        engine.post_entry(entry.id, firm_id=firm_id, actor_id=actor)
+    session.commit()
+
+    report = GeneralLedgerService(session).general_ledger(
+        firm_id=firm_id,
+        ledger_account_id=book.cash.id,
+        accounting_period_id=book.period.id,
+    )
+
+    assert [line.journal_date for line in report.lines] == [
+        date(2026, 4, 2),
+        date(2026, 4, 20),
+    ]
+    assert [line.reference_number for line in report.lines] == ["JV-EARLY", "JV-LATE"]
+
+
+def test_the_ledger_statement_shows_the_line_narration_it_was_given() -> None:
+    """A narration typed on every line was collected and never displayed."""
+    session, firm_id, actor, book = _engine_book()
+    engine = JournalEntryEngine(session)
+
+    entry = engine.create_entry(
+        firm_id=firm_id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-NARR",
+        description="Entry level description",
+        lines=[
+            JournalLineData(
+                ledger_account_id=book.cash.id,
+                debit_amount=Decimal("100.00"),
+                description="Cash from Vijaya Super Stores",
+            ),
+            JournalLineData(
+                ledger_account_id=book.sales.id, credit_amount=Decimal("100.00")
+            ),
+        ],
+        actor_id=actor,
+    )
+    engine.post_entry(entry.id, firm_id=firm_id, actor_id=actor)
+    session.commit()
+
+    report = GeneralLedgerService(session).general_ledger(
+        firm_id=firm_id,
+        ledger_account_id=book.cash.id,
+        accounting_period_id=book.period.id,
+    )
+
+    assert report.lines[0].description == "Cash from Vijaya Super Stores"

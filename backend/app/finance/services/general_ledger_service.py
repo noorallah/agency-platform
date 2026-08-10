@@ -17,6 +17,7 @@ from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
     GLPosting,
     JournalEntry,
+    JournalLine,
     LedgerAccount,
     LedgerBalance,
 )
@@ -102,20 +103,29 @@ class GeneralLedgerService:
         opening = balance.opening_balance if balance is not None else ZERO
         increases_on_debit = account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
 
+        # Ordered by the journal date, not by ``posting_date``. A back-dated
+        # entry posted today carries today's wall clock, so ordering on it put
+        # the statement in the sequence someone happened to press Post rather
+        # than the sequence the business ran in -- and the running balance is
+        # only meaningful in the latter.
         postings = self._session.execute(
-            select(GLPosting, JournalEntry)
+            select(GLPosting, JournalEntry, JournalLine)
             .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .join(JournalLine, JournalLine.id == GLPosting.journal_line_id)
             .where(
                 GLPosting.firm_id == firm_id,
                 GLPosting.ledger_account_id == ledger_account_id,
                 GLPosting.accounting_period_id == accounting_period_id,
             )
-            .order_by(GLPosting.posting_date.asc(), JournalEntry.reference_number.asc())
+            .order_by(
+                JournalEntry.journal_date.asc(),
+                JournalEntry.reference_number.asc(),
+            )
         ).all()
 
         running = opening
         lines: list[GeneralLedgerLine] = []
-        for posting, entry in postings:
+        for posting, entry, line in postings:
             movement = (
                 posting.debit_amount - posting.credit_amount
                 if increases_on_debit
@@ -125,9 +135,15 @@ class GeneralLedgerService:
             lines.append(
                 GeneralLedgerLine(
                     journal_entry_id=entry.id,
-                    posting_date=posting.posting_date,
+                    journal_date=entry.journal_date,
                     reference_number=entry.reference_number,
-                    description=posting.error_message or entry.description,
+                    # The line's own narration, which is what says *what* this
+                    # movement was; the entry description is the fallback. This
+                    # read ``posting.error_message or entry.description``, so a
+                    # narration typed on every line was never displayed, and a
+                    # posting that had failed would have shown its error text
+                    # as the ledger narration.
+                    description=line.description or entry.description,
                     debit_amount=posting.debit_amount,
                     credit_amount=posting.credit_amount,
                     running_balance=running,

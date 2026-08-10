@@ -96,8 +96,25 @@ class JournalEntryEngine:
             voucher_type_id, VoucherType, firm_id, "Voucher type not found."
         )
 
-        total_debit = quantize_money(sum((line.debit_amount for line in lines), ZERO))
-        total_credit = quantize_money(sum((line.credit_amount for line in lines), ZERO))
+        # Round each leg to the ledger's scale *before* checking the balance,
+        # because these are the values that get stored. Summing first and
+        # rounding after is not the same operation: a document balanced at its
+        # own four decimals -- 100.0100 = 100.0050 + 0.0050 -- rounds to legs of
+        # 100.01 against 100.01 + 0.01, and the old check compared the rounded
+        # sums, saw 100.01 both sides, and wrote an entry whose lines were a
+        # cent apart with ``is_balanced`` set to true. ``_post_line`` copies the
+        # line amounts straight into the general ledger, so that cent stayed in
+        # the trial balance with nothing reporting it.
+        legs = [
+            (
+                data,
+                quantize_money(data.debit_amount),
+                quantize_money(data.credit_amount),
+            )
+            for data in lines
+        ]
+        total_debit = sum((debit for _, debit, _ in legs), ZERO)
+        total_credit = sum((credit for _, _, credit in legs), ZERO)
         if total_debit != total_credit:
             raise ValidationError(
                 f"Journal entry is not balanced: debit {total_debit}, "
@@ -125,7 +142,7 @@ class JournalEntryEngine:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        for index, data in enumerate(lines, start=1):
+        for index, (data, debit, credit) in enumerate(legs, start=1):
             account = accounts[data.ledger_account_id]
             self._validate_line_dimensions(account, data)
             entry.lines.append(
@@ -134,8 +151,8 @@ class JournalEntryEngine:
                     cost_center_id=data.cost_center_id,
                     profit_center_id=data.profit_center_id,
                     line_number=index,
-                    debit_amount=quantize_money(data.debit_amount),
-                    credit_amount=quantize_money(data.credit_amount),
+                    debit_amount=debit,
+                    credit_amount=credit,
                     description=data.description,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -188,7 +205,6 @@ class JournalEntryEngine:
         entry.status = JournalStatus.POSTED.value
         entry.posted_at = posted_at
         entry.updated_by = actor_id
-        entry.version += 1
         self._session.flush()
 
         record_audit(
@@ -253,7 +269,6 @@ class JournalEntryEngine:
 
         original.status = JournalStatus.REVERSED.value
         original.updated_by = actor_id
-        original.version += 1
         record_audit(
             self._session,
             action="finance.journal_entry.reversed",
