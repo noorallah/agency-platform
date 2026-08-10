@@ -273,7 +273,8 @@ Each of these was invisible to the unit suite, and each cost a real defect.
 
 ## Module inventory
 
-Endpoint counts measured 2026-08-09; `ruff`/`mypy` counts re-measured 2026-08-10. `ruff`/`mypy` are current error
+Endpoint counts measured 2026-08-09. Every module is now clean under `ruff`,
+`black` and `mypy` as of 2026-08-10. `ruff`/`mypy` are current error
 counts for that package — they are the size of the cleanup, not a pass/fail.
 
 | Module | Endpoints | ruff | mypy | Unit test | Desktop |
@@ -295,11 +296,11 @@ counts for that package — they are the size of the cleanup, not a pass/fail.
 | `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
 | `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
-| `sales_order` | 17 | 57 | 1 | `test_sales_order_module` | typed |
-| `sales_invoice` | 16 | 39 | 21 | `test_sales_invoice_module` | typed |
-| `purchase_invoice` | 16 | 57 | 19 | `test_purchase_invoice_module` | typed |
-| `delivery_note` | 19 | 58 | 6 | `test_delivery_note_module` | typed |
-| `purchase_return` | 18 | 60 | 22 | `test_purchase_return_module` | typed |
+| `sales_order` | 17 | 0 | 0 | `test_sales_order_module` | typed |
+| `sales_invoice` | 16 | 0 | 0 | `test_sales_invoice_module` | typed |
+| `purchase_invoice` | 16 | 0 | 0 | `test_purchase_invoice_module` | typed |
+| `delivery_note` | 19 | 0 | 0 | `test_delivery_note_module` | typed |
+| `purchase_return` | 18 | 0 | 0 | `test_purchase_return_module` | typed |
 | `tax` | 52 | 0 | 0 | `test_tax_framework` | typed |
 
 As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
