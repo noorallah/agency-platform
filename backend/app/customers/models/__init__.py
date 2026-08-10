@@ -1,6 +1,7 @@
 """Customer persistence models."""
 
 from app.customers.models.customer import (
+    CreditControlSettings,
     Customer,
     CustomerAddress,
     CustomerContact,
@@ -8,6 +9,7 @@ from app.customers.models.customer import (
 )
 
 __all__ = [
+    "CreditControlSettings",
     "Customer",
     "CustomerAddress",
     "CustomerContact",

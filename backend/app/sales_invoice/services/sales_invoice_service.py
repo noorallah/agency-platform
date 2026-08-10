@@ -20,6 +20,7 @@ from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
+from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.document_framework.models import (
@@ -494,6 +495,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Approval is what puts the amount on the customer's account, so it is
+        # the last point at which a limit can still be enforced.
+        customer = self._session.get(Customer, row.customer_id)
+        if customer is not None:
+            CreditControlService(self._session).assert_within_limit(
+                customer, additional_amount=self._q(row.grand_total)
+            )
         before = row.status
         row.status = SalesInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()

@@ -22,6 +22,7 @@ from app.core.exceptions import (
     BusinessRuleError,
     ConflictError,
     ResourceNotFoundError,
+    ValidationError,
 )
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
@@ -31,14 +32,24 @@ from app.customers.api.router import (
     list_customers,
     restore_customer,
 )
-from app.customers.models import Customer, CustomerAddress, CustomerContact
+from app.customers.models import (
+    CreditControlSettings,
+    Customer,
+    CustomerAddress,
+    CustomerContact,
+)
 from app.customers.schemas import CustomerCreate, CustomerUpdate
-from app.customers.schemas.customer import CustomerListFilters
 from app.customers.schemas.customer import (
+    CustomerListFilters,
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
-from app.customers.services import CustomerService
+from app.customers.services import (
+    CreditControlService,
+    CreditEnforcement,
+    CreditStatus,
+    CustomerService,
+)
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -54,6 +65,7 @@ def _firm_scope(
     return required_firm_scope(
         optional_firm_scope(principal=principal, db=session, x_firm_id=firm_id)
     )
+
 
 def _session_factory() -> sessionmaker[Session]:
     """Create one shared in-memory database for API and service tests."""
@@ -265,7 +277,9 @@ def test_customer_receivable_transactions_track_outstanding_and_advance() -> Non
     firm = _firm(session, "AR")
     actor_id = uuid4()
     service = CustomerService(session)
-    payload = _customer_data("CUST-AR-001").model_copy(update={"opening_balance": Decimal("0.00")})
+    payload = _customer_data("CUST-AR-001").model_copy(
+        update={"opening_balance": Decimal("0.00")}
+    )
     customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
 
     tx = service.post_receivable_transaction(
@@ -399,3 +413,152 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
         require_permission("CUSTOMER_CREATE")(view_only)
 
     assert session.query(Customer).count() == 1
+
+
+def _customer_with_credit(
+    session: Session,
+    firm_id: UUID,
+    *,
+    limit: str,
+    outstanding: str = "0.00",
+    advance: str = "0.00",
+) -> Customer:
+    """Create a customer sitting at a known point against a known limit."""
+    row = Customer(
+        firm_id=firm_id,
+        code=f"CUST-CR-{limit}-{outstanding}",
+        customer_type="BUSINESS",
+        name="Credit Customer",
+        display_name="Credit Customer",
+        currency_code="INR",
+        status="ACTIVE",
+        credit_limit=Decimal(limit),
+        current_outstanding=Decimal(outstanding),
+        unapplied_advance_balance=Decimal(advance),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def test_a_customer_well_inside_the_limit_passes_quietly() -> None:
+    """No warning below the threshold, so the warning means something."""
+    session = _session_factory()()
+    firm = _firm(session, "CR1")
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="100")
+
+    assessment = CreditControlService(session).assess(
+        customer, additional_amount=Decimal("100")
+    )
+
+    assert assessment.status is CreditStatus.OK
+    assert assessment.message is None
+    assert assessment.exposure == Decimal("200.0000")
+    assert assessment.available == Decimal("800.0000")
+
+
+def test_the_document_being_saved_counts_toward_the_limit() -> None:
+    """The point is to catch the breach before it happens.
+
+    A customer at 700 of 1000 is fine until you add the 200 order in front of
+    you, which takes them to 90%.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "CR2")
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="700")
+    service = CreditControlService(session)
+
+    assert service.assess(customer).status is CreditStatus.OK
+    warned = service.assess(customer, additional_amount=Decimal("200"))
+    assert warned.status is CreditStatus.WARNING
+    assert warned.used_percent == Decimal("90.0000")
+
+
+def test_money_paid_in_advance_does_not_consume_the_limit() -> None:
+    """An advance is money received; it cannot count against available credit."""
+    session = _session_factory()()
+    firm = _firm(session, "CR3")
+    customer = _customer_with_credit(
+        session, firm.id, limit="1000", outstanding="900", advance="500"
+    )
+
+    assessment = CreditControlService(session).assess(customer)
+
+    assert assessment.exposure == Decimal("400.0000")
+    assert assessment.status is CreditStatus.OK
+
+
+def test_warning_is_the_default_and_never_blocks() -> None:
+    """A firm that has configured nothing warns and keeps trading."""
+    session = _session_factory()()
+    firm = _firm(session, "CR4")
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="2000")
+    service = CreditControlService(session)
+
+    assessment = service.assert_within_limit(customer)
+
+    assert assessment.status is CreditStatus.WARNING
+    assert assessment.blocks is False
+    assert "200" in (assessment.message or "")
+
+
+def test_a_firm_can_choose_to_block() -> None:
+    """BLOCK refuses the document once the block threshold is reached."""
+    session = _session_factory()()
+    firm = _firm(session, "CR5")
+    session.add(
+        CreditControlSettings(
+            firm_id=firm.id,
+            enforcement=CreditEnforcement.BLOCK.value,
+            warn_at_percent=Decimal("80"),
+            block_at_percent=Decimal("100"),
+        )
+    )
+    session.commit()
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="850")
+    service = CreditControlService(session)
+
+    # Still only a warning below the block threshold.
+    assert service.assert_within_limit(customer).status is CreditStatus.WARNING
+
+    with pytest.raises(ValidationError, match="credit limit"):
+        service.assert_within_limit(customer, additional_amount=Decimal("200"))
+
+
+def test_a_firm_can_switch_credit_control_off() -> None:
+    """OFF means silent, even for a customer far past their limit."""
+    session = _session_factory()()
+    firm = _firm(session, "CR6")
+    session.add(
+        CreditControlSettings(firm_id=firm.id, enforcement=CreditEnforcement.OFF.value)
+    )
+    session.commit()
+    customer = _customer_with_credit(session, firm.id, limit="100", outstanding="9000")
+
+    assessment = CreditControlService(session).assert_within_limit(customer)
+
+    assert assessment.status is CreditStatus.OK
+    assert assessment.message is None
+
+
+def test_a_zero_limit_means_unset_not_no_credit() -> None:
+    """Every customer starts at a limit of zero.
+
+    Reading that as "no credit allowed" would have blocked or warned on every
+    customer in every firm the moment this shipped.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "CR7")
+    session.add(
+        CreditControlSettings(
+            firm_id=firm.id, enforcement=CreditEnforcement.BLOCK.value
+        )
+    )
+    session.commit()
+    customer = _customer_with_credit(session, firm.id, limit="0", outstanding="5000")
+
+    assessment = CreditControlService(session).assert_within_limit(
+        customer, additional_amount=Decimal("1000")
+    )
+
+    assert assessment.status is CreditStatus.OK

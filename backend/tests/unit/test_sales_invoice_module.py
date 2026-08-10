@@ -33,7 +33,8 @@ from app.core.exceptions import ValidationError
 from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
-from app.customers.models import Customer
+from app.customers.models import CreditControlSettings, Customer
+from app.customers.services import CreditEnforcement
 from app.finance.models import JournalEntry, JournalLine, JournalStatus
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -56,6 +57,7 @@ from app.sales_invoice.api.router import (
     get_sales_invoice_timeline,
     list_sales_invoices,
 )
+from app.sales_invoice.models import SalesInvoice
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -380,7 +382,7 @@ def test_sales_invoice_cancel_endpoint_passes_the_reason_through() -> None:
 
 
 def test_subtotal_is_the_taxable_base_and_charges_land_in_grand_total() -> None:
-    """subtotal excludes tax and line charges; grand_total includes charges.
+    """Subtotal excludes tax and line charges; grand_total includes charges.
 
     This module folded line charges into ``subtotal``, so the same field name
     meant a different thing here than on a sales order or delivery note.
@@ -489,3 +491,63 @@ def test_approval_posts_a_journal_and_fails_when_it_cannot() -> None:
     debits = sum(line.debit_amount for line in lines)
     credits = sum(line.credit_amount for line in lines)
     assert debits == credits == Decimal("400.00"), "the entry must balance"
+
+
+def test_a_blocking_firm_refuses_to_approve_past_the_credit_limit() -> None:
+    """Approval is where the amount lands on the customer's account.
+
+    credit_limit was recorded on every customer and enforced nowhere. Under a
+    firm that has chosen BLOCK, approving the invoice that breaches the limit
+    is now refused; the invoice stays in draft rather than being posted and
+    reversed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+
+    invoice = session.get(SalesInvoice, invoice_id)
+    assert invoice is not None
+    customer = session.get(Customer, invoice.customer_id)
+    assert customer is not None
+    # Leave barely any headroom, then choose to block.
+    customer.credit_limit = Decimal("100")
+    session.add(
+        CreditControlSettings(
+            firm_id=firm.id,
+            enforcement=CreditEnforcement.BLOCK.value,
+            warn_at_percent=Decimal("80"),
+            block_at_percent=Decimal("100"),
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="credit limit"):
+        service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    session.expire_all()
+    assert (
+        session.get(SalesInvoice, invoice_id).status == SalesInvoiceStatus.DRAFT.value
+    )
+
+
+def test_the_default_policy_lets_the_same_invoice_through() -> None:
+    """WARN is the default, so nothing stops trading until a firm opts in."""
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+
+    invoice = session.get(SalesInvoice, invoice_id)
+    assert invoice is not None
+    customer = session.get(Customer, invoice.customer_id)
+    assert customer is not None
+    customer.credit_limit = Decimal("100")
+    session.commit()
+
+    approved = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert approved.status == SalesInvoiceStatus.APPROVED.value

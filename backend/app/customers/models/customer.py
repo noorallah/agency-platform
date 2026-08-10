@@ -173,3 +173,37 @@ class CustomerReceivableTransaction(BaseEntity):
     reference_id: Mapped[UUID | None] = mapped_column(UUIDType())
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
+
+
+class CreditControlSettings(BaseEntity):
+    """Store one firm's credit-limit policy.
+
+    ``credit_limit`` has been on every customer from the start and constrained
+    nothing: it was snapshotted onto sales orders and never compared against
+    anything. Whether a breach should warn or block is a firm's decision, not
+    the platform's, so the policy lives here -- one row per firm, the shape
+    ``tax_settings`` already uses.
+    """
+
+    __tablename__ = "credit_control_settings"
+    __table_args__ = (
+        UniqueConstraint("firm_id", name="UQ_credit_control_settings_firm"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    #: OFF, WARN or BLOCK. WARN is the default: a limit that stops trade on the
+    #: day it is switched on is a limit nobody switches on.
+    enforcement: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: Percentage of the limit at which a warning starts.
+    warn_at_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("80"), server_default="80"
+    )
+    #: Percentage at which BLOCK refuses the document. Ignored under OFF and
+    #: WARN, so lowering it cannot surprise a firm that has not opted in.
+    block_at_percent: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("100"), server_default="100"
+    )

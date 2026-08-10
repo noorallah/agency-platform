@@ -17,6 +17,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
+from app.customers.services import CreditAssessment, CreditControlService
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -355,12 +356,27 @@ class SalesOrderService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def _assess_credit(
+        self, order: SalesOrder, *, firm_scope: UUID
+    ) -> CreditAssessment | None:
+        """Check the customer against the firm's credit policy."""
+        customer = self._session.get(Customer, order.customer_id)
+        if customer is None:
+            return None
+        return CreditControlService(self._session).assert_within_limit(
+            customer, additional_amount=self._q(order.grand_total)
+        )
+
     def approve_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> SalesOrder:
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
+        # Credit is committed here, before any stock moves: approving the order
+        # is the promise, invoicing only bills it. Under WARN this records the
+        # assessment on the order; under BLOCK it raises before reserving.
+        self._credit_assessment = self._assess_credit(row, firm_scope=firm_scope)
         self._reserve_inventory(row, actor_id=actor_id)
         row.status = SalesOrderStatus.APPROVED.value
         row.approved_at = utc_now()
