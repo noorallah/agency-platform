@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import 'credit_notice.dart';
 
 class SalesInvoiceManagementPage extends StatefulWidget {
   const SalesInvoiceManagementPage({
@@ -148,6 +149,20 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     }
   }
 
+  /// Warn before approving, because approval is where the receivable is
+  /// posted and the credit limit is committed.
+  ///
+  /// The check has to run *before* the call: once the invoice is approved its
+  /// value is already in the outstanding balance, and asking afterwards with
+  /// the same amount would count it twice.
+  Future<void> _warnOnCredit(Map<String, dynamic> invoice) =>
+      warnOnCreditExposure(
+        context,
+        widget.api,
+        customerId: invoice['customer_id'] as String?,
+        amount: '${invoice['grand_total'] ?? '0'}',
+      );
+
   @override
   Widget build(BuildContext context) {
     final Map<String, dynamic>? selected = _selected;
@@ -278,6 +293,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
                               try {
                                 switch (action) {
                                   case DocumentToolbarAction.approve:
+                                    await _warnOnCredit(selected);
                                     await _act('/approve');
                                     break;
                                   case DocumentToolbarAction.cancel:
