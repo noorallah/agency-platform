@@ -175,6 +175,21 @@ def require_module(code: str) -> params.Depends:
     return cast(params.Depends, Depends(dependency))
 
 
+def _is_populated(value: object) -> bool:
+    """Return whether a submitted value actually exercises a feature.
+
+    Blank is not populated, and an empty collection is blank: a document that
+    carries no attachments must not be refused because the field was present
+    and empty. ``False`` is blank too -- an unticked box is not a use of the
+    feature. A zero *number* is populated, because somebody typed it.
+    """
+    if value is None or value is False:
+        return False
+    if isinstance(value, str | bytes | list | tuple | set | dict):
+        return len(value) > 0
+    return True
+
+
 def assert_feature_fields(
     session: Session,
     firm_id: UUID | None,
@@ -213,11 +228,7 @@ def assert_feature_fields(
             populates at least one of the fields.
 
     """
-    populated = sorted(
-        name
-        for name, value in values.items()
-        if value is not None and value != "" and value is not False
-    )
+    populated = sorted(name for name, value in values.items() if _is_populated(value))
     if not populated:
         return
     capabilities = resolve_capabilities(session, firm_id)

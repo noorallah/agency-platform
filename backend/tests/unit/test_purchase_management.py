@@ -14,7 +14,7 @@ from starlette.datastructures import UploadFile
 
 from app.batch_serial.models import batch_serial as _batch_models  # noqa: F401
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
-from app.business.models import BusinessProfile
+from app.business.models import BusinessFeature, BusinessProfile, ProfileFeature
 from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
@@ -136,6 +136,13 @@ def _firm(session: Session, code: str) -> Firm:
 
 
 def _business_profile(session: Session, actor_id: UUID) -> BusinessProfile:
+    """Seed the default profile, enabling the features these tests exercise.
+
+    Purchase orders here carry attachments, and ATTACHMENTS is enforced, so a
+    profile that does not enable it would refuse every one of them. Feature
+    gating makes a profile's assignments load-bearing: a fixture has to grant
+    what its documents use, the same as a real firm.
+    """
     row = BusinessProfile(
         code="GENERIC",
         name="Generic",
@@ -147,6 +154,24 @@ def _business_profile(session: Session, actor_id: UUID) -> BusinessProfile:
         updated_by=actor_id,
     )
     session.add(row)
+    session.flush()
+    feature = BusinessFeature(
+        code="ATTACHMENTS",
+        name="Attachments",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(feature)
+    session.flush()
+    session.add(
+        ProfileFeature(
+            business_profile_id=row.id,
+            feature_id=feature.id,
+            is_enabled=True,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+    )
     session.commit()
     return row
 

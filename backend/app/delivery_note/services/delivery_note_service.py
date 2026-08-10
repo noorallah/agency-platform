@@ -228,6 +228,12 @@ class DeliveryNoteService(TransactionalDocumentService):
         assert_feature_fields(
             self._session,
             firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
+        assert_feature_fields(
+            self._session,
+            firm_id,
             feature="VEHICLE_TRACKING",
             values={"vehicle": data.vehicle, "driver": data.driver},
         )
@@ -343,6 +349,12 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> DeliveryNote:
         """Replace one delivery note."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         assert_feature_fields(
             self._session,
             firm_scope,

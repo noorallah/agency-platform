@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -237,6 +238,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesInvoice:
         """Create one sales invoice."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -390,6 +397,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> SalesInvoice:
         """Replace one sales invoice."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")

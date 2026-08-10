@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -214,6 +215,12 @@ class PurchaseReturnService(TransactionalDocumentService):
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseReturn:
         """Create one purchase return."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -344,6 +351,12 @@ class PurchaseReturnService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> PurchaseReturn:
         """Replace one purchase return."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status != PurchaseReturnStatus.DRAFT.value:
             raise ValidationError("Only draft purchase returns can be updated.")

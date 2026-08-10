@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -227,6 +228,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseInvoice:
         """Create one purchase invoice."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -350,6 +357,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> PurchaseInvoice:
         """Replace one purchase invoice."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")

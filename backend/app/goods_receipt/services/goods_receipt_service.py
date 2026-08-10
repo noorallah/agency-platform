@@ -223,6 +223,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         assert_feature_fields(
             self._session,
             firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
+        assert_feature_fields(
+            self._session,
+            firm_id,
             feature="VEHICLE_TRACKING",
             values={"vehicle_number": data.vehicle_number},
         )
@@ -306,6 +312,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> GoodsReceipt:
         """Change receipt."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         assert_feature_fields(
             self._session,
             firm_scope,
