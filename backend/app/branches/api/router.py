@@ -249,14 +249,10 @@ def import_branches(
     scope: BranchWarehouseImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BranchResponse]]:
-    """Create several branches from an uploaded batch."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required when importing branches.")
-    service = BranchWarehouseService(db)
-    rows = [
-        service.create_branch(record, firm_id=scope.firm_id, actor_id=scope.actor_id)
-        for record in data.records
-    ]
+    """Create several branches from an uploaded batch, all or nothing."""
+    rows = BranchWarehouseService(db).import_branches(
+        data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     payloads = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
@@ -545,14 +541,10 @@ def import_warehouses(
     scope: BranchWarehouseImportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[WarehouseResponse]]:
-    """Create several warehouses from an uploaded batch."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required when importing warehouses.")
-    service = BranchWarehouseService(db)
-    rows = [
-        service.create_warehouse(record, firm_id=scope.firm_id, actor_id=scope.actor_id)
-        for record in data.records
-    ]
+    """Create several warehouses from an uploaded batch, all or nothing."""
+    rows = BranchWarehouseService(db).import_warehouses(
+        data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data=[WarehouseResponse.model_validate(row) for row in rows])
 
 

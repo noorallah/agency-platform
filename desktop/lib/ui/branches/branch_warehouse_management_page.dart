@@ -7,6 +7,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import 'branch_warehouse_import_dialog.dart';
 
 enum BranchWarehouseSection {
   branches,
@@ -79,6 +80,18 @@ class _BranchWarehouseManagementPageState
       widget.permissions.hasPermission('STORAGE_AREA_MANAGE');
   bool get _canExport =>
       widget.permissions.hasPermission('BRANCH_WAREHOUSE_EXPORT');
+
+  /// Import is offered only on the two sections the server accepts a batch for.
+  bool get _canImport =>
+      widget.hasActiveFirm &&
+      widget.permissions.hasPermission('BRANCH_WAREHOUSE_IMPORT') &&
+      _importTarget != null;
+
+  BranchImportTarget? get _importTarget => switch (widget.section) {
+        BranchWarehouseSection.branches => BranchImportTarget.branches,
+        BranchWarehouseSection.warehouses => BranchImportTarget.warehouses,
+        _ => null,
+      };
 
   @override
   void initState() {
@@ -321,11 +334,13 @@ class _BranchWarehouseManagementPageState
           ToolbarAction.newItem,
           ToolbarAction.delete,
           ToolbarAction.refresh,
+          ToolbarAction.import,
           ToolbarAction.export,
         ],
         isVisible: (action) => switch (action) {
           ToolbarAction.newItem => _canCreateCurrent,
           ToolbarAction.delete => _canDeleteCurrent,
+          ToolbarAction.import => _canImport,
           ToolbarAction.export => _canExport,
           _ => true,
         },
@@ -335,6 +350,7 @@ class _BranchWarehouseManagementPageState
               ToolbarAction.newItem => _canCreateCurrent,
               ToolbarAction.delete => _canDeleteCurrent,
               ToolbarAction.refresh => true,
+              ToolbarAction.import => _canImport,
               ToolbarAction.export => _canExport,
               _ => false,
             },
@@ -351,6 +367,9 @@ class _BranchWarehouseManagementPageState
               break;
             case ToolbarAction.export:
               _export();
+              break;
+            case ToolbarAction.import:
+              _openImport();
               break;
             default:
               break;
@@ -698,6 +717,23 @@ class _BranchWarehouseManagementPageState
         break;
       case BranchWarehouseSection.settings:
         break;
+    }
+  }
+
+  /// Load a batch of branches or warehouses from a spreadsheet.
+  Future<void> _openImport() async {
+    final BranchImportTarget? target = _importTarget;
+    if (target == null) return;
+    final bool? imported = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => BranchWarehouseImportDialog(
+        api: widget.api,
+        target: target,
+      ),
+    );
+    if (imported == true && mounted) {
+      await _load();
     }
   }
 

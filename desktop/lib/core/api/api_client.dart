@@ -806,6 +806,19 @@ class ApiClient {
         _unwrapMap(await request('POST', '/api/v1/branches', body: data)),
       );
 
+  /// Create several branches in one request.
+  ///
+  /// The server writes the batch in a single transaction, so a rejected import
+  /// leaves nothing behind and the corrected file can simply be re-sent.
+  Future<List<BranchRecord>> importBranches(List<Json> records) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/branches/import',
+      body: {'records': records},
+    );
+    return _unwrapList(response, BranchRecord.fromJson);
+  }
+
   Future<BranchRecord> updateBranch(String id, Json data) async =>
       BranchRecord.fromJson(
         _unwrapMap(await request('PUT', '/api/v1/branches/$id', body: data)),
@@ -864,6 +877,16 @@ class ApiClient {
       WarehouseRecord.fromJson(
         _unwrapMap(await request('POST', '/api/v1/warehouses', body: data)),
       );
+
+  /// Create several warehouses in one request, all or nothing.
+  Future<List<WarehouseRecord>> importWarehouses(List<Json> records) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/warehouses/import',
+      body: {'records': records},
+    );
+    return _unwrapList(response, WarehouseRecord.fromJson);
+  }
 
   Future<WarehouseRecord> updateWarehouse(String id, Json data) async =>
       WarehouseRecord.fromJson(
@@ -2596,4 +2619,14 @@ class ApiClient {
 Json _unwrapMap(Json json) {
   final dynamic data = json['data'];
   return data is Map<String, dynamic> ? data : json;
+}
+
+/// Read an envelope whose `data` is a list, mapping each row.
+List<T> _unwrapList<T>(Json json, T Function(Json) fromJson) {
+  final dynamic data = json['data'];
+  if (data is! List) return const [];
+  return data
+      .whereType<Map>()
+      .map((item) => fromJson(Map<String, dynamic>.from(item)))
+      .toList(growable: false);
 }
