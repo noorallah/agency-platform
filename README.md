@@ -33,5 +33,9 @@ Enterprise ERP platform with a FastAPI backend and Flutter desktop client.
 
 ## Quick start
 
-- Backend setup: `backend/README.md`
-- Desktop setup: `desktop/README.md`
+- **Running the application: [`docs/RUNNING.md`](docs/RUNNING.md)** — clean
+  checkout to a signed-in client, including the demo logins
+- **New to the code: [`docs/LEARNING_PATH.md`](docs/LEARNING_PATH.md)** — a
+  measured module-by-module reading order
+- Backend reference: `backend/README.md`
+- Desktop reference: `desktop/README.md`
