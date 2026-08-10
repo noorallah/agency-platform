@@ -67,9 +67,16 @@ services:
   # schemas and dedicated databases too -- doing it by hand meant knowing the
   # tenancy layout and missing a store the moment one was added.
   #
-  # Set AGENCY_RETENTION_MODE=--dry-run to watch it before letting it delete.
-  # Remove the service, or `docker compose stop retention`, to turn it off.
+  # It is opt-in, because it deletes: bringing the stack up should not start
+  # removing rows from someone who only wanted the API.
+  #
+  #   docker compose --profile retention up -d          # enable it
+  #   AGENCY_RETENTION_MODE=--dry-run docker compose   #     --profile retention up -d                       # watch it first
+  #
+  # Nothing prunes these tables until you do this, so decide deliberately
+  # rather than leaving it: that is how they grew unbounded in the first place.
   retention:
+    profiles: ["retention"]
     build:
       context: .
     restart: unless-stopped
