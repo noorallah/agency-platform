@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError
@@ -103,6 +104,7 @@ class VendorService:
         """Replace a vendor and reconcile its nested rows."""
         vendor = self.get(vendor_id, firm_scope=firm_scope)
         self._assert_unique(vendor.firm_id, data, excluding_id=vendor.id)
+        self._assert_drug_license_allowed(vendor.firm_id, data)
         before = self._audit_snapshot(vendor)
         for field, value in self._vendor_values(data).items():
             setattr(vendor, field, value)
@@ -494,6 +496,7 @@ class VendorService:
     ) -> Vendor:
         """Stage create."""
         self._assert_unique(firm_id, data)
+        self._assert_drug_license_allowed(firm_id, data)
         vendor = Vendor(
             firm_id=firm_id,
             **self._vendor_values(data),
@@ -553,6 +556,24 @@ class VendorService:
     def _unique_conflict() -> ConflictError:
         """Return the conflict message for a duplicate natural key."""
         return ConflictError("Vendor uniqueness constraints were violated.")
+
+    def _assert_drug_license_allowed(
+        self, firm_id: UUID, data: VendorCreate | VendorUpdate
+    ) -> None:
+        """Only a firm whose profile handles pharmaceuticals records a licence.
+
+        The field, not the vendor: a firm without DRUG_LICENSE still keeps
+        vendors, it just has no business recording a drug licence number
+        against one. The number lives on the vendor's tax rows rather than the
+        vendor itself, so every submitted row is checked.
+        """
+        licences = {
+            f"tax[{index}].drug_license": row.drug_license
+            for index, row in enumerate(data.tax)
+        }
+        assert_feature_fields(
+            self._session, firm_id, feature="DRUG_LICENSE", values=licences
+        )
 
     @staticmethod
     def _vendor_values(data: VendorCreate | VendorUpdate) -> dict[str, object]:

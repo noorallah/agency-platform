@@ -215,7 +215,13 @@ def test_product_service_enforces_category_attribute_rules() -> None:
 
 
 def test_product_service_enforces_feature_gated_fields() -> None:
-    """Reject feature-gated payload fields when profile disables them."""
+    """Reject feature-gated payload fields when the profile disables them.
+
+    Raises AuthorizationError, not ValidationError: the payload is well
+    formed, the firm is simply not entitled to that field. That is what every
+    other feature gate raises, and it now goes through the same resolver
+    instead of a private query that ignored ``is_active`` and ``is_deleted``.
+    """
     session = _session_factory()()
     firm = _firm(session, "NOBC")
     _seed_profile(session, with_barcode_feature=False)
@@ -223,8 +229,39 @@ def test_product_service_enforces_feature_gated_fields() -> None:
 
     payload = _base_payload()
     payload.barcode = "890100001"
-    with pytest.raises(ValidationError, match="Barcode is disabled"):
+    with pytest.raises(AuthorizationError, match="BARCODE"):
         service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
+
+
+def test_deactivating_a_feature_disables_it_for_products_too() -> None:
+    """One resolver, one answer.
+
+    Products resolved features through a private query filtering neither
+    ``is_active`` nor ``is_deleted``, so an administrator who deactivated
+    BARCODE found every require_feature endpoint refusing while the product
+    form still accepted barcodes.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DEACT")
+    _seed_profile(session, with_barcode_feature=True)
+    service = ProductService(session)
+
+    payload = _base_payload()
+    payload.barcode = "890100002"
+    service.create_product(payload, firm_id=firm.id, actor_id=uuid4())
+
+    feature = session.scalar(
+        select(BusinessFeature).where(BusinessFeature.code == "BARCODE")
+    )
+    assert feature is not None
+    feature.is_active = False
+    session.commit()
+
+    second = _base_payload()
+    second.code = "P-SECOND"
+    second.barcode = "890100003"
+    with pytest.raises(AuthorizationError, match="BARCODE"):
+        service.create_product(second, firm_id=firm.id, actor_id=uuid4())
 
 
 def test_product_api_applies_permissions_and_soft_delete_restore() -> None:

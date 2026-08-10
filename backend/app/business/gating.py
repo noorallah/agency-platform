@@ -16,6 +16,7 @@ Usage mirrors ``require_permission``::
     @router.post("", dependencies=[require_feature("BATCH_TRACKING")])
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, cast
 from uuid import UUID
@@ -172,3 +173,63 @@ def require_module(code: str) -> params.Depends:
         return capabilities
 
     return cast(params.Depends, Depends(dependency))
+
+
+def assert_feature_fields(
+    session: Session,
+    firm_id: UUID | None,
+    *,
+    feature: str,
+    values: Mapping[str, object],
+) -> None:
+    """Refuse a write that fills in fields belonging to a disabled feature.
+
+    ``require_feature`` gates whole endpoints, which suits a feature that owns
+    its own resource — a firm without BATCH_TRACKING has no business posting a
+    batch at all. Most features are not like that. Expiry dates, barcodes,
+    warranty periods and drug licences are optional *fields* on a resource
+    every firm uses, so gating the endpoint would stop a firm creating products
+    because it does not scan barcodes.
+
+    This gates the capability instead of the resource: the write is refused
+    only when it actually populates one of the named fields. A firm without
+    EXPIRY_TRACKING can still create batches; it just cannot give one an expiry
+    date, which is the thing the feature is about.
+
+    Blank is not populated. Clearing a field, or leaving it alone, is always
+    allowed -- otherwise turning a feature off would freeze every record that
+    already carried the field, and the framework's rule is that enabling
+    enforcement must never take away what a firm already has.
+
+    Args:
+        session: The request session, used to resolve the firm's profile.
+        firm_id: The firm whose profile decides, or None for the platform
+            default.
+        feature: The feature code that owns these fields.
+        values: The submitted field values, keyed by the name to report.
+
+    Raises:
+        AuthorizationError: If the profile disables the feature and the write
+            populates at least one of the fields.
+
+    """
+    populated = sorted(
+        name
+        for name, value in values.items()
+        if value is not None and value != "" and value is not False
+    )
+    if not populated:
+        return
+    capabilities = resolve_capabilities(session, firm_id)
+    if capabilities.profile_code is None:
+        # No profile and no platform default. resolve_capabilities already
+        # treats that as a configuration gap rather than a decision, and the
+        # framework's rule is to enforce nothing rather than lock every firm
+        # out of a field because nobody has seeded the catalogue yet.
+        return
+    if capabilities.has_feature(feature):
+        return
+    raise AuthorizationError(
+        f"This firm's business profile does not enable {feature}, so "
+        f"{', '.join(populated)} cannot be set."
+    )
