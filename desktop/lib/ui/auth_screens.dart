@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,12 +7,26 @@ import 'package:flutter/services.dart';
 
 import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
+import '../core/design/design_tokens.dart';
 import '../core/preferences/desktop_preferences_service.dart';
 import '../core/theme/theme_manager.dart';
 import 'theme_selector.dart';
 
 const String _buildNumber =
     String.fromEnvironment('BUILD_NUMBER', defaultValue: 'Unknown');
+
+/// Below this the introduction panel is dropped rather than stacked above the
+/// form. Stacking put marketing copy between the user and the password field,
+/// which is the one thing a sign-in screen must never do.
+const double _introBreakpoint = 1200;
+
+/// Below this much room between the toolbar and the footer, the card sheds its
+/// brand mark and outer margin rather than starting to scroll.
+const double _tightHeight = 580;
+
+/// `LOGIN_SCREEN_GUIDELINES.md` asks for 500-560; the form was built at 620.
+const double _cardWidth = 520;
+const double _introWidth = 420;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
@@ -138,141 +153,91 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _selectMode(ThemeMode mode) => widget.themes.selectMode(mode);
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: widget.branding.loginBackgroundColor,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            const Positioned.fill(child: _LoginBackdrop()),
-            Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.account_balance_outlined,
-                        color: theme.colorScheme.primary,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        widget.branding.appName,
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const Spacer(),
-                      _Toolbar(
-                        children: [
-                          _ThemeShortcutButton(
-                            tooltip: 'Match Windows',
-                            icon: Icons.brightness_auto_outlined,
-                            onPressed: () =>
-                                unawaited(_selectMode(ThemeMode.system)),
-                          ),
-                          _ThemeShortcutButton(
-                            tooltip: 'Light',
-                            icon: Icons.light_mode_outlined,
-                            onPressed: () =>
-                                unawaited(_selectMode(ThemeMode.light)),
-                          ),
-                          _ThemeShortcutButton(
-                            tooltip: 'Dark',
-                            icon: Icons.dark_mode_outlined,
-                            onPressed: () =>
-                                unawaited(_selectMode(ThemeMode.dark)),
-                          ),
-                          ThemeSelector(manager: widget.themes),
-                          _ThemeShortcutButton(
-                            tooltip: 'Application Settings',
-                            icon: Icons.settings_outlined,
-                            onPressed: _showApplicationSettings,
-                          ),
-                        ],
-                      ),
-                    ],
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: widget.branding.loginBackgroundColor,
+        body: SafeArea(
+          child: Stack(
+            children: [
+              const Positioned.fill(child: _LoginBackdrop()),
+              Column(
+                children: [
+                  _TopBar(
+                    themes: widget.themes,
+                    onSelectMode: _selectMode,
+                    onShowSettings: _showApplicationSettings,
                   ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final bool wide = constraints.maxWidth >= 980;
-                          final Widget intro = ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 520),
-                            child: _LoginIntroPanel(branding: widget.branding),
-                          );
-                          final Widget form = ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 620),
-                            child: _LoginCard(
-                              formKey: _formKey,
-                              branding: widget.branding,
-                              preferences: widget.preferences,
-                              errorVisible: _errorVisible,
-                              error: widget.error,
-                              notice: widget.notice,
-                              usernameController: _username,
-                              usernameFocus: _usernameFocus,
-                              passwordController: _password,
-                              passwordFocus: _passwordFocus,
-                              obscurePassword: _obscure,
-                              capsLockOn: _capsLockOn,
-                              rememberUsername: _rememberUsername,
-                              rememberMe: _rememberMe,
-                              isSubmitting: _isSubmitting,
-                              onDismissError: _dismissError,
-                              onUsernameSelected: _applySavedUsername,
-                              onUsernameRememberChanged: (value) =>
-                                  setState(() => _rememberUsername = value),
-                              onRememberMeChanged: (value) =>
-                                  setState(() => _rememberMe = value),
-                              onTogglePasswordVisibility: () =>
-                                  setState(() => _obscure = !_obscure),
-                              onSubmit: _submit,
-                              onShowPasswordHelp: _showForgotPassword,
-                              onPasswordCapsLockChanged: _syncCapsLockState,
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final bool showIntro =
+                            constraints.maxWidth >= _introBreakpoint;
+                        // At the 960x640 window minimum the card is taller
+                        // than the space between the toolbar and the footer.
+                        // Decoration is what gives way first, not a control.
+                        final bool tight = constraints.maxHeight < _tightHeight;
+                        return Center(
+                          // A safety net for a window shorter than the content,
+                          // not the normal state: the screen is sized to fit
+                          // from the 960x640 window minimum upwards.
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: AppSpacing.xl,
+                              vertical: tight ? AppSpacing.sm : AppSpacing.lg,
                             ),
-                          );
-                          if (wide) {
-                            return Row(
+                            child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                intro,
-                                const SizedBox(width: 24),
-                                form,
+                                if (showIntro) ...[
+                                  _LoginIntroPanel(branding: widget.branding),
+                                  const SizedBox(width: AppSpacing.xxl),
+                                ],
+                                _buildCard(showBrandMark: !showIntro && !tight),
                               ],
-                            );
-                          }
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              intro,
-                              const SizedBox(height: 16),
-                              form,
-                            ],
-                          );
-                        },
-                      ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
-                _BottomStatusBar(
-                  branding: widget.branding,
-                  showEnvironment: _showEnvironment,
-                ),
-              ],
-            ),
-          ],
+                  _LoginFooter(
+                    branding: widget.branding,
+                    showEnvironment: _showEnvironment,
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
+
+  Widget _buildCard({required bool showBrandMark}) => _LoginCard(
+        formKey: _formKey,
+        branding: widget.branding,
+        preferences: widget.preferences,
+        showBrandMark: showBrandMark,
+        errorVisible: _errorVisible,
+        error: widget.error,
+        notice: widget.notice,
+        usernameController: _username,
+        usernameFocus: _usernameFocus,
+        passwordController: _password,
+        passwordFocus: _passwordFocus,
+        obscurePassword: _obscure,
+        capsLockOn: _capsLockOn,
+        rememberUsername: _rememberUsername,
+        rememberMe: _rememberMe,
+        isSubmitting: _isSubmitting,
+        onDismissError: _dismissError,
+        onUsernameSelected: _applySavedUsername,
+        onUsernameRememberChanged: (value) =>
+            setState(() => _rememberUsername = value),
+        onRememberMeChanged: (value) => setState(() => _rememberMe = value),
+        onTogglePasswordVisibility: () => setState(() => _obscure = !_obscure),
+        onSubmit: _submit,
+        onShowPasswordHelp: _showForgotPassword,
+        onPasswordCapsLockChanged: _syncCapsLockState,
+      );
 
   Future<void> _showApplicationSettings() async {
     final TextEditingController apiUrl =
@@ -308,7 +273,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       unawaited(widget.themes.selectMode(value));
                     },
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.lg),
                   TextField(
                     controller: apiUrl,
                     keyboardType: TextInputType.url,
@@ -318,9 +283,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   if (widget.preferences.current.recentServers.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: AppSpacing.md),
                     DropdownButtonFormField<String>(
-                      initialValue: widget.preferences.current.recentServers.first,
+                      initialValue:
+                          widget.preferences.current.recentServers.first,
                       decoration:
                           const InputDecoration(labelText: 'Recent Servers'),
                       items: widget.preferences.current.recentServers
@@ -338,24 +304,24 @@ class _LoginScreenState extends State<LoginScreen> {
                       },
                     ),
                   ],
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.lg),
                   InputDecorator(
                     decoration:
                         const InputDecoration(labelText: 'Language (future)'),
                     child: const Text('Coming soon'),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.lg),
                   InputDecorator(
                     decoration: const InputDecoration(labelText: 'Font Size'),
                     child: const Text('Default'),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: AppSpacing.lg),
                   _AboutBlock(
                     branding: widget.branding,
                     showEnvironment: _showEnvironment,
                   ),
                   if (error != null) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: AppSpacing.lg),
                     _ErrorBanner(
                       message: error!,
                       onDismiss: () => setDialogState(() => error = null),
@@ -424,49 +390,85 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+/// A quiet wash behind the sign-in surfaces.
+///
+/// This used to also draw two 300px watermark icons at 4-5% opacity, which on a
+/// light ground read as grey blocks floating off the right and bottom edges
+/// rather than as texture. A gradient alone is the "very low opacity" the login
+/// guidelines ask for.
 class _LoginBackdrop extends StatelessWidget {
   const _LoginBackdrop();
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = Theme.of(context).colorScheme;
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            theme.colorScheme.surface,
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-            theme.colorScheme.surface,
+            colors.surface,
+            colors.surfaceContainerHighest.withValues(alpha: 0.35),
+            colors.surface,
           ],
         ),
       ),
-      child: Stack(
+    );
+  }
+}
+
+/// Appearance and settings, right-aligned above the content.
+///
+/// The three theme-mode shortcuts that used to sit here duplicated the first
+/// section of the Appearance menu exactly, so five controls did the work of
+/// three. What is left is the one-click light/dark flip people actually use,
+/// plus the full menu and application settings.
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.themes,
+    required this.onSelectMode,
+    required this.onShowSettings,
+  });
+
+  final ThemeManager themes;
+  final Future<void> Function(ThemeMode mode) onSelectMode;
+  final VoidCallback onShowSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool isDark = theme.brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        0,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          Positioned(
-            top: -40,
-            right: -20,
-            child: Opacity(
-              opacity: .05,
-              child: Icon(
-                Icons.account_balance_outlined,
-                size: 320,
-                color: theme.colorScheme.primary,
+          _Toolbar(
+            children: [
+              IconButton(
+                tooltip: isDark ? 'Switch to light theme' : 'Switch to dark theme',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => unawaited(
+                  onSelectMode(isDark ? ThemeMode.light : ThemeMode.dark),
+                ),
+                icon: Icon(
+                  isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                ),
               ),
-            ),
-          ),
-          Positioned(
-            bottom: -80,
-            left: -30,
-            child: Opacity(
-              opacity: .04,
-              child: Icon(
-                Icons.apartment_outlined,
-                size: 280,
-                color: theme.colorScheme.primary,
+              ThemeSelector(manager: themes),
+              IconButton(
+                tooltip: 'Application Settings',
+                visualDensity: VisualDensity.compact,
+                onPressed: onShowSettings,
+                icon: const Icon(Icons.settings_outlined),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -480,37 +482,31 @@ class _Toolbar extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.95),
-        elevation: 4,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-          child: Row(mainAxisSize: MainAxisSize.min, children: children),
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surfaceContainerLowest,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: AppRadius.medium,
+        side: BorderSide(color: colors.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: AppSpacing.xs / 2,
         ),
-      );
+        child: Row(mainAxisSize: MainAxisSize.min, children: children),
+      ),
+    );
+  }
 }
 
-class _ThemeShortcutButton extends StatelessWidget {
-  const _ThemeShortcutButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        onPressed: onPressed,
-        icon: Icon(icon),
-      );
-}
-
+/// The brand half of the wide layout.
+///
+/// Trimmed from four bordered tiles plus a reassurance badge to three plain
+/// rows: the tiles were cards inside a card inside a card, and together with the
+/// badge they made this column taller than a 1080p viewport on its own.
 class _LoginIntroPanel extends StatelessWidget {
   const _LoginIntroPanel({required this.branding});
 
@@ -519,103 +515,67 @@ class _LoginIntroPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(30),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: theme.colorScheme.surface.withValues(alpha: 0.9),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: _introWidth),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        decoration: BoxDecoration(
+          borderRadius: AppRadius.large,
+          color: theme.colorScheme.surfaceContainerLowest.withValues(
+            alpha: 0.72,
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _BrandMark(branding: branding),
-          const SizedBox(height: 14),
-          Text(
-            branding.appName,
-            style: theme.textTheme.displaySmall?.copyWith(
-              fontWeight: FontWeight.w700,
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _BrandMark(branding: branding, size: 44),
+            const SizedBox(height: AppSpacing.md),
+            Text(branding.appName, style: theme.textTheme.headlineMedium),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Modern. Secure. Built for agencies.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Modern. Secure. Built for agencies.',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            const SizedBox(height: AppSpacing.lg),
+            Container(
+              width: 56,
+              height: 3,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: AppRadius.small,
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            width: 74,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
-              borderRadius: BorderRadius.circular(12),
+            const SizedBox(height: AppSpacing.lg),
+            const _IntroFeatureRow(
+              icon: Icons.bolt_rounded,
+              title: 'Fast access',
+              body: 'Remembered usernames and quick session handling.',
             ),
-          ),
-          const SizedBox(height: 22),
-          const _IntroFeatureTile(
-            icon: Icons.bolt_rounded,
-            title: 'Fast access',
-            body:
-                'Quick sign-in with remembered usernames and smart session handling.',
-          ),
-          const SizedBox(height: 10),
-          const _IntroFeatureTile(
-            icon: Icons.shield_outlined,
-            title: 'Secure by design',
-            body:
-                'Enterprise-grade security with role-based access and data protection.',
-          ),
-          const SizedBox(height: 10),
-          const _IntroFeatureTile(
-            icon: Icons.groups_2_outlined,
-            title: 'Multi-firm ready',
-            body: 'Seamlessly switch between firms without logging in again.',
-          ),
-          const SizedBox(height: 10),
-          const _IntroFeatureTile(
-            icon: Icons.corporate_fare_outlined,
-            title: 'Designed for productivity',
-            body: 'Clean interface, powerful workflows, better results.',
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.35),
+            const SizedBox(height: AppSpacing.md),
+            const _IntroFeatureRow(
+              icon: Icons.shield_outlined,
+              title: 'Secure by design',
+              body: 'Role-based access with enterprise-grade protection.',
             ),
-            child: Row(
-              children: [
-                Icon(Icons.verified_user_outlined,
-                    color: theme.colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Your data is protected. Your work stays yours.',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                ),
-              ],
+            const SizedBox(height: AppSpacing.md),
+            const _IntroFeatureRow(
+              icon: Icons.groups_2_outlined,
+              title: 'Multi-firm ready',
+              body: 'Switch between firms without signing in again.',
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _IntroFeatureTile extends StatelessWidget {
-  const _IntroFeatureTile({
+class _IntroFeatureRow extends StatelessWidget {
+  const _IntroFeatureRow({
     required this.icon,
     required this.title,
     required this.body,
@@ -628,47 +588,33 @@ class _IntroFeatureTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.84),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 48,
-            width: 48,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: theme.dividerColor.withValues(alpha: 0.45)),
-            ),
-            child: Icon(icon, color: theme.colorScheme.primary),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: theme.colorScheme.primary),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: theme.textTheme.titleSmall),
+              const SizedBox(height: 2),
+              Text(body, style: theme.textTheme.bodySmall),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(body, style: theme.textTheme.bodyMedium),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-class _BottomStatusBar extends StatelessWidget {
-  const _BottomStatusBar({
+/// Version metadata, styled to match the shell's `ApplicationStatusBar`.
+///
+/// `ApplicationStatusBar` itself is not used here because it always renders the
+/// API and database connection indicators, and before sign-in neither has been
+/// probed -- they would sit at "checking" forever.
+class _LoginFooter extends StatelessWidget {
+  const _LoginFooter({
     required this.branding,
     required this.showEnvironment,
   });
@@ -677,54 +623,55 @@ class _BottomStatusBar extends StatelessWidget {
   final bool showEnvironment;
 
   @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final TextStyle? style = theme.textTheme.titleMedium?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
-      fontWeight: FontWeight.w500,
-    );
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 10, 22, 14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface.withValues(alpha: 0.65),
-        border: Border(
-            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.3))),
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.spaceBetween,
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text('Version ${branding.version}', style: style),
-              Text('|', style: style),
-              Text('Build $_buildNumber', style: style),
-              if (showEnvironment) ...[
-                Text('|', style: style),
-                Text('Environment: Development', style: style),
-              ],
-            ],
+  Widget build(BuildContext context) => Material(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: SizedBox(
+          height: 32,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Row(
+                children: [
+                  _FooterItem(
+                    icon: Icons.info_outline,
+                    label: '${branding.appName} ${branding.version}',
+                  ),
+                  _FooterItem(
+                    icon: Icons.tag_outlined,
+                    label: 'Build $_buildNumber',
+                  ),
+                  if (showEnvironment)
+                    const _FooterItem(
+                      icon: Icons.dns_outlined,
+                      label: 'Development',
+                    ),
+                ],
+              ),
+            ),
           ),
-          Wrap(
-            spacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Icon(Icons.language,
-                  size: 20, color: theme.colorScheme.onSurfaceVariant),
-              Text('English (India)', style: style),
-              Icon(Icons.expand_more,
-                  size: 18, color: theme.colorScheme.onSurfaceVariant),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
+}
+
+class _FooterItem extends StatelessWidget {
+  const _FooterItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(right: AppSpacing.lg),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(width: AppSpacing.xs),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      );
 }
 
 class _LoginCard extends StatelessWidget {
@@ -732,6 +679,7 @@ class _LoginCard extends StatelessWidget {
     required this.formKey,
     required this.branding,
     required this.preferences,
+    required this.showBrandMark,
     required this.errorVisible,
     required this.error,
     required this.notice,
@@ -757,6 +705,10 @@ class _LoginCard extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final BrandingConfig branding;
   final DesktopPreferencesService preferences;
+
+  /// Carried by the card only when the introduction panel is hidden, so the
+  /// brand appears exactly once at every width.
+  final bool showBrandMark;
   final bool errorVisible;
   final String? error;
   final String? notice;
@@ -781,16 +733,11 @@ class _LoginCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Card(
-      elevation: 10,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.25)),
-        ),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: _cardWidth),
+      child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(36),
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Shortcuts(
             shortcuts: const {
               SingleActivator(LogicalKeyboardKey.escape): _DismissErrorIntent(),
@@ -809,128 +756,41 @@ class _LoginCard extends StatelessWidget {
                 child: AutofillGroup(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (showBrandMark) ...[
+                        Center(child: _BrandMark(branding: branding, size: 36)),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
                       Text(
                         'Welcome back',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: theme.textTheme.headlineMedium,
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: AppSpacing.xs),
                       Text(
                         'Sign in to continue to ${branding.appName}.',
                         textAlign: TextAlign.center,
-                        style: theme.textTheme.titleLarge?.copyWith(
+                        style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
                       if (error != null && errorVisible) ...[
-                        const SizedBox(height: 20),
-                        _ErrorBanner(onDismiss: onDismissError),
+                        const SizedBox(height: AppSpacing.lg),
+                        _ErrorBanner(message: error!, onDismiss: onDismissError),
                       ],
                       if (notice != null) ...[
-                        const SizedBox(height: 20),
+                        const SizedBox(height: AppSpacing.lg),
                         _NoticeBanner(message: notice!),
                       ],
-                      const SizedBox(height: 24),
-                      RawAutocomplete<String>(
-                        textEditingController: usernameController,
+                      const SizedBox(height: AppSpacing.xl),
+                      _UsernameField(
+                        controller: usernameController,
                         focusNode: usernameFocus,
-                        optionsBuilder: (TextEditingValue textEditingValue) {
-                          final List<String> usernames =
-                              preferences.current.recentUsernames;
-                          final String query =
-                              textEditingValue.text.trim().toLowerCase();
-                          if (usernames.isEmpty) {
-                            return const Iterable<String>.empty();
-                          }
-                          if (query.isEmpty) {
-                            return usernames.take(6);
-                          }
-                          return usernames
-                              .where(
-                                (username) =>
-                                    username.toLowerCase().contains(query),
-                              )
-                              .take(6);
-                        },
-                        displayStringForOption: (value) => value,
+                        preferences: preferences,
                         onSelected: onUsernameSelected,
-                        fieldViewBuilder: (
-                          context,
-                          controller,
-                          focusNode,
-                          onFieldSubmitted,
-                        ) {
-                          return TextFormField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            autofocus: true,
-                            textInputAction: TextInputAction.next,
-                            keyboardType: TextInputType.text,
-                            autofillHints: const [
-                              AutofillHints.username,
-                              AutofillHints.email,
-                            ],
-                            decoration: InputDecoration(
-                              labelText: 'Username / Email',
-                              helperText:
-                                  'Supports username, email, and employee ID (future).',
-                              prefixIcon: const Icon(Icons.person_outline),
-                              suffixIcon:
-                                  preferences.current.recentUsernames.isNotEmpty
-                                      ? const Icon(Icons.expand_more)
-                                      : null,
-                            ),
-                            onFieldSubmitted: (_) => onFieldSubmitted(),
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Enter your username or email.';
-                              }
-                              return null;
-                            },
-                          );
-                        },
-                        optionsViewBuilder: (context, onSelected, options) {
-                          final ThemeData optionTheme = Theme.of(context);
-                          return Align(
-                            alignment: Alignment.topLeft,
-                            child: Material(
-                              elevation: 10,
-                              borderRadius: BorderRadius.circular(12),
-                              color: optionTheme
-                                  .colorScheme.surfaceContainerHighest,
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 540,
-                                  maxHeight: 240,
-                                ),
-                                child: ListView.separated(
-                                  padding: EdgeInsets.zero,
-                                  shrinkWrap: true,
-                                  itemCount: options.length,
-                                  separatorBuilder: (_, __) => Divider(
-                                    height: 1,
-                                    color: optionTheme.dividerColor,
-                                  ),
-                                  itemBuilder: (context, index) {
-                                    final String username =
-                                        options.elementAt(index);
-                                    return ListTile(
-                                      dense: true,
-                                      leading: const Icon(Icons.person_outline),
-                                      title: Text(username),
-                                      onTap: () => onSelected(username),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          );
-                        },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: AppSpacing.md),
                       TextFormField(
                         controller: passwordController,
                         focusNode: passwordFocus,
@@ -942,32 +802,16 @@ class _LoginCard extends StatelessWidget {
                         decoration: InputDecoration(
                           labelText: 'Password',
                           prefixIcon: const Icon(Icons.lock_outline),
-                          suffixIcon: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (capsLockOn && passwordFocus.hasFocus)
-                                const Padding(
-                                  padding: EdgeInsets.only(right: 4),
-                                  child: Tooltip(
-                                    message: 'Caps Lock is ON',
-                                    child: Icon(
-                                      Icons.warning_amber_rounded,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ),
-                              IconButton(
-                                tooltip: obscurePassword
-                                    ? 'Show password'
-                                    : 'Hide password',
-                                onPressed: onTogglePasswordVisibility,
-                                icon: Icon(
-                                  obscurePassword
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                              ),
-                            ],
+                          suffixIcon: IconButton(
+                            tooltip: obscurePassword
+                                ? 'Show password'
+                                : 'Hide password',
+                            onPressed: onTogglePasswordVisibility,
+                            icon: Icon(
+                              obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                            ),
                           ),
                         ),
                         validator: (value) {
@@ -978,67 +822,28 @@ class _LoginCard extends StatelessWidget {
                         },
                       ),
                       if (capsLockOn && passwordFocus.hasFocus) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: AppSpacing.sm),
                         const _CapsLockNotice(),
                       ],
-                      const SizedBox(height: 20),
+                      const SizedBox(height: AppSpacing.xs),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: onShowPasswordHelp,
+                          child: const Text('Forgot password?'),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
                       _SignInOptions(
                         rememberUsername: rememberUsername,
                         rememberMe: rememberMe,
                         onRememberUsernameChanged: onUsernameRememberChanged,
                         onRememberMeChanged: onRememberMeChanged,
                       ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        height: 54,
-                        child: _PrimarySignInButton(
-                          isSubmitting: isSubmitting,
-                          onPressed: onSubmit,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(child: Divider(color: theme.dividerColor)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: Text(
-                              'or',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          Expanded(child: Divider(color: theme.dividerColor)),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        height: 50,
-                        child: OutlinedButton.icon(
-                          onPressed: onShowPasswordHelp,
-                          icon: const Icon(Icons.lock_outline),
-                          label: const Text('Forgot password?'),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            size: 18,
-                            color: theme.colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              'Need help? Contact your system administrator.',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: AppSpacing.lg),
+                      _PrimarySignInButton(
+                        isSubmitting: isSubmitting,
+                        onPressed: onSubmit,
                       ),
                     ],
                   ),
@@ -1052,29 +857,133 @@ class _LoginCard extends StatelessWidget {
   }
 }
 
+/// The username field with its remembered-username suggestions.
+///
+/// The permanent helper line -- "Supports username, email, and employee ID
+/// (future)" -- is gone: the label already says Username / Email, and the rest
+/// advertised a capability that does not exist while reserving a row of height
+/// on every render.
+class _UsernameField extends StatelessWidget {
+  const _UsernameField({
+    required this.controller,
+    required this.focusNode,
+    required this.preferences,
+    required this.onSelected,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final DesktopPreferencesService preferences;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => RawAutocomplete<String>(
+        textEditingController: controller,
+        focusNode: focusNode,
+        optionsBuilder: (TextEditingValue textEditingValue) {
+          final List<String> usernames = preferences.current.recentUsernames;
+          final String query = textEditingValue.text.trim().toLowerCase();
+          if (usernames.isEmpty) {
+            return const Iterable<String>.empty();
+          }
+          if (query.isEmpty) {
+            return usernames.take(6);
+          }
+          return usernames
+              .where((username) => username.toLowerCase().contains(query))
+              .take(6);
+        },
+        displayStringForOption: (value) => value,
+        onSelected: onSelected,
+        fieldViewBuilder: (context, field, node, onFieldSubmitted) =>
+            TextFormField(
+          controller: field,
+          focusNode: node,
+          autofocus: true,
+          textInputAction: TextInputAction.next,
+          keyboardType: TextInputType.text,
+          autofillHints: const [
+            AutofillHints.username,
+            AutofillHints.email,
+          ],
+          decoration: InputDecoration(
+            labelText: 'Username / Email',
+            prefixIcon: const Icon(Icons.person_outline),
+            suffixIcon: preferences.current.recentUsernames.isNotEmpty
+                ? const Icon(Icons.expand_more)
+                : null,
+          ),
+          onFieldSubmitted: (_) => onFieldSubmitted(),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Enter your username or email.';
+            }
+            return null;
+          },
+        ),
+        optionsViewBuilder: (context, onOptionSelected, options) {
+          final ThemeData theme = Theme.of(context);
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: AppRadius.medium,
+              color: theme.colorScheme.surfaceContainerLowest,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: _cardWidth,
+                  maxHeight: 240,
+                ),
+                child: ListView.separated(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final String username = options.elementAt(index);
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.person_outline),
+                      title: Text(username),
+                      onTap: () => onOptionSelected(username),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      );
+}
+
 class _BrandMark extends StatelessWidget {
-  const _BrandMark({required this.branding});
+  const _BrandMark({required this.branding, required this.size});
 
   final BrandingConfig branding;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    final logo = branding.logoFile;
-    return Column(
-      children: [
-        if (logo != null)
-          Image.file(logo, height: 80, fit: BoxFit.contain)
-        else
-          Icon(
-            Icons.account_balance_outlined,
-            size: 60,
-            color: branding.loginAccentColor,
-          ),
-      ],
+    final File? logo = branding.logoFile;
+    if (logo != null) {
+      return Image.file(logo, height: size, fit: BoxFit.contain);
+    }
+    return Icon(
+      Icons.account_balance_outlined,
+      size: size,
+      color: branding.loginAccentColor,
     );
   }
 }
 
+/// The two remembering choices.
+///
+/// The bordered panel around them is gone, and so are the subtitles that
+/// restated each label in a second sentence. The labels now say what the option
+/// does, which is what the subtitles were there to explain. Hit targets are
+/// left at full size deliberately -- the login guidelines ask for larger
+/// targets here, so this is the one place that does not take the app's compact
+/// list density.
 class _SignInOptions extends StatelessWidget {
   const _SignInOptions({
     required this.rememberUsername,
@@ -1091,55 +1000,39 @@ class _SignInOptions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color:
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Material(
-        color: Colors.transparent,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Sign-in options',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 10),
-            CheckboxListTile(
-              value: rememberUsername,
-              onChanged: (value) => onRememberUsernameChanged(value ?? false),
-              title: const Text('Remember username'),
-              subtitle: const Text('Prefill the username next time.'),
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-            ),
-            CheckboxListTile(
-              value: rememberMe,
-              onChanged: (value) => onRememberMeChanged(value ?? false),
-              title: const Text('Remember me on this device'),
-              subtitle: const Text(
-                'Keep me signed in securely on this device.',
-              ),
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Sign-in options', style: theme.textTheme.labelMedium),
+        const SizedBox(height: AppSpacing.xs),
+        CheckboxListTile(
+          value: rememberUsername,
+          onChanged: (value) => onRememberUsernameChanged(value ?? false),
+          title: const Text('Remember my username'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
         ),
-      ),
+        CheckboxListTile(
+          value: rememberMe,
+          onChanged: (value) => onRememberMeChanged(value ?? false),
+          title: const Text('Keep me signed in on this device'),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ],
     );
   }
 }
 
+/// The primary action.
+///
+/// This was a hand-built `Ink`/`InkWell` with a gradient and `Colors.white`
+/// text. That gave it no focus ring, no keyboard activation, no disabled
+/// appearance, and a label that assumed white is always legible on the primary
+/// colour -- which the high-contrast and green palettes do not guarantee. A
+/// `FilledButton` carries all of that from the theme; the only override is to
+/// keep it looking like the primary action while it is disabled mid-submit,
+/// rather than greying out under the user's cursor.
 class _PrimarySignInButton extends StatelessWidget {
   const _PrimarySignInButton({
     required this.isSubmitting,
@@ -1151,67 +1044,38 @@ class _PrimarySignInButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    final BorderRadius borderRadius = BorderRadius.circular(14);
-    return Material(
-      color: Colors.transparent,
-      child: Ink(
-        decoration: BoxDecoration(
-          borderRadius: borderRadius,
-          gradient: LinearGradient(
-            colors: [
-              theme.colorScheme.primary,
-              theme.colorScheme.primary.withValues(alpha: 0.86),
-            ],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.primary.withValues(alpha: 0.28),
-              blurRadius: 14,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: InkWell(
-          borderRadius: borderRadius,
-          onTap: isSubmitting ? null : onPressed,
-          child: Center(
-            child: isSubmitting
-                ? const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Text(
-                        'Signing in...',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  )
-                : const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Sign in',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      SizedBox(width: 12),
-                      Icon(Icons.arrow_forward, color: Colors.white),
-                    ],
-                  ),
-          ),
-        ),
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return FilledButton(
+      onPressed: isSubmitting ? null : onPressed,
+      style: FilledButton.styleFrom(
+        minimumSize: const Size.fromHeight(48),
+        disabledBackgroundColor: colors.primary.withValues(alpha: 0.6),
+        disabledForegroundColor: colors.onPrimary,
       ),
+      child: isSubmitting
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  height: 16,
+                  width: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: colors.onPrimary,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                const Text('Signing in...'),
+              ],
+            )
+          : const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('Sign in'),
+                SizedBox(width: AppSpacing.sm),
+                Icon(Icons.arrow_forward, size: 18),
+              ],
+            ),
     );
   }
 }
@@ -1224,13 +1088,16 @@ class _CapsLockNotice extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.warning_amber_rounded,
-            size: 18, color: theme.colorScheme.error),
-        const SizedBox(width: 8),
+        Icon(
+          Icons.warning_amber_rounded,
+          size: 18,
+          color: context.semanticColors.warning,
+        ),
+        const SizedBox(width: AppSpacing.sm),
         Text(
           'Caps Lock is ON',
           style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.error,
+            color: context.semanticColors.warning,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -1253,20 +1120,19 @@ class _AboutBlock extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color:
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(12),
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
+        borderRadius: AppRadius.medium,
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('About', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppSpacing.sm),
           Text(branding.appName),
           Text('Version ${branding.version}'),
           Text('Build $_buildNumber'),
-          if (showEnvironment) Text('Environment: Development'),
+          if (showEnvironment) const Text('Environment: Development'),
         ],
       ),
     );
@@ -1289,26 +1155,40 @@ class _ErrorBanner extends StatelessWidget {
     return Semantics(
       liveRegion: true,
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.sm,
+          AppSpacing.sm,
+          AppSpacing.sm,
+        ),
         decoration: BoxDecoration(
           color: theme.colorScheme.errorContainer,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-              color: theme.colorScheme.error.withValues(alpha: 0.25)),
+          borderRadius: AppRadius.medium,
+          border:
+              Border.all(color: theme.colorScheme.error.withValues(alpha: 0.25)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.error_outline, color: theme.colorScheme.error),
-            const SizedBox(width: 12),
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: Icon(Icons.error_outline, color: theme.colorScheme.error),
+            ),
+            const SizedBox(width: AppSpacing.md),
             Expanded(
-              child: Text(
-                message,
-                style: TextStyle(color: theme.colorScheme.onErrorContainer),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Text(
+                  message,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                ),
               ),
             ),
             IconButton(
               tooltip: 'Dismiss',
+              visualDensity: VisualDensity.compact,
               onPressed: onDismiss,
               icon: const Icon(Icons.close),
             ),
@@ -1325,14 +1205,22 @@ class _NoticeBanner extends StatelessWidget {
   final String message;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: AppRadius.medium,
+      ),
+      child: Text(
+        message,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onPrimaryContainer,
         ),
-        child: Text(message),
-      );
+      ),
+    );
+  }
 }
 
 class _DismissErrorIntent extends Intent {
@@ -1376,7 +1264,7 @@ class _ChangeInitialPasswordScreenState
             constraints: const BoxConstraints(maxWidth: 440),
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(32),
+                padding: const EdgeInsets.all(AppSpacing.xxl),
                 child: Form(
                   key: _formKey,
                   child: Column(
@@ -1386,27 +1274,27 @@ class _ChangeInitialPasswordScreenState
                         'Set a new password',
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: AppSpacing.sm),
                       Text(
                         'Your ${widget.branding.companyName} administrator requires '
                         'a password change before continuing.',
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: AppSpacing.xl),
                       if (widget.session.error != null) ...[
                         _ErrorBanner(
                             message: widget.session.error!, onDismiss: () {}),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: AppSpacing.lg),
                       ],
                       _passwordField(_current, 'Current password'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpacing.md),
                       _passwordField(_next, 'New password'),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: AppSpacing.md),
                       _passwordField(
                         _confirmation,
                         'Confirm new password',
                         confirmation: true,
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: AppSpacing.xl),
                       FilledButton(
                         onPressed: _submit,
                         child: const Text('Update password'),
