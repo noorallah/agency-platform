@@ -18,6 +18,8 @@ class TaxStatus(StrEnum):
 
 
 class TaxRuleConditionOperator(StrEnum):
+    """Supported tax rule condition operator values."""
+
     EQUALS = "EQUALS"
     NOT_EQUALS = "NOT_EQUALS"
     IN = "IN"
@@ -32,6 +34,8 @@ class TaxRuleConditionOperator(StrEnum):
 
 
 class TaxRuleActionType(StrEnum):
+    """Supported tax rule action type values."""
+
     APPLY_TAX_PROFILE = "APPLY_TAX_PROFILE"
     APPLY_TAX_COMPONENT = "APPLY_TAX_COMPONENT"
     EXEMPT_TAX = "EXEMPT_TAX"
@@ -56,6 +60,7 @@ class EffectiveDatedSchema(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def validate_effective_window(self) -> "EffectiveDatedSchema":
+        """Validate one effective window."""
         if (
             self.effective_from is not None
             and self.effective_to is not None
@@ -80,11 +85,13 @@ class TaxSystemWrite(TaxFrameworkSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "display_name", mode="before")
     @classmethod
     def normalize_name(cls, value: str | None) -> str | None:
+        """Normalize the name."""
         if value is None:
             return None
         normalized = value.strip()
@@ -92,6 +99,7 @@ class TaxSystemWrite(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def default_display_name(self) -> "TaxSystemWrite":
+        """Default the display name when none is given."""
         if not self.display_name:
             self.display_name = self.name
         return self
@@ -115,11 +123,13 @@ class TaxComponentWrite(TaxFrameworkSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "label", "short_label", mode="before")
     @classmethod
     def normalize_labels(cls, value: str | None) -> str | None:
+        """Normalize the labels."""
         if value is None:
             return None
         normalized = value.strip()
@@ -127,6 +137,7 @@ class TaxComponentWrite(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def default_labels(self) -> "TaxComponentWrite":
+        """Default the labels when none is given."""
         if not self.label:
             self.label = self.name
         if not self.short_label:
@@ -168,11 +179,13 @@ class TaxProfileWrite(EffectiveDatedSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "label", mode="before")
     @classmethod
     def normalize_labels(cls, value: str | None) -> str | None:
+        """Normalize the labels."""
         if value is None:
             return None
         normalized = value.strip()
@@ -180,6 +193,7 @@ class TaxProfileWrite(EffectiveDatedSchema):
 
     @model_validator(mode="after")
     def default_label(self) -> "TaxProfileWrite":
+        """Default the label when none is given."""
         if not self.label:
             self.label = self.name
         if not self.group_code:
@@ -212,6 +226,7 @@ class TaxMigrationMappingWrite(TaxFrameworkSchema):
     @field_validator("legacy_tax_code", mode="before")
     @classmethod
     def normalize_legacy_code(cls, value: str) -> str:
+        """Normalize the legacy code."""
         return value.strip().upper()
 
 
@@ -227,6 +242,8 @@ class TaxSettingsWrite(TaxFrameworkSchema):
 
 
 class TaxRuleConditionWrite(TaxFrameworkSchema):
+    """Create or replace one tax rule condition."""
+
     sequence: int = Field(default=1, ge=1, le=100000)
     field_key: str = Field(min_length=1, max_length=80)
     operator: TaxRuleConditionOperator
@@ -239,10 +256,12 @@ class TaxRuleConditionWrite(TaxFrameworkSchema):
     @field_validator("field_key", mode="before")
     @classmethod
     def normalize_field_key(cls, value: str) -> str:
+        """Normalize the field key."""
         return value.strip()
 
     @model_validator(mode="after")
     def validate_value_presence(self) -> "TaxRuleConditionWrite":
+        """Validate one value presence."""
         if self.operator in {
             TaxRuleConditionOperator.EXISTS,
             TaxRuleConditionOperator.NOT_EXISTS,
@@ -260,6 +279,8 @@ class TaxRuleConditionWrite(TaxFrameworkSchema):
 
 
 class TaxRuleActionWrite(TaxFrameworkSchema):
+    """Create or replace one tax rule action."""
+
     sequence: int = Field(default=1, ge=1, le=100000)
     action_type: TaxRuleActionType
     target_tax_profile_id: UUID | None = None
@@ -269,6 +290,8 @@ class TaxRuleActionWrite(TaxFrameworkSchema):
 
 
 class TaxRuleWrite(EffectiveDatedSchema):
+    """Create or replace one tax rule."""
+
     country_id: UUID | None = None
     business_profile_id: UUID | None = None
     tax_profile_id: UUID | None = None
@@ -285,15 +308,19 @@ class TaxRuleWrite(EffectiveDatedSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_rule_code(cls, value: str) -> str:
+        """Normalize the rule code."""
         return value.strip().upper()
 
     @field_validator("name", mode="before")
     @classmethod
     def normalize_rule_name(cls, value: str) -> str:
+        """Normalize the rule name."""
         return value.strip()
 
 
 class TaxRuleSimulationRequest(TaxFrameworkSchema):
+    """Request one tax rule simulation."""
+
     transaction_type: str = Field(min_length=1, max_length=40)
     transaction_date: date | None = None
     country_id: UUID | None = None
@@ -323,6 +350,7 @@ class TaxRuleSimulationRequest(TaxFrameworkSchema):
     @field_validator("transaction_type", "customer_type", "vendor_type", mode="before")
     @classmethod
     def normalize_upper_text(cls, value: str | None) -> str | None:
+        """Normalize the upper text."""
         if value is None:
             return None
         normalized = value.strip()
@@ -342,6 +370,7 @@ class TaxRuleSimulationRequest(TaxFrameworkSchema):
     )
     @classmethod
     def normalize_text(cls, value: str | None) -> str | None:
+        """Normalize the text."""
         if value is None:
             return None
         normalized = value.strip()
@@ -349,6 +378,8 @@ class TaxRuleSimulationRequest(TaxFrameworkSchema):
 
 
 class TaxSystemResponse(TaxFrameworkSchema):
+    """Return one tax system."""
+
     id: UUID
     firm_id: UUID
     country_id: UUID | None
@@ -365,6 +396,8 @@ class TaxSystemResponse(TaxFrameworkSchema):
 
 
 class TaxComponentResponse(TaxFrameworkSchema):
+    """Return one tax component."""
+
     id: UUID
     firm_id: UUID
     tax_system_id: UUID
@@ -384,6 +417,8 @@ class TaxComponentResponse(TaxFrameworkSchema):
 
 
 class TaxProfileComponentResponse(TaxFrameworkSchema):
+    """Return one tax profile component."""
+
     id: UUID
     tax_component_id: UUID
     label: str | None
@@ -395,6 +430,8 @@ class TaxProfileComponentResponse(TaxFrameworkSchema):
 
 
 class TaxProfileResponse(TaxFrameworkSchema):
+    """Return one tax profile."""
+
     id: UUID
     firm_id: UUID
     tax_system_id: UUID
@@ -416,6 +453,8 @@ class TaxProfileResponse(TaxFrameworkSchema):
 
 
 class TaxRuleConditionResponse(TaxFrameworkSchema):
+    """Return one tax rule condition."""
+
     id: UUID
     tax_rule_id: UUID
     sequence: int
@@ -432,6 +471,8 @@ class TaxRuleConditionResponse(TaxFrameworkSchema):
 
 
 class TaxRuleActionResponse(TaxFrameworkSchema):
+    """Return one tax rule action."""
+
     id: UUID
     tax_rule_id: UUID
     sequence: int
@@ -446,6 +487,8 @@ class TaxRuleActionResponse(TaxFrameworkSchema):
 
 
 class TaxRuleResponse(TaxFrameworkSchema):
+    """Return one tax rule."""
+
     id: UUID
     firm_id: UUID
     country_id: UUID | None
@@ -469,6 +512,8 @@ class TaxRuleResponse(TaxFrameworkSchema):
 
 
 class TaxCountryMappingResponse(TaxFrameworkSchema):
+    """Return one tax country mapping."""
+
     id: UUID
     firm_id: UUID
     country_id: UUID
@@ -484,6 +529,8 @@ class TaxCountryMappingResponse(TaxFrameworkSchema):
 
 
 class TaxMigrationMappingResponse(TaxFrameworkSchema):
+    """Return one tax migration mapping."""
+
     id: UUID
     firm_id: UUID
     legacy_tax_code: str
@@ -500,6 +547,8 @@ class TaxMigrationMappingResponse(TaxFrameworkSchema):
 
 
 class TaxSettingsResponse(TaxFrameworkSchema):
+    """Return one tax settings."""
+
     id: UUID
     firm_id: UUID
     primary_label: str
@@ -513,6 +562,8 @@ class TaxSettingsResponse(TaxFrameworkSchema):
 
 
 class EffectiveDateRecord(TaxFrameworkSchema):
+    """One effective date row of a report."""
+
     entity_type: str
     entity_id: UUID
     code: str
@@ -523,6 +574,8 @@ class EffectiveDateRecord(TaxFrameworkSchema):
 
 
 class TaxHistoryRecord(TaxFrameworkSchema):
+    """One tax history entry row of a report."""
+
     id: UUID
     action: str
     entity_type: str
@@ -532,6 +585,8 @@ class TaxHistoryRecord(TaxFrameworkSchema):
 
 
 class TaxRulePriorityRecord(TaxFrameworkSchema):
+    """One tax rule priority row of a report."""
+
     id: UUID
     code: str
     name: str
@@ -545,6 +600,8 @@ class TaxRulePriorityRecord(TaxFrameworkSchema):
 
 
 class TaxRuleComponentPreview(TaxFrameworkSchema):
+    """Preview one tax rule component."""
+
     tax_component_id: UUID | None
     code: str
     label: str
@@ -556,6 +613,8 @@ class TaxRuleComponentPreview(TaxFrameworkSchema):
 
 
 class TaxRuleEvaluationDecision(TaxFrameworkSchema):
+    """Describe one tax rule."""
+
     rule_id: UUID
     code: str
     name: str
@@ -566,6 +625,8 @@ class TaxRuleEvaluationDecision(TaxFrameworkSchema):
 
 
 class TaxRuleSimulationResponse(TaxFrameworkSchema):
+    """Return one tax rule simulation."""
+
     transaction_type: str
     transaction_date: date
     matched_rule_id: UUID | None
@@ -587,6 +648,8 @@ class TaxRuleSimulationResponse(TaxFrameworkSchema):
 
 
 class TaxRuleExecutionLogResponse(TaxFrameworkSchema):
+    """Return one tax rule."""
+
     id: UUID
     firm_id: UUID
     execution_mode: str
@@ -604,18 +667,26 @@ class TaxRuleExecutionLogResponse(TaxFrameworkSchema):
 
 
 class TaxRuleImportRequest(TaxFrameworkSchema):
+    """Request one tax rule."""
+
     rules: list[TaxRuleWrite] = Field(min_length=1, max_length=1000)
 
 
 class BulkUuidRequest(TaxFrameworkSchema):
+    """Carry the identifiers a bulk operation applies to."""
+
     ids: list[UUID] = Field(min_length=1, max_length=5000)
 
 
 class BulkTaxStatusRequest(BulkUuidRequest):
+    """Set one status across several tax records."""
+
     status: TaxStatus
 
 
 class TaxImportSystemsRequest(TaxFrameworkSchema):
+    """Import a validated batch of tax systems."""
+
     systems: list[TaxSystemWrite] = Field(min_length=1, max_length=1000)
 
 
@@ -623,7 +694,10 @@ class TaxImportSystemsRequest(TaxFrameworkSchema):
 
 
 class TaxComponentSetupInput(TaxFrameworkSchema):
-    """Component input inside a composite tax setup — no tax_system_id needed (derived)."""
+    """One component inside a composite tax setup.
+
+    Carries no ``tax_system_id``: it is derived from the setup it sits in.
+    """
 
     id: UUID | None = None  # None = create new, UUID = update existing
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
@@ -640,11 +714,13 @@ class TaxComponentSetupInput(TaxFrameworkSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "label", "short_label", mode="before")
     @classmethod
     def normalize_labels(cls, value: str | None) -> str | None:
+        """Normalize the labels."""
         if value is None:
             return None
         normalized = value.strip()
@@ -652,6 +728,7 @@ class TaxComponentSetupInput(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def default_labels(self) -> "TaxComponentSetupInput":
+        """Default the labels when none is given."""
         if not self.label:
             self.label = self.name
         if not self.short_label:
@@ -673,11 +750,15 @@ class TaxProfileComponentSetupInput(TaxFrameworkSchema):
     @field_validator("component_code", mode="before")
     @classmethod
     def normalize_component_code(cls, value: str) -> str:
+        """Normalize the component code."""
         return value.strip().upper()
 
 
 class TaxProfileSetupInput(TaxFrameworkSchema):
-    """Profile input inside a composite tax setup — no tax_system_id needed (derived)."""
+    """One profile inside a composite tax setup.
+
+    Carries no ``tax_system_id``: it is derived from the setup it sits in.
+    """
 
     id: UUID | None = None  # None = create new, UUID = update existing
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
@@ -700,11 +781,13 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "label", mode="before")
     @classmethod
     def normalize_labels(cls, value: str | None) -> str | None:
+        """Normalize the labels."""
         if value is None:
             return None
         normalized = value.strip()
@@ -712,6 +795,7 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def default_label(self) -> "TaxProfileSetupInput":
+        """Default the label when none is given."""
         if not self.label:
             self.label = self.name
         if not self.group_code:
@@ -720,7 +804,12 @@ class TaxProfileSetupInput(TaxFrameworkSchema):
 
 
 class TaxSetupWrite(TaxFrameworkSchema):
-    """Composite payload: create or update a full tax system with components and profiles in one call."""
+    """Create or replace a whole tax system in one call.
+
+    Carries the system, its components and its profiles together, so a
+    caller does not have to sequence three round trips and reconcile the
+    references between them.
+    """
 
     # System fields
     country_id: UUID | None = None
@@ -740,11 +829,13 @@ class TaxSetupWrite(TaxFrameworkSchema):
     @field_validator("code", mode="before")
     @classmethod
     def normalize_code(cls, value: str) -> str:
+        """Normalize the code."""
         return value.strip().upper()
 
     @field_validator("name", "display_name", mode="before")
     @classmethod
     def normalize_name(cls, value: str | None) -> str | None:
+        """Normalize the name."""
         if value is None:
             return None
         normalized = value.strip()
@@ -752,18 +843,21 @@ class TaxSetupWrite(TaxFrameworkSchema):
 
     @model_validator(mode="after")
     def default_display_name(self) -> "TaxSetupWrite":
+        """Default the display name when none is given."""
         if not self.display_name:
             self.display_name = self.name
         return self
 
     @model_validator(mode="after")
     def validate_profile_component_codes(self) -> "TaxSetupWrite":
+        """Validate profile component codes."""
         component_codes = {c.code for c in self.components}
         for profile in self.profiles:
             for pc in profile.components:
                 if pc.component_code not in component_codes:
                     raise ValueError(
-                        f"Profile '{profile.code}' references unknown component code '{pc.component_code}'. "
+                        f"Profile '{profile.code}' references unknown "
+                        f"component code '{pc.component_code}'. "
                         f"Available codes: {sorted(component_codes)}"
                     )
         return self

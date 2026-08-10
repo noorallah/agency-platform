@@ -241,7 +241,9 @@ class Settings(BaseSettings):
         """Return grouped tenancy settings selected during installation."""
         profiles = self._parse_connection_profiles()
         self._ensure_platform_database_type(profiles)
-        shared_database_name = self.tenancy_shared_database_name.strip() or self.database_name
+        shared_database_name = (
+            self.tenancy_shared_database_name.strip() or self.database_name
+        )
         return TenancySettings(
             platform_database_type=self.database_dialect,
             shared_database_name=shared_database_name,

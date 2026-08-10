@@ -13,6 +13,7 @@ from sqlalchemy.sql import Select
 
 from app.common.audit.models.audit_log import AuditLog
 from app.common.audit.services import record_audit
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.products.models import Product
@@ -46,6 +47,7 @@ class TaxFrameworkService:
     """Coordinate CRUD, search, bulk, import, and export for tax framework."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to one request unit of work."""
         self._session = session
 
     def list_systems(
@@ -60,6 +62,7 @@ class TaxFrameworkService:
         status: TaxStatus | None,
         include_deleted: bool,
     ) -> tuple[list[TaxSystem], int]:
+        """List tax systems for the visible firm scope."""
         statement = select(TaxSystem).where(TaxSystem.firm_id == firm_scope)
         count = (
             select(func.count())
@@ -108,6 +111,7 @@ class TaxFrameworkService:
         status: TaxStatus | None,
         include_deleted: bool,
     ) -> tuple[list[TaxComponent], int]:
+        """List tax components for the visible firm scope."""
         statement = select(TaxComponent).where(TaxComponent.firm_id == firm_scope)
         count = (
             select(func.count())
@@ -153,6 +157,7 @@ class TaxFrameworkService:
         status: TaxStatus | None,
         include_deleted: bool,
     ) -> tuple[list[TaxProfile], int]:
+        """List tax profiles for the visible firm scope."""
         statement = (
             select(TaxProfile)
             .where(TaxProfile.firm_id == firm_scope)
@@ -197,6 +202,7 @@ class TaxFrameworkService:
     def list_country_mappings(
         self, *, firm_scope: UUID, include_deleted: bool
     ) -> list[TaxCountryMapping]:
+        """List country mappings for the visible firm scope."""
         statement = select(TaxCountryMapping).where(
             TaxCountryMapping.firm_id == firm_scope
         )
@@ -214,6 +220,7 @@ class TaxFrameworkService:
     def list_migration_mappings(
         self, *, firm_scope: UUID, include_deleted: bool
     ) -> list[TaxMigrationMapping]:
+        """List migration mappings for the visible firm scope."""
         statement = select(TaxMigrationMapping).where(
             TaxMigrationMapping.firm_id == firm_scope
         )
@@ -228,6 +235,7 @@ class TaxFrameworkService:
     def create_system(
         self, data: TaxSystemWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxSystem:
+        """Create one tax system."""
         now = utc_now()
         row = TaxSystem(
             firm_id=firm_id,
@@ -261,8 +269,9 @@ class TaxFrameworkService:
     def update_system(
         self, system_id: UUID, data: TaxSystemWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxSystem:
+        """Replace one tax system."""
         row = self.get_system(system_id, firm_scope=firm_scope, include_deleted=True)
-        before = {"code": row.code, "status": row.status}
+        before: dict[str, object] = {"code": row.code, "status": row.status}
         row.country_id = data.country_id
         row.business_profile_id = data.business_profile_id
         row.code = data.code
@@ -289,6 +298,7 @@ class TaxFrameworkService:
     def create_component(
         self, data: TaxComponentWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxComponent:
+        """Create one tax component."""
         self._assert_system_exists(data.tax_system_id, firm_id)
         now = utc_now()
         row = TaxComponent(
@@ -331,11 +341,12 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxComponent:
+        """Replace one tax component."""
         row = self.get_component(
             component_id, firm_scope=firm_scope, include_deleted=True
         )
         self._assert_system_exists(data.tax_system_id, firm_scope)
-        before = {"code": row.code, "status": row.status}
+        before: dict[str, object] = {"code": row.code, "status": row.status}
         row.tax_system_id = data.tax_system_id
         row.code = data.code
         row.name = data.name
@@ -365,6 +376,7 @@ class TaxFrameworkService:
     def create_profile(
         self, data: TaxProfileWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxProfile:
+        """Create one tax profile."""
         self._assert_system_exists(data.tax_system_id, firm_id)
         if data.status == TaxStatus.ACTIVE:
             self.assert_no_overlapping_version(
@@ -423,9 +435,10 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxProfile:
+        """Replace one tax profile."""
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
         self._assert_system_exists(data.tax_system_id, firm_scope)
-        before = {"code": row.code, "status": row.status}
+        before: dict[str, object] = {"code": row.code, "status": row.status}
         row.tax_system_id = data.tax_system_id
         row.business_profile_id = data.business_profile_id
         row.code = data.code
@@ -464,6 +477,7 @@ class TaxFrameworkService:
     def create_country_mapping(
         self, data: TaxCountryMappingWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxCountryMapping:
+        """Create one country mapping."""
         self._assert_system_exists(data.tax_system_id, firm_id)
         now = utc_now()
         row = TaxCountryMapping(
@@ -501,6 +515,7 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxCountryMapping:
+        """Replace one country mapping."""
         row = self.get_country_mapping(
             mapping_id, firm_scope=firm_scope, include_deleted=True
         )
@@ -520,6 +535,7 @@ class TaxFrameworkService:
     def create_migration_mapping(
         self, data: TaxMigrationMappingWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxMigrationMapping:
+        """Create one migration mapping."""
         if data.target_tax_profile_id is not None:
             self.get_profile(data.target_tax_profile_id, firm_scope=firm_id)
         now = utc_now()
@@ -561,6 +577,7 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxMigrationMapping:
+        """Replace one migration mapping."""
         row = self.get_migration_mapping(
             mapping_id, firm_scope=firm_scope, include_deleted=True
         )
@@ -582,6 +599,7 @@ class TaxFrameworkService:
         return row
 
     def get_settings(self, *, firm_scope: UUID) -> TaxSettings:
+        """Return the firm's tax settings."""
         row = self._session.scalar(
             select(TaxSettings).where(
                 TaxSettings.firm_id == firm_scope,
@@ -607,6 +625,7 @@ class TaxFrameworkService:
     def update_settings(
         self, data: TaxSettingsWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxSettings:
+        """Replace the firm's tax settings."""
         row = self.get_settings(firm_scope=firm_scope)
         row.primary_label = data.primary_label
         row.component_label = data.component_label
@@ -619,6 +638,7 @@ class TaxFrameworkService:
         return row
 
     def export_systems_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Export matching tax systems as CSV."""
         rows, _ = self.list_systems(
             firm_scope=firm_scope,
             page=1,
@@ -640,6 +660,7 @@ class TaxFrameworkService:
     def import_systems(
         self, systems: list[TaxSystemWrite], *, firm_scope: UUID, actor_id: UUID
     ) -> list[TaxSystem]:
+        """Import a validated batch of tax systems."""
         created: list[TaxSystem] = []
         for entry in systems:
             created.append(
@@ -650,6 +671,7 @@ class TaxFrameworkService:
     def bulk_delete_systems(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Soft delete several tax systems."""
         return self._bulk_mark_deleted(
             TaxSystem,
             ids,
@@ -661,6 +683,7 @@ class TaxFrameworkService:
     def bulk_restore_systems(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Restore several soft-deleted tax systems."""
         return self._bulk_restore(
             TaxSystem, ids, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -668,6 +691,7 @@ class TaxFrameworkService:
     def bulk_delete_components(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Soft delete several tax components."""
         return self._bulk_mark_deleted(
             TaxComponent, ids, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -675,6 +699,7 @@ class TaxFrameworkService:
     def bulk_restore_components(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Restore several soft-deleted tax components."""
         return self._bulk_restore(
             TaxComponent, ids, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -682,6 +707,7 @@ class TaxFrameworkService:
     def bulk_delete_profiles(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Soft delete several tax profiles."""
         return self._bulk_mark_deleted(
             TaxProfile,
             ids,
@@ -693,6 +719,7 @@ class TaxFrameworkService:
     def bulk_restore_profiles(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        """Restore several soft-deleted tax profiles."""
         return self._bulk_restore(
             TaxProfile, ids, firm_scope=firm_scope, actor_id=actor_id
         )
@@ -705,6 +732,7 @@ class TaxFrameworkService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> int:
+        """Set the status of several tax profiles at once."""
         rows = self._session.scalars(
             select(TaxProfile).where(
                 TaxProfile.id.in_(list(ids)),
@@ -720,6 +748,7 @@ class TaxFrameworkService:
         return len(rows)
 
     def effective_dates(self, *, firm_scope: UUID) -> list[EffectiveDateRecord]:
+        """List the dates on which tax records change."""
         result: list[EffectiveDateRecord] = []
         profiles = self._session.scalars(
             select(TaxProfile).where(
@@ -913,6 +942,7 @@ class TaxFrameworkService:
         )
 
     def history(self, *, firm_scope: UUID, limit: int = 200) -> list[TaxHistoryRecord]:
+        """Return the change history for one tax record."""
         rows = self._session.scalars(
             select(AuditLog)
             .where(
@@ -945,7 +975,8 @@ class TaxFrameworkService:
     def get_system(
         self, system_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxSystem:
-        row = self._session.scalar(
+        """Return one tax system."""
+        row: TaxSystem | None = self._session.scalar(
             self._by_id(
                 TaxSystem,
                 system_id,
@@ -960,7 +991,8 @@ class TaxFrameworkService:
     def get_component(
         self, component_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxComponent:
-        row = self._session.scalar(
+        """Return one tax component."""
+        row: TaxComponent | None = self._session.scalar(
             self._by_id(
                 TaxComponent,
                 component_id,
@@ -975,7 +1007,8 @@ class TaxFrameworkService:
     def get_profile(
         self, profile_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxProfile:
-        row = self._session.scalar(
+        """Return one tax profile."""
+        row: TaxProfile | None = self._session.scalar(
             self._by_id(
                 TaxProfile,
                 profile_id,
@@ -991,7 +1024,8 @@ class TaxFrameworkService:
     def get_country_mapping(
         self, mapping_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxCountryMapping:
-        row = self._session.scalar(
+        """Return one country mapping."""
+        row: TaxCountryMapping | None = self._session.scalar(
             self._by_id(
                 TaxCountryMapping,
                 mapping_id,
@@ -1006,7 +1040,8 @@ class TaxFrameworkService:
     def get_migration_mapping(
         self, mapping_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxMigrationMapping:
-        row = self._session.scalar(
+        """Return one migration mapping."""
+        row: TaxMigrationMapping | None = self._session.scalar(
             self._by_id(
                 TaxMigrationMapping,
                 mapping_id,
@@ -1021,6 +1056,7 @@ class TaxFrameworkService:
     def delete_system(
         self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete one system."""
         row = self.get_system(system_id, firm_scope=firm_scope)
         self._ensure_system_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
@@ -1029,6 +1065,7 @@ class TaxFrameworkService:
     def restore_system(
         self, system_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxSystem:
+        """Restore one system."""
         row = self.get_system(system_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         self._commit()
@@ -1037,6 +1074,7 @@ class TaxFrameworkService:
     def delete_component(
         self, component_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete one component."""
         row = self.get_component(component_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
@@ -1044,6 +1082,7 @@ class TaxFrameworkService:
     def restore_component(
         self, component_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxComponent:
+        """Restore one component."""
         row = self.get_component(
             component_id, firm_scope=firm_scope, include_deleted=True
         )
@@ -1054,6 +1093,7 @@ class TaxFrameworkService:
     def delete_profile(
         self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete one profile."""
         row = self.get_profile(profile_id, firm_scope=firm_scope)
         self._ensure_profile_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
@@ -1062,6 +1102,7 @@ class TaxFrameworkService:
     def restore_profile(
         self, profile_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxProfile:
+        """Restore one profile."""
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         self._commit()
@@ -1071,6 +1112,7 @@ class TaxFrameworkService:
     def delete_country_mapping(
         self, mapping_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete one country mapping."""
         row = self.get_country_mapping(mapping_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
@@ -1078,6 +1120,7 @@ class TaxFrameworkService:
     def delete_migration_mapping(
         self, mapping_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
+        """Soft delete one migration mapping."""
         row = self.get_migration_mapping(mapping_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
         self._commit()
@@ -1177,12 +1220,12 @@ class TaxFrameworkService:
 
     def _bulk_mark_deleted(
         self,
-        model: Any,
+        model: Any,  # noqa: ANN401
         ids: Iterable[UUID],
         *,
         firm_scope: UUID,
         actor_id: UUID,
-        checker: Any = None,
+        checker: Any = None,  # noqa: ANN401
     ) -> int:
         count = 0
         for row_id in ids:
@@ -1200,7 +1243,12 @@ class TaxFrameworkService:
         return count
 
     def _bulk_restore(
-        self, model: Any, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
+        self,
+        model: Any,  # noqa: ANN401
+        ids: Iterable[UUID],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
     ) -> int:
         count = 0
         for row_id in ids:
@@ -1257,14 +1305,14 @@ class TaxFrameworkService:
                 )
 
     @staticmethod
-    def _soft_delete(row: Any, *, actor_id: UUID) -> None:
+    def _soft_delete(row: BaseEntity, *, actor_id: UUID) -> None:
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
 
     @staticmethod
-    def _restore_row(row: Any, *, actor_id: UUID) -> None:
+    def _restore_row(row: BaseEntity, *, actor_id: UUID) -> None:
         row.is_deleted = False
         row.deleted_at = None
         row.deleted_by = None
@@ -1272,7 +1320,7 @@ class TaxFrameworkService:
 
     @staticmethod
     def _by_id(
-        model: Any,
+        model: Any,  # noqa: ANN401
         row_id: UUID,
         *,
         firm_scope: UUID,
@@ -1358,13 +1406,17 @@ class TaxFrameworkService:
 
         - Component/profile with id → update existing
         - Component/profile without id → create new
-        - Components/profiles not mentioned → left untouched (soft-delete manually if needed)
+        - Components/profiles not mentioned → left untouched
+          (soft-delete them explicitly if that is what you want)
         """
         # 1. Update system
         system = self.get_system(
             system_id, firm_scope=firm_scope, include_deleted=False
         )
-        before = {"code": system.code, "status": system.status}
+        before: dict[str, object] = {
+            "code": system.code,
+            "status": system.status,
+        }
         system.country_id = data.country_id
         system.business_profile_id = data.business_profile_id
         system.code = data.code
@@ -1682,6 +1734,4 @@ def _ranges_overlap(
     """
     if left_to is not None and right_from is not None and left_to < right_from:
         return False
-    if right_to is not None and left_from is not None and right_to < left_from:
-        return False
-    return True
+    return not (right_to is not None and left_from is not None and right_to < left_from)

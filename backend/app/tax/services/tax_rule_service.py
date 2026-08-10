@@ -8,12 +8,14 @@ from io import StringIO
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql import Select
 
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
@@ -47,6 +49,7 @@ class TaxRuleService:
     """Manage versioned tax rules and execute simulation previews."""
 
     def __init__(self, session: Session) -> None:
+        """Bind the service to one request unit of work."""
         self._session = session
 
     def list_rules(
@@ -63,6 +66,7 @@ class TaxRuleService:
         status: TaxStatus | None,
         include_deleted: bool,
     ) -> tuple[list[TaxRule], int]:
+        """List tax rules for the visible firm scope."""
         statement = self._base_rule_query(firm_scope=firm_scope)
         count = (
             select(func.count())
@@ -97,20 +101,18 @@ class TaxRuleService:
             count = count.where(condition)
         if transaction_type:
             transaction_term = transaction_type.strip().upper()
-            statement = statement.where(
-                TaxRule.conditions.any(
+            # ``any()`` takes one criterion, not three. Passing them
+            # positionally raised TypeError for every request that used this
+            # filter, so listing tax rules by transaction type was a 500.
+            matches_transaction = TaxRule.conditions.any(
+                and_(
                     TaxRuleCondition.is_deleted.is_(False),
                     TaxRuleCondition.field_key == "transaction_type",
                     TaxRuleCondition.value_text == transaction_term,
                 )
             )
-            count = count.where(
-                TaxRule.conditions.any(
-                    TaxRuleCondition.is_deleted.is_(False),
-                    TaxRuleCondition.field_key == "transaction_type",
-                    TaxRuleCondition.value_text == transaction_term,
-                )
-            )
+            statement = statement.where(matches_transaction)
+            count = count.where(matches_transaction)
         rows = self._session.scalars(
             statement.order_by(
                 TaxRule.priority.asc(),
@@ -126,6 +128,7 @@ class TaxRuleService:
     def list_conditions(
         self, *, firm_scope: UUID, rule_id: UUID | None = None
     ) -> list[TaxRuleCondition]:
+        """List conditions for the visible firm scope."""
         statement = select(TaxRuleCondition).where(
             TaxRuleCondition.firm_id == firm_scope,
             TaxRuleCondition.is_deleted.is_(False),
@@ -142,6 +145,7 @@ class TaxRuleService:
         )
 
     def list_priorities(self, *, firm_scope: UUID) -> list[TaxRulePriorityRecord]:
+        """List priorities for the visible firm scope."""
         rows = self._session.scalars(
             self._base_rule_query(firm_scope=firm_scope)
             .where(TaxRule.is_deleted.is_(False))
@@ -174,6 +178,7 @@ class TaxRuleService:
         code: str | None = None,
         version_group_id: UUID | None = None,
     ) -> list[TaxRule]:
+        """Return the change history for one tax rule."""
         statement = self._base_rule_query(firm_scope=firm_scope).where(
             TaxRule.is_deleted.is_(False)
         )
@@ -194,6 +199,7 @@ class TaxRuleService:
         limit: int = 200,
         matched_rule_id: UUID | None = None,
     ) -> list[TaxRuleExecutionLog]:
+        """List execution logs for the visible firm scope."""
         statement = select(TaxRuleExecutionLog).where(
             TaxRuleExecutionLog.firm_id == firm_scope
         )
@@ -210,6 +216,7 @@ class TaxRuleService:
     def create_rule(
         self, data: TaxRuleWrite, *, firm_id: UUID, actor_id: UUID
     ) -> TaxRule:
+        """Create one tax rule."""
         self._validate_rule_references(data, firm_scope=firm_id)
         now = utc_now()
         row = TaxRule(
@@ -255,6 +262,7 @@ class TaxRuleService:
     def update_rule(
         self, rule_id: UUID, data: TaxRuleWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxRule:
+        """Replace one tax rule."""
         row = self.get_rule(rule_id, firm_scope=firm_scope, include_deleted=True)
         self._validate_rule_references(data, firm_scope=firm_scope)
         if row.status == TaxStatus.DRAFT.value:
@@ -345,6 +353,7 @@ class TaxRuleService:
         return version
 
     def delete_rule(self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
+        """Soft delete one rule."""
         row = self.get_rule(rule_id, firm_scope=firm_scope, include_deleted=False)
         self._soft_delete(row, actor_id=actor_id)
         record_audit(
@@ -361,6 +370,7 @@ class TaxRuleService:
     def restore_rule(
         self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxRule:
+        """Restore one rule."""
         row = self.get_rule(rule_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
         record_audit(
@@ -376,6 +386,7 @@ class TaxRuleService:
         return row
 
     def export_rules_csv(self, *, firm_scope: UUID, search: str | None) -> str:
+        """Export matching tax rules as CSV."""
         rows, _ = self.list_rules(
             firm_scope=firm_scope,
             page=1,
@@ -428,6 +439,7 @@ class TaxRuleService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> list[TaxRule]:
+        """Import a validated batch of tax rules."""
         created: list[TaxRule] = []
         for payload in rules:
             created.append(
@@ -442,6 +454,7 @@ class TaxRuleService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TaxRuleSimulationResponse:
+        """Simulate one tax record."""
         context = self._build_context(data, firm_scope=firm_scope)
         transaction_date = context["transaction_date"]
         rules = self._session.scalars(
@@ -611,6 +624,7 @@ class TaxRuleService:
     def get_rule(
         self, rule_id: UUID, *, firm_scope: UUID, include_deleted: bool = False
     ) -> TaxRule:
+        """Return one tax rule."""
         row = self._session.scalar(
             self._base_rule_query(firm_scope=firm_scope).where(TaxRule.id == rule_id)
         )
@@ -618,7 +632,7 @@ class TaxRuleService:
             raise ResourceNotFoundError("Tax rule was not found.")
         return row
 
-    def _base_rule_query(self, *, firm_scope: UUID):
+    def _base_rule_query(self, *, firm_scope: UUID) -> Select[tuple[TaxRule]]:
         return (
             select(TaxRule)
             .where(TaxRule.firm_id == firm_scope)
@@ -874,6 +888,11 @@ class TaxRuleService:
             actual = transaction_date
         operator = TaxRuleConditionOperator(condition.operator)
         expected = self._condition_expected_value(condition)
+        # Defaulted before the chain rather than in a trailing else: the chain
+        # covers every member of the enum, so that else was unreachable, and a
+        # member added later without a branch still falls through to False here
+        # instead of raising UnboundLocalError.
+        matched = False
         if operator == TaxRuleConditionOperator.EXISTS:
             matched = actual is not None and str(actual) != ""
         elif operator == TaxRuleConditionOperator.NOT_EXISTS:
@@ -913,19 +932,20 @@ class TaxRuleService:
                 <= actual_decimal
                 <= self._as_decimal(expected[1])
             )
-        else:
-            matched = False
         if matched:
             return True, f"{condition.field_key} satisfied {condition.operator}."
         return False, f"{condition.field_key} failed {condition.operator}."
 
-    def _condition_expected_value(self, condition: TaxRuleCondition) -> Any:
+    def _condition_expected_value(
+        self, condition: TaxRuleCondition
+    ) -> Any:  # noqa: ANN401 -- a condition value is whatever the JSON held
         if condition.value_json is not None:
-            if isinstance(condition.value_json, dict):
-                if "values" in condition.value_json and isinstance(
-                    condition.value_json["values"], list
-                ):
-                    return condition.value_json["values"]
+            if (
+                isinstance(condition.value_json, dict)
+                and "values" in condition.value_json
+                and isinstance(condition.value_json["values"], list)
+            ):
+                return condition.value_json["values"]
             return condition.value_json
         if condition.value_text is not None:
             return condition.value_text
@@ -1008,7 +1028,9 @@ class TaxRuleService:
                         "code": action.target_tax_component.code,
                         "label": action.target_tax_component.label,
                         "percentage": percentage,
-                        "included_in_price": action.target_tax_component.included_in_price,
+                        "included_in_price": (
+                            action.target_tax_component.included_in_price
+                        ),
                         "recoverable": action.target_tax_component.recoverable,
                         "source": "RULE_ACTION",
                     }
@@ -1044,7 +1066,9 @@ class TaxRuleService:
                             "code": action.target_tax_component.code,
                             "label": action.target_tax_component.label,
                             "percentage": action.percentage_override or Decimal("0"),
-                            "included_in_price": action.target_tax_component.included_in_price,
+                            "included_in_price": (
+                                action.target_tax_component.included_in_price
+                            ),
                             "recoverable": action.target_tax_component.recoverable,
                             "source": "OVERRIDE",
                         }
@@ -1059,7 +1083,7 @@ class TaxRuleService:
         }
 
     @staticmethod
-    def _normalize_compare(value: Any) -> str:
+    def _normalize_compare(value: object) -> str:
         if value is None:
             return ""
         if isinstance(value, UUID):
@@ -1071,7 +1095,7 @@ class TaxRuleService:
         return str(value)
 
     @staticmethod
-    def _as_decimal(value: Any) -> Decimal:
+    def _as_decimal(value: object) -> Decimal:
         if value is None or value == "":
             return Decimal("0")
         return Decimal(str(value))
@@ -1106,13 +1130,13 @@ class TaxRuleService:
         return quantize_money(value)
 
     @staticmethod
-    def _soft_delete(row: Any, *, actor_id: UUID) -> None:
+    def _soft_delete(row: BaseEntity, *, actor_id: UUID) -> None:
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.updated_by = actor_id
 
     @staticmethod
-    def _restore_row(row: Any, *, actor_id: UUID) -> None:
+    def _restore_row(row: BaseEntity, *, actor_id: UUID) -> None:
         row.is_deleted = False
         row.deleted_at = None
         row.updated_by = actor_id
