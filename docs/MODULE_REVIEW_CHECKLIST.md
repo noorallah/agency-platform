@@ -212,6 +212,15 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       **(found a real bug)**. mypy had been reporting it the whole time.
 - [ ] **Read every endpoint back at least once in a test.** The write path was
       correct and covered; nothing had ever listed the rows it wrote.
+- [ ] **Fixtures must use the module's whole vocabulary.** Repairing the ledger
+      response uncovered a second failure underneath it only when the app was
+      run against seeded data: the response validated `transaction_type`
+      against a closed enum while the service writes RESERVE, UNRESERVE and
+      DISPATCH, and `reverse_transaction` writes `"<TYPE>_REVERSAL"`, which no
+      enum can enumerate. An adjustment-only fixture passed throughout
+      **(found a real bug, by running the app)**. An immutable historical
+      record carries the vocabulary it was written with; keep the enum for
+      filters, where a closed set is what a caller should be held to.
 
 ### Defects the `branches` pass added to this list
 

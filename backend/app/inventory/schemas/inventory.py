@@ -193,7 +193,14 @@ class InventoryTransactionResponse(InventorySchema):
     product_code: str
     product_name: str
     business_profile_id: UUID | None
-    transaction_type: InventoryTransactionType
+    # A recorded movement type, not a closed set. The ledger is an immutable
+    # historical record: it already holds RESERVE, UNRESERVE and DISPATCH,
+    # and reverse_transaction writes "<TYPE>_REVERSAL", which no enum can
+    # enumerate. Validating history against InventoryTransactionType made both
+    # the ledger and the transaction list fail with a 500 for any firm that had
+    # reserved, dispatched or reversed stock. The enum still types the filters,
+    # where a closed set is what a caller should be held to.
+    transaction_type: str
     reference_number: str
     reference_type: str
     transaction_date: date

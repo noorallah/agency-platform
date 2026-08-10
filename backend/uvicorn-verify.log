@@ -1,0 +1,395 @@
+INFO:     Started server process [31444]
+INFO:     Waiting for application startup.
+2026-08-10 05:51:29,183 INFO [app.main] request_id=- Application startup: name=Agency Platform Backend environment=development
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8010 (Press CTRL+C to quit)
+2026-08-10 05:51:35,527 INFO [app.core.middleware.core] request_id=63b4a02c-a367-48dc-bca1-df4a594b5f25 Request received method=GET path=/health correlation_id=63b4a02c-a367-48dc-bca1-df4a594b5f25 client_ip=127.0.0.1
+2026-08-10 05:51:35,559 INFO [app.core.middleware.core] request_id=63b4a02c-a367-48dc-bca1-df4a594b5f25 Request completed method=GET path=/health status_code=200 duration_ms=32.45 correlation_id=63b4a02c-a367-48dc-bca1-df4a594b5f25
+INFO:     127.0.0.1:63769 - "GET /health HTTP/1.1" 200 OK
+2026-08-10 05:51:45,512 INFO [app.core.middleware.core] request_id=00274218-dabe-4061-b47f-77687883eb3a Request received method=POST path=/api/v1/auth/login correlation_id=00274218-dabe-4061-b47f-77687883eb3a client_ip=127.0.0.1
+2026-08-10 05:51:46,075 INFO [app.core.middleware.core] request_id=00274218-dabe-4061-b47f-77687883eb3a Request completed method=POST path=/api/v1/auth/login status_code=200 duration_ms=562.94 correlation_id=00274218-dabe-4061-b47f-77687883eb3a
+INFO:     127.0.0.1:63770 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+2026-08-10 05:51:46,174 INFO [app.core.middleware.core] request_id=b0d4477e-c50b-4302-a443-79119cedc905 Request received method=GET path=/api/v1/inventory/ledger correlation_id=b0d4477e-c50b-4302-a443-79119cedc905 client_ip=127.0.0.1
+2026-08-10 05:51:47,937 ERROR [app.core.exceptions.handlers] request_id=- Unhandled application exception
+Traceback (most recent call last):
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\core\middleware\core.py", line 53, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2689, in app
+    await route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1770, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2744, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1790, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1270, in handle
+    await app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 156, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 142, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 698, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 352, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\api\router.py", line 321, in list_ledger
+    data=[service.ledger_response(row) for row in rows],
+          ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\services\inventory_service.py", line 1913, in ledger_response
+    return StockLedgerResponse.model_validate(payload)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\pydantic\main.py", line 732, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for StockLedgerResponse
+transaction_type
+  Input should be 'OPENING_STOCK', 'GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'PHYSICAL_COUNT', 'RESERVATION', 'RESERVATION_RELEASE', 'DAMAGE', 'EXPIRY', 'QUARANTINE', 'RETURN' or 'CORRECTION' [type=enum, input_value='UNRESERVE', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/enum
+INFO:     127.0.0.1:63772 - "GET /api/v1/inventory/ledger?page=1&page_size=3 HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 422, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\core\middleware\core.py", line 53, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2689, in app
+    await route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1770, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2744, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1790, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1270, in handle
+    await app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 156, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 142, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 698, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 352, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\api\router.py", line 321, in list_ledger
+    data=[service.ledger_response(row) for row in rows],
+          ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\services\inventory_service.py", line 1913, in ledger_response
+    return StockLedgerResponse.model_validate(payload)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\pydantic\main.py", line 732, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for StockLedgerResponse
+transaction_type
+  Input should be 'OPENING_STOCK', 'GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'PHYSICAL_COUNT', 'RESERVATION', 'RESERVATION_RELEASE', 'DAMAGE', 'EXPIRY', 'QUARANTINE', 'RETURN' or 'CORRECTION' [type=enum, input_value='UNRESERVE', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/enum
+2026-08-10 05:52:48,592 INFO [app.core.middleware.core] request_id=87d058b9-bfdc-4542-8553-f05922e91fea Request received method=GET path=/api/v1/inventory/transactions correlation_id=87d058b9-bfdc-4542-8553-f05922e91fea client_ip=127.0.0.1
+2026-08-10 05:52:48,652 ERROR [app.core.exceptions.handlers] request_id=- Unhandled application exception
+Traceback (most recent call last):
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\core\middleware\core.py", line 53, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2689, in app
+    await route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1770, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2744, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1790, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1270, in handle
+    await app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 156, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 142, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 698, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 352, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\api\router.py", line 265, in list_transactions
+    data=[service.transaction_response(row) for row in rows],
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\services\inventory_service.py", line 1848, in transaction_response
+    return InventoryTransactionResponse.model_validate(payload)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\pydantic\main.py", line 732, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for InventoryTransactionResponse
+transaction_type
+  Input should be 'OPENING_STOCK', 'GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'PHYSICAL_COUNT', 'RESERVATION', 'RESERVATION_RELEASE', 'DAMAGE', 'EXPIRY', 'QUARANTINE', 'RETURN' or 'CORRECTION' [type=enum, input_value='UNRESERVE', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/enum
+INFO:     127.0.0.1:63783 - "GET /api/v1/inventory/transactions?page=1&page_size=3 HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\uvicorn\protocols\http\httptools_impl.py", line 422, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        self.scope, self.receive, self.send
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\uvicorn\middleware\proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\applications.py", line 1163, in __call__
+    await super().__call__(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 186, in __call__
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\core\middleware\core.py", line 53, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\middleware\exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2689, in app
+    await route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1770, in handle
+    await self.original_router.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 2744, in handle
+    await included_router._handle_selected(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1790, in _handle_selected
+    await original_route.handle(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 1270, in handle
+    await app(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 156, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 142, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 698, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\fastapi\routing.py", line 352, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\starlette\concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        func, args, abandon_on_cancel=abandon_on_cancel, limiter=limiter
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 2641, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py", line 1033, in run
+    result = context.run(func, *args)
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\api\router.py", line 265, in list_transactions
+    data=[service.transaction_response(row) for row in rows],
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\app\inventory\services\inventory_service.py", line 1848, in transaction_response
+    return InventoryTransactionResponse.model_validate(payload)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "D:\ws\agencyApp\agency-platform\backend\.venv\Lib\site-packages\pydantic\main.py", line 732, in model_validate
+    return cls.__pydantic_validator__.validate_python(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        obj,
+        ^^^^
+    ...<5 lines>...
+        by_name=by_name,
+        ^^^^^^^^^^^^^^^^
+    )
+    ^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for InventoryTransactionResponse
+transaction_type
+  Input should be 'OPENING_STOCK', 'GOODS_RECEIPT', 'GOODS_ISSUE', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT', 'PHYSICAL_COUNT', 'RESERVATION', 'RESERVATION_RELEASE', 'DAMAGE', 'EXPIRY', 'QUARANTINE', 'RETURN' or 'CORRECTION' [type=enum, input_value='UNRESERVE', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/enum

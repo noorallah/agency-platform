@@ -25,7 +25,12 @@ from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.identity.models import UserFirm
-from app.inventory.api.router import create_inventory, list_inventory, list_ledger
+from app.inventory.api.router import (
+    create_inventory,
+    list_inventory,
+    list_ledger,
+    list_transactions,
+)
 from app.inventory.models import InventoryTransaction, StockLedgerEntry
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
@@ -444,3 +449,103 @@ def test_the_stock_ledger_endpoint_returns_its_rows() -> None:
     # The ledger's as-entered quantity lives under its own column name.
     assert row.entered_quantity == Decimal("12")
     assert row.transaction_id is not None
+
+
+def test_the_ledger_renders_every_movement_type_the_service_writes() -> None:
+    """The response enum did not cover the vocabulary the writers use.
+
+    ``/inventory/ledger`` and ``/inventory/transactions`` validated
+    ``transaction_type`` against ``InventoryTransactionType``, but the service
+    writes RESERVE, UNRESERVE and DISPATCH, and ``reverse_transaction`` writes
+    "<TYPE>_REVERSAL", which no closed enum can enumerate. Both endpoints
+    returned 500 for any firm that had reserved, dispatched or reversed stock --
+    which is every firm that trades. Only an adjustment-only fixture missed it.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "LEDGV")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    setup.close()
+
+    session = factory()
+    actor_id = uuid4()
+    service = InventoryService(session)
+    service.create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            quantity=Decimal("20"),
+            reference_number="ADJ-VOCAB",
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    receipt = service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        reference_number="GRN-VOCAB",
+        transaction_date=date(2026, 8, 3),
+        total_quantity=Decimal("10"),
+    )
+    service.record_sales_order_reservation(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        reference_number="SO-VOCAB",
+        transaction_date=date(2026, 8, 4),
+        reserve_quantity=Decimal("5"),
+    )
+    service.release_sales_order_reservation(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        reference_number="SO-VOCAB",
+        transaction_date=date(2026, 8, 5),
+        release_quantity=Decimal("5"),
+    )
+    service.record_delivery_note_dispatch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        reference_number="DN-VOCAB",
+        transaction_date=date(2026, 8, 6),
+        dispatch_quantity=Decimal("3"),
+    )
+    service.reverse_transaction(
+        receipt.id, firm_scope=firm.id, actor_id=actor_id, reason="wrong goods"
+    )
+    session.commit()
+
+    scope = _firm_scope(
+        _principal(user_id, {"INVENTORY_LEDGER_VIEW", "INVENTORY_VIEW"}),
+        session,
+        firm.id,
+    )
+
+    ledger = list_ledger(scope=scope, page=1, page_size=50, db=session)
+    transactions = list_transactions(scope=scope, page=1, page_size=50, db=session)
+
+    written = {row.transaction_type for row in ledger.data}
+    assert {"ADJUSTMENT", "RESERVE", "UNRESERVE", "DISPATCH"}.issubset(written)
+    assert any(item.endswith("_REVERSAL") for item in written)
+    assert {row.transaction_type for row in transactions.data} == written

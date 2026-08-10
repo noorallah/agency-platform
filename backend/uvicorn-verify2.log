@@ -1,0 +1,50 @@
+INFO:     Started server process [7092]
+INFO:     Waiting for application startup.
+2026-08-10 05:53:25,614 INFO [app.main] request_id=- Application startup: name=Agency Platform Backend environment=development
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8011 (Press CTRL+C to quit)
+2026-08-10 05:53:32,853 INFO [app.core.middleware.core] request_id=9b35aa9e-a1d3-4b2c-b229-dfc13232bacb Request received method=POST path=/api/v1/auth/login correlation_id=9b35aa9e-a1d3-4b2c-b229-dfc13232bacb client_ip=127.0.0.1
+2026-08-10 05:53:33,386 INFO [app.core.middleware.core] request_id=9b35aa9e-a1d3-4b2c-b229-dfc13232bacb Request completed method=POST path=/api/v1/auth/login status_code=200 duration_ms=533.70 correlation_id=9b35aa9e-a1d3-4b2c-b229-dfc13232bacb
+INFO:     127.0.0.1:63797 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+2026-08-10 05:53:33,468 INFO [app.core.middleware.core] request_id=a031ab74-db0c-4d55-8495-b34684f310eb Request received method=GET path=/api/v1/inventory/ledger correlation_id=a031ab74-db0c-4d55-8495-b34684f310eb client_ip=127.0.0.1
+2026-08-10 05:53:35,105 INFO [app.core.middleware.core] request_id=a031ab74-db0c-4d55-8495-b34684f310eb Request completed method=GET path=/api/v1/inventory/ledger status_code=200 duration_ms=1637.58 correlation_id=a031ab74-db0c-4d55-8495-b34684f310eb
+INFO:     127.0.0.1:63799 - "GET /api/v1/inventory/ledger?page=1&page_size=4 HTTP/1.1" 200 OK
+2026-08-10 05:53:47,805 INFO [app.core.middleware.core] request_id=c3c4c84c-ec36-4836-a424-2441b6a97c44 Request received method=GET path=/api/v1/inventory/transactions correlation_id=c3c4c84c-ec36-4836-a424-2441b6a97c44 client_ip=127.0.0.1
+2026-08-10 05:53:47,860 INFO [app.core.middleware.core] request_id=c3c4c84c-ec36-4836-a424-2441b6a97c44 Request completed method=GET path=/api/v1/inventory/transactions status_code=200 duration_ms=55.34 correlation_id=c3c4c84c-ec36-4836-a424-2441b6a97c44
+INFO:     127.0.0.1:63802 - "GET /api/v1/inventory/transactions?page=1&page_size=2 HTTP/1.1" 200 OK
+2026-08-10 05:53:47,939 INFO [app.core.middleware.core] request_id=049f1ebb-bfe9-4b4e-af52-0171bb77cf2e Request received method=GET path=/api/v1/purchase-returns correlation_id=049f1ebb-bfe9-4b4e-af52-0171bb77cf2e client_ip=127.0.0.1
+2026-08-10 05:53:47,976 INFO [app.core.middleware.core] request_id=049f1ebb-bfe9-4b4e-af52-0171bb77cf2e Request completed method=GET path=/api/v1/purchase-returns status_code=200 duration_ms=36.68 correlation_id=049f1ebb-bfe9-4b4e-af52-0171bb77cf2e
+INFO:     127.0.0.1:63803 - "GET /api/v1/purchase-returns?page=1&page_size=2 HTTP/1.1" 200 OK
+2026-08-10 05:53:48,080 INFO [app.core.middleware.core] request_id=3ada79b6-f162-4616-9745-90b1de805366 Request received method=GET path=/api/v1/sales-orders correlation_id=3ada79b6-f162-4616-9745-90b1de805366 client_ip=127.0.0.1
+2026-08-10 05:53:48,129 INFO [app.core.middleware.core] request_id=3ada79b6-f162-4616-9745-90b1de805366 Request completed method=GET path=/api/v1/sales-orders status_code=200 duration_ms=49.57 correlation_id=3ada79b6-f162-4616-9745-90b1de805366
+INFO:     127.0.0.1:63804 - "GET /api/v1/sales-orders?page=1&page_size=2 HTTP/1.1" 200 OK
+2026-08-10 05:53:48,222 INFO [app.core.middleware.core] request_id=f94bbf79-b07e-482c-85e6-b3dd89fa0a6c Request received method=GET path=/api/v1/delivery-notes correlation_id=f94bbf79-b07e-482c-85e6-b3dd89fa0a6c client_ip=127.0.0.1
+2026-08-10 05:53:48,283 INFO [app.core.middleware.core] request_id=f94bbf79-b07e-482c-85e6-b3dd89fa0a6c Request completed method=GET path=/api/v1/delivery-notes status_code=200 duration_ms=61.09 correlation_id=f94bbf79-b07e-482c-85e6-b3dd89fa0a6c
+INFO:     127.0.0.1:63805 - "GET /api/v1/delivery-notes?page=1&page_size=2 HTTP/1.1" 200 OK
+2026-08-10 05:53:48,362 INFO [app.core.middleware.core] request_id=49e30bad-7b2d-4c38-8def-a55f1d731f9a Request received method=GET path=/api/v1/goods-receipts correlation_id=49e30bad-7b2d-4c38-8def-a55f1d731f9a client_ip=127.0.0.1
+2026-08-10 05:53:48,422 INFO [app.core.middleware.core] request_id=49e30bad-7b2d-4c38-8def-a55f1d731f9a Request completed method=GET path=/api/v1/goods-receipts status_code=200 duration_ms=60.01 correlation_id=49e30bad-7b2d-4c38-8def-a55f1d731f9a
+INFO:     127.0.0.1:63806 - "GET /api/v1/goods-receipts?page=1&page_size=2 HTTP/1.1" 200 OK
+2026-08-10 05:54:03,706 INFO [app.core.middleware.core] request_id=edee6fa6-7a10-48a3-a353-2f539db41f38 Request received method=GET path=/api/v1/tax-framework/profiles correlation_id=edee6fa6-7a10-48a3-a353-2f539db41f38 client_ip=127.0.0.1
+2026-08-10 05:54:03,770 INFO [app.core.middleware.core] request_id=edee6fa6-7a10-48a3-a353-2f539db41f38 Request completed method=GET path=/api/v1/tax-framework/profiles status_code=200 duration_ms=63.37 correlation_id=edee6fa6-7a10-48a3-a353-2f539db41f38
+INFO:     127.0.0.1:63809 - "GET /api/v1/tax-framework/profiles?page=1&page_size=1 HTTP/1.1" 200 OK
+2026-08-10 05:54:03,858 INFO [app.core.middleware.core] request_id=78ce4c7d-5b90-4bf7-8c6a-fed7dd376939 Request received method=POST path=/api/v1/tax-framework/simulate correlation_id=78ce4c7d-5b90-4bf7-8c6a-fed7dd376939 client_ip=127.0.0.1
+2026-08-10 05:54:04,086 INFO [app.core.middleware.core] request_id=78ce4c7d-5b90-4bf7-8c6a-fed7dd376939 Request completed method=POST path=/api/v1/tax-framework/simulate status_code=200 duration_ms=227.94 correlation_id=78ce4c7d-5b90-4bf7-8c6a-fed7dd376939
+INFO:     127.0.0.1:63810 - "POST /api/v1/tax-framework/simulate HTTP/1.1" 200 OK
+2026-08-10 05:54:20,963 INFO [app.core.middleware.core] request_id=a01450da-6363-4fe1-9dcb-022fcb4fb1a3 Request received method=GET path=/api/v1/tax-framework/profiles correlation_id=a01450da-6363-4fe1-9dcb-022fcb4fb1a3 client_ip=127.0.0.1
+2026-08-10 05:54:20,999 INFO [app.core.middleware.core] request_id=a01450da-6363-4fe1-9dcb-022fcb4fb1a3 Request completed method=GET path=/api/v1/tax-framework/profiles status_code=200 duration_ms=36.77 correlation_id=a01450da-6363-4fe1-9dcb-022fcb4fb1a3
+INFO:     127.0.0.1:63811 - "GET /api/v1/tax-framework/profiles?page=1&page_size=10 HTTP/1.1" 200 OK
+2026-08-10 05:54:21,145 INFO [app.core.middleware.core] request_id=f38ee945-7f33-4a3b-a4fb-d4334c50f420 Request received method=GET path=/api/v1/tax-framework/rules correlation_id=f38ee945-7f33-4a3b-a4fb-d4334c50f420 client_ip=127.0.0.1
+2026-08-10 05:54:21,195 INFO [app.core.middleware.core] request_id=f38ee945-7f33-4a3b-a4fb-d4334c50f420 Request completed method=GET path=/api/v1/tax-framework/rules status_code=200 duration_ms=49.90 correlation_id=f38ee945-7f33-4a3b-a4fb-d4334c50f420
+INFO:     127.0.0.1:63812 - "GET /api/v1/tax-framework/rules?page=1&page_size=5 HTTP/1.1" 200 OK
+2026-08-10 05:54:35,400 INFO [app.core.middleware.core] request_id=81ba723e-1b65-4bdb-9f32-da49c1e20531 Request received method=GET path=/api/v1/tax-framework/profiles correlation_id=81ba723e-1b65-4bdb-9f32-da49c1e20531 client_ip=127.0.0.1
+2026-08-10 05:54:35,433 INFO [app.core.middleware.core] request_id=81ba723e-1b65-4bdb-9f32-da49c1e20531 Request completed method=GET path=/api/v1/tax-framework/profiles status_code=200 duration_ms=33.11 correlation_id=81ba723e-1b65-4bdb-9f32-da49c1e20531
+INFO:     127.0.0.1:63813 - "GET /api/v1/tax-framework/profiles?page=1&page_size=20 HTTP/1.1" 200 OK
+2026-08-10 05:54:35,529 INFO [app.core.middleware.core] request_id=500b4db0-fee6-4bca-9ff1-663f60b38bcf Request received method=GET path=/api/v1/tax-framework/rules correlation_id=500b4db0-fee6-4bca-9ff1-663f60b38bcf client_ip=127.0.0.1
+2026-08-10 05:54:35,571 INFO [app.core.middleware.core] request_id=500b4db0-fee6-4bca-9ff1-663f60b38bcf Request completed method=GET path=/api/v1/tax-framework/rules status_code=200 duration_ms=42.22 correlation_id=500b4db0-fee6-4bca-9ff1-663f60b38bcf
+INFO:     127.0.0.1:63814 - "GET /api/v1/tax-framework/rules?page=1&page_size=10 HTTP/1.1" 200 OK
+2026-08-10 05:54:53,738 INFO [app.core.middleware.core] request_id=a09bde80-8026-46fd-b1a8-550a88b75e79 Request received method=POST path=/api/v1/tax-framework/simulate correlation_id=a09bde80-8026-46fd-b1a8-550a88b75e79 client_ip=127.0.0.1
+2026-08-10 05:54:53,795 INFO [app.core.middleware.core] request_id=a09bde80-8026-46fd-b1a8-550a88b75e79 Request completed method=POST path=/api/v1/tax-framework/simulate status_code=200 duration_ms=56.39 correlation_id=a09bde80-8026-46fd-b1a8-550a88b75e79
+INFO:     127.0.0.1:63815 - "POST /api/v1/tax-framework/simulate HTTP/1.1" 200 OK
+2026-08-10 05:54:53,879 INFO [app.core.middleware.core] request_id=97314940-0124-4dbf-b592-fa76e34f795b Request received method=POST path=/api/v1/tax-framework/simulate correlation_id=97314940-0124-4dbf-b592-fa76e34f795b client_ip=127.0.0.1
+2026-08-10 05:54:53,952 INFO [app.core.middleware.core] request_id=97314940-0124-4dbf-b592-fa76e34f795b Request completed method=POST path=/api/v1/tax-framework/simulate status_code=200 duration_ms=72.51 correlation_id=97314940-0124-4dbf-b592-fa76e34f795b
+INFO:     127.0.0.1:63816 - "POST /api/v1/tax-framework/simulate HTTP/1.1" 200 OK
