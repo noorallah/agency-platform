@@ -330,3 +330,89 @@ class CustomerReceivableTransaction {
         createdAt: stringValue(json['created_at']),
       );
 }
+
+/// Where one customer stands against their credit limit.
+///
+/// The thresholds travel with the verdict so a form can explain a warning
+/// without a second call for the firm's policy.
+class CustomerCreditStatus {
+  const CustomerCreditStatus({
+    required this.customerId,
+    required this.customerName,
+    required this.enforcement,
+    required this.status,
+    required this.limit,
+    required this.exposure,
+    required this.available,
+    required this.usedPercent,
+    required this.warnAtPercent,
+    required this.blockAtPercent,
+    required this.wouldBlock,
+    required this.message,
+  });
+
+  final String customerId;
+  final String customerName;
+  final String enforcement;
+  final String status;
+  final String limit;
+  final String exposure;
+  final String available;
+  final String usedPercent;
+  final String warnAtPercent;
+  final String blockAtPercent;
+  final bool wouldBlock;
+  final String message;
+
+  bool get isWarning => status == 'WARNING';
+
+  bool get isBreach => status == 'BREACH';
+
+  /// Whether there is anything worth showing the user at all.
+  bool get hasNotice => message.isNotEmpty && status != 'OK';
+
+  factory CustomerCreditStatus.fromJson(Json json) => CustomerCreditStatus(
+        customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
+        enforcement: stringValue(json['enforcement']),
+        status: stringValue(json['status']),
+        limit: stringValue(json['limit']),
+        exposure: stringValue(json['exposure']),
+        available: stringValue(json['available']),
+        usedPercent: stringValue(json['used_percent']),
+        warnAtPercent: stringValue(json['warn_at_percent']),
+        blockAtPercent: stringValue(json['block_at_percent']),
+        wouldBlock: boolValue(json['would_block']),
+        message: stringValue(json['message']),
+      );
+}
+
+/// The firm's credit policy.
+class CreditControlSettings {
+  const CreditControlSettings({
+    required this.enforcement,
+    required this.warnAtPercent,
+    required this.blockAtPercent,
+    required this.isConfigured,
+  });
+
+  final String enforcement;
+  final String warnAtPercent;
+  final String blockAtPercent;
+
+  /// False while the firm is still on the platform default.
+  final bool isConfigured;
+
+  factory CreditControlSettings.fromJson(Json json) => CreditControlSettings(
+        enforcement: stringValue(json['enforcement']),
+        warnAtPercent: stringValue(json['warn_at_percent']),
+        blockAtPercent: stringValue(json['block_at_percent']),
+        isConfigured: boolValue(json['is_configured']),
+      );
+
+  Json toJson() => <String, dynamic>{
+        'enforcement': enforcement,
+        'warn_at_percent': warnAtPercent,
+        'block_at_percent': blockAtPercent,
+      };
+}

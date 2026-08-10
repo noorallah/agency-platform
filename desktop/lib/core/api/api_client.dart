@@ -689,6 +689,42 @@ class ApiClient {
         ),
       );
 
+  /// Ask whether one more document fits inside the customer's credit limit.
+  ///
+  /// [amount] is the value of the document being considered, so the answer is
+  /// about the state the save would produce rather than the state it left.
+  Future<CustomerCreditStatus> customerCreditStatus(
+    String customerId, {
+    String amount = '0',
+  }) async =>
+      CustomerCreditStatus.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/customers/$customerId/credit-status',
+            query: {'amount': amount},
+          ),
+        ),
+      );
+
+  Future<CreditControlSettings> creditControlSettings() async =>
+      CreditControlSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/customers/credit-settings')),
+      );
+
+  Future<CreditControlSettings> updateCreditControlSettings(
+    CreditControlSettings settings,
+  ) async =>
+      CreditControlSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/customers/credit-settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
   Future<PagedResult<Vendor>> vendors({
     int page = 1,
     String search = '',
