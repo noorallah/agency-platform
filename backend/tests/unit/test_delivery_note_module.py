@@ -4,15 +4,18 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.branches.models import Branch, Warehouse
+from app.business.models import BusinessFeature, BusinessProfile, ProfileFeature
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
+from app.core.exceptions import AuthorizationError
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote
 from app.delivery_note.schemas import (
@@ -335,3 +338,108 @@ def test_delivery_by_route_labels_the_route_without_crashing() -> None:
     assert len(rows) == 1
     assert rows[0].dimension_id == profile.id
     assert rows[0].dimension_name == "North City Route"
+
+
+def _profile_without_vehicle_tracking(session: Session) -> None:
+    """Seed a default profile that does not enable VEHICLE_TRACKING."""
+    profile = BusinessProfile(
+        code="GENERIC",
+        name="Generic",
+        industry_type="GENERIC",
+        status="ACTIVE",
+        is_default=True,
+    )
+    feature = BusinessFeature(code="VEHICLE_TRACKING", name="Vehicle Tracking")
+    session.add_all([profile, feature])
+    session.flush()
+    session.add(
+        ProfileFeature(
+            business_profile_id=profile.id,
+            feature_id=feature.id,
+            is_enabled=False,
+        )
+    )
+    session.commit()
+
+
+def test_a_firm_without_vehicle_tracking_still_dispatches_goods() -> None:
+    """The feature owns the vehicle fields, not the delivery note.
+
+    Gating the endpoint would have stopped the firm dispatching anything
+    because it does not record which van the goods went on.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _profile_without_vehicle_tracking(session)
+
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-VEH",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved.id)
+    )
+    assert source_line is not None
+
+    def payload(**extra: str) -> DeliveryNoteCreate:
+        return DeliveryNoteCreate(
+            sales_order_id=approved.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+            **extra,
+        )
+
+    service = DeliveryNoteService(session)
+
+    # The note itself is fine.
+    note = service.create_note(payload(), firm_id=firm.id, actor_id=actor_id)
+    assert note.id is not None
+
+    # Naming the van is not.
+    with pytest.raises(AuthorizationError, match="VEHICLE_TRACKING"):
+        service.create_note(
+            payload(vehicle="KA-01-AB-1234"), firm_id=firm.id, actor_id=actor_id
+        )

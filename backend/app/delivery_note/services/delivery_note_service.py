@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -224,6 +225,12 @@ class DeliveryNoteService(TransactionalDocumentService):
         self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID
     ) -> DeliveryNote:
         """Create one delivery note."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="VEHICLE_TRACKING",
+            values={"vehicle": data.vehicle, "driver": data.driver},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -336,6 +343,12 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> DeliveryNote:
         """Replace one delivery note."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="VEHICLE_TRACKING",
+            values={"vehicle": data.vehicle, "driver": data.driver},
+        )
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be updated.")

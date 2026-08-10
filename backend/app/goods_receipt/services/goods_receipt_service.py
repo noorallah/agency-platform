@@ -10,6 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Warehouse, WarehouseStorageNode
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -219,6 +220,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
         """Create receipt."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="VEHICLE_TRACKING",
+            values={"vehicle_number": data.vehicle_number},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -299,6 +306,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> GoodsReceipt:
         """Change receipt."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="VEHICLE_TRACKING",
+            values={"vehicle_number": data.vehicle_number},
+        )
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status != GoodsReceiptStatus.DRAFT.value:
             raise ValidationError("Only draft goods receipts can be updated.")
