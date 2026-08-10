@@ -442,3 +442,44 @@ def test_a_firm_with_no_profile_at_all_is_not_locked_out() -> None:
         feature="EXPIRY_TRACKING",
         values={"expiry_date": date(2027, 1, 1)},
     )
+
+
+def test_an_empty_collection_is_blank_and_never_refused() -> None:
+    """A document with no attachments must not be refused for having the field.
+
+    The first version of this check treated any value that was not None, ""
+    or False as populated, so an empty ``attachments`` list counted as a use
+    of the feature -- which would have refused every document raised by a firm
+    without ATTACHMENTS, whether or not it attached anything.
+    """
+    session = _session_factory()()
+    _profile_with(session)
+    firm = uuid4()
+
+    for blank in ([], {}, (), "", None, False):
+        assert_feature_fields(
+            session, firm, feature="EXPIRY_TRACKING", values={"attachments": blank}
+        )
+
+    with pytest.raises(AuthorizationError):
+        assert_feature_fields(
+            session,
+            firm,
+            feature="EXPIRY_TRACKING",
+            values={"attachments": ["invoice.pdf"]},
+        )
+
+
+def test_zero_counts_as_a_value_somebody_typed() -> None:
+    """Blank means absent, not falsy. A numeric zero is a deliberate entry."""
+    session = _session_factory()()
+    _profile_with(session)
+
+    with pytest.raises(AuthorizationError):
+        assert_feature_fields(
+            session,
+            uuid4(),
+            feature="EXPIRY_TRACKING",
+            values={"shelf_life_days": 0},
+        )
+

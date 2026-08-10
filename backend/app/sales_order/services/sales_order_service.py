@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
+from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -200,6 +201,12 @@ class SalesOrderService(TransactionalDocumentService):
         self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesOrder:
         """Create one sales order."""
+        assert_feature_fields(
+            self._session,
+            firm_id,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -296,6 +303,12 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
     ) -> SalesOrder:
         """Replace one sales order."""
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachments": data.attachments},
+        )
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be updated.")
