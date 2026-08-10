@@ -135,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _focusPassword();
   }
 
-  Future<void> _selectTheme(AppTheme theme) => widget.themes.select(theme);
+  Future<void> _selectMode(ThemeMode mode) => widget.themes.selectMode(mode);
 
   @override
   Widget build(BuildContext context) {
@@ -168,16 +168,22 @@ class _LoginScreenState extends State<LoginScreen> {
                       _Toolbar(
                         children: [
                           _ThemeShortcutButton(
-                            tooltip: 'Light Theme',
-                            icon: Icons.light_mode_outlined,
+                            tooltip: 'Match Windows',
+                            icon: Icons.brightness_auto_outlined,
                             onPressed: () =>
-                                unawaited(_selectTheme(AppTheme.light)),
+                                unawaited(_selectMode(ThemeMode.system)),
                           ),
                           _ThemeShortcutButton(
-                            tooltip: 'Dark Theme',
+                            tooltip: 'Light',
+                            icon: Icons.light_mode_outlined,
+                            onPressed: () =>
+                                unawaited(_selectMode(ThemeMode.light)),
+                          ),
+                          _ThemeShortcutButton(
+                            tooltip: 'Dark',
                             icon: Icons.dark_mode_outlined,
                             onPressed: () =>
-                                unawaited(_selectTheme(AppTheme.dark)),
+                                unawaited(_selectMode(ThemeMode.dark)),
                           ),
                           ThemeSelector(manager: widget.themes),
                           _ThemeShortcutButton(
@@ -272,7 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final TextEditingController apiUrl =
         TextEditingController(text: widget.session.baseUrl);
     String? error;
-    AppTheme selectedTheme = widget.themes.current;
+    ThemeMode selectedMode = widget.themes.mode;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -285,21 +291,21 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  DropdownButtonFormField<AppTheme>(
-                    initialValue: selectedTheme,
-                    decoration: const InputDecoration(labelText: 'Theme'),
-                    items: AppTheme.values
+                  DropdownButtonFormField<ThemeMode>(
+                    initialValue: selectedMode,
+                    decoration: const InputDecoration(labelText: 'Appearance'),
+                    items: ThemeMode.values
                         .map(
-                          (theme) => DropdownMenuItem(
-                            value: theme,
-                            child: Text(theme.label),
+                          (mode) => DropdownMenuItem(
+                            value: mode,
+                            child: Text(mode.label),
                           ),
                         )
                         .toList(),
                     onChanged: (value) {
                       if (value == null) return;
-                      setDialogState(() => selectedTheme = value);
-                      unawaited(widget.themes.select(value));
+                      setDialogState(() => selectedMode = value);
+                      unawaited(widget.themes.selectMode(value));
                     },
                   ),
                   const SizedBox(height: 16),

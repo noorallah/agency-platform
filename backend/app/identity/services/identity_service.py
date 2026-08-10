@@ -339,6 +339,8 @@ class IdentityService:
         for field, value in {
             "preferences_version": 1,
             "preferred_theme": "light",
+            "preferred_theme_mode": "system",
+            "preferred_high_contrast": False,
             "language": "en",
             "date_format": "yyyy-MM-dd",
             "time_format": "24h",

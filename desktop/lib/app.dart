@@ -54,10 +54,14 @@ class _AgencyAppState extends State<AgencyApp> {
     super.initState();
     _session.addListener(_synchronizePermissions);
     _synchronizePermissions();
-    _themes.bindServerSync((theme) {
+    _themes.bindServerSync((palette, mode, highContrast) {
       if (_session.status == SessionStatus.authenticated ||
           _session.status == SessionStatus.requiresPasswordChange) {
-        return _session.updatePreferredTheme(theme);
+        return _session.updatePreferredAppearance(
+          palette: palette,
+          themeMode: mode,
+          highContrast: highContrast,
+        );
       }
       return Future.value();
     });
@@ -65,7 +69,11 @@ class _AgencyAppState extends State<AgencyApp> {
   }
 
   Future<void> _applyServerPreferences(UserPreferences preferences) =>
-      _themes.applyServerTheme(preferences.preferredTheme);
+      _themes.applyServerAppearance(
+        palette: preferences.preferredPalette,
+        mode: preferences.preferredThemeMode,
+        highContrast: preferences.preferredHighContrast,
+      );
 
   /// Re-resolve grants whenever the token or the selected firm changes.
   ///
@@ -90,7 +98,11 @@ class _AgencyAppState extends State<AgencyApp> {
         builder: (context, _) => MaterialApp(
           title: _branding.windowName,
           debugShowCheckedModeBanner: false,
-          theme: _themes.theme,
+          // Both halves are always supplied; themeMode decides which one is
+          // used, and only Flutter can see the operating system's setting.
+          theme: _themes.lightTheme,
+          darkTheme: _themes.darkTheme,
+          themeMode: _themes.mode,
           home: AnimatedBuilder(
             animation: _session,
             builder: (context, _) {

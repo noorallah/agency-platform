@@ -300,8 +300,24 @@ class UserPreferences(BaseEntity):
     preferences_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
+    #: The accent identity. Retains its column name and its existing values so
+    #: an older client keeps working; "light" now means "no accent chosen".
     preferred_theme: Mapped[str] = mapped_column(
         String(32), nullable=False, default="light", server_default="light"
+    )
+    #: Light, dark, or defer to the operating system.
+    #:
+    #: A separate column rather than another value in ``preferred_theme``:
+    #: brightness and accent are independent, and folding "system" into the
+    #: existing set would leave "dark" ambiguous about which of the two it
+    #: meant. Defaults to ``system`` because until now nobody could express a
+    #: brightness preference, so a stored "light" was never a choice anyone
+    #: made -- it was the absence of one.
+    preferred_theme_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="system", server_default="system"
+    )
+    preferred_high_contrast: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     language: Mapped[str] = mapped_column(
         String(16), nullable=False, default="en", server_default="en"

@@ -29,6 +29,36 @@ extension GridDensityDetails on GridDensity {
       );
 }
 
+/// Read the palette, honouring what an older build stored.
+///
+/// The previous release kept one `cached_theme` string mixing palette and
+/// mode. A user who had chosen "Blue" should still get blue; one who had
+/// chosen "Dark" was choosing a mode, not a palette, and keeps the default
+/// accent.
+String _paletteFrom(Map<String, dynamic> json) {
+  final Object? current = json['cached_palette'];
+  if (current is String && current.isNotEmpty) return current;
+  return switch (json['cached_theme']) {
+    'blue' => 'blue',
+    'green' => 'green',
+    _ => 'neutral',
+  };
+}
+
+/// Read the mode, honouring what an older build stored.
+///
+/// Only an explicit past choice of light or dark carries over. Anything else --
+/// including the old hardcoded `light` default that nobody actually chose --
+/// becomes `system`, which is the point of the change.
+String _themeModeFrom(Map<String, dynamic> json) {
+  final Object? current = json['cached_theme_mode'];
+  if (current is String && current.isNotEmpty) return current;
+  return switch (json['cached_theme']) {
+    'dark' || 'high_contrast' => 'dark',
+    _ => 'system',
+  };
+}
+
 class DesktopPreferences {
   const DesktopPreferences({
     this.version = 1,
@@ -38,7 +68,9 @@ class DesktopPreferences {
     this.recentUsernames = const [],
     this.serverUrl = 'http://localhost:8000',
     this.recentServers = const [],
-    this.cachedTheme = 'light',
+    this.cachedPalette = 'neutral',
+    this.cachedThemeMode = 'system',
+    this.cachedHighContrast = false,
     this.windowState = const {},
     this.lastWorkspace,
     this.serverPreferences = const {},
@@ -54,7 +86,12 @@ class DesktopPreferences {
   final List<String> recentUsernames;
   final String serverUrl;
   final List<String> recentServers;
-  final String cachedTheme;
+  final String cachedPalette;
+
+  /// Defaults to `system`, so a machine running Windows in dark mode is
+  /// not greeted with a white screen on first run.
+  final String cachedThemeMode;
+  final bool cachedHighContrast;
   final Map<String, dynamic> windowState;
   final String? lastWorkspace;
   final Map<String, dynamic> serverPreferences;
@@ -84,7 +121,10 @@ class DesktopPreferences {
               : [cachedUsername],
       serverUrl: optionalString(json['server_url']) ?? 'http://localhost:8000',
       recentServers: strings(json['recent_servers']),
-      cachedTheme: optionalString(json['cached_theme']) ?? 'light',
+      cachedPalette: _paletteFrom(json),
+      cachedThemeMode: _themeModeFrom(json),
+      cachedHighContrast: json['cached_high_contrast'] == true ||
+          optionalString(json['cached_theme']) == 'high_contrast',
       windowState: object(json['window_state']),
       lastWorkspace: optionalString(json['last_workspace']),
       serverPreferences: object(json['server_preferences']),
@@ -104,7 +144,9 @@ class DesktopPreferences {
         'recent_usernames': recentUsernames,
         'server_url': serverUrl,
         'recent_servers': recentServers,
-        'cached_theme': cachedTheme,
+        'cached_palette': cachedPalette,
+        'cached_theme_mode': cachedThemeMode,
+        'cached_high_contrast': cachedHighContrast,
         'window_state': windowState,
         'last_workspace': lastWorkspace,
         'server_preferences': serverPreferences,
@@ -121,7 +163,9 @@ class DesktopPreferences {
     List<String>? recentUsernames,
     String? serverUrl,
     List<String>? recentServers,
-    String? cachedTheme,
+    String? cachedPalette,
+    String? cachedThemeMode,
+    bool? cachedHighContrast,
     Map<String, dynamic>? windowState,
     String? lastWorkspace,
     bool clearLastWorkspace = false,
@@ -139,7 +183,9 @@ class DesktopPreferences {
         recentUsernames: recentUsernames ?? this.recentUsernames,
         serverUrl: serverUrl ?? this.serverUrl,
         recentServers: recentServers ?? this.recentServers,
-        cachedTheme: cachedTheme ?? this.cachedTheme,
+        cachedPalette: cachedPalette ?? this.cachedPalette,
+        cachedThemeMode: cachedThemeMode ?? this.cachedThemeMode,
+        cachedHighContrast: cachedHighContrast ?? this.cachedHighContrast,
         windowState: windowState ?? this.windowState,
         lastWorkspace:
             clearLastWorkspace ? null : lastWorkspace ?? this.lastWorkspace,
@@ -226,8 +272,18 @@ class DesktopPreferencesService {
         _preferences.copyWith(serverUrl: normalized, recentServers: recent));
   }
 
-  Future<void> saveTheme(String theme) =>
-      _save(_preferences.copyWith(cachedTheme: theme));
+  Future<void> saveAppearance({
+    required String palette,
+    required String themeMode,
+    required bool highContrast,
+  }) =>
+      _save(
+        _preferences.copyWith(
+          cachedPalette: palette,
+          cachedThemeMode: themeMode,
+          cachedHighContrast: highContrast,
+        ),
+      );
 
   Future<void> saveWindowState(Map<String, dynamic> state) =>
       _save(_preferences.copyWith(windowState: state));

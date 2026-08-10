@@ -2,6 +2,7 @@ import 'package:agency_desktop/core/branding/branding_config.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/preferences/user_preferences.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -39,7 +40,7 @@ void main() {
 
     expect(preferences.cachedUsername, 'person@example.test');
     expect(preferences.toJson().containsKey('password'), isFalse);
-    expect(preferences.cachedTheme, 'green');
+    expect(preferences.cachedPalette, 'green');
   });
 
   test('remote server URLs require HTTPS while loopback permits HTTP', () {
@@ -70,14 +71,33 @@ void main() {
       'dashboard_layout': {},
     });
 
-    expect(preferences.preferredTheme, AppTheme.highContrast.wireName);
+    expect(preferences.preferredTheme, 'high_contrast');
+    expect(preferences.preferredHighContrast, isTrue);
     expect(preferences.rowsPerPage, 20);
   });
 
-  test('theme registry exposes the five supported switchable themes', () {
-    expect(AppTheme.values, hasLength(5));
-    expect(ThemeRegistry.themeFor(AppTheme.dark).brightness, isNotNull);
-    expect(AppThemeDetails.fromWireName('green'), AppTheme.green);
+  test('every palette is built in both brightnesses', () {
+    // The old model had five entries mixing palette and mode, so "Blue" only
+    // ever existed in light. Each palette must now render in both.
+    for (final AppPalette palette in AppPalette.values) {
+      for (final Brightness brightness in Brightness.values) {
+        final ThemeData theme = ThemeRegistry.themeFor(
+          palette: palette,
+          brightness: brightness,
+        );
+        expect(theme.colorScheme.brightness, brightness);
+      }
+    }
+    expect(AppPaletteDetails.fromWireName('green'), AppPalette.green);
+  });
+
+  test('an unrecognised appearance follows the operating system', () {
+    // The old fallback was light, which is how a machine running Windows in
+    // dark mode was greeted with a white screen.
+    expect(AppThemeModeDetails.fromWireName(null), ThemeMode.system);
+    expect(AppThemeModeDetails.fromWireName(''), ThemeMode.system);
+    expect(AppThemeModeDetails.fromWireName('nonsense'), ThemeMode.system);
+    expect(AppThemeModeDetails.fromWireName('dark'), ThemeMode.dark);
   });
 
   test('desktop preferences retain framework display preferences', () {

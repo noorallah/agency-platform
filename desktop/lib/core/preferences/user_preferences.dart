@@ -1,7 +1,39 @@
+/// The palette a server reported, or the one implied by an older server.
+///
+/// A server that predates the palette/mode split sends only `preferred_theme`.
+/// "blue" and "green" were palettes there and stay palettes here; "dark" and
+/// "light" were modes and imply no palette at all.
+String? _legacyPalette(Map<String, dynamic> json) {
+  final Object? current = json['preferred_palette'];
+  if (current is String && current.isNotEmpty) return current;
+  return switch (json['preferred_theme']) {
+    'blue' => 'blue',
+    'green' => 'green',
+    _ => null,
+  };
+}
+
+/// The mode a server reported, or the one implied by an older server.
+///
+/// Returns null rather than "light" when the old value carries no opinion, so
+/// the client falls through to following the operating system.
+String? _legacyThemeMode(Map<String, dynamic> json) {
+  final Object? current = json['preferred_theme_mode'];
+  if (current is String && current.isNotEmpty) return current;
+  return switch (json['preferred_theme']) {
+    'dark' || 'high_contrast' => 'dark',
+    'light' => 'light',
+    _ => null,
+  };
+}
+
 class UserPreferences {
   const UserPreferences({
     required this.preferencesVersion,
     required this.preferredTheme,
+    this.preferredPalette,
+    this.preferredThemeMode,
+    this.preferredHighContrast,
     required this.language,
     required this.dateFormat,
     required this.timeFormat,
@@ -15,7 +47,13 @@ class UserPreferences {
   });
 
   final int preferencesVersion;
+  /// Retained for older servers, which stored palette and mode in one
+  /// string. New clients read the three fields below and only fall back to
+  /// deriving from this when a server has not been upgraded.
   final String preferredTheme;
+  final String? preferredPalette;
+  final String? preferredThemeMode;
+  final bool? preferredHighContrast;
   final String language;
   final String dateFormat;
   final String timeFormat;
@@ -58,6 +96,11 @@ class UserPreferences {
     return UserPreferences(
       preferencesVersion: version,
       preferredTheme: requiredString('preferred_theme'),
+      preferredPalette: _legacyPalette(json),
+      preferredThemeMode: _legacyThemeMode(json),
+      preferredHighContrast: json['preferred_high_contrast'] is bool
+          ? json['preferred_high_contrast'] as bool
+          : json['preferred_theme'] == 'high_contrast',
       language: requiredString('language'),
       dateFormat: requiredString('date_format'),
       timeFormat: requiredString('time_format'),
@@ -74,6 +117,11 @@ class UserPreferences {
   Map<String, dynamic> toJson() => {
         'preferences_version': preferencesVersion,
         'preferred_theme': preferredTheme,
+        if (preferredPalette != null) 'preferred_palette': preferredPalette,
+        if (preferredThemeMode != null)
+          'preferred_theme_mode': preferredThemeMode,
+        if (preferredHighContrast != null)
+          'preferred_high_contrast': preferredHighContrast,
         'language': language,
         'date_format': dateFormat,
         'time_format': timeFormat,

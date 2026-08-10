@@ -212,10 +212,35 @@ class SessionController extends ChangeNotifier {
     }
   }
 
-  Future<void> updatePreferredTheme(String theme) async {
-    final UserPreferences updated =
-        await api.updateUserPreferences({'preferred_theme': theme});
+  /// Persist the user's appearance choices to the server.
+  ///
+  /// `preferred_theme` is still sent so an older server keeps working: it gets
+  /// the closest single value it understands, while a current server reads the
+  /// three explicit fields and ignores it.
+  Future<void> updatePreferredAppearance({
+    required String palette,
+    required String themeMode,
+    required bool highContrast,
+  }) async {
+    final UserPreferences updated = await api.updateUserPreferences({
+      'preferred_palette': palette,
+      'preferred_theme_mode': themeMode,
+      'preferred_high_contrast': highContrast,
+      'preferred_theme': _legacyThemeValue(palette, themeMode, highContrast),
+    });
     await _applyServerPreferences(updated);
+  }
+
+  /// Collapse the three values into the one an older server accepts.
+  static String _legacyThemeValue(
+    String palette,
+    String themeMode,
+    bool highContrast,
+  ) {
+    if (highContrast) return 'high_contrast';
+    if (themeMode == 'dark') return 'dark';
+    if (palette == 'blue' || palette == 'green') return palette;
+    return 'light';
   }
 
   Future<void> switchFirm(String firmId) async {

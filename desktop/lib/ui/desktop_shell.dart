@@ -313,10 +313,7 @@ class _DesktopShellState extends State<DesktopShell> {
               const Spacer(),
               _firmControl(),
               const SizedBox(width: 8),
-              ThemeSelector(
-                manager: widget.themes,
-                buttonPadding: EdgeInsets.zero,
-              ),
+              ThemeSelector(manager: widget.themes),
               PopupMenuButton<String>(
                 tooltip: 'Profile',
                 padding: EdgeInsets.zero,
