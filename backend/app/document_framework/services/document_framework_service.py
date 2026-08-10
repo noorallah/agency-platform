@@ -466,6 +466,9 @@ class DocumentFrameworkService:
             firm_id=firm_id,
         )
 
+    # Document dates default to utc_now().date(), not date.today(): the
+    # server's local date decides which day -- and which financial year --
+    # a document number belongs to, and everything else here is UTC.
     def preview_number(
         self,
         rule_id: UUID,
@@ -483,7 +486,7 @@ class DocumentFrameworkService:
             financial_year_label=financial_year_label,
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or date.today(),
+            document_date=document_date or utc_now().date(),
             manual_number=manual_number,
         )
 
@@ -504,7 +507,7 @@ class DocumentFrameworkService:
             financial_year_label=financial_year_label,
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or date.today(),
+            document_date=document_date or utc_now().date(),
         )
         if rule.auto_reset and rule.last_scope_signature != scope_signature:
             rule.next_sequence = 1
@@ -514,7 +517,7 @@ class DocumentFrameworkService:
             financial_year_label=financial_year_label,
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or date.today(),
+            document_date=document_date or utc_now().date(),
             manual_number=manual_number,
         )
         if manual_number is not None and rule.manual_allowed:

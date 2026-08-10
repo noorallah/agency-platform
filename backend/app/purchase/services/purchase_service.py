@@ -192,7 +192,7 @@ class PurchaseService(TransactionalDocumentService):
             1
             for row in rows
             if row.expected_delivery_date is not None
-            and row.expected_delivery_date < date.today()
+            and row.expected_delivery_date < utc_now().date()
             and row.status
             not in {
                 PurchaseOrderStatus.CANCELLED.value,

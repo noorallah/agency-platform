@@ -195,7 +195,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             1
             for row in rows
             if row.due_date is not None
-            and row.due_date < date.today()
+            and row.due_date < utc_now().date()
             and row.status
             not in {
                 PurchaseInvoiceStatus.CANCELLED.value,
@@ -697,7 +697,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
         Cancelled and closed invoices are excluded: neither is still owing.
         """
-        today = date.today()
+        today = utc_now().date()
         return list(
             self._session.scalars(
                 select(PurchaseInvoice).where(
