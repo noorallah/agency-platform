@@ -3,6 +3,7 @@
 import csv
 import io
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -17,6 +18,9 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.customers.schemas import (
+    CreditControlSettingsResponse,
+    CreditControlSettingsWrite,
+    CreditStatusResponse,
     CustomerAddressResponse,
     CustomerContactResponse,
     CustomerCreate,
@@ -33,7 +37,7 @@ from app.customers.schemas.customer import (
     CustomerStatus,
     CustomerType,
 )
-from app.customers.services import CustomerService
+from app.customers.services import CreditControlService, CustomerService
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -57,6 +61,9 @@ CustomerRestoreScope = Annotated[
 ]
 CustomerExportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CUSTOMER_EXPORT")
+]
+CustomerSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("CUSTOMER_MANAGE_SETTINGS")
 ]
 CustomerImportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CUSTOMER_IMPORT")
@@ -242,6 +249,35 @@ def import_customers(
     )
 
 
+@router.get(
+    "/credit-settings", response_model=ApiResponse[CreditControlSettingsResponse]
+)
+def get_credit_settings(
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CreditControlSettingsResponse]:
+    """Return the firm's credit policy, or the default it falls back to."""
+    settings = CreditControlService(db).settings_response(scope.firm_id)
+    return ApiResponse(data=settings)
+
+
+@router.put(
+    "/credit-settings", response_model=ApiResponse[CreditControlSettingsResponse]
+)
+def update_credit_settings(
+    data: CreditControlSettingsWrite,
+    scope: CustomerSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CreditControlSettingsResponse]:
+    """Replace the firm's credit policy."""
+    settings = CreditControlService(db).update_settings(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=settings)
+
+
 @router.get("/{customer_id}", response_model=ApiResponse[CustomerResponse])
 def get_customer(
     customer_id: UUID,
@@ -331,6 +367,31 @@ def list_customer_contacts(
     return ApiResponse(
         data=[CustomerContactResponse.model_validate(row) for row in rows]
     )
+
+
+@router.get(
+    "/{customer_id}/credit-status",
+    response_model=ApiResponse[CreditStatusResponse],
+)
+def customer_credit_status(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    amount: Annotated[
+        Decimal,
+        Query(ge=0, description="Value of the document being considered, if any."),
+    ] = Decimal("0"),
+    db: Session = Depends(get_db),
+) -> ApiResponse[CreditStatusResponse]:
+    """Report where one customer stands against their credit limit.
+
+    ``amount`` lets a client ask the question before saving -- "would this
+    order breach the limit?" -- rather than after.
+    """
+    customer = CustomerService(db).get(customer_id, firm_scope=scope.firm_id)
+    status_report = CreditControlService(db).status_for(
+        customer, additional_amount=amount
+    )
+    return ApiResponse(data=status_report)
 
 
 @router.get(

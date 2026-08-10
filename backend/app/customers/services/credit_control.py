@@ -19,33 +19,24 @@ trusts.
 
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.audit.services import record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.money import quantize_money
 from app.customers.models import CreditControlSettings, Customer
+from app.customers.schemas import (
+    CreditControlSettingsResponse,
+    CreditControlSettingsWrite,
+    CreditEnforcement,
+    CreditStatus,
+    CreditStatusResponse,
+)
 
 _ZERO = Decimal("0")
-
-
-class CreditEnforcement(StrEnum):
-    """What a firm wants to happen when a customer nears their limit."""
-
-    OFF = "OFF"
-    WARN = "WARN"
-    BLOCK = "BLOCK"
-
-
-class CreditStatus(StrEnum):
-    """Where one document leaves a customer against their limit."""
-
-    OK = "OK"
-    WARNING = "WARNING"
-    BREACH = "BREACH"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +70,15 @@ class CreditControlService:
         """Bind the service to the request unit of work."""
         self._session = session
 
+    def _stored_settings(self, firm_id: UUID) -> CreditControlSettings | None:
+        """Return the firm's own policy row, or nothing if it never set one."""
+        return self._session.scalar(
+            select(CreditControlSettings).where(
+                CreditControlSettings.firm_id == firm_id,
+                CreditControlSettings.is_deleted.is_(False),
+            )
+        )
+
     def settings_for(self, firm_id: UUID) -> CreditControlSettings:
         """Return the firm's policy, or the platform default.
 
@@ -86,12 +86,7 @@ class CreditControlService:
         Shipping this switched off would leave the field exactly as unused as
         it was before.
         """
-        stored = self._session.scalar(
-            select(CreditControlSettings).where(
-                CreditControlSettings.firm_id == firm_id,
-                CreditControlSettings.is_deleted.is_(False),
-            )
-        )
+        stored = self._stored_settings(firm_id)
         return stored if stored is not None else DEFAULT_SETTINGS
 
     def assess(
@@ -124,6 +119,12 @@ class CreditControlService:
             )
 
         used_percent = quantize_money(exposure / limit * Decimal("100"))
+        # The numeric fields keep full money scale for the caller to compute
+        # with; the message is read by a person, and "88.5664% of a 250000.0000
+        # limit" is not how anyone states a credit position.
+        shown_percent = used_percent.quantize(Decimal("0.1"))
+        shown_limit = limit.quantize(Decimal("0.01"))
+        shown_available = available.quantize(Decimal("0.01"))
         blocking = policy.enforcement == CreditEnforcement.BLOCK.value
         if blocking and used_percent >= policy.block_at_percent:
             return CreditAssessment(
@@ -133,9 +134,9 @@ class CreditControlService:
                 available=available,
                 used_percent=used_percent,
                 message=(
-                    f"{customer.display_name} would be at {used_percent}% of a "
-                    f"{limit} credit limit. Collect payment or raise the limit "
-                    "before continuing."
+                    f"{customer.display_name} would be at {shown_percent}% of a "
+                    f"{shown_limit} credit limit. Collect payment or raise the "
+                    "limit before continuing."
                 ),
             )
         if used_percent >= policy.warn_at_percent:
@@ -146,8 +147,9 @@ class CreditControlService:
                 available=available,
                 used_percent=used_percent,
                 message=(
-                    f"{customer.display_name} would be at {used_percent}% of a "
-                    f"{limit} credit limit, leaving {available} available."
+                    f"{customer.display_name} would be at {shown_percent}% of a "
+                    f"{shown_limit} credit limit, leaving {shown_available} "
+                    "available."
                 ),
             )
         return CreditAssessment(
@@ -157,6 +159,95 @@ class CreditControlService:
             available=available,
             used_percent=used_percent,
             message=None,
+        )
+
+    def settings_response(self, firm_id: UUID) -> CreditControlSettingsResponse:
+        """Report the firm's policy and whether the firm actually chose it."""
+        stored = self._stored_settings(firm_id)
+        policy = stored if stored is not None else DEFAULT_SETTINGS
+        return CreditControlSettingsResponse(
+            enforcement=CreditEnforcement(policy.enforcement),
+            warn_at_percent=policy.warn_at_percent,
+            block_at_percent=policy.block_at_percent,
+            is_configured=stored is not None,
+        )
+
+    def update_settings(
+        self,
+        data: CreditControlSettingsWrite,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> CreditControlSettingsResponse:
+        """Replace the firm's policy, creating the row on first write.
+
+        The policy decides whether trading stops, so the change is audited with
+        the thresholds on both sides -- ``DEFAULT_SETTINGS`` is never mutated,
+        it is the fallback every unconfigured firm shares.
+        """
+        row = self._stored_settings(firm_id)
+        before: dict[str, object] | None = None
+        if row is None:
+            row = CreditControlSettings(firm_id=firm_id, created_by=actor_id)
+            self._session.add(row)
+        else:
+            before = {
+                "enforcement": row.enforcement,
+                "warn_at_percent": str(row.warn_at_percent),
+                "block_at_percent": str(row.block_at_percent),
+            }
+        row.enforcement = data.enforcement.value
+        row.warn_at_percent = data.warn_at_percent
+        row.block_at_percent = data.block_at_percent
+        row.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="UPDATE" if before is not None else "CREATE",
+            entity_type="CreditControlSettings",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=before,
+            after_data={
+                "enforcement": row.enforcement,
+                "warn_at_percent": str(row.warn_at_percent),
+                "block_at_percent": str(row.block_at_percent),
+            },
+        )
+        self._session.commit()
+        return CreditControlSettingsResponse(
+            enforcement=CreditEnforcement(row.enforcement),
+            warn_at_percent=row.warn_at_percent,
+            block_at_percent=row.block_at_percent,
+            is_configured=True,
+        )
+
+    def status_for(
+        self, customer: Customer, *, additional_amount: Decimal = _ZERO
+    ) -> CreditStatusResponse:
+        """Answer "can this customer take one more document?" for a client.
+
+        Reporting the thresholds alongside the verdict lets a desktop form show
+        why it is warning without a second call for the policy.
+        """
+        policy = self.settings_for(customer.firm_id)
+        assessment = self.assess(
+            customer, additional_amount=additional_amount, settings=policy
+        )
+        return CreditStatusResponse(
+            customer_id=customer.id,
+            customer_name=customer.display_name,
+            enforcement=CreditEnforcement(policy.enforcement),
+            status=assessment.status,
+            limit=assessment.limit,
+            exposure=assessment.exposure,
+            available=assessment.available,
+            used_percent=assessment.used_percent,
+            warn_at_percent=policy.warn_at_percent,
+            block_at_percent=policy.block_at_percent,
+            would_block=assessment.blocks,
+            message=assessment.message,
         )
 
     def assert_within_limit(

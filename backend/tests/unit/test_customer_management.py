@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as SchemaValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -28,9 +29,12 @@ from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.customers.api.router import (
     create_customer,
+    customer_credit_status,
     delete_customer,
+    get_credit_settings,
     list_customers,
     restore_customer,
+    update_credit_settings,
 )
 from app.customers.models import (
     CreditControlSettings,
@@ -38,18 +42,20 @@ from app.customers.models import (
     CustomerAddress,
     CustomerContact,
 )
-from app.customers.schemas import CustomerCreate, CustomerUpdate
+from app.customers.schemas import (
+    CreditControlSettingsWrite,
+    CreditEnforcement,
+    CreditStatus,
+    CustomerCreate,
+    CustomerUpdate,
+)
 from app.customers.schemas.customer import (
     CustomerListFilters,
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
-from app.customers.services import (
-    CreditControlService,
-    CreditEnforcement,
-    CreditStatus,
-    CustomerService,
-)
+from app.customers.services import CreditControlService, CustomerService
+from app.customers.services.credit_control import DEFAULT_SETTINGS
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -562,3 +568,139 @@ def test_a_zero_limit_means_unset_not_no_credit() -> None:
     )
 
     assert assessment.status is CreditStatus.OK
+
+
+def _credit_endpoint_setup(
+    code: str, permissions: set[str]
+) -> tuple[Session, Firm, ResolvedFirmScope]:
+    """Build a firm, a member, and the scope a request would resolve."""
+    session = _session_factory()()
+    firm = _firm(session, code)
+    user_id = uuid4()
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(_principal(user_id, permissions), session, firm.id)
+    return session, firm, scope
+
+
+def test_credit_status_endpoint_answers_before_the_document_is_saved() -> None:
+    """A client can ask "would this order breach?" rather than find out after."""
+    session, firm, scope = _credit_endpoint_setup("CRE1", {"CUSTOMER_VIEW"})
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="700")
+
+    quiet = customer_credit_status(customer.id, scope, Decimal("0"), session).data
+    loaded = customer_credit_status(customer.id, scope, Decimal("200"), session).data
+
+    assert quiet.status is CreditStatus.OK
+    assert loaded.status is CreditStatus.WARNING
+    assert loaded.exposure == Decimal("900.0000")
+    assert loaded.available == Decimal("100.0000")
+    assert loaded.customer_name == customer.display_name
+    # The thresholds ride along so a form can explain the warning without a
+    # second call for the policy.
+    assert loaded.warn_at_percent == Decimal("80")
+    assert loaded.block_at_percent == Decimal("100")
+    assert loaded.would_block is False
+
+
+def test_credit_status_reports_the_block_without_raising() -> None:
+    """Asking is not saving: the query reports a breach, it does not refuse."""
+    session, firm, scope = _credit_endpoint_setup("CRE2", {"CUSTOMER_VIEW"})
+    session.add(
+        CreditControlSettings(
+            firm_id=firm.id, enforcement=CreditEnforcement.BLOCK.value
+        )
+    )
+    session.commit()
+    customer = _customer_with_credit(session, firm.id, limit="1000", outstanding="900")
+
+    report = customer_credit_status(customer.id, scope, Decimal("200"), session).data
+
+    assert report.status is CreditStatus.BREACH
+    assert report.would_block is True
+    assert report.message is not None
+
+
+def test_credit_status_refuses_a_customer_outside_the_firm() -> None:
+    """Credit position is customer data and obeys the same firm boundary."""
+    session, _, scope = _credit_endpoint_setup("CRE3", {"CUSTOMER_VIEW"})
+    other = _firm(session, "CRE3X")
+    stranger = _customer_with_credit(session, other.id, limit="1000", outstanding="0")
+
+    with pytest.raises(ResourceNotFoundError):
+        customer_credit_status(stranger.id, scope, Decimal("0"), session)
+
+
+def test_credit_settings_report_the_default_until_a_firm_chooses_one() -> None:
+    """An unconfigured firm still warns, and is told the choice is not its own."""
+    session, firm, scope = _credit_endpoint_setup(
+        "CRE4", {"CUSTOMER_VIEW", "CUSTOMER_MANAGE_SETTINGS"}
+    )
+
+    before = get_credit_settings(scope, session).data
+    assert before.enforcement is CreditEnforcement.WARN
+    assert before.warn_at_percent == Decimal("80")
+    assert before.is_configured is False
+
+    after = update_credit_settings(
+        CreditControlSettingsWrite(
+            enforcement=CreditEnforcement.BLOCK,
+            warn_at_percent=Decimal("70"),
+            block_at_percent=Decimal("110"),
+        ),
+        scope,
+        session,
+    ).data
+
+    assert after.enforcement is CreditEnforcement.BLOCK
+    assert after.is_configured is True
+    assert get_credit_settings(scope, session).data.block_at_percent == Decimal("110")
+    # The shared fallback must survive a firm writing its own policy.
+    assert DEFAULT_SETTINGS.enforcement == CreditEnforcement.WARN.value
+    assert DEFAULT_SETTINGS.block_at_percent == Decimal("100")
+    stored = session.scalar(
+        select(CreditControlSettings).where(CreditControlSettings.firm_id == firm.id)
+    )
+    assert stored is not None
+
+
+def test_updating_credit_settings_twice_keeps_one_row_and_audits_the_change() -> None:
+    """The policy is a financial control, so every change leaves a trail."""
+    session, firm, scope = _credit_endpoint_setup(
+        "CRE5", {"CUSTOMER_MANAGE_SETTINGS", "CUSTOMER_VIEW"}
+    )
+    write = CreditControlSettingsWrite(
+        enforcement=CreditEnforcement.WARN,
+        warn_at_percent=Decimal("60"),
+        block_at_percent=Decimal("100"),
+    )
+    update_credit_settings(write, scope, session)
+    update_credit_settings(
+        CreditControlSettingsWrite(
+            enforcement=CreditEnforcement.OFF,
+            warn_at_percent=Decimal("90"),
+            block_at_percent=Decimal("100"),
+        ),
+        scope,
+        session,
+    )
+
+    rows = session.scalars(
+        select(CreditControlSettings).where(CreditControlSettings.firm_id == firm.id)
+    ).all()
+    assert len(rows) == 1
+
+    actions = session.scalars(
+        select(AuditLog.action).where(AuditLog.entity_type == "CreditControlSettings")
+    ).all()
+    assert list(actions) == ["CREATE", "UPDATE"]
+
+
+def test_a_warning_threshold_above_the_block_is_rejected() -> None:
+    """A warning that can never fire is a policy the firm would misread."""
+    with pytest.raises(SchemaValidationError):
+        CreditControlSettingsWrite(
+            enforcement=CreditEnforcement.BLOCK,
+            warn_at_percent=Decimal("120"),
+            block_at_percent=Decimal("100"),
+        )

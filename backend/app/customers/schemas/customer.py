@@ -47,6 +47,22 @@ class AddressType(StrEnum):
     OTHER = "OTHER"
 
 
+class CreditEnforcement(StrEnum):
+    """What a firm wants to happen when a customer nears their limit."""
+
+    OFF = "OFF"
+    WARN = "WARN"
+    BLOCK = "BLOCK"
+
+
+class CreditStatus(StrEnum):
+    """Where one document leaves a customer against their limit."""
+
+    OK = "OK"
+    WARNING = "WARNING"
+    BREACH = "BREACH"
+
+
 class CustomerSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
 
@@ -309,3 +325,51 @@ class CustomerReceivableSummary(CustomerSchema):
     outstanding: Decimal
     unapplied_advance: Decimal
     net_position: Decimal
+
+
+class CreditStatusResponse(CustomerSchema):
+    """Report where one customer stands against their credit limit."""
+
+    customer_id: UUID
+    customer_name: str
+    enforcement: CreditEnforcement
+    status: CreditStatus
+    limit: Decimal
+    exposure: Decimal
+    available: Decimal
+    used_percent: Decimal
+    warn_at_percent: Decimal
+    block_at_percent: Decimal
+    would_block: bool
+    message: str | None
+
+
+class CreditControlSettingsResponse(CustomerSchema):
+    """Expose the firm's credit policy."""
+
+    enforcement: CreditEnforcement
+    warn_at_percent: Decimal
+    block_at_percent: Decimal
+    is_configured: bool
+
+
+class CreditControlSettingsWrite(CustomerSchema):
+    """Replace the firm's credit policy."""
+
+    enforcement: CreditEnforcement
+    warn_at_percent: Decimal = Field(ge=Decimal("1"), le=Decimal("500"))
+    block_at_percent: Decimal = Field(ge=Decimal("1"), le=Decimal("500"))
+
+    @model_validator(mode="after")
+    def _warn_before_block(self) -> "CreditControlSettingsWrite":
+        """Keep the warning ahead of the block.
+
+        A warning threshold above the blocking one can never fire: the document
+        is refused before it is ever reached, so the firm would believe it had
+        a warning stage it does not have.
+        """
+        if self.warn_at_percent > self.block_at_percent:
+            raise ValueError(
+                "Warning threshold must not be above the blocking threshold."
+            )
+        return self
