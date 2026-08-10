@@ -241,6 +241,25 @@ Each of these was invisible to the unit suite, and each cost a real defect.
       `UQ_user_firms_active_primary` does. Flush the demotion before writing the
       promoted row or the index rejects the statement.
 
+### Defects the import pass added to this list
+
+- [ ] **A batch endpoint that loops over a committing method is not a batch.**
+      `import_branches` and `import_warehouses` called `create_branch` /
+      `create_warehouse` per record, and both commit. A file whose fifth row
+      clashed returned 409 with the first four already written, and re-sending
+      the corrected file then failed on those four as duplicates — so the
+      import could never be completed **(found a real bug)**. Stage every
+      record, commit once, roll back on failure. Check that the staged path
+      still writes the audit rows the single-row path does.
+- [ ] **Say whether a failed write left anything behind.** After a refused
+      import the user's first question is whether half of it went in. If the
+      endpoint is atomic, the UI should say so in the error.
+- [ ] **A dialog whose content grows with the data needs a scroll view.** The
+      import dialog laid out fine empty and overflowed by 48px once a file was
+      loaded; the widget test caught it because a render overflow fails a test,
+      which is the argument for testing the populated state and not just the
+      empty one.
+
 ### Defects the time-convention pass added to this list
 
 - [ ] **Never read the server's local clock.** Everything persisted here is

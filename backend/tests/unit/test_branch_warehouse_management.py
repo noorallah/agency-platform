@@ -12,14 +12,18 @@ from sqlalchemy.pool import StaticPool
 from app.branches.api.router import (
     create_branch,
     create_warehouse,
+    import_branches,
+    import_warehouses,
     list_branches,
     list_warehouses,
 )
 from app.branches.models import Branch, Warehouse
 from app.branches.schemas import BranchCreate, BranchUpdate, WarehouseCreate
 from app.branches.schemas.branch_warehouse import (
+    BranchImportRequest,
     BranchListFilters,
     BulkIdsRequest,
+    WarehouseImportRequest,
     WarehouseListFilters,
 )
 from app.branches.services import BranchWarehouseService
@@ -432,3 +436,116 @@ def test_bulk_delete_refuses_a_branch_that_still_has_warehouses() -> None:
         service.bulk_delete_branches(
             BulkIdsRequest(ids=[branch.id]), firm_scope=firm.id, actor_id=actor_id
         )
+
+
+def _import_scope(session: Session, firm: Firm) -> ResolvedFirmScope:
+    """Resolve an import-capable scope for a member of one firm."""
+    user_id = uuid4()
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    return _firm_scope(
+        _principal(user_id, {"BRANCH_WAREHOUSE_IMPORT", "BRANCH_VIEW"}),
+        session,
+        firm.id,
+    )
+
+
+def test_a_branch_import_that_fails_partway_writes_nothing() -> None:
+    """A partial import that cannot be retried is worse than a refused one.
+
+    The router called ``create_branch`` per record, and that commits. A batch
+    whose third row clashed returned 409 with the first two already written --
+    and re-running the corrected file then failed on those two as duplicates,
+    so the import could never be completed.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "IMP1")
+    scope = _import_scope(session, firm)
+
+    with pytest.raises(ConflictError):
+        import_branches(
+            BranchImportRequest(
+                records=[
+                    _branch_data("B1"),
+                    _branch_data("B2"),
+                    _branch_data("B1"),
+                ]
+            ),
+            scope,
+            session,
+        )
+
+    session.expire_all()
+    assert session.scalars(select(Branch.code)).all() == []
+
+
+def test_a_refused_branch_import_can_be_retried_once_corrected() -> None:
+    """The point of rolling back: the same file works after a fix."""
+    session = _session_factory()()
+    firm = _firm(session, "IMP2")
+    scope = _import_scope(session, firm)
+
+    with pytest.raises(ConflictError):
+        import_branches(
+            BranchImportRequest(records=[_branch_data("B1"), _branch_data("B1")]),
+            scope,
+            session,
+        )
+
+    response = import_branches(
+        BranchImportRequest(records=[_branch_data("B1"), _branch_data("B2")]),
+        scope,
+        session,
+    )
+
+    assert sorted(row.code for row in response.data) == ["B1", "B2"]
+
+
+def test_a_warehouse_import_that_fails_partway_writes_nothing() -> None:
+    """Warehouses import all or nothing for the same reason branches do."""
+    session = _session_factory()()
+    firm = _firm(session, "IMP3")
+    scope = _import_scope(session, firm)
+    branch = BranchWarehouseService(session).create_branch(
+        _branch_data("B1"), firm_id=firm.id, actor_id=scope.actor_id
+    )
+
+    with pytest.raises(ConflictError):
+        import_warehouses(
+            WarehouseImportRequest(
+                records=[
+                    _warehouse_data(branch.id, "W1"),
+                    _warehouse_data(branch.id, "W1"),
+                ]
+            ),
+            scope,
+            session,
+        )
+
+    session.expire_all()
+    assert session.scalars(select(Warehouse.code)).all() == []
+
+
+def test_an_imported_batch_is_audited_row_by_row() -> None:
+    """Staging must not cost the audit trail the single-row path writes.
+
+    The bulk endpoints in this module already shipped once with no audit rows
+    at all, so a rewrite of the import path is exactly where that recurs.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "IMP4")
+    scope = _import_scope(session, firm)
+
+    import_branches(
+        BranchImportRequest(
+            records=[_branch_data("B1"), _branch_data("B2"), _branch_data("B3")]
+        ),
+        scope,
+        session,
+    )
+
+    entries = session.scalars(
+        select(AuditLog).where(AuditLog.entity_type == "branch")
+    ).all()
+    assert len(entries) == 3
+    assert {entry.after_data["code"] for entry in entries} == {"B1", "B2", "B3"}

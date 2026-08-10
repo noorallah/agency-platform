@@ -67,10 +67,14 @@ class BranchWarehouseService:
             limit=page_size,
         )
 
-    def create_branch(
+    def _stage_branch(
         self, data: BranchCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Branch:
-        """Create a branch, demoting any previous default."""
+        """Build and flush one branch without committing it.
+
+        Split out so an import can stage a whole batch and commit once. The
+        caller owns the transaction.
+        """
         self._assert_unique_branch_code(firm_id, data.code)
         values = self._branch_values(data)
         self._demote_other_default_branches(
@@ -93,8 +97,38 @@ class BranchWarehouseService:
             firm_id=firm_id,
             after_data={"code": row.code, "status": row.status},
         )
+        return row
+
+    def create_branch(
+        self, data: BranchCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Branch:
+        """Create a branch, demoting any previous default."""
+        row = self._stage_branch(data, firm_id=firm_id, actor_id=actor_id)
         self._commit_unique("Branch code already exists in this firm.")
         return row
+
+    def import_branches(
+        self, records: list[BranchCreate], *, firm_id: UUID, actor_id: UUID
+    ) -> list[Branch]:
+        """Create a validated branch batch in one transaction.
+
+        The router used to call ``create_branch`` per record, and that commits.
+        A batch whose fifth row clashed therefore returned 409 with the first
+        four already written -- and re-running the corrected file then failed on
+        those four as duplicates, so the import could not be retried. All or
+        nothing, the way ``CustomerService.import_customers`` has always
+        behaved.
+        """
+        try:
+            rows = [
+                self._stage_branch(record, firm_id=firm_id, actor_id=actor_id)
+                for record in records
+            ]
+        except (ConflictError, IntegrityError):
+            self._session.rollback()
+            raise
+        self._commit_unique("Branch code already exists in this firm.")
+        return rows
 
     def get_branch(
         self, branch_id: UUID, *, firm_scope: UUID | None, include_deleted: bool = False
@@ -319,10 +353,10 @@ class BranchWarehouseService:
             limit=page_size,
         )
 
-    def create_warehouse(
+    def _stage_warehouse(
         self, data: WarehouseCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Warehouse:
-        """Create a warehouse under a branch the firm owns."""
+        """Build and flush one warehouse without committing it."""
         self._assert_unique_warehouse_code(firm_id, data.code)
         branch = self.get_branch(data.branch_id, firm_scope=firm_id)
         values = self._warehouse_values(data)
@@ -346,8 +380,34 @@ class BranchWarehouseService:
             firm_id=firm_id,
             after_data={"code": row.code, "branch_id": str(branch.id)},
         )
+        return row
+
+    def create_warehouse(
+        self, data: WarehouseCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Warehouse:
+        """Create a warehouse under a branch the firm owns."""
+        row = self._stage_warehouse(data, firm_id=firm_id, actor_id=actor_id)
         self._commit_unique("Warehouse code already exists in this firm.")
         return row
+
+    def import_warehouses(
+        self, records: list[WarehouseCreate], *, firm_id: UUID, actor_id: UUID
+    ) -> list[Warehouse]:
+        """Create a validated warehouse batch in one transaction.
+
+        Same reason as :meth:`import_branches`: a partial import that cannot be
+        retried is worse than a refused one.
+        """
+        try:
+            rows = [
+                self._stage_warehouse(record, firm_id=firm_id, actor_id=actor_id)
+                for record in records
+            ]
+        except (ConflictError, IntegrityError):
+            self._session.rollback()
+            raise
+        self._commit_unique("Warehouse code already exists in this firm.")
+        return rows
 
     def get_warehouse(
         self,
