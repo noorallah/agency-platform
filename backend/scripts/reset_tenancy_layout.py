@@ -15,7 +15,11 @@ from sqlalchemy.engine import URL, Engine, make_url
 
 from app.api.dependencies.settings import get_settings
 from app.core.database.engine import DatabaseManager
-from app.core.tenancy.lifecycle import _PLATFORM_TABLES, _safe_identifier
+from app.core.tenancy.lifecycle import (
+    _PLATFORM_TABLES,
+    _safe_identifier,
+    prune_platform_objects,
+)
 
 _ALEMBIC_INI = (Path(__file__).resolve().parents[1] / "alembic.ini").as_posix()
 _LEGACY_SCHEMAS = ("PF_SHARED", "platform_shared", "platform", "firm_shared", "public")
@@ -265,25 +269,10 @@ def _run_migrations(platform_url: URL, schema_name: str) -> None:
 
 
 def _prune_platform_tables(platform_url: URL, schema_name: str) -> None:
-    schema = _safe_identifier(schema_name, "schema name")
-    engine = create_engine(
-        platform_url.render_as_string(hide_password=False), pool_pre_ping=True
+    prune_platform_objects(
+        database_url=platform_url.render_as_string(hide_password=False),
+        schema_name=schema_name,
     )
-    try:
-        with engine.begin() as connection:
-            for table_name in _PLATFORM_TABLES:
-                table = _safe_identifier(table_name, "table name")
-                connection.execute(
-                    text(f'DROP TABLE IF EXISTS "{schema}"."{table}" CASCADE')
-                )
-            connection.execute(
-                text(
-                    f'DROP FUNCTION IF EXISTS "{schema}".'
-                    "reject_audit_log_mutation() CASCADE"
-                )
-            )
-    finally:
-        engine.dispose()
 
 
 def _prune_non_platform_tables(platform_url: URL, schema_name: str) -> None:

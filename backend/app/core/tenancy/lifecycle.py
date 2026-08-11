@@ -36,6 +36,12 @@ _PLATFORM_TABLES = (
     "firm_storage_mappings",
     "user_firms",
     "user_preferences",
+    # Crash and server-error reports are deliberately platform-only: support
+    # reads one trail, and a report is written before any firm is resolved.
+    # Listed here so a firm store never keeps a stray copy, and so the platform
+    # store keeps it -- reset_tenancy_layout drops everything absent from this
+    # list from the platform schema.
+    "error_reports",
 )
 
 
@@ -43,6 +49,41 @@ def _safe_identifier(value: str, label: str) -> str:
     if not _IDENTIFIER.fullmatch(value):
         raise BusinessRuleError(f"Invalid {label}: {value!r}.")
     return value
+
+
+def prune_platform_objects(*, database_url: str, schema_name: str) -> None:
+    """Drop the platform-owned tables from a firm store.
+
+    Alembic migrates one schema per run and every migration targets whichever
+    schema it was pointed at, so a freshly migrated firm store also carries
+    ``firms``, ``users``, ``roles`` and the rest. They are not the firm's to
+    hold: the registry and identity live in the platform store alone, and a
+    tenant session must not be able to resolve them. Every path that builds a
+    firm store therefore migrates and then prunes -- dedicated provisioning
+    below, ``scripts/reset_tenancy_layout.py`` for the shared schema, and CI.
+
+    Safe to repeat, and a no-op on dialects other than PostgreSQL.
+    """
+    schema = _safe_identifier(schema_name, "schema name")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.begin() as connection:
+            if connection.dialect.name != "postgresql":
+                return
+            for table_name in _PLATFORM_TABLES:
+                quoted_table = _safe_identifier(table_name, "table name")
+                connection.execute(
+                    text(f'DROP TABLE IF EXISTS "{schema}"."{quoted_table}" CASCADE')
+                )
+            # `reject_audit_log_mutation()` is deliberately left alone. Every
+            # schema owns its own copy of that function and of the
+            # TR_audit_logs_append_only trigger that calls it (20260809_0043),
+            # and the firm keeps its own audit_logs -- the trail is per store.
+            # Dropping the function CASCADE took the firm's trigger with it, so
+            # every dedicated store provisioned this way had a rewritable audit
+            # trail while CLAUDE.md called it immutable.
+    finally:
+        engine.dispose()
 
 
 class TenantStorageLifecycleService:
@@ -238,24 +279,4 @@ class TenantStorageLifecycleService:
 
     def _prune_platform_objects(self, *, database_url: str, schema_name: str) -> None:
         """Remove platform tables from tenant-dedicated storage."""
-        schema = _safe_identifier(schema_name, "schema name")
-        engine = create_engine(database_url, pool_pre_ping=True)
-        try:
-            with engine.begin() as connection:
-                if connection.dialect.name != "postgresql":
-                    return
-                for table_name in _PLATFORM_TABLES:
-                    quoted_table = _safe_identifier(table_name, "table name")
-                    connection.execute(
-                        text(
-                            f'DROP TABLE IF EXISTS "{schema}"."{quoted_table}" CASCADE'
-                        )
-                    )
-                connection.execute(
-                    text(
-                        f'DROP FUNCTION IF EXISTS "{schema}".'
-                        "reject_audit_log_mutation() CASCADE"
-                    )
-                )
-        finally:
-            engine.dispose()
+        prune_platform_objects(database_url=database_url, schema_name=schema_name)

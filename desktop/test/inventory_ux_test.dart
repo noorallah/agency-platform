@@ -20,11 +20,12 @@ void main() {
       (tester) async {
     _setDesktopSurface(tester);
     final Directory temp = Directory.systemTemp.createTempSync('inventory-csv');
-    final File file = File('${temp.path}\\opening-stock.csv')
-      ..writeAsStringSync(
-        'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,PostingDate\n'
-        'MED-001,BR-001,WH-001,RACK-A,10,OPEN-001,2026-08-02\n',
-      );
+    final File file =
+        File('${temp.path}${Platform.pathSeparator}opening-stock.csv')
+          ..writeAsStringSync(
+            'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,PostingDate\n'
+            'MED-001,BR-001,WH-001,RACK-A,10,OPEN-001,2026-08-02\n',
+          );
     final _InventoryImportApi api = _InventoryImportApi();
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
@@ -49,7 +50,8 @@ void main() {
     );
 
     await tester.runAsync(
-      () => controller.loadPreparedFile('opening-stock.csv', file.readAsBytesSync()),
+      () => controller.loadPreparedFile(
+          'opening-stock.csv', file.readAsBytesSync()),
     );
     await tester.pumpAndSettle();
 
@@ -77,13 +79,15 @@ void main() {
   testWidgets('inventory import wizard shows cancel during adjustment import',
       (tester) async {
     _setDesktopSurface(tester);
-    final Directory temp = Directory.systemTemp.createTempSync('inventory-retry');
-    final File file = File('${temp.path}\\adjustments.csv')
-      ..writeAsStringSync(
-        'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,TransactionDate\n'
-        'MED-001,BR-001,WH-001,RACK-A,3,ADJ-001,2026-08-02\n'
-        'MED-001,BR-001,WH-001,RACK-A,2,ADJ-002,2026-08-02\n',
-      );
+    final Directory temp =
+        Directory.systemTemp.createTempSync('inventory-retry');
+    final File file =
+        File('${temp.path}${Platform.pathSeparator}adjustments.csv')
+          ..writeAsStringSync(
+            'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,TransactionDate\n'
+            'MED-001,BR-001,WH-001,RACK-A,3,ADJ-001,2026-08-02\n'
+            'MED-001,BR-001,WH-001,RACK-A,2,ADJ-002,2026-08-02\n',
+          );
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final InventoryImportWizardController controller =
@@ -109,7 +113,8 @@ void main() {
     );
 
     await tester.runAsync(
-      () => controller.loadPreparedFile('adjustments.csv', file.readAsBytesSync()),
+      () => controller.loadPreparedFile(
+          'adjustments.csv', file.readAsBytesSync()),
     );
     await tester.pumpAndSettle();
     expect(
@@ -127,16 +132,19 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('inventory import wizard shows retry after failed adjustment import',
+  testWidgets(
+      'inventory import wizard shows retry after failed adjustment import',
       (tester) async {
     _setDesktopSurface(tester);
-    final Directory temp = Directory.systemTemp.createTempSync('inventory-retry-fail');
-    final File file = File('${temp.path}\\adjustments.csv')
-      ..writeAsStringSync(
-        'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,TransactionDate\n'
-        'MED-001,BR-001,WH-001,RACK-A,3,ADJ-001,2026-08-02\n'
-        'MED-001,BR-001,WH-001,RACK-A,2,ADJ-002,2026-08-02\n',
-      );
+    final Directory temp =
+        Directory.systemTemp.createTempSync('inventory-retry-fail');
+    final File file =
+        File('${temp.path}${Platform.pathSeparator}adjustments.csv')
+          ..writeAsStringSync(
+            'ProductCode,BranchCode,WarehouseCode,StorageCode,Quantity,ReferenceNumber,TransactionDate\n'
+            'MED-001,BR-001,WH-001,RACK-A,3,ADJ-001,2026-08-02\n'
+            'MED-001,BR-001,WH-001,RACK-A,2,ADJ-002,2026-08-02\n',
+          );
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final InventoryImportWizardController controller =
@@ -163,7 +171,8 @@ void main() {
     );
 
     await tester.runAsync(
-      () => controller.loadPreparedFile('adjustments.csv', file.readAsBytesSync()),
+      () => controller.loadPreparedFile(
+          'adjustments.csv', file.readAsBytesSync()),
     );
     await tester.pumpAndSettle();
 
@@ -267,7 +276,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Search integration will be enabled when module APIs are available.'),
+      find.text(
+          'Search integration will be enabled when module APIs are available.'),
       findsOneWidget,
     );
   });
@@ -276,13 +286,15 @@ void main() {
       (tester) async {
     _setDesktopSurface(tester);
     final _BatchSerialApi api = _BatchSerialApi();
-    final Directory temp =
-        Directory.systemTemp.createTempSync('batch-test');
+    final Directory temp = Directory.systemTemp.createTempSync('batch-test');
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final PermissionService permissions = _permissionsFor([
-      'BATCH_VIEW', 'BATCH_CREATE', 'BATCH_UPDATE',
-      'BATCH_DELETE', 'SERIAL_VIEW',
+      'BATCH_VIEW',
+      'BATCH_CREATE',
+      'BATCH_UPDATE',
+      'BATCH_DELETE',
+      'SERIAL_VIEW',
     ]);
 
     await tester.pumpWidget(
@@ -314,7 +326,8 @@ void main() {
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final PermissionService permissions = _permissionsFor([
-      'BATCH_VIEW', 'BATCH_CREATE',
+      'BATCH_VIEW',
+      'BATCH_CREATE',
     ]);
 
     await tester.pumpWidget(
@@ -341,12 +354,12 @@ void main() {
       (tester) async {
     _setDesktopSurface(tester);
     final _BatchSerialApi api = _BatchSerialApi();
-    final Directory temp =
-        Directory.systemTemp.createTempSync('serial-test');
+    final Directory temp = Directory.systemTemp.createTempSync('serial-test');
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final PermissionService permissions = _permissionsFor([
-      'SERIAL_VIEW', 'SERIAL_CREATE',
+      'SERIAL_VIEW',
+      'SERIAL_CREATE',
     ]);
 
     await tester.pumpWidget(
@@ -371,8 +384,7 @@ void main() {
       (tester) async {
     _setDesktopSurface(tester);
     final _BatchSerialApi api = _BatchSerialApi();
-    final Directory temp =
-        Directory.systemTemp.createTempSync('expiry-test');
+    final Directory temp = Directory.systemTemp.createTempSync('expiry-test');
     final DesktopPreferencesService preferences =
         DesktopPreferencesService(directory: temp);
     final PermissionService permissions = _permissionsFor(['BATCH_VIEW']);
@@ -420,8 +432,7 @@ class _InventoryImportApi extends ApiClient {
   _InventoryImportApi({
     this.adjustmentDelay = Duration.zero,
     this.failAdjustmentCalls = const <int>{},
-  })
-      : super(
+  }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
           refreshAccessToken: () async => false,
@@ -485,7 +496,8 @@ class _InventoryImportApi extends ApiClient {
   }
 
   @override
-  Future<InventoryTransactionRecord> createInventoryAdjustment(Json data) async {
+  Future<InventoryTransactionRecord> createInventoryAdjustment(
+      Json data) async {
     adjustmentCalls++;
     onAdjustmentCall?.call(adjustmentCalls);
     if (failAdjustmentCalls.contains(adjustmentCalls)) {
@@ -735,8 +747,7 @@ class _BatchSerialApi extends ApiClient {
       PagedResult(items: batchItems, total: batchItems.length);
 
   @override
-  Future<BatchSummaryRecord> batchSummary() async =>
-      const BatchSummaryRecord(
+  Future<BatchSummaryRecord> batchSummary() async => const BatchSummaryRecord(
         totalBatches: 0,
         nearExpiry: 0,
         expired: 0,

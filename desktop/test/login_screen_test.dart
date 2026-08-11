@@ -194,12 +194,11 @@ class _TestHarness extends StatelessWidget {
 }
 
 Future<_FakePreferencesService> _preferences() async {
-  final Directory directory = Directory(
-    '${Directory.systemTemp.path}\\agency_login_test_${DateTime.now().microsecondsSinceEpoch}',
-  );
-  if (!directory.existsSync()) {
-    directory.createSync(recursive: true);
-  }
+  // createTempSync, not a hand-built path: a literal '\' separator is a legal
+  // filename character on Linux, so the directory was created under /tmp with a
+  // backslash in its name and every test in this file died in its fixture on CI.
+  final Directory directory =
+      Directory.systemTemp.createTempSync('agency_login_test_');
   addTearDown(() async {
     if (await directory.exists()) {
       await directory.delete(recursive: true);
