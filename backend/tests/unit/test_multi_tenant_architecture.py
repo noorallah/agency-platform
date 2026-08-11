@@ -22,6 +22,7 @@ from app.core.tenancy import (
     MultiTenantDatabaseProvider,
     TenantContext,
 )
+from app.core.utils.dates import utc_now
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
 from app.firms.services import FirmService
@@ -120,6 +121,7 @@ def test_tenant_resolver_reads_firm_registry() -> None:
             database_name="agency_platform",
             database_type="postgresql",
             is_active=True,
+            provisioned_at=utc_now(),
         )
     )
     session.commit()
@@ -193,9 +195,7 @@ def test_database_provider_uses_platform_for_non_database_modes() -> None:
 def test_connection_resolver_uses_platform_connection() -> None:
     """Resolve DATABASE mode connections from platform credentials."""
     platform = _platform_database()
-    resolver = FirmConnectionResolver(
-        platform, _settings().tenancy.connection_profiles
-    )
+    resolver = FirmConnectionResolver(platform, _settings().tenancy.connection_profiles)
     tenant = TenantContext(
         firm_id=uuid4(),
         deployment_mode=DeploymentMode.DATABASE,
@@ -216,9 +216,7 @@ def test_connection_resolver_uses_platform_connection() -> None:
 def test_connection_resolver_rejects_mismatched_tenant_database_type() -> None:
     """Reject a tenant row database_type that differs from platform dialect."""
     platform = _platform_database()
-    resolver = FirmConnectionResolver(
-        platform, _settings().tenancy.connection_profiles
-    )
+    resolver = FirmConnectionResolver(platform, _settings().tenancy.connection_profiles)
     tenant = TenantContext(
         firm_id=uuid4(),
         deployment_mode=DeploymentMode.DATABASE,
@@ -330,3 +328,148 @@ def test_settings_reject_mismatched_profile_database_type() -> None:
                 '"password":"tenant_password","database_type":"mysql"}}'
             )
         ).tenancy
+
+
+_REMOTE_PROFILE = (
+    '{"NODE_A":{"username":"tenant_user","password":"tenant_password",'
+    '"database_host":"10.0.0.7","database_port":6432}}'
+)
+
+
+def test_connection_resolver_uses_the_named_profile() -> None:
+    """A firm's profile decides the server and credentials, not the platform.
+
+    Until this was wired, `AGENCY_TENANCY_CONNECTION_PROFILES` was parsed and
+    then discarded, so a DATABASE-mode firm was only ever a second database on
+    the platform host.
+    """
+    platform = _platform_database()
+    resolver = FirmConnectionResolver(
+        platform, _settings(profiles=_REMOTE_PROFILE).tenancy.connection_profiles
+    )
+    tenant = TenantContext(
+        firm_id=uuid4(),
+        deployment_mode=DeploymentMode.DATABASE,
+        database_name="abc",
+        schema_name="xyz",
+        database_type="postgresql",
+        connection_profile="NODE_A",
+    )
+
+    config = resolver.resolve(tenant)
+
+    assert config.host == "10.0.0.7"
+    assert config.port == 6432
+    assert config.username == "tenant_user"
+    assert config.password.get_secret_value() == "tenant_password"
+    assert config.database == "abc"
+    assert config.default_schema == "xyz"
+    platform.dispose()
+
+
+def test_connection_resolver_refuses_an_unconfigured_profile() -> None:
+    """An unknown profile fails loudly instead of using the platform server."""
+    platform = _platform_database()
+    resolver = FirmConnectionResolver(
+        platform, _settings(profiles=_REMOTE_PROFILE).tenancy.connection_profiles
+    )
+    tenant = TenantContext(
+        firm_id=uuid4(),
+        deployment_mode=DeploymentMode.DATABASE,
+        database_name="abc",
+        schema_name="xyz",
+        database_type="postgresql",
+        connection_profile="TYPO",
+    )
+
+    with pytest.raises(BusinessRuleError):
+        resolver.resolve(tenant)
+    platform.dispose()
+
+
+def test_tenant_resolver_refuses_an_unprovisioned_dedicated_firm() -> None:
+    """A dedicated firm cannot serve requests before its tables are built."""
+    session = _session()
+    firm = Firm(
+        name="Pending Firm",
+        code="PENDING",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(firm)
+    session.flush()
+    session.add(
+        FirmStorageMapping(
+            firm_id=firm.id,
+            deployment_mode=DeploymentMode.DATABASE.value,
+            schema_name="xyz",
+            database_name="abc",
+            database_type="postgresql",
+            connection_profile="NODE_A",
+            is_active=True,
+        )
+    )
+    session.commit()
+
+    platform = _platform_database()
+    platform.session_factory = sessionmaker(bind=session.bind, expire_on_commit=False)
+    with pytest.raises(BusinessRuleError, match="has not been provisioned"):
+        _tenant_resolver(platform).resolve(_request_with_firm(str(firm.id)))
+    platform.dispose()
+
+
+def test_tenant_resolver_carries_the_connection_profile() -> None:
+    """The resolved context names the server so the connection can reach it."""
+    session = _session()
+    firm = Firm(
+        name="Remote Firm",
+        code="REMOTE",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(firm)
+    session.flush()
+    session.add(
+        FirmStorageMapping(
+            firm_id=firm.id,
+            deployment_mode=DeploymentMode.DATABASE.value,
+            schema_name="xyz",
+            database_name="abc",
+            database_type="postgresql",
+            connection_profile="NODE_A",
+            is_active=True,
+            provisioned_at=utc_now(),
+        )
+    )
+    session.commit()
+
+    platform = _platform_database()
+    platform.session_factory = sessionmaker(bind=session.bind, expire_on_commit=False)
+    tenant = _tenant_resolver(platform).resolve(_request_with_firm(str(firm.id)))
+
+    assert tenant is not None
+    assert tenant.connection_profile == "NODE_A"
+    platform.dispose()
+
+
+def test_firm_service_rejects_an_unconfigured_profile_at_create() -> None:
+    """A typo in the profile name fails at creation, not at first request."""
+    session = _session()
+    with pytest.raises(BusinessRuleError, match="not configured"):
+        FirmService(
+            session,
+            tenancy_settings=_settings(profiles=_REMOTE_PROFILE).tenancy,
+        ).create(
+            FirmCreate(
+                name="Remote Firm",
+                code="REMOTE1",
+                country="IN",
+                currency_code="INR",
+                financial_year_start=date(2026, 4, 1),
+                deployment_mode="DATABASE",
+                connection_profile="NOT_CONFIGURED",
+            ),
+            actor_id=uuid4(),
+        )

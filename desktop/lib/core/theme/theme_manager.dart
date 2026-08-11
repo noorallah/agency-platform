@@ -152,9 +152,8 @@ class ThemeManager extends ChangeNotifier {
     required bool highContrast,
     bool synchronize = true,
   }) async {
-    final bool changed = palette != _palette ||
-        mode != _mode ||
-        highContrast != _highContrast;
+    final bool changed =
+        palette != _palette || mode != _mode || highContrast != _highContrast;
     if (changed) {
       _palette = palette;
       _mode = mode;
@@ -235,6 +234,19 @@ class ThemeRegistry {
         dataRowMaxHeight: spacing.rowHeight,
         headingTextStyle: textTheme.labelSmall,
         dataTextStyle: textTheme.bodyMedium,
+        // Flutter's default marks a selected row with primary at 8% opacity,
+        // which is close to invisible on this light ground and disappears
+        // entirely in high contrast -- and the row the toolbar is about to act
+        // on is the one thing in the grid that must be unmistakable.
+        dataRowColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return tuned.primary.withValues(alpha: dark ? 0.24 : 0.14);
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return tuned.onSurface.withValues(alpha: 0.05);
+          }
+          return null;
+        }),
       ),
       listTileTheme: ListTileThemeData(
         minVerticalPadding: spacing.fieldGap / 2,
@@ -258,8 +270,10 @@ class ThemeRegistry {
           horizontal: AppSpacing.md,
           vertical: spacing.fieldGap,
         ),
-        hintStyle: textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
-        labelStyle: textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
+        hintStyle:
+            textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
+        labelStyle:
+            textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
         enabledBorder: OutlineInputBorder(
           borderRadius: AppRadius.medium,
           borderSide: borderSide,

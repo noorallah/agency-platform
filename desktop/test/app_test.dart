@@ -278,14 +278,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(PaginatedDataTable), findsOneWidget);
+      expect(find.byType(DataTable), findsOneWidget);
       expect(find.text('Toolbar'), findsOneWidget);
       expect(find.text('2000 records'), findsOneWidget);
     });
   }
 
-  testWidgets('data grid resets its pagination state when page offset changes',
+  testWidgets('data grid shows the page it was given, and only that page',
       (tester) async {
+    // This used to assert on a ValueKey that existed solely to reset
+    // PaginatedDataTable's internal page state. Rows now come straight from
+    // `items`, so the thing worth asserting is the rendered content.
     int pageOffset = 20;
     late StateSetter rebuild;
     await tester.pumpWidget(
@@ -310,11 +313,187 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const ValueKey(20)), findsOneWidget);
+    expect(find.text('Record 20'), findsOneWidget);
+    expect(find.text('Record 0'), findsNothing);
+
     rebuild(() => pageOffset = 0);
     await tester.pump();
-    expect(find.byKey(const ValueKey(0)), findsOneWidget);
-    expect(find.byKey(const ValueKey(20)), findsNothing);
+
+    expect(find.text('Record 0'), findsOneWidget);
+    expect(find.text('Record 20'), findsNothing);
+
+    // 20 records on a page sized for 20: exactly 20 rows, no blank padding.
+    expect(
+        tester.widget<DataTable>(find.byType(DataTable)).rows, hasLength(20));
+  });
+
+  testWidgets('a grid with row actions pins them outside the scroll',
+      (tester) async {
+    // Firm Management carries seven data columns plus Actions, so Actions sat
+    // off the right edge -- and Flutter never draws a horizontal scrollbar, so
+    // nothing said it was there or how to reach it.
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(900, 700);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EnterpriseDataGrid<int>(
+            items: const [1, 2, 3],
+            total: 3,
+            pageOffset: 0,
+            columns: const [
+              GridColumn(key: 'a', label: 'Code'),
+              GridColumn(key: 'b', label: 'Name'),
+              GridColumn(key: 'c', label: 'Contact'),
+              GridColumn(key: 'd', label: 'Currency'),
+              GridColumn(key: 'e', label: 'Country'),
+              GridColumn(key: 'f', label: 'Storage'),
+              GridColumn(key: 'g', label: 'Status'),
+            ],
+            id: (item) => '$item',
+            cells: (item) => List.filled(7, 'value $item'),
+            onSelect: (_) {},
+            onOpen: (_) {},
+            onContextAction: (_, __) {},
+            contextActions: const [WorkspaceContextAction.delete],
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    // Two tables: the data half scrolls, the Actions half does not.
+    expect(find.byType(DataTable), findsNWidgets(2));
+    final Finder actionsTable = find.byType(DataTable).last;
+    expect(
+      find.ancestor(
+        of: actionsTable,
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsWidgets, // the shared vertical scroll
+    );
+    // The row actions are reachable without scrolling anywhere.
+    expect(find.byTooltip('View'), findsNWidgets(3));
+    expect(find.byTooltip('More actions'), findsNWidgets(3));
+    // And the data half now says it can be scrolled.
+    expect(find.byType(Scrollbar), findsWidgets);
+  });
+
+  testWidgets('a narrow grid leaves no gap before the pinned actions',
+      (tester) async {
+    // Three columns and a pinned Actions column left a stretch of nothing
+    // between them: the data table took only its intrinsic width and the rest
+    // of its Expanded sat empty.
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1400, 700);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EnterpriseDataGrid<int>(
+            items: const [1, 2],
+            total: 2,
+            pageOffset: 0,
+            columns: const [
+              GridColumn(key: 'a', label: 'Permission'),
+              GridColumn(key: 'b', label: 'Code'),
+              GridColumn(key: 'c', label: 'Status'),
+            ],
+            id: (item) => '$item',
+            cells: (item) => ['Name $item', 'CODE_$item', 'Active'],
+            onSelect: (_) {},
+            onOpen: (_) {},
+            onContextAction: (_, __) {},
+            contextActions: const [WorkspaceContextAction.delete],
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder data = find.byType(DataTable).first;
+    final Finder actions = find.byType(DataTable).last;
+    // The precise invariant, and one that does not care what the card's border
+    // costs: the pinned column begins exactly where the data ends.
+    expect(
+      tester.getTopLeft(actions).dx,
+      closeTo(tester.getTopRight(data).dx, 1),
+    );
+    // And the data half filled the space rather than sitting at the intrinsic
+    // width of three short columns, which is what left the gap.
+    expect(tester.getSize(data).width, greaterThan(1000));
+  });
+
+  testWidgets('a grid without row actions stays a single table',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EnterpriseDataGrid<int>(
+            items: const [1, 2],
+            total: 2,
+            pageOffset: 0,
+            columns: const [GridColumn(key: 'record', label: 'Record')],
+            id: (item) => '$item',
+            cells: (item) => ['Record $item'],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    // Nothing to pin, so nothing to split -- and nothing to keep aligned.
+    expect(find.byType(DataTable), findsOneWidget);
+  });
+
+  testWidgets('a partly filled page renders no blank rows', (tester) async {
+    // PaginatedDataTable padded every short page out to rowsPerPage with blank
+    // rows, and with a checkbox column each blank drew a disabled checkbox --
+    // three records under a 25-row page size meant 22 phantom rows.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EnterpriseDataGrid<int>(
+            items: const [1, 2, 3],
+            total: 3,
+            pageOffset: 0,
+            rowsPerPage: 25,
+            columns: const [GridColumn(key: 'record', label: 'Record')],
+            id: (item) => '$item',
+            cells: (item) => ['Record $item'],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Record 1'), findsOneWidget);
+    expect(find.text('Record 3'), findsOneWidget);
+    // Three records, three rows -- the twenty-two blanks are gone.
+    expect(tester.widget<DataTable>(find.byType(DataTable)).rows, hasLength(3));
+
+    // And no checkbox column: this grid declares no multi-selection, so there
+    // would be nothing to do with a ticked row.
+    expect(
+      find.descendant(
+        of: find.byType(DataTable),
+        matching: find.byType(Checkbox),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets(
@@ -506,6 +685,35 @@ void main() {
 
     expect(find.text('Sign in'), findsOneWidget);
     expect(find.text('Welcome back'), findsOneWidget);
+  });
+
+  testWidgets('every label in the app can be selected and copied',
+      (tester) async {
+    // Flutter's `Text` is not selectable, so without this nothing on screen
+    // could be highlighted -- an operator had to retype a document number or an
+    // id out of an error message by hand.
+    final SessionController session = SessionController(
+      baseUrl: 'http://localhost:8000',
+      tokenStore: _MemoryTokenStore(),
+    );
+
+    await tester.pumpWidget(AgencyApp(session: session));
+    await tester.pump();
+
+    final Finder selection = find.byType(SelectionArea);
+    expect(selection, findsOneWidget);
+    // Inside the route, not above the Navigator: `SelectableRegion` needs an
+    // `Overlay` ancestor and the Navigator is what supplies one, so wrapping
+    // higher throws and takes the screen with it.
+    expect(
+      find.ancestor(of: selection, matching: find.byType(Navigator)),
+      findsWidgets,
+    );
+    // And the screen still renders through it.
+    expect(
+      find.descendant(of: selection, matching: find.text('Welcome back')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('customer workspace composes the shared management framework',

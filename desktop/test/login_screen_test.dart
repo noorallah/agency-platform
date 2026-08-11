@@ -408,12 +408,14 @@ void main() {
 
       expect(tester.takeException(), isNull, reason: 'overflow at $size');
       final ScrollableState scrollable = tester.state<ScrollableState>(
-        find.descendant(
-          of: find.byType(SingleChildScrollView).first,
-          matching: find.byType(Scrollable),
-          // Each text field carries its own internal Scrollable; the
-          // outermost descendant is the page's.
-        ).first,
+        find
+            .descendant(
+              of: find.byType(SingleChildScrollView).first,
+              matching: find.byType(Scrollable),
+              // Each text field carries its own internal Scrollable; the
+              // outermost descendant is the page's.
+            )
+            .first,
       );
       expect(
         scrollable.position.maxScrollExtent,

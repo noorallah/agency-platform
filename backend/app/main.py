@@ -27,6 +27,7 @@ from app.core.tenancy import (
     TenantStorageLifecycleService,
 )
 from app.customers.api import router as customers_router
+from app.diagnostics.api import router as diagnostics_router
 from app.delivery_note.api import router as delivery_notes_router
 from app.document_framework.api import router as document_framework_router
 from app.finance.api import router as finance_router
@@ -127,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(uom_framework_router)
     application.include_router(finance_router)
     application.include_router(audit_logs_router)
+    application.include_router(diagnostics_router)
     register_exception_handlers(application)
     return application
 

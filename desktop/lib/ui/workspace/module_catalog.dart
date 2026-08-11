@@ -272,7 +272,7 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'firm-settings',
           label: 'Firm Settings',
-          available: false,
+          requiredPermissions: ['FIRM_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'branches-departments',
@@ -1082,7 +1082,6 @@ abstract final class ModuleCatalog {
           label: 'Firm Settings',
           path: 'firm-settings',
           icon: Icons.settings_applications_outlined,
-          available: false,
         ),
       if (visibleTabIds.contains('branches-departments'))
         const WorkspaceNavigationNode(

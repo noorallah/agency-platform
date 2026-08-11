@@ -88,6 +88,30 @@ ones that produced a defect during the platform pass.
       `module_catalog.dart` rather than silently absent.
 - [ ] Screens compose the shared workspace framework instead of bespoke shells.
 
+### Diagnostics
+
+The product ships to customers as an executable on machines nobody here can
+reach. A failure that leaves no evidence is a failure that cannot be fixed, and
+support gets "it closed" and nothing else.
+
+- [ ] Failures a user can hit reach `CrashReporter.recordError`, not a bare
+      `debugPrint` — `debugPrint` goes nowhere in a release build and is gone the
+      moment the window is.
+- [ ] Nothing the module logs or reports can carry a credential. Passwords,
+      refresh tokens, `Bearer` headers and JWTs are redacted by
+      `DiagnosticsRedaction`; a user is identified by id, never by name or email.
+- [ ] A failure leaves the window open and usable. An error must not be a reason
+      for the application to disappear.
+- [ ] Long or destructive operations write a log line before and after, so a
+      report shows what the application was doing when it stopped.
+- [ ] Business-critical operations call `log_operation` / `operation`
+      (`app/core/logging`) or `AppLog.operation`, so "did it post?" is
+      answerable from the log rather than inferred.
+- [ ] **Still to support:** a triage screen. Reports now reach
+      `error_reports` from both the client and the server, but they are read
+      with SQL or `GET /api/v1/diagnostics/errors`; the grouped Administration
+      view does not exist yet.
+
 ### Gates
 
 - [ ] `ruff`, `black`, `mypy` clean **for the module** (repo-wide is still red).

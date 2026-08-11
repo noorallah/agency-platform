@@ -103,44 +103,60 @@ class _AgencyAppState extends State<AgencyApp> {
           theme: _themes.lightTheme,
           darkTheme: _themes.darkTheme,
           themeMode: _themes.mode,
-          home: AnimatedBuilder(
-            animation: _session,
-            builder: (context, _) {
-              switch (_session.status) {
-                case SessionStatus.restoring:
-                  return _StatusPage(
-                    message: 'Connecting to ${_branding.productName}…',
-                    loading: true,
-                    branding: _branding,
-                  );
-                case SessionStatus.authenticating:
-                case SessionStatus.signedOut:
-                case SessionStatus.error:
-                  return LoginScreen(
-                    session: _session,
-                    preferences: _preferences,
-                    branding: _branding,
-                    themes: _themes,
-                    error: _session.status == SessionStatus.error
-                        ? _session.error
-                        : null,
-                    notice: _session.notice,
-                  );
-                case SessionStatus.requiresPasswordChange:
-                  return ChangeInitialPasswordScreen(
-                    session: _session,
-                    branding: _branding,
-                  );
-                case SessionStatus.authenticated:
-                  return DesktopShell(
-                    session: _session,
-                    preferences: _preferences,
-                    branding: _branding,
-                    themes: _themes,
-                    permissions: _permissions,
-                  );
-              }
-            },
+          // Flutter's `Text` is not selectable, which is the opposite of the
+          // web and of every other desktop application: nothing on screen could
+          // be highlighted or copied unless somebody had happened to build that
+          // particular label as a `SelectableText`. In an ERP the values people
+          // most need to copy -- a document number, a code, an id in an error
+          // message -- were the ones they had to retype by hand.
+          //
+          // It goes here rather than in `builder`, which is inserted *above*
+          // the Navigator: `SelectableRegion` requires an `Overlay` ancestor,
+          // and the Navigator is what provides one, so wrapping there throws
+          // and takes the whole screen with it. Inside `home` the route is
+          // already within the overlay. Dialogs are separate routes and are not
+          // covered, which costs nothing: their values sit in text fields,
+          // which have always been selectable.
+          home: SelectionArea(
+            child: AnimatedBuilder(
+              animation: _session,
+              builder: (context, _) {
+                switch (_session.status) {
+                  case SessionStatus.restoring:
+                    return _StatusPage(
+                      message: 'Connecting to ${_branding.productName}…',
+                      loading: true,
+                      branding: _branding,
+                    );
+                  case SessionStatus.authenticating:
+                  case SessionStatus.signedOut:
+                  case SessionStatus.error:
+                    return LoginScreen(
+                      session: _session,
+                      preferences: _preferences,
+                      branding: _branding,
+                      themes: _themes,
+                      error: _session.status == SessionStatus.error
+                          ? _session.error
+                          : null,
+                      notice: _session.notice,
+                    );
+                  case SessionStatus.requiresPasswordChange:
+                    return ChangeInitialPasswordScreen(
+                      session: _session,
+                      branding: _branding,
+                    );
+                  case SessionStatus.authenticated:
+                    return DesktopShell(
+                      session: _session,
+                      preferences: _preferences,
+                      branding: _branding,
+                      themes: _themes,
+                      permissions: _permissions,
+                    );
+                }
+              },
+            ),
           ),
         ),
       );

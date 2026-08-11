@@ -94,6 +94,18 @@ class Firm(BaseEntity):
         return mapping.schema_name if mapping is not None else None
 
     @property
+    def connection_profile(self) -> str | None:
+        """Return the configured connection profile naming this firm's server."""
+        mapping = self._active_storage_mapping
+        return mapping.connection_profile if mapping is not None else None
+
+    @property
+    def provisioned_at(self) -> datetime | None:
+        """Return when this firm's dedicated storage was last built."""
+        mapping = self._active_storage_mapping
+        return mapping.provisioned_at if mapping is not None else None
+
+    @property
     def _active_storage_mapping(self) -> "FirmStorageMapping | None":
         active = next(
             (
@@ -131,6 +143,17 @@ class FirmStorageMapping(BaseEntity):
     )
     database_name: Mapped[str | None] = mapped_column(String(128))
     schema_name: Mapped[str | None] = mapped_column(String(128))
+
+    # Names an entry in AGENCY_TENANCY_CONNECTION_PROFILES. NULL means the
+    # platform server, which is where every firm lived before a firm could be
+    # pointed at a different one.
+    connection_profile: Mapped[str | None] = mapped_column(String(64))
+
+    # Dedicated storage is built by an explicit action rather than inline at
+    # firm creation, so a firm exists before its tables do. Until this is
+    # stamped the tenant resolver refuses to route requests to it.
+    provisioned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    provisioning_error: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

@@ -24,8 +24,9 @@ Run it with ``--dry-run`` first; it reports per store and changes nothing.
 import argparse
 import sys
 from dataclasses import dataclass
+from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
@@ -36,6 +37,9 @@ from app.core.tenancy import (
     MultiTenantDatabaseProvider,
     TenantContext,
 )
+from app.core.utils.dates import utc_now
+from app.diagnostics.models import ErrorReport
+from app.diagnostics.services import ErrorReportService
 from app.firms.models import Firm, FirmStorageMapping
 from app.identity.services import IdentityRetentionService
 from app.tax.services import TaxRetentionService
@@ -55,7 +59,7 @@ def _firm_stores(platform: DatabaseManager, settings: Settings) -> list[_Store]:
     Firms in SHARED mode all resolve to the same schema, so they collapse to a
     single entry: pruning it once prunes every one of them.
     """
-    stores: dict[tuple[str | None, str | None], _Store] = {}
+    stores: dict[tuple[str | None, str | None, str | None], _Store] = {}
     with platform.sessions(schema=platform.config.default_schema).session() as session:
         rows = session.execute(
             select(Firm, FirmStorageMapping)
@@ -74,17 +78,31 @@ def _firm_stores(platform: DatabaseManager, settings: Settings) -> list[_Store]:
             else:
                 database_name = mapping.database_name
                 schema_name = mapping.schema_name
-            key = (database_name, schema_name)
+            # Keyed on the server too: two firms on different hosts may use the
+            # same database and schema names, and collapsing them would prune
+            # one store and silently skip the other.
+            key = (mapping.connection_profile, database_name, schema_name)
             if key in stores:
                 continue
             stores[key] = _Store(
-                label=f"{database_name}/{schema_name}",
+                label=(
+                    f"{database_name}/{schema_name}"
+                    + (
+                        f" on {mapping.connection_profile}"
+                        if mapping.connection_profile
+                        else ""
+                    )
+                ),
                 context=TenantContext(
                     firm_id=firm.id,
                     deployment_mode=mode,
                     database_name=database_name,
                     schema_name=schema_name,
                     database_type=mapping.database_type,
+                    # A firm on another server is pruned on that server. Without
+                    # this the connection resolver falls back to the platform
+                    # host and prunes the wrong store, or nothing at all.
+                    connection_profile=mapping.connection_profile,
                 ),
             )
     return sorted(stores.values(), key=lambda store: store.label)
@@ -97,6 +115,7 @@ def main() -> int:
     parser.add_argument("--login-history-days", type=int, default=365)
     parser.add_argument("--password-history-keep", type=int, default=10)
     parser.add_argument("--execution-log-days", type=int, default=365)
+    parser.add_argument("--error-report-days", type=int, default=90)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
         "--dry-run", action="store_true", help="Report counts without deleting."
@@ -117,10 +136,26 @@ def main() -> int:
             dry_run=args.dry_run,
         )
     removed += identity.total
+    # Error reports are platform-only: they are telemetry for whoever maintains
+    # the product, so unlike the audit trail they are not per firm store.
+    with platform.sessions(schema=settings.database_schema).session() as session:
+        cutoff = utc_now() - timedelta(days=args.error_report_days)
+        error_reports = (
+            session.scalar(
+                select(func.count())
+                .select_from(ErrorReport)
+                .where(ErrorReport.received_at < cutoff)
+            )
+            or 0
+            if args.dry_run
+            else ErrorReportService(session).purge_before(cutoff)
+        )
+    removed += error_reports
     print(f"platform/{settings.database_schema}")
     print(f"  refresh_tokens:   {verb} {identity.refresh_tokens}")
     print(f"  login_history:    {verb} {identity.login_history}")
     print(f"  password_history: {verb} {identity.password_history}")
+    print(f"  error_reports:    {verb} {error_reports}")
 
     provider = MultiTenantDatabaseProvider(
         platform,

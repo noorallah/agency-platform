@@ -50,5 +50,9 @@ def _is_platform_path(path: str) -> bool:
         "/api/v1/firms",
         "/api/v1/dashboard",
         "/api/v1/me",
+        # Error reports are operational telemetry for whoever maintains the
+        # product, so they live in one place rather than scattered across firm
+        # stores. `firm_id` is recorded as data, not used as routing.
+        "/api/v1/diagnostics",
     )
     return path.startswith(prefixes)

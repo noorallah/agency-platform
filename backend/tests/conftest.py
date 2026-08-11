@@ -17,6 +17,7 @@ from app.business.models import framework  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401
 from app.customers.models import customer  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
+from app.diagnostics.models import error_report  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401
 from app.finance.models import finance  # noqa: F401
 from app.firms.models import firm  # noqa: F401

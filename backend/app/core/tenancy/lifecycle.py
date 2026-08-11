@@ -2,23 +2,22 @@
 
 import os
 import re
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import subprocess
+import sys
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 
-from alembic import command
-from app.core.database.config import (
-    DatabaseConfig,
-    DatabaseDialect,
-    MySQLConfig,
-    PostgreSQLConfig,
-)
+from app.core.config.settings import ConnectionProfileSettings
+from app.core.database.config import DatabaseConfig, DatabaseDialect
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions import BusinessRuleError
+from app.core.tenancy.connections import (
+    build_tenant_database_config,
+    resolve_connection_profile,
+)
 from app.core.tenancy.models import DeploymentMode, TenantContext
 from app.firms.models import Firm
 
@@ -52,14 +51,13 @@ class TenantStorageLifecycleService:
     def __init__(
         self,
         platform_database: DatabaseManager,
-        connection_profiles: object | None = None,
+        connection_profiles: Mapping[str, ConnectionProfileSettings] | None = None,
     ) -> None:
         """Bind platform database configuration and Alembic entrypoint."""
         self._platform_database = platform_database
-        _ = connection_profiles
-        self._alembic_ini = (
-            Path(__file__).resolve().parents[3] / "alembic.ini"
-        ).as_posix()
+        self._connection_profiles = connection_profiles or {}
+        self._project_root = Path(__file__).resolve().parents[3]
+        self._alembic_ini = (self._project_root / "alembic.ini").as_posix()
         self._seed_handler: Callable[[TenantContext], None] | None = None
 
     def register_seed_handler(self, handler: Callable[[TenantContext], None]) -> None:
@@ -97,6 +95,7 @@ class TenantStorageLifecycleService:
                     database_name=database_name,
                     schema_name=schema,
                     database_type=target_config.dialect.value,
+                    connection_profile=firm.connection_profile,
                 )
             )
             return
@@ -182,14 +181,40 @@ class TenantStorageLifecycleService:
         raise BusinessRuleError("Unsupported database dialect for tenant provisioning.")
 
     def _run_migrations(self, *, database_url: str, schema_name: str) -> None:
-        with _temporary_environment(
-            {
-                "AGENCY_DATABASE_URL": database_url,
-                "AGENCY_DATABASE_SCHEMA": schema_name,
-            }
-        ):
-            alembic_config = Config(self._alembic_ini)
-            command.upgrade(alembic_config, "head")
+        """Upgrade one target to head in a subprocess.
+
+        This used to run Alembic in-process with ``AGENCY_DATABASE_URL`` and
+        ``AGENCY_DATABASE_SCHEMA`` set through ``os.environ``. Those are
+        process-wide: two concurrent provisions raced on them, and any other
+        request that read settings while one was running could resolve the
+        wrong database. A subprocess gets its own environment and cannot reach
+        into this one.
+        """
+        environment = dict(os.environ)
+        environment["AGENCY_DATABASE_URL"] = database_url
+        environment["AGENCY_DATABASE_SCHEMA"] = schema_name
+        completed = subprocess.run(  # noqa: S603
+            [
+                sys.executable,
+                "-m",
+                "alembic",
+                "-c",
+                self._alembic_ini,
+                "upgrade",
+                "head",
+            ],
+            cwd=self._project_root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise BusinessRuleError(
+                f"Migrating tenant storage for schema '{schema_name}' failed: "
+                f"{detail[-600:]}"
+            )
 
     def _seed_defaults(self, tenant: TenantContext) -> None:
         """Seed tenant defaults. Data seeding stays intentionally minimal here."""
@@ -197,34 +222,18 @@ class TenantStorageLifecycleService:
             self._seed_handler(tenant)
 
     def _build_database_config_for_firm(self, firm: Firm) -> DatabaseConfig:
-        base = self._platform_database.config
         if firm.database_name is None or not firm.database_name.strip():
             raise BusinessRuleError("database_name is required for dedicated firms.")
         if firm.schema_name is None or not firm.schema_name.strip():
             raise BusinessRuleError("schema_name is required for dedicated firms.")
-        firm_dialect = DatabaseDialect(firm.database_type.lower())
-        if firm_dialect is not base.dialect:
-            raise BusinessRuleError(
-                "Firm database_type must match platform database dialect "
-                f"({base.dialect.value})."
-            )
-        dialect = base.dialect
-        config_class = (
-            PostgreSQLConfig if dialect is DatabaseDialect.POSTGRESQL else MySQLConfig
-        )
-        default_port = 5432 if dialect is DatabaseDialect.POSTGRESQL else 3306
-        return config_class(
-            dialect=dialect,
-            host=base.host,
-            port=base.port or default_port,
-            database=firm.database_name,
-            username=base.username,
-            password=base.password,
-            pool_size=base.pool_size,
-            max_overflow=base.max_overflow,
-            pool_recycle_seconds=base.pool_recycle_seconds,
-            default_schema=firm.schema_name,
-            url_override=None,
+        return build_tenant_database_config(
+            self._platform_database.config,
+            database_name=firm.database_name,
+            schema_name=firm.schema_name,
+            database_type=firm.database_type,
+            profile=resolve_connection_profile(
+                self._connection_profiles, firm.connection_profile
+            ),
         )
 
     def _prune_platform_objects(self, *, database_url: str, schema_name: str) -> None:
@@ -250,17 +259,3 @@ class TenantStorageLifecycleService:
                 )
         finally:
             engine.dispose()
-
-
-@contextmanager
-def _temporary_environment(overrides: dict[str, str]) -> Iterator[None]:
-    original = {key: os.environ.get(key) for key in overrides}
-    os.environ.update(overrides)
-    try:
-        yield
-    finally:
-        for key, value in original.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value

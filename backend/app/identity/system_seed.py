@@ -223,6 +223,7 @@ PERMISSION_GROUPS = {
     ),
     "system_administration": (
         "AUDIT_LOG_VIEW",
+        "DIAGNOSTICS_VIEW",
         "SETTINGS_VIEW",
         "SETTINGS_UPDATE",
     ),
@@ -283,7 +284,7 @@ ROLE_PERMISSION_CODES = {
     "SUPPORT_ADMIN": _all_permissions,
     "LICENSE_ADMIN": frozenset({"LICENSE_MANAGE", "FIRM_VIEW", "REPORT_VIEW"}),
     "SYSTEM_AUDITOR": frozenset(
-        {"FIRM_VIEW", "USER_VIEW", "REPORT_VIEW", "AUDIT_LOG_VIEW"}
+        {"FIRM_VIEW", "USER_VIEW", "REPORT_VIEW", "AUDIT_LOG_VIEW", "DIAGNOSTICS_VIEW"}
     ),
     "FIRM_ADMIN": _operational_permissions
     | _firm_administration

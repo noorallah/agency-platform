@@ -175,6 +175,37 @@ class ApiClient {
   }) =>
       _list('/api/v1/firms', Firm.fromJson, page, search,
           sortBy: sortBy, descending: descending);
+
+  /// Sends queued crash reports.
+  ///
+  /// Returns whether the server accepted the batch, so the caller knows whether
+  /// it may delete them. Never throws: reporting a failure must not create one.
+  Future<bool> reportClientErrors(List<Map<String, Object?>> reports) async {
+    if (reports.isEmpty) return true;
+    try {
+      await request(
+        'POST',
+        '/api/v1/diagnostics/client-errors',
+        body: {'reports': reports},
+      );
+      return true;
+    } on ApiException {
+      return false;
+    }
+  }
+
+  /// Build a firm's dedicated database, schema and tables.
+  ///
+  /// Returns the server's message, which distinguishes a fresh build from a
+  /// firm that was already provisioned. Safe to call again after a failure.
+  Future<String> provisionFirmStorage(String firmId) async {
+    final Json response =
+        await request('POST', '/api/v1/firms/$firmId/provision');
+    return stringValue(response['message']).isEmpty
+        ? 'Firm storage provisioned.'
+        : stringValue(response['message']);
+  }
+
   Future<PagedResult<PlatformUser>> users({
     int page = 1,
     String search = '',
@@ -191,14 +222,21 @@ class ApiClient {
   }) =>
       _list('/api/v1/roles', Role.fromJson, page, search,
           sortBy: sortBy, descending: descending);
+
+  /// Lists permissions, honouring a caller-chosen page size.
+  ///
+  /// `pageSize` is an extra optional named parameter, so this still satisfies
+  /// the narrower `load` signature every `ResourceDefinition` uses today — the
+  /// other list methods keep the server default until they need otherwise.
   Future<PagedResult<Permission>> permissions({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
   }) =>
       _list('/api/v1/permissions', Permission.fromJson, page, search,
-          sortBy: sortBy, descending: descending);
+          pageSize: pageSize, sortBy: sortBy, descending: descending);
 
   Future<PagedResult<BusinessProfileRecord>> businessProfiles({
     int page = 1,

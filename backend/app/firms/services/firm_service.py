@@ -52,8 +52,10 @@ class FirmService:
             actor_id=actor_id,
         )
         self._session.flush()
-        if self._storage_lifecycle is not None:
-            self._storage_lifecycle.provision_new_firm(firm)
+        # Dedicated storage is built by the explicit provisioning action, not
+        # here. Building it inline made firm creation depend on a database
+        # server being reachable and on Alembic completing, and a firm's target
+        # server can now be a different machine entirely.
         record_audit(
             self._session,
             action="firm.created",
@@ -65,6 +67,71 @@ class FirmService:
         )
         self._session.commit()
         return firm
+
+    def provision(self, firm_id: UUID, actor_id: UUID) -> tuple[Firm, bool]:
+        """Build a firm's dedicated storage and record the outcome.
+
+        Returns the firm and whether it was already provisioned. Re-running is
+        safe -- every step of `provision_new_firm` is create-if-missing and
+        Alembic stops at head -- so this doubles as the repair action when a
+        target server was unreachable the first time.
+        """
+        firm = self.get(firm_id)
+        mapping = self._storage_mapping(firm.id)
+        if mapping is None or DeploymentMode(mapping.deployment_mode) is (
+            DeploymentMode.SHARED
+        ):
+            raise BusinessRuleError(
+                "Shared firms use the platform store and need no provisioning."
+            )
+        if mapping.provisioned_at is not None:
+            return firm, True
+        if self._storage_lifecycle is None:
+            raise BusinessRuleError("Storage provisioning is not available.")
+        try:
+            self._storage_lifecycle.provision_new_firm(firm)
+        except Exception as error:
+            # Keep the reason on the record. Without it the firm page can only
+            # say "not provisioned", and the operator has to go and read logs
+            # to find out that a host was unreachable.
+            mapping.provisioning_error = str(error)[:2000]
+            mapping.updated_by = actor_id
+            self._session.commit()
+            raise
+        mapping.provisioned_at = utc_now()
+        mapping.provisioning_error = None
+        mapping.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="firm.storage_provisioned",
+            entity_type="firm",
+            entity_id=firm.id,
+            actor_id=actor_id,
+            firm_id=firm.id,
+            after_data={
+                "database_name": mapping.database_name,
+                "schema_name": mapping.schema_name,
+                "connection_profile": mapping.connection_profile,
+            },
+        )
+        self._session.commit()
+        return firm, False
+
+    def _assert_profile_configured(self, name: str | None) -> None:
+        """Refuse a profile name that configuration does not define.
+
+        Caught here rather than at first use: a typo would otherwise create a
+        firm that provisions and serves nothing, and the failure would surface
+        far away from the request that caused it.
+        """
+        if name is None or self._tenancy_settings is None:
+            return
+        if name not in self._tenancy_settings.connection_profiles:
+            configured = ", ".join(sorted(self._tenancy_settings.connection_profiles))
+            raise BusinessRuleError(
+                f"Connection profile '{name}' is not configured. "
+                f"Configured profiles: {configured or 'none'}."
+            )
 
     def get(self, firm_id: UUID) -> Firm:
         """Return one visible firm."""
@@ -272,11 +339,22 @@ class FirmService:
                     else f"{dedicated_database_prefix}{slug}"
                 )
             )
+        connection_profile = (
+            str(payload.get("connection_profile") or "").strip().upper()
+            or (inherited.connection_profile if inherited is not None else None)
+            or None
+        )
+        if mode is DeploymentMode.SHARED:
+            # Shared firms live in the platform store by definition; a profile
+            # would name a server their data is never read from.
+            connection_profile = None
+        self._assert_profile_configured(connection_profile)
         storage_payload: dict[str, object] = {
             "deployment_mode": mode.value,
             "database_type": database_type,
             "database_name": database_name,
             "schema_name": schema_name,
+            "connection_profile": connection_profile,
             "is_active": True,
         }
         normalized_payload = {
@@ -307,6 +385,7 @@ class FirmService:
             "database_type": mapping.database_type,
             "database_name": mapping.database_name,
             "schema_name": mapping.schema_name,
+            "connection_profile": mapping.connection_profile,
         }
         requested = {key: storage_payload[key] for key in current}
         if current != requested:
@@ -371,7 +450,13 @@ class FirmService:
 
 
 _TENANCY_KEYS = frozenset(
-    {"deployment_mode", "database_type", "database_name", "schema_name"}
+    {
+        "deployment_mode",
+        "database_type",
+        "database_name",
+        "schema_name",
+        "connection_profile",
+    }
 )
 
 
