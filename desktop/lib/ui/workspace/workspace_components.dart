@@ -4,6 +4,15 @@ import '../../core/design/design_tokens.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import 'workspace_interactions.dart';
 
+/// What to put in a telephone box, for the fields the server checks.
+///
+/// Firms, customers and vendors all run their numbers through the same E.164
+/// validator, whose refusal -- "A valid E.164 phone number is required." --
+/// names a standard without showing the shape it wants. One constant so the
+/// three forms cannot describe the same rule differently. Spaces, brackets,
+/// dots and hyphens are stripped before the check, so grouping is fine.
+const String phoneHelperText = 'With country code, e.g. +919876543210.';
+
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -1128,62 +1137,94 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
       selected: isSelected,
       onSelectChanged: _onSelectChanged(item, itemId),
       cells: [
-        if (widget.showRowNumbers) DataCell(Text('${index + 1}')),
+        // The row number goes through the same builder as every other cell.
+        // It used to be a bare `DataCell(Text(...))`: no tap handler, so the
+        // whole column was dead to the mouse, and because it took the leading
+        // position it also displaced the selection marker -- which is why
+        // Products, the one master grid that numbers its rows, showed no
+        // marker at all on the row it had selected.
+        if (widget.showRowNumbers)
+          _dataCell(
+            context,
+            item: item,
+            content: Text('${index + 1}'),
+            isLeading: true,
+            isSelected: isSelected,
+            itemContextActions: itemContextActions,
+          ),
         ..._visibleColumns.asMap().entries.map((visible) {
-          final bool isLeading = visible.key == 0 && !widget.showRowNumbers;
           final MapEntry<int, GridColumn> entry = visible.value;
           final String value =
               entry.key < values.length ? values[entry.key] : '';
-          Widget cell = widget.cellBuilder?.call(entry.key, value, item) ??
-              Tooltip(
-                message: value,
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Text(value, overflow: TextOverflow.ellipsis),
-                ),
-              );
-          if (isLeading) {
-            // A marker on the row's leading edge, so the selection is not
-            // signalled by colour alone -- the tint is easy to lose in high
-            // contrast, and `DataRow` has no border of its own to use.
-            cell = Container(
-              padding: const EdgeInsets.only(left: AppSpacing.sm),
-              decoration: BoxDecoration(
-                border: Border(
-                  left: BorderSide(
-                    color: isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.transparent,
-                    width: 3,
+          return _dataCell(
+            context,
+            item: item,
+            content: widget.cellBuilder?.call(entry.key, value, item) ??
+                Tooltip(
+                  message: value,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Text(value, overflow: TextOverflow.ellipsis),
                   ),
                 ),
-              ),
-              child: cell,
-            );
-          }
-          return DataCell(
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onSecondaryTapDown: itemContextActions.isEmpty
-                  ? null
-                  : (details) {
-                      widget.onSelect(item);
-                      showWorkspaceContextMenu(
-                        context,
-                        position: details.globalPosition,
-                        actions: itemContextActions,
-                        onSelected: (action) =>
-                            widget.onContextAction?.call(action, item),
-                      );
-                    },
-              child: cell,
-            ),
-            onTap: () => widget.onSelect(item),
-            onDoubleTap:
-                widget.onOpen == null ? null : () => widget.onOpen!(item),
+            isLeading: visible.key == 0 && !widget.showRowNumbers,
+            isSelected: isSelected,
+            itemContextActions: itemContextActions,
           );
         }),
       ],
+    );
+  }
+
+  /// One cell: the marker when it leads the row, the context menu, and the
+  /// tap handlers that make single-click select and double-click open.
+  DataCell _dataCell(
+    BuildContext context, {
+    required T item,
+    required Widget content,
+    required bool isLeading,
+    required bool isSelected,
+    required List<WorkspaceContextAction> itemContextActions,
+  }) {
+    Widget cell = content;
+    if (isLeading) {
+      // A marker on the row's leading edge, so the selection is not signalled
+      // by colour alone -- the tint is easy to lose in high contrast, and
+      // `DataRow` has no border of its own to use.
+      cell = Container(
+        padding: const EdgeInsets.only(left: AppSpacing.sm),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: cell,
+      );
+    }
+    return DataCell(
+      GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onSecondaryTapDown: itemContextActions.isEmpty
+            ? null
+            : (details) {
+                widget.onSelect(item);
+                showWorkspaceContextMenu(
+                  context,
+                  position: details.globalPosition,
+                  actions: itemContextActions,
+                  onSelected: (action) =>
+                      widget.onContextAction?.call(action, item),
+                );
+              },
+        child: cell,
+      ),
+      onTap: () => widget.onSelect(item),
+      onDoubleTap: widget.onOpen == null ? null : () => widget.onOpen!(item),
     );
   }
 

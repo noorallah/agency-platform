@@ -1043,6 +1043,18 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
     if (!_dirty) setState(() => _dirty = true);
   }
 
+  /// Editing a field retires the server's complaint about it.
+  ///
+  /// The message described the value that was sent, so leaving it under a box
+  /// the user has since corrected is simply wrong -- and it is the field the
+  /// dialog is about to re-validate.
+  void _fieldEdited(String key) {
+    _markDirty();
+    if (_fieldErrors.containsKey(key)) {
+      setState(() => _fieldErrors = {..._fieldErrors}..remove(key));
+    }
+  }
+
   List<String> get _sections => widget.fields
       .where(_isVisible)
       .map((field) => field.section)
@@ -1052,8 +1064,9 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   @override
   void initState() {
     super.initState();
-    for (final TextEditingController controller in _controllers.values) {
-      controller.addListener(_markDirty);
+    for (final MapEntry<String, TextEditingController> entry
+        in _controllers.entries) {
+      entry.value.addListener(() => _fieldEdited(entry.key));
     }
     _loadOptions();
   }
@@ -1106,72 +1119,80 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         key: const ValueKey('crud-workspace-dialog-surface'),
         width: window.width * .88,
         height: window.height * .88,
-        child: CallbackShortcuts(
-          bindings: {
-            const SingleActivator(LogicalKeyboardKey.escape): _close,
-            const SingleActivator(
-              LogicalKeyboardKey.keyS,
-              control: true,
-            ): _save,
-          },
-          child: Focus(
-            autofocus: true,
-            child: Column(children: [
-              CrudWorkspaceHeader(
-                title: widget.title,
-                mode: widget.mode,
-                onClose: _saving ? null : _close,
-              ),
-              Expanded(
-                child: AbsorbPointer(
-                  absorbing: _saving,
-                  child: Form(
-                    key: _formKey,
-                    child: CrudFormPage(
-                      children: [
-                        EnterpriseValidationSummary(
-                          message: _submitError,
-                          fieldErrors: _fieldErrors,
-                        ),
-                        for (final String section in sections)
-                          EnterpriseSection(
-                            title: section,
-                            icon: widget.fields
-                                .firstWhere(
-                                  (field) =>
-                                      field.section == section &&
-                                      field.sectionIcon != null,
-                                  orElse: () => widget.fields.firstWhere(
-                                      (field) => field.section == section),
-                                )
-                                .sectionIcon,
-                            errorCount: widget.fields
-                                .where((field) =>
-                                    _isVisible(field) &&
-                                    field.section == section &&
-                                    _fieldErrors[field.key] != null)
-                                .length,
-                            readOnly: widget.fields
-                                .where((field) => field.section == section)
-                                .every((field) => field.alwaysReadOnly),
-                            children: _sectionFields(section),
+        // A dialog is a route of its own, so the app-level SelectionArea in
+        // app.dart -- which wraps `home` -- does not reach it. Everything a
+        // user actually needs to copy out of a form is here: the validation
+        // message naming a limit, the id in a server error, a read-only
+        // value. Selection needs an Overlay ancestor and the Navigator
+        // provides one, so inside a route this is safe.
+        child: SelectionArea(
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.escape): _close,
+              const SingleActivator(
+                LogicalKeyboardKey.keyS,
+                control: true,
+              ): _save,
+            },
+            child: Focus(
+              autofocus: true,
+              child: Column(children: [
+                CrudWorkspaceHeader(
+                  title: widget.title,
+                  mode: widget.mode,
+                  onClose: _saving ? null : _close,
+                ),
+                Expanded(
+                  child: AbsorbPointer(
+                    absorbing: _saving,
+                    child: Form(
+                      key: _formKey,
+                      child: CrudFormPage(
+                        children: [
+                          EnterpriseValidationSummary(
+                            message: _submitError,
+                            fieldErrors: _fieldErrors,
                           ),
-                      ],
+                          for (final String section in sections)
+                            EnterpriseSection(
+                              title: section,
+                              icon: widget.fields
+                                  .firstWhere(
+                                    (field) =>
+                                        field.section == section &&
+                                        field.sectionIcon != null,
+                                    orElse: () => widget.fields.firstWhere(
+                                        (field) => field.section == section),
+                                  )
+                                  .sectionIcon,
+                              errorCount: widget.fields
+                                  .where((field) =>
+                                      _isVisible(field) &&
+                                      field.section == section &&
+                                      _fieldErrors[field.key] != null)
+                                  .length,
+                              readOnly: widget.fields
+                                  .where((field) => field.section == section)
+                                  .every((field) => field.alwaysReadOnly),
+                              children: _sectionFields(section),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              EnterpriseActionBar(
-                saving: _saving,
-                readOnly: widget.isReadOnly,
-                onCancel: _saving ? null : _close,
-                onSaveAndClose: widget.isReadOnly || _saving ? null : _save,
-                onSaveAndNew:
-                    widget.isCreating && !widget.isReadOnly && !_saving
-                        ? () => _save(andNew: true)
-                        : null,
-              ),
-            ]),
+                EnterpriseActionBar(
+                  saving: _saving,
+                  readOnly: widget.isReadOnly,
+                  onCancel: _saving ? null : _close,
+                  onSaveAndClose: widget.isReadOnly || _saving ? null : _save,
+                  onSaveAndNew:
+                      widget.isCreating && !widget.isReadOnly && !_saving
+                          ? () => _save(andNew: true)
+                          : null,
+                ),
+              ]),
+            ),
           ),
         ),
       ),
@@ -1476,12 +1497,20 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
 
   Future<void> _save({bool andNew = false}) async {
     if (widget.isReadOnly || _saving || widget.onSave == null) return;
+    // Drop the previous attempt's server verdict *before* validating. The
+    // field validators return `_fieldErrors[key]` whatever the field now
+    // holds, so a rejected value used to lock the dialog for good: validate()
+    // kept failing on the stale message, and the line that cleared it sat
+    // below this early return and was never reached. Correcting the value
+    // changed nothing -- the only way out was to cancel and start again.
+    if (_fieldErrors.isNotEmpty || _submitError != null) {
+      setState(() {
+        _fieldErrors = const {};
+        _submitError = null;
+      });
+    }
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _saving = true;
-      _submitError = null;
-      _fieldErrors = const {};
-    });
+    setState(() => _saving = true);
     final Map<String, dynamic> values = {
       for (final MapEntry<String, TextEditingController> entry
           in _controllers.entries)

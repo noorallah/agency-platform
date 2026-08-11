@@ -173,4 +173,22 @@ void main() {
     // The escape hatch holds: nothing is wrapped, the fields stack.
     expect(find.byType(Wrap), findsNothing);
   });
+
+  test('the two fields nobody can guess explain themselves', () {
+    // "A valid E.164 phone number is required." never shows the shape it
+    // wants, and a connection profile is a name that exists only in the
+    // deployment's configuration. Both had to be asked about.
+    final ResourceDefinition<Firm> definition =
+        firmDefinition(_FirmApi(), PermissionService(), showFrame: false);
+
+    String helperFor(String key) =>
+        definition.fields.firstWhere((field) => field.key == key).helperText ??
+        '';
+
+    expect(helperFor('contact_phone'), contains('+91'),
+        reason: 'the example is the whole point of the hint');
+    expect(helperFor('contact_phone'), contains('country code'));
+    expect(helperFor('connection_profile'), contains('REMOTE_A'));
+    expect(helperFor('connection_profile'), contains('platform server'));
+  });
 }

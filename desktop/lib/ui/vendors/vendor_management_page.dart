@@ -356,28 +356,12 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         primaryContent: primaryContent,
-        detailsPanel: selected == null
-            ? null
-            : QuickSummaryPanel(
-                title: selected.displayName,
-                lines: [
-                        DetailLine('Code', selected.code),
-                        DetailLine('Status',
-                            selected.isDeleted ? 'DELETED' : selected.status),
-                        DetailLine('GSTIN', selected.gstin),
-                        DetailLine('PAN', selected.pan),
-                        DetailLine(
-                            'Phone',
-                            selected.mobile.isNotEmpty
-                                ? selected.mobile
-                                : selected.phone),
-                        DetailLine('Email', selected.email),
-                ],
-                onView: null,
-                onEdit: _canEdit && !selected.isDeleted
-                    ? () => _open(selected)
-                    : null,
-              ),
+        // No summary panel. Selecting a row should select it, not open a
+        // second reading of it beside the table; opening a record is what
+        // double-click and the row's eye icon are for. Passing null also hands
+        // the table back the ~300px the panel was holding. The same decision
+        // as ResourceManagementPage and the other master workspaces.
+        detailsPanel: null,
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: selected != null,
@@ -547,9 +531,15 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             children: [
               Expanded(child: _field(_email, 'Email')),
               const SizedBox(width: 12),
-              Expanded(child: _field(_phone, 'Phone')),
+              // Both run through the same E.164 validator as the firm and
+              // customer numbers.
+              Expanded(
+                child: _field(_phone, 'Phone', helper: phoneHelperText),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: _field(_mobile, 'Mobile')),
+              Expanded(
+                child: _field(_mobile, 'Mobile', helper: phoneHelperText),
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -573,11 +563,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       );
 
   Widget _field(TextEditingController controller, String label,
-          {int maxLines = 1}) =>
+          {int maxLines = 1, String? helper}) =>
       TextField(
         controller: controller,
         maxLines: maxLines,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, helperText: helper),
       );
 
   Json _payload() => {
