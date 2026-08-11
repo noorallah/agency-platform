@@ -573,7 +573,12 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         primaryContent: primaryContent,
-        detailsPanel: selected == null ? null : _summary(selected),
+        // No summary panel. Selecting a row should select it, not open a
+        // second reading of it beside the table; opening a record is what
+        // double-click and the row's eye icon are for. Passing null also hands
+        // the table back the ~300px the panel was holding. The same decision
+        // as ResourceManagementPage and the other master workspaces.
+        detailsPanel: null,
         statusBar: WorkspaceStatusBar(
           total: _controller.total,
           selected: selected != null,
@@ -592,31 +597,6 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             ..descending = !ascending
             ..load(requestedPage: 1);
         },
-      );
-
-  Widget _summary(Customer? customer) => QuickSummaryPanel(
-        title: customer == null ? 'No customer selected' : customer.displayName,
-        lines: customer == null
-            ? const []
-            : [
-                DetailLine('Code', customer.code),
-                DetailLine('Type', customer.customerType),
-                DetailLine(
-                    'Status', customer.isDeleted ? 'DELETED' : customer.status),
-                DetailLine('GST', customer.gstNumber),
-                DetailLine('Phone', customer.phone),
-                DetailLine('City', customer.city),
-                DetailLine('Credit limit', _money(customer.creditLimit)),
-                DetailLine('Outstanding', _money(customer.currentOutstanding)),
-                DetailLine('Unapplied advance',
-                    _money(customer.unappliedAdvanceBalance)),
-              ],
-        onView: customer == null
-            ? null
-            : () => _open(CustomerDialogMode.view, customer),
-        onEdit: customer != null && _canEdit && !customer.isDeleted
-            ? () => _open(CustomerDialogMode.edit, customer)
-            : null,
       );
 
   Widget _filterDropdown({
@@ -893,8 +873,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _text('gst_number', 'GST number'),
             _text('pan_number', 'PAN number'),
             _text('email', 'Email'),
-            _text('phone', 'Phone', hint: '+919876543210'),
-            _text('alternate_phone', 'Alternate phone'),
+            // Both are validated as E.164 server-side, and the refusal names
+            // the standard rather than showing the shape it wants.
+            _text('phone', 'Phone', helper: phoneHelperText),
+            _text('alternate_phone', 'Alternate phone',
+                helper: phoneHelperText),
             _text('website', 'Website'),
           ]),
           _text('notes', 'Notes', lines: 4, fullWidth: true),
@@ -1170,12 +1153,17 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     int lines = 1,
     bool fullWidth = false,
     String? hint,
+    String? helper,
   }) =>
       TextFormField(
         controller: _fields[key],
         readOnly: _readOnly,
         maxLines: lines,
-        decoration: InputDecoration(labelText: label, hintText: hint),
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          helperText: helper,
+        ),
         validator: required
             ? (value) =>
                 value?.trim().isEmpty == true ? '$label is required.' : null

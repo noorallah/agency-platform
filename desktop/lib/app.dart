@@ -114,9 +114,14 @@ class _AgencyAppState extends State<AgencyApp> {
           // the Navigator: `SelectableRegion` requires an `Overlay` ancestor,
           // and the Navigator is what provides one, so wrapping there throws
           // and takes the whole screen with it. Inside `home` the route is
-          // already within the overlay. Dialogs are separate routes and are not
-          // covered, which costs nothing: their values sit in text fields,
-          // which have always been selectable.
+          // already within the overlay.
+          //
+          // Dialogs are separate routes, so this does not reach them, and the
+          // claim that it cost nothing -- because their values sit in editable
+          // text fields -- was wrong: a form's labels, helper text, validation
+          // messages and read-only values are plain `Text`, and those are
+          // exactly what a user needs to quote back. The two dialog shells
+          // wrap themselves; see `WorkspaceDialog` and `CrudWorkspaceDialog`.
           home: SelectionArea(
             child: AnimatedBuilder(
               animation: _session,

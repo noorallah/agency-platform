@@ -1287,30 +1287,12 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         primaryContent: primaryContent,
-        detailsPanel: selected == null
-            ? null
-            : QuickSummaryPanel(
-                title: selected.name,
-                lines: [
-                  DetailLine('Code', selected.code),
-                  DetailLine('Type', selected.productType),
-                  DetailLine(
-                    'Status',
-                    selected.isDeleted ? 'DELETED' : selected.status,
-                  ),
-                  DetailLine('Category', _categoryLabel(selected.categoryId)),
-                  DetailLine('Track expiry', selected.trackExpiry ? 'Yes' : 'No'),
-                  DetailLine(
-                      'Track batch/serial',
-                      '${selected.trackBatch ? 'B' : '-'} / ${selected.trackSerial ? 'S' : '-'}'),
-                  DetailLine('Selling', selected.sellingPrice),
-                  DetailLine('Created', _dateOnly(selected.createdAt)),
-                ],
-                onView: () => _open(ProductDialogMode.view, selected),
-                onEdit: _canEdit && !selected.isDeleted
-                    ? () => _open(ProductDialogMode.edit, selected)
-                    : null,
-              ),
+        // No summary panel. Selecting a row should select it, not open a
+        // second reading of it beside the table; opening a record is what
+        // double-click and the row's eye icon are for. Passing null also hands
+        // the table back the ~300px the panel was holding. The same decision
+        // as ResourceManagementPage and the other master workspaces.
+        detailsPanel: null,
         statusBar: WorkspaceStatusBar(
           total: _controller.total,
           selected: _selectedIds.isNotEmpty || selected != null,

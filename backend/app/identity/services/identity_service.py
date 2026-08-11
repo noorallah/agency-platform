@@ -54,6 +54,33 @@ from app.identity.system_seed import (
     PLATFORM_ROLE_CODES,
 )
 
+_PROFILE_FIELDS = (
+    "personal_mobile",
+    "alternate_mobile",
+    "personal_email",
+    "office_email",
+    "emergency_contact_name",
+    "emergency_mobile",
+    "emergency_relationship",
+    "employee_code",
+    "joining_date",
+    "leaving_date",
+    "department",
+    "designation",
+    "reporting_manager",
+    "employment_type",
+    "cost_center",
+    "profile_photo_url",
+    "profile_addresses",
+    "profile_documents",
+)
+"""The optional HR/profile columns, written by both create and update.
+
+One list because two lists drift: creation carried none of these at all, so a
+mobile number typed into the create form was dropped and the record opened
+blank afterwards.
+"""
+
 
 class IdentityService:
     """Coordinate identity persistence, security policy, and audit logging."""
@@ -387,6 +414,10 @@ class IdentityService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        # The profile fields are optional and default to None, so an omitted
+        # one writes the same value the column would have had anyway.
+        for field in _PROFILE_FIELDS:
+            setattr(user, field, getattr(data, field))
         self._session.add(user)
         self._session.flush()
         if firm_scope is not None:
@@ -432,26 +463,7 @@ class IdentityService:
             user.expires_at = data.expires_at
         if data.unlock:
             user.locked_until, user.failed_login_attempts = None, 0
-        for field in (
-            "personal_mobile",
-            "alternate_mobile",
-            "personal_email",
-            "office_email",
-            "emergency_contact_name",
-            "emergency_mobile",
-            "emergency_relationship",
-            "employee_code",
-            "joining_date",
-            "leaving_date",
-            "department",
-            "designation",
-            "reporting_manager",
-            "employment_type",
-            "cost_center",
-            "profile_photo_url",
-            "profile_addresses",
-            "profile_documents",
-        ):
+        for field in _PROFILE_FIELDS:
             if field in data.model_fields_set:
                 setattr(user, field, getattr(data, field))
         user.updated_by = actor_id

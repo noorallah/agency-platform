@@ -2341,6 +2341,33 @@ List<String> _ids(dynamic value) => value
 dynamic _orNull(dynamic value) =>
     value == null || value.toString().trim().isEmpty ? null : value;
 
+/// The optional HR/profile half of a user payload, sent on create and update
+/// alike.
+///
+/// One builder because two lists drift: creation used to send none of these,
+/// so the Mobile and Profile photo boxes on the create form were discarded on
+/// save and the record opened blank afterwards.
+Json userProfilePayload(Map<String, dynamic> values) => {
+      'personal_mobile': _orNull(values['personal_mobile']),
+      'alternate_mobile': _orNull(values['alternate_mobile']),
+      'profile_photo_url': _orNull(values['profile_photo_url']),
+      'personal_email': _orNull(values['personal_email']),
+      'office_email': _orNull(values['office_email']),
+      'emergency_contact_name': _orNull(values['emergency_contact_name']),
+      'emergency_mobile': _orNull(values['emergency_mobile']),
+      'emergency_relationship': _orNull(values['emergency_relationship']),
+      'employee_code': _orNull(values['employee_code']),
+      'joining_date': _orNull(values['joining_date']),
+      'leaving_date': _orNull(values['leaving_date']),
+      'department': _orNull(values['department']),
+      'designation': _orNull(values['designation']),
+      'reporting_manager': _orNull(values['reporting_manager']),
+      'employment_type': _orNull(values['employment_type']),
+      'cost_center': _orNull(values['cost_center']),
+      'profile_addresses': values['profile_addresses'] ?? const [],
+      'profile_documents': values['profile_documents'] ?? const [],
+    };
+
 bool _canUseResourceAction(
   PermissionService permissions,
   ToolbarAction action, {
@@ -2465,6 +2492,7 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(
           key: 'contact_phone',
           label: 'Contact phone',
+          helperText: phoneHelperText,
           section: 'Contacts',
         ),
         FieldSpec(key: 'currency_code', label: 'Currency code', required: true),
@@ -2509,9 +2537,9 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(
           key: 'connection_profile',
           label: 'Connection profile',
-          helperText: 'Names a server configured in '
-              'AGENCY_TENANCY_CONNECTION_PROFILES. Leave empty to use the '
-              'platform server.',
+          helperText: 'Name of a server configured in '
+              'AGENCY_TENANCY_CONNECTION_PROFILES, e.g. REMOTE_A. Empty uses '
+              'the platform server. Fixed once the firm exists.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
@@ -2861,32 +2889,18 @@ ResourceDefinition<PlatformUser> _userDefinition(
               'force_password_change': values['force_password_change'],
               if (values['expires_at'].toString().isNotEmpty)
                 'expires_at': values['expires_at'],
+              // The create form shows these, so it has to send them. It used
+              // to send only the six above, which meant a mobile number or a
+              // photo typed at creation was silently dropped and the record
+              // opened blank afterwards.
+              ...userProfilePayload(values),
             }
           : {
               'full_name': values['full_name'],
               'is_active': values['is_active'],
               'expires_at': _orNull(values['expires_at']),
               'unlock': values['unlock'],
-              'personal_mobile': _orNull(values['personal_mobile']),
-              'alternate_mobile': _orNull(values['alternate_mobile']),
-              'profile_photo_url': _orNull(values['profile_photo_url']),
-              'personal_email': _orNull(values['personal_email']),
-              'office_email': _orNull(values['office_email']),
-              'emergency_contact_name':
-                  _orNull(values['emergency_contact_name']),
-              'emergency_mobile': _orNull(values['emergency_mobile']),
-              'emergency_relationship':
-                  _orNull(values['emergency_relationship']),
-              'employee_code': _orNull(values['employee_code']),
-              'joining_date': _orNull(values['joining_date']),
-              'leaving_date': _orNull(values['leaving_date']),
-              'department': _orNull(values['department']),
-              'designation': _orNull(values['designation']),
-              'reporting_manager': _orNull(values['reporting_manager']),
-              'employment_type': _orNull(values['employment_type']),
-              'cost_center': _orNull(values['cost_center']),
-              'profile_addresses': values['profile_addresses'] ?? const [],
-              'profile_documents': values['profile_documents'] ?? const [],
+              ...userProfilePayload(values),
             },
       partialUpdate: true,
       loadAssignments: api.userAssignmentValues,

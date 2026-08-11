@@ -18,6 +18,12 @@ class _ComponentDraft {
   final TextEditingController percentage;
   final TextEditingController calculationOrder;
   bool recoverable;
+
+  /// The price already contains this tax, so it is reported separately and
+  /// never added to a document total. MRP-based retail and pharmacy pricing
+  /// works this way; the engine has always honoured it, and only the form
+  /// could not say it.
+  bool includedInPrice;
   String status;
 
   _ComponentDraft({
@@ -27,6 +33,7 @@ class _ComponentDraft {
     String? percentage,
     String? calculationOrder,
     this.recoverable = false,
+    this.includedInPrice = false,
     this.status = 'ACTIVE',
   })  : code = TextEditingController(text: code ?? ''),
         name = TextEditingController(text: name ?? ''),
@@ -47,6 +54,7 @@ class _ComponentDraft {
         'percentage': double.tryParse(percentage.text) ?? 0.0,
         'calculation_order': int.tryParse(calculationOrder.text) ?? 0,
         'recoverable': recoverable,
+        'included_in_price': includedInPrice,
         'status': status,
       };
 }
@@ -59,11 +67,16 @@ class _ComponentAssignment {
   final TextEditingController rateCtrl;
   bool recoverable;
 
+  /// See [_ComponentDraft.includedInPrice]. The profile's value is the one
+  /// that decides money -- the system component only supplies the default.
+  bool includedInPrice;
+
   _ComponentAssignment({
     required this.component,
     this.selected = false,
     String? initialRate,
     this.recoverable = false,
+    this.includedInPrice = false,
   }) : rateCtrl = TextEditingController(
             text: initialRate ?? component.percentage);
 
@@ -265,6 +278,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
           percentage: (c['percentage'] ?? 0).toString(),
           calculationOrder: (c['calculation_order'] ?? 0).toString(),
           recoverable: c['recoverable'] as bool? ?? false,
+          includedInPrice: c['included_in_price'] as bool? ?? false,
           status: stringValue(c['status']).isEmpty
               ? 'ACTIVE'
               : stringValue(c['status']),
@@ -873,6 +887,8 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
                 SizedBox(width: 8),
                 SizedBox(width: 100, child: Text('Recoverable', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
                 SizedBox(width: 8),
+                SizedBox(width: 110, child: Text('In price', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                SizedBox(width: 8),
                 SizedBox(width: 110, child: Text('Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
                 SizedBox(width: 40),
               ],
@@ -977,6 +993,22 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
                         ? null
                         : (v) => setState(
                             () => comp.recoverable = v ?? false),
+                  ),
+                  const Text('Yes', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 110,
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: comp.includedInPrice,
+                    onChanged: deleted
+                        ? null
+                        : (v) => setState(
+                            () => comp.includedInPrice = v ?? false),
                   ),
                   const Text('Yes', style: TextStyle(fontSize: 12)),
                 ],
@@ -1231,13 +1263,17 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
             component: comp,
             selected: true,
             initialRate: existing.first.percentage,
-            recoverable: false,
+            recoverable: existing.first.recoverable,
+            includedInPrice: existing.first.includedInPrice,
           );
         }
+        // Not on this profile yet: offer the system component's own values as
+        // the starting point, which is what they are for.
         return _ComponentAssignment(
           component: comp,
           selected: false,
-          recoverable: false,
+          recoverable: comp.recoverable,
+          includedInPrice: comp.includedInPrice,
         );
       }).toList();
 
@@ -1329,7 +1365,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
               'percentage': e.value.rate,
               'calculation_order': e.key + 1,
               'recoverable': e.value.recoverable,
-              'included_in_price': false,
+              'included_in_price': e.value.includedInPrice,
             })
         .toList();
 
@@ -2026,6 +2062,22 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
                 const Text('Recoverable',
                     style: TextStyle(fontSize: 12)),
               ],
+            ),
+            Tooltip(
+              message: 'The price already contains this tax. It is reported '
+                  'separately and never added to the document total.',
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: assign.includedInPrice,
+                    onChanged: assign.selected
+                        ? (v) => setState(
+                            () => assign.includedInPrice = v ?? false)
+                        : null,
+                  ),
+                  const Text('In price', style: TextStyle(fontSize: 12)),
+                ],
+              ),
             ),
           ],
         ),

@@ -92,17 +92,6 @@ class UserPreferencesResponse(ApiSchema):
     dashboard_layout: dict[str, Any]
 
 
-class UserCreate(ApiSchema):
-    """Administrator-provisioned user details."""
-
-    email: str = Field(max_length=320)
-    full_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=1, max_length=256)
-    is_active: bool = True
-    force_password_change: bool = True
-    expires_at: datetime | None = None
-
-
 class UserProfileFields(ApiSchema):
     """Optional HR/profile enrichment shared by user create and update payloads.
 
@@ -129,6 +118,25 @@ class UserProfileFields(ApiSchema):
     profile_photo_url: str | None = Field(default=None, max_length=1000)
     profile_addresses: list[dict[str, Any]] | None = None
     profile_documents: list[dict[str, Any]] | None = None
+
+
+class UserCreate(UserProfileFields):
+    """Administrator-provisioned user details.
+
+    It inherits the profile fields rather than redeclaring the six identity
+    ones on their own. It did not, and because ``ApiSchema`` forbids undeclared
+    fields, a client that sent a mobile number or a photo at creation got a 422
+    -- so the desktop stopped sending them, leaving a create form whose Mobile
+    and Profile photo boxes were discarded on save and blank when the record
+    was opened again.
+    """
+
+    email: str = Field(max_length=320)
+    full_name: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=256)
+    is_active: bool = True
+    force_password_change: bool = True
+    expires_at: datetime | None = None
 
 
 class UserUpdate(UserProfileFields):
