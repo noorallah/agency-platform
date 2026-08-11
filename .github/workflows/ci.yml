@@ -127,6 +127,26 @@ jobs:
           AGENCY_DATABASE_SCHEMA=firm_shared uv run python -m alembic downgrade -1
           AGENCY_DATABASE_SCHEMA=firm_shared uv run python -m alembic upgrade head
 
+      - name: Shape the firm schema the way provisioning does
+        # A migration run creates every table in whichever schema it targets, so
+        # the firm schema above also holds `firms`, `users` and the rest. Both
+        # paths that build a firm store in production drop them afterwards
+        # (TenantStorageLifecycleService for dedicated firms,
+        # scripts/reset_tenancy_layout.py for the shared schema). Without this
+        # the job tests a layout the product never deploys — and a tenant
+        # session could resolve the firm registry, which is the exact defect
+        # tests/integration/test_multi_schema_tenancy.py exists to catch.
+        run: |
+          uv run python - <<'PY'
+          from app.core.config.settings import Settings
+          from app.core.database.engine import EngineFactory
+          from app.core.tenancy.lifecycle import prune_platform_objects
+
+          url = EngineFactory.database_config_from_settings(Settings()).url
+          prune_platform_objects(database_url=url, schema_name="firm_shared")
+          print("pruned platform tables from firm_shared")
+          PY
+
       - name: Integration tests
         run: uv run pytest tests/integration -q
 
