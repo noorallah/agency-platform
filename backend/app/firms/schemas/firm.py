@@ -37,6 +37,7 @@ class FirmCreate(FirmSchema):
     database_name: str | None = Field(default=None, max_length=128)
     schema_name: str | None = Field(default=None, max_length=128)
     database_type: str | None = Field(default="postgresql", max_length=32)
+    connection_profile: str | None = Field(default=None, max_length=64)
     status: str = Field(default="ACTIVE", max_length=32)
     is_active: bool = True
     notes: str | None = None
@@ -63,6 +64,7 @@ class FirmCreate(FirmSchema):
         "database_name",
         "schema_name",
         "database_type",
+        "connection_profile",
         "status",
         mode="before",
     )
@@ -86,6 +88,12 @@ class FirmCreate(FirmSchema):
         """Keep database type canonicalized for resolver matching."""
         return value.lower() if value is not None else None
 
+    @field_validator("connection_profile", mode="after")
+    @classmethod
+    def normalize_connection_profile(cls, value: str | None) -> str | None:
+        """Match the upper-cased keys connection profiles are parsed under."""
+        return value.upper() if value is not None else None
+
     @field_validator("contact_email")
     @classmethod
     def normalize_email(cls, value: str | None) -> str | None:
@@ -101,6 +109,18 @@ class FirmCreate(FirmSchema):
 
 class FirmUpdate(FirmCreate):
     """Complete replacement representation for an existing firm."""
+
+
+class FirmProvisionResponse(FirmSchema):
+    """Outcome of building a firm's dedicated storage."""
+
+    firm_id: UUID
+    deployment_mode: DeploymentMode
+    database_name: str | None
+    schema_name: str | None
+    connection_profile: str | None
+    provisioned_at: datetime | None
+    already_provisioned: bool
 
 
 class FirmResponse(FirmSchema):
@@ -126,6 +146,8 @@ class FirmResponse(FirmSchema):
     database_name: str | None
     schema_name: str | None
     database_type: str
+    connection_profile: str | None
+    provisioned_at: datetime | None
     status: str
     created_date: datetime | None
     updated_date: datetime | None

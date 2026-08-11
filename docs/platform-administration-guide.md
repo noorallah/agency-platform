@@ -192,6 +192,63 @@ $mumbaiFirmId = $mumbaiFirm.data.id
 $delhiFirmId = $delhiFirm.data.id
 ```
 
+### 3a. Firms with their own database or schema
+
+Both firms above use the default `SHARED` mode: their rows live in the platform
+database's `firm_shared` schema, and they are usable immediately.
+
+A firm can instead be given its own schema (`SCHEMA`) or its own database
+(`DATABASE`), and that database can be on **another server**. The server is named
+by `connection_profile`, which must match an entry in
+`AGENCY_TENANCY_CONNECTION_PROFILES` — an unrecognized name is refused here
+rather than at first use. Omit it to use the platform server.
+
+```powershell
+$remoteFirm = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/firms" `
+  -Headers $headers -ContentType "application/json" `
+  -Body (@{
+    name = "Acme Agencies Pune"
+    code = "ACME-PUN"
+    country = "IN"
+    currency_code = "INR"
+    financial_year_start = "2026-04-01"
+    deployment_mode = "DATABASE"
+    database_type = "postgresql"
+    database_name = "acme_pune"
+    schema_name = "pune_ops"
+    connection_profile = "REMOTE_A"
+  } | ConvertTo-Json)
+```
+
+Creating the firm **records the routing; it does not build anything**. The firm
+cannot serve requests yet — any call carrying its `X-Firm-ID` is refused with a
+message saying it has not been provisioned. Build its storage explicitly:
+
+```powershell
+Invoke-RestMethod -Method Post -Headers $headers `
+  -Uri "$baseUrl/api/v1/firms/$($remoteFirm.data.id)/provision"
+```
+
+That creates the database on the profile's server, creates the schema, builds
+every firm-owned table, and removes the platform tables from it. The response
+carries `provisioned_at`; `already_provisioned` tells you whether this call did
+the work or the firm was ready before it.
+
+This is separate from creation on purpose: a target server that is slow or
+unreachable must not fail the creation of the firm record. If provisioning
+fails, the reason is kept on the firm and the same call is the retry — every
+step is create-if-missing, so running it again is safe.
+
+In the desktop client this is the **Provision storage** action on the Firms
+workspace, and the Storage column reads `Not provisioned` until it succeeds.
+
+Routing is fixed once the firm exists: nothing migrates a firm's rows between
+stores, so `PUT /api/v1/firms/{id}` rejects any change to `deployment_mode`,
+`database_name`, `schema_name` or `connection_profile`.
+
+> After any schema change, upgrade **every** store, not just the platform one:
+> `uv run python scripts/migrate_all_stores.py --dry-run` then `--yes`.
+
 ## 4. Create a user
 
 Administrators set an initial password. `force_password_change = true` makes

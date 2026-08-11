@@ -132,19 +132,83 @@ def test_create_defaults_to_shared_storage_and_audits() -> None:
     assert audit[0].after_data == {"code": "ACME"}
 
 
-def test_create_derives_dedicated_routing_and_provisions_it() -> None:
-    """A dedicated firm is provisioned against the routing that was stored."""
+def test_create_derives_dedicated_routing_without_provisioning_it() -> None:
+    """Creating a dedicated firm records routing but builds nothing yet."""
     session = _session()
     lifecycle = _RecordingLifecycle()
-    firm = FirmService(session, storage_lifecycle=lifecycle).create(
-        _create_payload(deployment_mode="SCHEMA"), _ACTOR
-    )
+    service = FirmService(session, storage_lifecycle=lifecycle)
+    firm = service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
 
     mapping = _mapping(session, firm.id)
     assert (mapping.deployment_mode, mapping.schema_name) == ("SCHEMA", "firm_acme")
+    # Creation must not depend on a database server being reachable, so nothing
+    # is built until the explicit action runs.
+    assert lifecycle.provisioned == []
+    assert mapping.provisioned_at is None
+
+
+def test_provision_builds_storage_against_the_stored_routing() -> None:
+    """The provisioning action sees the mapping that was written at create."""
+    session = _session()
+    lifecycle = _RecordingLifecycle()
+    service = FirmService(session, storage_lifecycle=lifecycle)
+    firm = service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
+
+    _, already = service.provision(firm.id, _ACTOR)
+
+    assert already is False
     # Provisioning must see the mapping that was just written, not the SHARED
     # fallback the Firm properties return when no mapping is visible.
     assert lifecycle.provisioned == [("SCHEMA", "agency_platform", "firm_acme")]
+    mapping = _mapping(session, firm.id)
+    assert mapping.provisioned_at is not None
+    assert mapping.provisioning_error is None
+
+
+def test_provision_is_idempotent_and_does_not_rebuild() -> None:
+    """A second call reports the firm was already provisioned and does nothing."""
+    session = _session()
+    lifecycle = _RecordingLifecycle()
+    service = FirmService(session, storage_lifecycle=lifecycle)
+    firm = service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
+    service.provision(firm.id, _ACTOR)
+
+    _, already = service.provision(firm.id, _ACTOR)
+
+    assert already is True
+    assert len(lifecycle.provisioned) == 1
+
+
+def test_provision_records_the_reason_a_build_failed() -> None:
+    """A failed build leaves the reason on the record instead of only in logs."""
+    session = _session()
+
+    class _FailingLifecycle:
+        """Fail the way an unreachable target server does."""
+
+        def provision_new_firm(self, firm: Firm) -> None:
+            """Raise as though the host could not be reached."""
+            raise BusinessRuleError("could not connect to host 10.0.0.7")
+
+    service = FirmService(session, storage_lifecycle=_FailingLifecycle())
+    firm = service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
+
+    with pytest.raises(BusinessRuleError):
+        service.provision(firm.id, _ACTOR)
+
+    mapping = _mapping(session, firm.id)
+    assert mapping.provisioned_at is None
+    assert "10.0.0.7" in (mapping.provisioning_error or "")
+
+
+def test_provision_refuses_a_shared_firm() -> None:
+    """Shared firms live in the platform store and have nothing to build."""
+    session = _session()
+    service = FirmService(session, storage_lifecycle=_RecordingLifecycle())
+    firm = service.create(_create_payload(), _ACTOR)
+
+    with pytest.raises(BusinessRuleError):
+        service.provision(firm.id, _ACTOR)
 
 
 def test_create_rejects_duplicate_code_gst_and_pan() -> None:

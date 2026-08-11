@@ -59,6 +59,8 @@ class Firm {
     required this.databaseType,
     required this.databaseName,
     required this.schemaName,
+    required this.connectionProfile,
+    required this.provisionedAt,
     required this.isActive,
     required this.notes,
     required this.createdAt,
@@ -70,8 +72,17 @@ class Firm {
   final String contactName, contactEmail, contactPhone;
   final String currencyCode, financialYearStart;
   final String deploymentMode, databaseType, databaseName, schemaName;
+  final String connectionProfile, provisionedAt;
   final String notes, createdAt, updatedAt;
   final bool isActive;
+
+  /// Whether this firm's storage has been built and can serve requests.
+  ///
+  /// Shared firms live in the platform store and are ready the moment they
+  /// exist; dedicated firms are not usable until the provisioning action has
+  /// created their database, schema and tables.
+  bool get isStorageReady =>
+      deploymentMode == 'SHARED' || provisionedAt.isNotEmpty;
 
   factory Firm.fromJson(Json json) => Firm(
         id: stringValue(json['id']),
@@ -94,6 +105,8 @@ class Firm {
         databaseType: stringValue(json['database_type']),
         databaseName: stringValue(json['database_name']),
         schemaName: stringValue(json['schema_name']),
+        connectionProfile: stringValue(json['connection_profile']),
+        provisionedAt: stringValue(json['provisioned_at']),
         isActive: boolValue(json['is_active'], fallback: true),
         notes: stringValue(json['notes']),
         createdAt: stringValue(json['created_at']),
@@ -120,6 +133,7 @@ class Firm {
         'database_type': databaseType,
         'database_name': databaseName,
         'schema_name': schemaName,
+        'connection_profile': connectionProfile,
         'is_active': isActive,
         'notes': notes,
       };

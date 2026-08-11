@@ -145,11 +145,17 @@ def test_every_entity_carries_the_counter(temp_schema: str, engine: Engine) -> N
     this is worth checking: it declared its own business column named
     ``version`` and took the counter's place until 20260809_0055.
 
-    ``audit_logs`` is the one deliberate exception. It extends ``UUIDMixin,
+    ``audit_logs`` is the original deliberate exception. It extends ``UUIDMixin,
     Base`` rather than ``BaseEntity`` because an append-only log has nothing to
     reconcile: it is never updated, and a trigger enforces that. The deployed
     tables do carry a ``version`` column from an older migration, but the ORM
     does not map it and nothing reads it.
+
+    ``error_reports`` is exempt for the same reason and by the same shape. A
+    crash report is written once and read; soft delete, an actor pair and a
+    concurrency counter are the vocabulary of a record somebody edits. Two
+    clients reporting at once are reporting two different failures, not
+    competing to write one row.
     """
     with engine.connect() as connection:
         missing = (
@@ -159,7 +165,9 @@ def test_every_entity_carries_the_counter(temp_schema: str, engine: Engine) -> N
             from information_schema.tables t
             where t.table_schema = %(schema)s
               and t.table_type = 'BASE TABLE'
-              and t.table_name not in ('alembic_version', 'audit_logs')
+              and t.table_name not in (
+                'alembic_version', 'audit_logs', 'error_reports'
+              )
               and not exists (
                 select 1 from information_schema.columns c
                 where c.table_schema = t.table_schema

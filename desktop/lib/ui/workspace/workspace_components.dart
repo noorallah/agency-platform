@@ -743,6 +743,7 @@ class WorkspaceToolbar extends StatelessWidget {
     required this.isEnabled,
     this.isVisible,
     this.actions = ToolbarAction.values,
+    this.trailing = const [],
   });
 
   final ValueChanged<ToolbarAction> onAction;
@@ -750,30 +751,36 @@ class WorkspaceToolbar extends StatelessWidget {
   final bool Function(ToolbarAction)? isVisible;
   final List<ToolbarAction> actions;
 
+  /// Resource-specific actions the standard set cannot express, rendered after
+  /// it. `ToolbarAction` is a closed enum shared by every workspace, so a
+  /// one-resource action like "provision storage" has nowhere else to go.
+  final List<Widget> trailing;
+
   @override
   Widget build(BuildContext context) => Wrap(
         spacing: 4,
         runSpacing: 4,
-        children: actions
-            .where((action) => isVisible?.call(action) ?? true)
-            .map(
-              (action) => Tooltip(
-                message: action.label,
-                child: action == ToolbarAction.newItem
-                    ? FilledButton.icon(
-                        onPressed:
-                            isEnabled(action) ? () => onAction(action) : null,
-                        icon: Icon(action.icon),
-                        label: Text(action.label),
-                      )
-                    : IconButton(
-                        onPressed:
-                            isEnabled(action) ? () => onAction(action) : null,
-                        icon: Icon(action.icon),
-                      ),
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          ...actions.where((action) => isVisible?.call(action) ?? true).map(
+                (action) => Tooltip(
+                  message: action.label,
+                  child: action == ToolbarAction.newItem
+                      ? FilledButton.icon(
+                          onPressed:
+                              isEnabled(action) ? () => onAction(action) : null,
+                          icon: Icon(action.icon),
+                          label: Text(action.label),
+                        )
+                      : IconButton(
+                          onPressed:
+                              isEnabled(action) ? () => onAction(action) : null,
+                          icon: Icon(action.icon),
+                        ),
+                ),
               ),
-            )
-            .toList(),
+          ...trailing,
+        ],
       );
 }
 
@@ -785,6 +792,8 @@ class SearchFilterPanel extends StatelessWidget {
     this.filters,
     this.hintText = 'Search',
     this.focusNode,
+    this.onChanged,
+    this.onClear,
   });
 
   final TextEditingController controller;
@@ -792,6 +801,10 @@ class SearchFilterPanel extends StatelessWidget {
   final List<Widget>? filters;
   final String hintText;
   final FocusNode? focusNode;
+
+  /// Fires on every keystroke so the caller can debounce a request.
+  final ValueChanged<String>? onChanged;
+  final VoidCallback? onClear;
 
   @override
   Widget build(BuildContext context) => Wrap(
@@ -801,17 +814,34 @@ class SearchFilterPanel extends StatelessWidget {
         children: [
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 360),
-            child: TextField(
-              focusNode: focusNode,
-              controller: controller,
-              onSubmitted: onSearch,
-              decoration: InputDecoration(
-                hintText: hintText,
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  tooltip: 'Search',
-                  icon: const Icon(Icons.search),
-                  onPressed: () => onSearch(controller.text),
+            // Rebuilds the suffix as the field empties and fills, so the clear
+            // button only exists when there is something to clear.
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) => TextField(
+                focusNode: focusNode,
+                controller: controller,
+                onSubmitted: onSearch,
+                onChanged: onChanged,
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  prefixIcon: const Icon(Icons.search),
+                  // The old trailing icon was a second Search button beside the
+                  // search icon, which is the one thing this slot should not be.
+                  suffixIcon: value.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Clear search',
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            controller.clear();
+                            if (onClear != null) {
+                              onClear!();
+                            } else {
+                              onSearch('');
+                            }
+                          },
+                        ),
                 ),
               ),
             ),
@@ -975,7 +1005,7 @@ class GridColumn {
   final String? tooltip;
 }
 
-class EnterpriseDataGrid<T> extends StatelessWidget {
+class EnterpriseDataGrid<T> extends StatefulWidget {
   const EnterpriseDataGrid({
     super.key,
     required this.items,
@@ -990,6 +1020,8 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
     this.selectedIds = const {},
     this.onSelectionChanged,
     this.rowsPerPage = 20,
+    this.availableRowsPerPage = const [20],
+    this.onRowsPerPageChanged,
     this.onOpen,
     this.contextActions = const [],
     this.contextActionsFor,
@@ -1011,6 +1043,8 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
   final Set<String> selectedIds;
   final ValueChanged<Set<String>>? onSelectionChanged;
   final int rowsPerPage;
+  final List<int> availableRowsPerPage;
+  final ValueChanged<int?>? onRowsPerPageChanged;
   final ValueChanged<T>? onOpen;
   final List<WorkspaceContextAction> contextActions;
   final List<WorkspaceContextAction> Function(T item)? contextActionsFor;
@@ -1019,156 +1053,88 @@ class EnterpriseDataGrid<T> extends StatelessWidget {
   final String rowNumberLabel;
   final Widget Function(int columnIndex, String value, T item)? cellBuilder;
 
-  bool get _showActionsColumn =>
-      onOpen != null ||
-      contextActions.isNotEmpty ||
-      contextActionsFor != null ||
-      onContextAction != null;
-
   @override
-  Widget build(BuildContext context) {
-    final List<MapEntry<int, GridColumn>> visibleColumns =
-        columns.asMap().entries.where((entry) => entry.value.visible).toList();
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: constraints.maxWidth < 720 ? 720 : constraints.maxWidth,
-              child: PaginatedDataTable(
-                key: ValueKey(pageOffset),
-                showCheckboxColumn: true,
-                rowsPerPage: rowsPerPage,
-                availableRowsPerPage: [rowsPerPage],
-                initialFirstRowIndex: pageOffset,
-                showFirstLastButtons: true,
-                onPageChanged: onPageChanged,
-                columns: [
-                  if (showRowNumbers)
-                    DataColumn(
-                      label: Text(rowNumberLabel),
-                      numeric: true,
-                    ),
-                  for (final MapEntry<int, GridColumn> entry in visibleColumns)
-                    DataColumn(
-                      label: Tooltip(
-                        message: entry.value.tooltip ?? entry.value.label,
-                        child: Text(entry.value.label),
-                      ),
-                      onSort: entry.value.onSort == null
-                          ? null
-                          : (_, ascending) => entry.value.onSort!(ascending),
-                    ),
-                  if (_showActionsColumn)
-                    const DataColumn(label: Text('Actions')),
-                ],
-                source: _GridDataSource<T>(
-                  menuContext: context,
-                  items: items,
-                  total: total,
-                  pageOffset: pageOffset,
-                  id: id,
-                  cells: cells,
-                  visibleColumnIndexes:
-                      visibleColumns.map((entry) => entry.key).toList(),
-                  selectedId: selectedId,
-                  selectedIds: selectedIds,
-                  onSelectionChanged: onSelectionChanged,
-                  onSelect: onSelect,
-                  onOpen: onOpen,
-                  contextActions: contextActions,
-                  contextActionsFor: contextActionsFor,
-                  onContextAction: onContextAction,
-                  showRowNumbers: showRowNumbers,
-                  showActionsColumn: _showActionsColumn,
-                  cellBuilder: cellBuilder,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  State<EnterpriseDataGrid<T>> createState() => _EnterpriseDataGridState<T>();
 }
 
-class _GridDataSource<T> extends DataTableSource {
-  _GridDataSource({
-    required this.menuContext,
-    required this.items,
-    required this.total,
-    required this.pageOffset,
-    required this.id,
-    required this.cells,
-    required this.visibleColumnIndexes,
-    required this.selectedId,
-    required this.selectedIds,
-    required this.onSelectionChanged,
-    required this.onSelect,
-    required this.onOpen,
-    required this.contextActions,
-    required this.contextActionsFor,
-    required this.onContextAction,
-    required this.showRowNumbers,
-    required this.showActionsColumn,
-    required this.cellBuilder,
-  });
-  final BuildContext menuContext;
-  final List<T> items;
-  final int total;
-  final int pageOffset;
-  final String Function(T) id;
-  final List<String> Function(T) cells;
-  final List<int> visibleColumnIndexes;
-  final String? selectedId;
-  final Set<String> selectedIds;
-  final ValueChanged<Set<String>>? onSelectionChanged;
-  final ValueChanged<T> onSelect;
-  final ValueChanged<T>? onOpen;
-  final List<WorkspaceContextAction> contextActions;
-  final List<WorkspaceContextAction> Function(T item)? contextActionsFor;
-  final void Function(WorkspaceContextAction action, T item)? onContextAction;
-  final bool showRowNumbers;
-  final bool showActionsColumn;
-  final Widget Function(int columnIndex, String value, T item)? cellBuilder;
+class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
+  /// Owned here so the visible scrollbar and the scroll view share one
+  /// controller; a `Scrollbar` with `thumbVisibility` needs a controller that
+  /// survives rebuilds, which a stateless widget cannot give it.
+  final ScrollController _horizontal = ScrollController();
 
   @override
-  DataRow? getRow(int index) {
-    final int localIndex = index - pageOffset;
-    if (localIndex < 0 || localIndex >= items.length) return null;
-    final T item = items[localIndex];
-    final List<String> values = cells(item);
-    final String itemId = id(item);
-    final bool multiSelection = onSelectionChanged != null;
-    final bool isSelected =
-        multiSelection ? selectedIds.contains(itemId) : selectedId == itemId;
-    final List<WorkspaceContextAction> itemContextActions =
-        contextActionsFor?.call(item) ?? contextActions;
-    return DataRow.byIndex(
-      index: index,
+  void dispose() {
+    _horizontal.dispose();
+    super.dispose();
+  }
+
+  bool get _showActionsColumn =>
+      widget.onOpen != null ||
+      widget.contextActions.isNotEmpty ||
+      widget.contextActionsFor != null ||
+      widget.onContextAction != null;
+
+  bool get _multiSelection => widget.onSelectionChanged != null;
+
+  int get _page => widget.rowsPerPage <= 0
+      ? 1
+      : (widget.pageOffset ~/ widget.rowsPerPage) + 1;
+
+  List<MapEntry<int, GridColumn>> get _visibleColumns => widget.columns
+      .asMap()
+      .entries
+      .where((entry) => entry.value.visible)
+      .toList();
+
+  bool _isSelected(String itemId) =>
+      widget.selectedIds.contains(itemId) || widget.selectedId == itemId;
+
+  List<WorkspaceContextAction> _actionsFor(T item) =>
+      widget.contextActionsFor?.call(item) ?? widget.contextActions;
+
+  /// Toggling the tick, when there is anything to tick *for*.
+  ///
+  /// Null leaves the checkbox column out entirely; rows are still selected by
+  /// the tap handler each cell carries.
+  ValueChanged<bool?>? _onSelectChanged(T item, String itemId) =>
+      !_multiSelection
+          ? null
+          : (_) {
+              final Set<String> next = {...widget.selectedIds};
+              if (!next.remove(itemId)) next.add(itemId);
+              widget.onSelectionChanged?.call(next);
+              widget.onSelect(item);
+            };
+
+  /// One row of data cells. Rows come from `items` only, so a page shows
+  /// exactly what it holds.
+  ///
+  /// This used to be a `DataTableSource` behind a `PaginatedDataTable`, which
+  /// pads every page out to `rowsPerPage` with blank rows -- and with a checkbox
+  /// column each blank drew a disabled checkbox. Three records under a 25-row
+  /// page size meant twenty-two phantom rows.
+  DataRow _dataRow(BuildContext context, T item, int index) {
+    final List<String> values = widget.cells(item);
+    final String itemId = widget.id(item);
+    // Both, not one or the other. This used to read
+    // `_multiSelection ? selectedIds.contains(id) : selectedId == id`, and
+    // because the workspace always wires multi-selection, the row's appearance
+    // was driven only by the checkbox: clicking a row enabled View/Edit/Delete
+    // in the toolbar and left the row looking untouched.
+    final bool isSelected = _isSelected(itemId);
+    final List<WorkspaceContextAction> itemContextActions = _actionsFor(item);
+    return DataRow(
       selected: isSelected,
-      onSelectChanged: (_) {
-        if (multiSelection) {
-          final Set<String> next = {...selectedIds};
-          if (next.contains(itemId)) {
-            next.remove(itemId);
-          } else {
-            next.add(itemId);
-          }
-          onSelectionChanged?.call(next);
-          onSelect(item);
-          return;
-        }
-        onSelect(item);
-      },
+      onSelectChanged: _onSelectChanged(item, itemId),
       cells: [
-        if (showRowNumbers) DataCell(Text('${index + 1}')),
-        ...visibleColumnIndexes.map((columnIndex) {
+        if (widget.showRowNumbers) DataCell(Text('${index + 1}')),
+        ..._visibleColumns.asMap().entries.map((visible) {
+          final bool isLeading = visible.key == 0 && !widget.showRowNumbers;
+          final MapEntry<int, GridColumn> entry = visible.value;
           final String value =
-              columnIndex < values.length ? values[columnIndex] : '';
-          final Widget cell = cellBuilder?.call(columnIndex, value, item) ??
+              entry.key < values.length ? values[entry.key] : '';
+          Widget cell = widget.cellBuilder?.call(entry.key, value, item) ??
               Tooltip(
                 message: value,
                 child: SizedBox(
@@ -1176,76 +1142,425 @@ class _GridDataSource<T> extends DataTableSource {
                   child: Text(value, overflow: TextOverflow.ellipsis),
                 ),
               );
+          if (isLeading) {
+            // A marker on the row's leading edge, so the selection is not
+            // signalled by colour alone -- the tint is easy to lose in high
+            // contrast, and `DataRow` has no border of its own to use.
+            cell = Container(
+              padding: const EdgeInsets.only(left: AppSpacing.sm),
+              decoration: BoxDecoration(
+                border: Border(
+                  left: BorderSide(
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.transparent,
+                    width: 3,
+                  ),
+                ),
+              ),
+              child: cell,
+            );
+          }
           return DataCell(
             GestureDetector(
               behavior: HitTestBehavior.opaque,
               onSecondaryTapDown: itemContextActions.isEmpty
                   ? null
                   : (details) {
-                      onSelect(item);
+                      widget.onSelect(item);
                       showWorkspaceContextMenu(
-                        menuContext,
+                        context,
                         position: details.globalPosition,
                         actions: itemContextActions,
                         onSelected: (action) =>
-                            onContextAction?.call(action, item),
+                            widget.onContextAction?.call(action, item),
                       );
                     },
               child: cell,
             ),
-            onTap: () => onSelect(item),
-            onDoubleTap: onOpen == null ? null : () => onOpen!(item),
+            onTap: () => widget.onSelect(item),
+            onDoubleTap:
+                widget.onOpen == null ? null : () => widget.onOpen!(item),
           );
         }),
-        if (showActionsColumn)
-          DataCell(
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 0,
-                runSpacing: 0,
-                children: [
-                  if (onOpen != null)
-                    IconButton(
-                      tooltip: WorkspaceContextAction.view.label,
-                      icon: Icon(WorkspaceContextAction.view.icon),
-                      onPressed: () {
-                        onSelect(item);
-                        onOpen!(item);
-                      },
-                    ),
-                  for (final WorkspaceContextAction action
-                      in itemContextActions)
-                    if (action != WorkspaceContextAction.refresh &&
-                        action != WorkspaceContextAction.export &&
-                        !(action == WorkspaceContextAction.view &&
-                            onOpen != null))
-                      IconButton(
-                        tooltip: action.label,
-                        icon: Icon(action.icon),
-                        onPressed: onContextAction == null
-                            ? null
-                            : () {
-                                onSelect(item);
-                                onContextAction!(action, item);
-                              },
-                      ),
-                ],
-              ),
-            ),
-          ),
       ],
     );
   }
 
+  /// The same row, in the pinned table: one cell, carrying the actions.
+  ///
+  /// It repeats `selected` so the row tint and the theme's `dataRowColor` carry
+  /// across the seam instead of stopping halfway.
+  DataRow _actionsRow(T item) {
+    final String itemId = widget.id(item);
+    return DataRow(
+      selected: _isSelected(itemId),
+      onSelectChanged: _onSelectChanged(item, itemId),
+      cells: [
+        DataCell(
+          _RowActions<T>(
+            item: item,
+            actions: _actionsFor(item),
+            onOpen: widget.onOpen,
+            onSelect: widget.onSelect,
+            onContextAction: widget.onContextAction,
+          ),
+        ),
+      ],
+    );
+  }
+
+  DataTable _dataTable(BuildContext context) => DataTable(
+        // Flutter also needs a row that is selectable; rows only carry
+        // `onSelectChanged` when multi-selection is wired, so the column
+        // disappears together with its purpose.
+        showCheckboxColumn: _multiSelection,
+        onSelectAll: !_multiSelection
+            ? null
+            : (checked) {
+                final Set<String> pageIds = widget.items.map(widget.id).toSet();
+                widget.onSelectionChanged!(
+                  checked ?? false
+                      ? {...widget.selectedIds, ...pageIds}
+                      : widget.selectedIds.difference(pageIds),
+                );
+              },
+        columns: [
+          if (widget.showRowNumbers)
+            DataColumn(label: Text(widget.rowNumberLabel), numeric: true),
+          for (final MapEntry<int, GridColumn> entry in _visibleColumns)
+            DataColumn(
+              label: Tooltip(
+                message: entry.value.tooltip ?? entry.value.label,
+                child: Text(entry.value.label),
+              ),
+              onSort: entry.value.onSort == null
+                  ? null
+                  : (_, ascending) => entry.value.onSort!(ascending),
+            ),
+        ],
+        rows: [
+          for (int index = 0; index < widget.items.length; index++)
+            _dataRow(context, widget.items[index], widget.pageOffset + index),
+        ],
+      );
+
+  /// The pinned half. Never inside the horizontal scroll, so the row actions
+  /// stay reachable however wide the data grows.
+  Widget _pinnedActions(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            left:
+                BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+        ),
+        child: DataTable(
+          showCheckboxColumn: false,
+          columns: const [DataColumn(label: Text('Actions'))],
+          rows: [for (final T item in widget.items) _actionsRow(item)],
+        ),
+      );
+
   @override
-  bool get isRowCountApproximate => false;
+  Widget build(BuildContext context) {
+    final List<int> sizeOptions =
+        widget.availableRowsPerPage.contains(widget.rowsPerPage)
+            ? widget.availableRowsPerPage
+            : [widget.rowsPerPage, ...widget.availableRowsPerPage];
+    final bool showSizeSelector =
+        widget.onRowsPerPageChanged != null && sizeOptions.length > 1;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // A minimum, not a fixed width: a bare `DataTable` cannot shrink
+                // below the width its columns need and would overflow instead.
+                final double minWidth =
+                    constraints.maxWidth < 720 ? 720 : constraints.maxWidth;
+                Widget scrollingData(double available) => Scrollbar(
+                      controller: _horizontal,
+                      // Flutter's `MaterialScrollBehavior` adds a scrollbar for
+                      // vertical scroll views and never for horizontal ones, so
+                      // a table wider than its viewport gave no sign that
+                      // anything lay off the right edge.
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        controller: _horizontal,
+                        scrollDirection: Axis.horizontal,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minWidth: available),
+                          child: _dataTable(context),
+                        ),
+                      ),
+                    );
+                if (!_showActionsColumn) {
+                  return SingleChildScrollView(
+                    child: scrollingData(minWidth),
+                  );
+                }
+                // One vertical scroll around both halves, so they move together
+                // without anything having to synchronise them. They line up row
+                // for row because `ThemeRegistry` fixes `dataRowMinHeight`,
+                // `dataRowMaxHeight` and `headingRowHeight` -- if those ever
+                // become variable, this alignment is the first thing to check.
+                return SingleChildScrollView(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // A second LayoutBuilder because the first cannot know
+                      // how much room the pinned column will take. A Row
+                      // measures its non-flex children first, so by the time
+                      // this runs `inner.maxWidth` is what is genuinely left --
+                      // and the data table fills it instead of sitting at its
+                      // intrinsic width with a stretch of nothing before the
+                      // actions, which is what a three-column grid looked like.
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, inner) =>
+                              scrollingData(inner.maxWidth),
+                        ),
+                      ),
+                      _pinnedActions(context),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          if (widget.total > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (showSizeSelector) ...[
+                    Text(
+                      'Rows per page:',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    DropdownButton<int>(
+                      value: widget.rowsPerPage,
+                      underline: const SizedBox.shrink(),
+                      isDense: true,
+                      onChanged: widget.onRowsPerPageChanged,
+                      items: [
+                        for (final int size in sizeOptions)
+                          DropdownMenuItem<int>(
+                            value: size,
+                            child: Text('$size'),
+                          ),
+                      ],
+                    ),
+                  ],
+                  // Reports a row offset, not a page number: every caller has
+                  // always converted with `offset ~/ rowsPerPage + 1`.
+                  WorkspacePager(
+                    page: _page,
+                    pageSize: widget.rowsPerPage,
+                    total: widget.total,
+                    onPageChanged: (page) =>
+                        widget.onPageChanged((page - 1) * widget.rowsPerPage),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Row actions: the two everyone uses, then everything else behind one menu.
+///
+/// Every applicable action used to render as its own `IconButton`, so a row
+/// with view/edit/delete/copy carried four icons and a grid of 25 rows carried
+/// a hundred. At that density the icons stop being scannable and the row reads
+/// as decoration. View and Edit stay inline because they are the actions taken
+/// constantly; the destructive and occasional ones move behind the overflow,
+/// where a deliberate second click is a feature rather than a cost.
+class _RowActions<T> extends StatelessWidget {
+  const _RowActions({
+    required this.item,
+    required this.actions,
+    required this.onOpen,
+    required this.onSelect,
+    required this.onContextAction,
+  });
+
+  final T item;
+  final List<WorkspaceContextAction> actions;
+  final ValueChanged<T>? onOpen;
+  final ValueChanged<T> onSelect;
+  final void Function(WorkspaceContextAction action, T item)? onContextAction;
+
+  /// Actions that belong to the whole grid rather than to one row.
+  static const Set<WorkspaceContextAction> _notRowScoped = {
+    WorkspaceContextAction.refresh,
+    WorkspaceContextAction.export,
+  };
+
+  static const Set<WorkspaceContextAction> _primary = {
+    WorkspaceContextAction.view,
+    WorkspaceContextAction.edit,
+  };
+
+  void _invoke(WorkspaceContextAction action) {
+    onSelect(item);
+    onContextAction?.call(action, item);
+  }
+
   @override
-  int get rowCount => total;
+  Widget build(BuildContext context) {
+    final List<WorkspaceContextAction> rowActions =
+        actions.where((action) => !_notRowScoped.contains(action)).toList();
+    final bool viewInline =
+        onOpen != null || rowActions.contains(WorkspaceContextAction.view);
+    final List<WorkspaceContextAction> overflow = rowActions
+        .where((action) => !_primary.contains(action))
+        .toList(growable: false);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (viewInline)
+          IconButton(
+            tooltip: WorkspaceContextAction.view.label,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(WorkspaceContextAction.view.icon, size: 18),
+            onPressed: () {
+              onSelect(item);
+              final ValueChanged<T>? open = onOpen;
+              if (open != null) {
+                open(item);
+              } else {
+                onContextAction?.call(WorkspaceContextAction.view, item);
+              }
+            },
+          ),
+        if (rowActions.contains(WorkspaceContextAction.edit))
+          IconButton(
+            tooltip: WorkspaceContextAction.edit.label,
+            visualDensity: VisualDensity.compact,
+            icon: Icon(WorkspaceContextAction.edit.icon, size: 18),
+            onPressed: onContextAction == null
+                ? null
+                : () => _invoke(WorkspaceContextAction.edit),
+          ),
+        if (overflow.isNotEmpty)
+          PopupMenuButton<WorkspaceContextAction>(
+            tooltip: 'More actions',
+            icon: const Icon(Icons.more_vert, size: 18),
+            position: PopupMenuPosition.under,
+            onSelected: _invoke,
+            itemBuilder: (context) => [
+              for (final WorkspaceContextAction action in overflow)
+                PopupMenuItem<WorkspaceContextAction>(
+                  value: action,
+                  child: Row(
+                    children: [
+                      Icon(action.icon, size: 18),
+                      const SizedBox(width: AppSpacing.md),
+                      Text(action.label),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// One bulk operation offered while rows are selected.
+class WorkspaceBulkAction {
+  const WorkspaceBulkAction({
+    required this.label,
+    required this.icon,
+    required this.onInvoke,
+    this.isDestructive = false,
+  });
+
+  final String label;
+  final IconData icon;
+
+  /// Receives the selected identifiers and returns the message to report.
+  final Future<String> Function(Set<String> ids) onInvoke;
+  final bool isDestructive;
+}
+
+/// Replaces the toolbar while a selection exists.
+///
+/// Deliberately shows nothing but "clear" when a module declares no bulk
+/// actions: most modules have no bulk endpoint, and offering buttons that
+/// cannot work would be worse than offering none.
+class WorkspaceBulkActionBar extends StatelessWidget {
+  const WorkspaceBulkActionBar({
+    super.key,
+    required this.selectedCount,
+    required this.actions,
+    required this.onAction,
+    required this.onClear,
+    this.busy = false,
+  });
+
+  final int selectedCount;
+  final List<WorkspaceBulkAction> actions;
+
+  /// The bar reports the choice; running it, reporting it and reloading belong
+  /// to the workspace that owns the selection.
+  final ValueChanged<WorkspaceBulkAction> onAction;
+  final VoidCallback onClear;
+  final bool busy;
+
   @override
-  int get selectedRowCount => onSelectionChanged == null
-      ? (selectedId == null ? 0 : 1)
-      : selectedIds.length;
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.primaryContainer,
+      borderRadius: AppRadius.medium,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md,
+          vertical: AppSpacing.sm,
+        ),
+        child: Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.sm,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              '$selectedCount selected',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+            for (final WorkspaceBulkAction action in actions)
+              TextButton.icon(
+                onPressed: busy ? null : () => onAction(action),
+                icon: Icon(action.icon, size: 18),
+                label: Text(action.label),
+                style: TextButton.styleFrom(
+                  foregroundColor: action.isDestructive
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onPrimaryContainer,
+                ),
+              ),
+            TextButton.icon(
+              onPressed: busy ? null : onClear,
+              icon: const Icon(Icons.close, size: 18),
+              label: const Text('Clear selection'),
+              style: TextButton.styleFrom(
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class DetailLine {

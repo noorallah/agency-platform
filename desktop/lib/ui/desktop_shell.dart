@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
+import '../core/diagnostics/diagnostics_share.dart';
 import '../core/navigation/workspace_router.dart';
 import '../core/notifications/notification_service.dart';
 import '../core/preferences/desktop_preferences_service.dart';
@@ -32,12 +35,89 @@ import 'tax/tax_rules_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
+import 'firms/firm_settings_page.dart';
 import 'dashboard_page.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/enterprise_sidebar.dart';
 import 'workspace/desktop_framework.dart';
+
+/// What each Administration screen is for, where the module's own sentence is
+/// too general to help. Anything absent falls back to it.
+///
+/// A map rather than a `description` on `ModuleTabDefinition`: that would be
+/// tidier but touches every module's catalog data, which is more than this
+/// deserves.
+const Map<String, String> _administrationDescriptions = {
+  'users': 'Provision interactive users and control their access.',
+  'roles': 'Group permissions into the roles users are assigned.',
+  'permissions': 'Manage platform permissions and access capabilities.',
+  'user-firms': 'Control which firms each user may work in.',
+  'business-profiles':
+      'Configure industry profiles that decide the modules and features a firm operates.',
+  'feature-management': 'Review and enable the features profiles can grant.',
+  'module-configuration': 'Review the modules profiles can switch on.',
+  'attribute-definitions':
+      'Define the custom fields a module carries, per business profile.',
+  'profile-assignment': 'Assign a business profile to each firm.',
+};
+
+/// What the header says for one Administration screen.
+class AdministrationHeader {
+  const AdministrationHeader({
+    required this.title,
+    required this.description,
+    required this.breadcrumbs,
+  });
+
+  final String title;
+  final String description;
+  final List<String> breadcrumbs;
+}
+
+/// Derives the header from the selected tab.
+///
+/// This used to be built from the module, with a `const` breadcrumb, so every
+/// screen under Administration -- Users, Roles, Permissions -- rendered the same
+/// heading and the same trail and nothing said which one was open.
+///
+/// The label comes from the catalog rather than a switch, so renaming a tab
+/// cannot leave the heading behind.
+AdministrationHeader administrationHeaderFor(String tabId) {
+  final ModuleDefinition module = ModuleCatalog.byId(AppModule.administration);
+  final String title = module.tabs
+      .firstWhere(
+        (tab) => tab.id == tabId,
+        orElse: () => ModuleTabDefinition(id: tabId, label: module.label),
+      )
+      .label;
+  return AdministrationHeader(
+    title: title,
+    description: _administrationDescriptions[tabId] ?? module.description,
+    breadcrumbs: ['Workspace', 'Administration', title],
+  );
+}
+
+/// Mirrors the login screen's constant so a report names the build it came from.
+const String _shellBuildNumber =
+    String.fromEnvironment('BUILD_NUMBER', defaultValue: 'Unknown');
+
+/// 1 April of the financial year in progress, as `yyyy-MM-dd`.
+///
+/// Computed rather than hardcoded so it is still right next year without anyone
+/// editing it: on or after 1 April the current year's date, before it the
+/// previous year's. India runs April to March, which is also why the form asks
+/// for GST and PAN.
+///
+/// Local calendar on purpose. This is a suggestion for the person filling the
+/// form, and "today" means their today; the UTC rule governs what the server
+/// persists and compares, not a prefill.
+String currentFinancialYearStart({DateTime? today}) {
+  final DateTime now = today ?? DateTime.now();
+  final int year = now.month >= DateTime.april ? now.year : now.year - 1;
+  return '$year-04-01';
+}
 
 class DesktopShell extends StatefulWidget {
   const DesktopShell({
@@ -321,6 +401,23 @@ class _DesktopShellState extends State<DesktopShell> {
                 onSelected: (value) {
                   if (value == 'logout') {
                     widget.session.logout();
+                    return;
+                  }
+                  if (value == 'diagnostics') {
+                    unawaited(
+                      DiagnosticsReportDialog.show(
+                        context,
+                        appName: widget.branding.appName,
+                        version: widget.branding.version,
+                        buildNumber: _shellBuildNumber,
+                        firmCode: widget.session.currentFirm?.code,
+                        // No user identifier is passed: the session exposes the
+                        // username, which is an email address, and a support
+                        // report is not a reason to move that onto a third
+                        // machine.
+                        serverUrl: widget.session.baseUrl,
+                      ),
+                    );
                   }
                 },
                 itemBuilder: (context) => [
@@ -329,6 +426,14 @@ class _DesktopShellState extends State<DesktopShell> {
                     child: Text(widget.session.attemptedUsername ?? 'User'),
                   ),
                   const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    value: 'diagnostics',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.bug_report_outlined),
+                      title: Text('Diagnostics report'),
+                    ),
+                  ),
                   const PopupMenuItem<String>(
                     value: 'logout',
                     child: ListTile(
@@ -1241,7 +1346,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
         ),
       'permissions' => ResourceManagementPage<Permission>(
           api: widget.api,
-          definition: _permissionDefinition(
+          definition: permissionDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -1349,10 +1454,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           message: 'Audit records are not available from the current API.',
         ),
     };
+    final AdministrationHeader header = administrationHeaderFor(tabId);
     return ConfigurationWorkspace(
-      title: module.label,
-      description: module.description,
-      breadcrumbs: const ['Workspace', 'Administration'],
+      title: header.title,
+      description: header.description,
+      breadcrumbs: header.breadcrumbs,
       // Sub-navigation now lives in the unified EnterpriseSidebar tree
       // (ModuleCatalog.navigationChildren), so no second panel is rendered
       // here — the workspace uses its full width for content.
@@ -1413,6 +1519,12 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
             widget.permissions,
             showFrame: false,
           ),
+        ),
+      'firm-settings' => FirmSettingsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+          activeFirmId: widget.api.activeFirmId?.call(),
         ),
       'customers' => CustomerManagementPage(
           api: widget.api,
@@ -1503,6 +1615,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'branch-types' => 'Manage reusable branch type masters.',
         'branch-warehouse-settings' =>
           'Configure future-ready branch and warehouse defaults.',
+        'firm-settings' =>
+          'Configure the active firm\'s business profile and related settings.',
         _ => 'Manage organization records and future firm configuration.',
       },
       breadcrumbs: [
@@ -2265,16 +2379,36 @@ ResourceDefinition<Firm> firmDefinition(
         'Contact',
         'Currency',
         'Country',
+        'Storage',
         'Status'
       ],
-      sortFields: const ['code', 'name', null, null, null, null],
+      sortFields: const ['code', 'name', null, null, null, null, null],
       cells: (firm) => [
         firm.code,
         firm.name,
         firm.contactEmail,
         firm.currencyCode,
         firm.country,
+        // A dedicated firm cannot serve requests until its tables exist, so
+        // this is the difference between "configured" and "usable".
+        firm.isStorageReady ? 'Ready' : 'Not provisioned',
         firm.isActive ? 'Active' : 'Inactive',
+      ],
+      // A firm with no business profile silently runs as the platform default,
+      // so a wholesale business can end up operating as GENERIC. The profile
+      // cannot be set from here, so the next step is named instead.
+      createFollowUp: (_) =>
+          'Set this firm\'s business profile in Masters → Firm Settings. '
+          'Until then it runs on the platform default.',
+      customActions: [
+        ResourceAction<Firm>(
+          label: 'Provision storage',
+          icon: Icons.dns_outlined,
+          isVisible: (firm) => firm == null || firm.deploymentMode != 'SHARED',
+          isEnabled: (firm) =>
+              firm.deploymentMode != 'SHARED' && !firm.isStorageReady,
+          onInvoke: (firm) => api.provisionFirmStorage(firm.id),
+        ),
       ],
       id: (firm) => firm.id,
       load: api.firms,
@@ -2346,7 +2480,8 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(
           key: 'deployment_mode',
           label: 'Deployment mode',
-          helperText: 'SHARED, SCHEMA, or DATABASE. Fixed once the firm exists.',
+          helperText:
+              'SHARED, SCHEMA, or DATABASE. Fixed once the firm exists.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
@@ -2372,29 +2507,32 @@ ResourceDefinition<Firm> firmDefinition(
           readOnlyWhenEditing: true,
         ),
         FieldSpec(
-          key: 'business_profile_id',
-          label: 'Business profile',
-          optionsResource: 'business-framework/profiles',
-          singleSelection: true,
-          requiredOnCreate: true,
-          helperText: 'Decides which features and modules this firm operates. '
-              'A firm without one falls back to the platform default.',
+          key: 'connection_profile',
+          label: 'Connection profile',
+          helperText: 'Names a server configured in '
+              'AGENCY_TENANCY_CONNECTION_PROFILES. Leave empty to use the '
+              'platform server.',
+          section: 'Storage Mapping',
+          readOnlyWhenEditing: true,
         ),
+        // The business profile lives on the Firm Settings tab, not here. Its
+        // catalogue is a firm-owned table with no copy in the platform schema,
+        // so loading it needs a firm context that this platform-level page does
+        // not have -- the dropdown answered 503 every time it was opened.
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
         FieldSpec(key: 'notes', label: 'Notes', multiline: true),
       ],
-      loadAssignments: api.firmBusinessProfileAssignmentValues,
-      saveAssignments: (id, values) async {
-        final String profileId =
-            stringValue(values['business_profile_id']).split(',').first.trim();
-        if (profileId.isEmpty) return;
-        await api.assignBusinessProfileToFirm(id, profileId);
-      },
       initialValues: (firm) => firm == null
           ? {
               'is_active': true,
               'deployment_mode': 'SHARED',
               'database_type': 'postgresql',
+              // Defaults, not decisions -- every one of these stays editable.
+              // The form already asks for GST and PAN, which are Indian
+              // registrations, so the country and currency are not a guess.
+              'country': 'IN',
+              'currency_code': 'INR',
+              'financial_year_start': currentFinancialYearStart(),
             }
           : {
               'code': firm.code,
@@ -2414,6 +2552,7 @@ ResourceDefinition<Firm> firmDefinition(
               'financial_year_start': firm.financialYearStart,
               'deployment_mode': firm.deploymentMode,
               'database_type': firm.databaseType,
+              'connection_profile': firm.connectionProfile,
               'database_name': firm.databaseName,
               'schema_name': firm.schemaName,
               'is_active': firm.isActive,
@@ -2887,7 +3026,7 @@ ResourceDefinition<Role> _roleDefinition(
           api.setRolePermissions(id, _ids(values['permission_ids'])),
     );
 
-ResourceDefinition<Permission> _permissionDefinition(
+ResourceDefinition<Permission> permissionDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
@@ -2896,16 +3035,45 @@ ResourceDefinition<Permission> _permissionDefinition(
       title: 'Permissions',
       resource: 'permissions',
       showFrame: showFrame,
-      description: 'Manage platform permission definitions.',
-      headers: const ['Code', 'Name', 'Status'],
-      sortFields: const ['code', 'name', null],
+      description: 'Manage platform permissions and access capabilities.',
+      // Readable name first, technical code second. An administrator scanning
+      // this list is looking for "Journal Posting", not JOURNAL_POST -- the
+      // code matters once they have found the row, not while finding it.
+      //
+      // Module and Action columns are deliberately absent: the permissions API
+      // returns neither, and inventing them by splitting the code would be a
+      // guess displayed as fact. The grid takes them the moment the API does.
+      headers: const ['Permission', 'Code', 'Status'],
+      sortFields: const ['name', 'code', null],
       cells: (permission) => [
-        permission.code,
         permission.name,
+        permission.code,
         permission.isActive ? 'Active' : 'Inactive',
       ],
       id: (permission) => permission.id,
       load: api.permissions,
+      // Carries the chosen page size into the request, so 25/50/100 changes
+      // what the server returns rather than only what the table thinks.
+      loadPage: ({
+        int page = 1,
+        int pageSize = 25,
+        String search = '',
+        String sortBy = 'created_at',
+        bool descending = true,
+        Map<String, String> filters = const {},
+      }) =>
+          api.permissions(
+        page: page,
+        pageSize: pageSize,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      ),
+      searchHint: 'Search permissions by name or code',
+      // No filter bar: /api/v1/permissions accepts only page, page_size,
+      // search, sort_by and sort_direction, and inventing client-side filtering
+      // would disagree with the record count and the paging. The bar appears
+      // for a module the moment its endpoint can honour one.
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
         action,

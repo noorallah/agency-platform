@@ -14,7 +14,13 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import Principal, require_platform_admin
-from app.firms.schemas import FirmCreate, FirmResponse, FirmUpdate
+from app.core.tenancy import DeploymentMode
+from app.firms.schemas import (
+    FirmCreate,
+    FirmProvisionResponse,
+    FirmResponse,
+    FirmUpdate,
+)
 from app.firms.services import FirmService
 
 router = APIRouter(
@@ -91,6 +97,43 @@ def update_firm(
         firm_id, data, _actor_id(principal), expected_version
     )
     return ApiResponse(data=FirmResponse.model_validate(firm))
+
+
+@router.post("/{firm_id}/provision", response_model=ApiResponse[FirmProvisionResponse])
+def provision_firm_storage(
+    firm_id: UUID,
+    principal: PlatformPrincipal,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[FirmProvisionResponse]:
+    """Create the firm's database and schema and build its tables.
+
+    Safe to call again: every step is create-if-missing and the migration stops
+    at head, so this is also how a firm is repaired after its target server was
+    unreachable.
+    """
+    firm, already = FirmService(
+        db,
+        storage_lifecycle=request.app.state.tenant_storage_lifecycle,
+        tenancy_settings=settings.tenancy,
+    ).provision(firm_id, _actor_id(principal))
+    return ApiResponse(
+        data=FirmProvisionResponse(
+            firm_id=firm.id,
+            deployment_mode=DeploymentMode(firm.deployment_mode),
+            database_name=firm.database_name,
+            schema_name=firm.schema_name,
+            connection_profile=firm.connection_profile,
+            provisioned_at=firm.provisioned_at,
+            already_provisioned=already,
+        ),
+        message=(
+            "Firm storage was already provisioned."
+            if already
+            else "Firm storage provisioned."
+        ),
+    )
 
 
 @router.delete("/{firm_id}", status_code=status.HTTP_204_NO_CONTENT)

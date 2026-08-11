@@ -1,6 +1,7 @@
 """FastAPI exception handlers for shared application errors."""
 
 import logging
+import traceback
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -8,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.core.context import get_request_context
 from app.core.error_codes import ErrorCode
 from app.core.exceptions.base import ApplicationError
 from app.core.responses.models import (
@@ -119,14 +121,57 @@ async def database_error_handler(_: Request, exception: Exception) -> JSONRespon
     )
 
 
-async def unhandled_exception_handler(_: Request, exception: Exception) -> JSONResponse:
+async def unhandled_exception_handler(
+    request: Request, exception: Exception
+) -> JSONResponse:
     """Log an unexpected exception and return a safe server error."""
     logger.exception("Unhandled application exception", exc_info=exception)
+    _persist_server_error(request, exception)
     return _error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_SERVER_ERROR,
         message="An unexpected error occurred.",
     )
+
+
+def _persist_server_error(request: Request, exception: Exception) -> None:
+    """Record an unhandled failure against the request id the caller was given.
+
+    The client is told a `requestId` on every response, so a user's screenshot
+    joins straight to this row -- which is the difference between "it broke" and
+    a traceback.
+
+    Opens its **own** platform session. The request's session is part of what
+    just failed and may be in a broken transaction, and reusing it would make
+    the write fail exactly when it is needed.
+
+    Every failure here is swallowed: this runs while the request is already
+    failing, and a diagnostics write that raised would replace a useful 500 with
+    a confusing one.
+    """
+    try:
+        from app.core.database.engine import DatabaseManager
+        from app.diagnostics.services import ErrorReportService
+
+        context = get_request_context()
+        database = getattr(request.app.state, "database", None)
+        if not isinstance(database, DatabaseManager):
+            return
+        sessions = database.sessions(schema=database.config.default_schema)
+        with sessions.session() as session:
+            ErrorReportService(session).record_server_error(
+                error_type=type(exception).__name__,
+                message=str(exception) or type(exception).__name__,
+                stack_trace="".join(
+                    traceback.format_exception(
+                        type(exception), exception, exception.__traceback__
+                    )
+                ),
+                request_id=context.request_id if context is not None else None,
+                context_label=f"{request.method} {request.url.path}"[:200],
+            )
+    except Exception:  # noqa: BLE001 - never mask the original failure
+        logger.debug("Could not persist the server error report", exc_info=True)
 
 
 def _error_response(

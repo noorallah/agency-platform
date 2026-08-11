@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../diagnostics/report_queue.dart';
+import '../logging/app_log.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 import '../../models/entities.dart';
@@ -26,7 +28,9 @@ class SessionController extends ChangeNotifier {
         onPreferencesSynchronized,
     void Function(String? accessToken)? onAccessTokenChanged,
     Duration sessionTimeout = const Duration(minutes: 30),
+    ReportQueue? reportQueue,
   })  : _tokenStore = tokenStore ?? MigratingRefreshTokenStore(),
+        _reportQueue = reportQueue ?? ReportQueue(),
         _preferences = preferences ?? DesktopPreferencesService(),
         _baseUrl = baseUrl,
         _onPreferencesSynchronized = onPreferencesSynchronized,
@@ -38,6 +42,7 @@ class SessionController extends ChangeNotifier {
 
   late ApiClient api;
   final RefreshTokenStore _tokenStore;
+  final ReportQueue _reportQueue;
   final DesktopPreferencesService _preferences;
   final Future<void> Function(UserPreferences preferences)?
       _onPreferencesSynchronized;
@@ -126,9 +131,22 @@ class SessionController extends ChangeNotifier {
       _setStatus(tokens.forcePasswordChange
           ? SessionStatus.requiresPasswordChange
           : SessionStatus.authenticated);
+      // The first moment reports can be sent: they were queued on disk because
+      // the failures worth having happen before login, offline, or as the
+      // process dies. Unawaited -- a report must never delay signing in.
+      unawaited(flushQueuedErrorReports());
     } on ApiException catch (exception) {
       _error = exception.message;
       _setStatus(SessionStatus.error);
+    }
+  }
+
+  /// Sends anything the crash queue is holding. Failures are left queued.
+  Future<void> flushQueuedErrorReports() async {
+    try {
+      await _reportQueue.flush(api.reportClientErrors);
+    } on Object catch (error) {
+      AppLog.warn('Flushing queued error reports failed: $error');
     }
   }
 

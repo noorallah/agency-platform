@@ -1,21 +1,22 @@
 """Default tenancy resolvers backed by the platform firm registry."""
 
+from collections.abc import Mapping
 from uuid import UUID
 
 from fastapi import Request
 from sqlalchemy import select
 
-from app.core.database.config import (
-    DatabaseConfig,
-    DatabaseDialect,
-    MySQLConfig,
-    PostgreSQLConfig,
-)
+from app.core.config.settings import ConnectionProfileSettings
+from app.core.database.config import DatabaseConfig
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions import (
     AuthorizationError,
     BusinessRuleError,
     ResourceNotFoundError,
+)
+from app.core.tenancy.connections import (
+    build_tenant_database_config,
+    resolve_connection_profile,
 )
 from app.core.tenancy.contracts import (
     ConnectionResolver,
@@ -89,6 +90,16 @@ class FirmRegistryTenantResolver(TenantResolver):
                 raise BusinessRuleError(
                     "Dedicated firms must define database_name and schema_name."
                 )
+            # Dedicated storage is built by an explicit provisioning action, so
+            # until that has succeeded the schema is either absent or empty.
+            # Serving the request anyway produces "relation does not exist" from
+            # somewhere deep in a query, which reads as a bug rather than as the
+            # one remaining setup step.
+            if mapping.provisioned_at is None:
+                raise BusinessRuleError(
+                    f"Firm storage for '{firm.code}' has not been provisioned yet. "
+                    "Run the provisioning action for this firm before using it."
+                )
             database_name = mapping.database_name
             schema_name = mapping.schema_name
         return TenantContext(
@@ -97,6 +108,7 @@ class FirmRegistryTenantResolver(TenantResolver):
             database_name=database_name,
             schema_name=schema_name,
             database_type=database_type,
+            connection_profile=None if mapping is None else mapping.connection_profile,
         )
 
 
@@ -104,36 +116,24 @@ class FirmConnectionResolver(ConnectionResolver):
     """Resolve tenant connection settings from the firm registry."""
 
     def __init__(
-        self, platform_database: DatabaseManager, connection_profiles: object
+        self,
+        platform_database: DatabaseManager,
+        connection_profiles: Mapping[str, ConnectionProfileSettings] | None = None,
     ) -> None:
-        """Bind platform database configuration as the connection baseline."""
+        """Bind the platform baseline and the configured connection profiles."""
         self._platform_database = platform_database
-        _ = connection_profiles
+        self._connection_profiles = connection_profiles or {}
 
     def resolve(self, tenant: TenantContext) -> DatabaseConfig:
         """Build a tenant-specific database config from the resolved context."""
-        base = self._platform_database.config
-        dialect = DatabaseDialect(tenant.database_type.lower())
-        if dialect is not base.dialect:
-            raise BusinessRuleError(
-                "Firm database_type must match platform database dialect "
-                f"({base.dialect.value})."
-            )
-        config_class = (
-            PostgreSQLConfig if dialect is DatabaseDialect.POSTGRESQL else MySQLConfig
-        )
-        default_port = 5432 if dialect is DatabaseDialect.POSTGRESQL else 3306
-        return config_class(
-            host=base.host,
-            port=base.port or default_port,
-            database=tenant.database_name,
-            username=base.username,
-            password=base.password,
-            pool_size=base.pool_size,
-            max_overflow=base.max_overflow,
-            pool_recycle_seconds=base.pool_recycle_seconds,
-            default_schema=tenant.schema_name,
-            url_override=None,
+        return build_tenant_database_config(
+            self._platform_database.config,
+            database_name=tenant.database_name,
+            schema_name=tenant.schema_name,
+            database_type=tenant.database_type,
+            profile=resolve_connection_profile(
+                self._connection_profiles, tenant.connection_profile
+            ),
         )
 
 

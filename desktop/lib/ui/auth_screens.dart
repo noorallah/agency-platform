@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
 import '../core/design/design_tokens.dart';
+import '../core/diagnostics/crash_reporter.dart';
+import '../core/diagnostics/diagnostics_share.dart';
 import '../core/preferences/desktop_preferences_service.dart';
 import '../core/theme/theme_manager.dart';
 import 'theme_selector.dart';
@@ -316,6 +318,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Text('Default'),
                   ),
                   const SizedBox(height: AppSpacing.lg),
+                  // Reachable before sign-in on purpose: a client that crashes
+                  // at startup never reaches the main shell, and that is
+                  // precisely when someone needs to send a report.
+                  OutlinedButton.icon(
+                    onPressed: () => DiagnosticsReportDialog.show(
+                      dialogContext,
+                      appName: widget.branding.appName,
+                      version: widget.branding.version,
+                      buildNumber: _buildNumber,
+                      serverUrl: widget.session.baseUrl,
+                    ),
+                    icon: const Icon(Icons.bug_report_outlined),
+                    label: const Text('Diagnostics report'),
+                  ),
+                  if (CrashReporter.previousSessionEndedUnexpectedly)
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.sm),
+                      child: Text(
+                        'The previous session ended unexpectedly.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.lg),
                   _AboutBlock(
                     branding: widget.branding,
                     showEnvironment: _showEnvironment,
@@ -452,7 +479,8 @@ class _TopBar extends StatelessWidget {
           _Toolbar(
             children: [
               IconButton(
-                tooltip: isDark ? 'Switch to light theme' : 'Switch to dark theme',
+                tooltip:
+                    isDark ? 'Switch to light theme' : 'Switch to dark theme',
                 visualDensity: VisualDensity.compact,
                 onPressed: () => unawaited(
                   onSelectMode(isDark ? ThemeMode.light : ThemeMode.dark),
@@ -666,7 +694,9 @@ class _FooterItem extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 14, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            Icon(icon,
+                size: 14,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(width: AppSpacing.xs),
             Text(label, style: Theme.of(context).textTheme.bodySmall),
           ],
@@ -777,7 +807,8 @@ class _LoginCard extends StatelessWidget {
                       ),
                       if (error != null && errorVisible) ...[
                         const SizedBox(height: AppSpacing.lg),
-                        _ErrorBanner(message: error!, onDismiss: onDismissError),
+                        _ErrorBanner(
+                            message: error!, onDismiss: onDismissError),
                       ],
                       if (notice != null) ...[
                         const SizedBox(height: AppSpacing.lg),
@@ -1120,7 +1151,8 @@ class _AboutBlock extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
         borderRadius: AppRadius.medium,
       ),
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -1164,8 +1196,8 @@ class _ErrorBanner extends StatelessWidget {
         decoration: BoxDecoration(
           color: theme.colorScheme.errorContainer,
           borderRadius: AppRadius.medium,
-          border:
-              Border.all(color: theme.colorScheme.error.withValues(alpha: 0.25)),
+          border: Border.all(
+              color: theme.colorScheme.error.withValues(alpha: 0.25)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

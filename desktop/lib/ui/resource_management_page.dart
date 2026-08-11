@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api/api_client.dart';
+import '../core/design/design_tokens.dart';
 import '../core/dialogs/app_dialogs.dart';
 import '../core/notifications/notification_service.dart';
 import '../models/entities.dart';
@@ -33,6 +34,7 @@ class FieldSpec {
     this.sectionIcon,
     this.kind = FieldKind.text,
     this.alwaysReadOnly = false,
+    this.fullWidth,
   });
   final String key, label;
   final bool required, requiredOnCreate, multiline, boolean;
@@ -52,6 +54,19 @@ class FieldSpec {
   /// Marks a field as always read-only (e.g. audit trail data), regardless
   /// of the dialog's create/edit/view mode.
   final bool alwaysReadOnly;
+
+  /// Whether this field takes a whole row in a multi-column form.
+  ///
+  /// Left null it decides for itself: a notes box or an address editor beside
+  /// an empty half-row looks like a mistake, so those claim the full width
+  /// while short controls pair up. Only set it to disagree.
+  final bool? fullWidth;
+
+  bool get spansFullWidth =>
+      fullWidth ??
+      (multiline ||
+          kind == FieldKind.addressList ||
+          kind == FieldKind.documentList);
 }
 
 enum CrudDialogMode { create, view, edit }
@@ -68,6 +83,50 @@ class CrudCreateCheckpoint {
     _persistedId = createdId;
     return createdId;
   }
+}
+
+/// A resource-specific toolbar action the shared `ToolbarAction` set cannot
+/// express, such as building a firm's dedicated database storage.
+class ResourceAction<T> {
+  const ResourceAction({
+    required this.label,
+    required this.icon,
+    required this.onInvoke,
+    this.isVisible,
+    this.isEnabled,
+  });
+
+  final String label;
+  final IconData icon;
+
+  /// Runs the action and returns the message to show on success.
+  final Future<String> Function(T item) onInvoke;
+  final bool Function(T? item)? isVisible;
+  final bool Function(T item)? isEnabled;
+}
+
+/// One declarative dropdown filter offered above the grid.
+///
+/// The value is handed back to `load` so filtering stays a server concern —
+/// nothing here filters an already-fetched page, which would silently disagree
+/// with the record count and the pagination.
+class ResourceFilter {
+  const ResourceFilter({
+    required this.key,
+    required this.label,
+    required this.options,
+  });
+
+  final String key;
+  final String label;
+  final List<ResourceFilterOption> options;
+}
+
+class ResourceFilterOption {
+  const ResourceFilterOption({required this.value, required this.label});
+
+  final String value;
+  final String label;
 }
 
 class ResourceDefinition<T> {
@@ -95,6 +154,15 @@ class ResourceDefinition<T> {
     this.canUseAction,
     this.sortFields = const [],
     this.export,
+    this.customActions = const [],
+    this.createFollowUp,
+    this.searchHint,
+    this.pageSize = 25,
+    this.pageSizeOptions = const [25, 50, 100],
+    this.filters = const [],
+    this.bulkActions = const [],
+    this.loadPage,
+    this.twoColumnForm = true,
   });
 
   final String title, resource;
@@ -122,6 +190,53 @@ class ResourceDefinition<T> {
   final bool Function(ToolbarAction action, T? selected)? canUseAction;
   final List<String?> sortFields;
   final Future<void> Function(List<T> items)? export;
+  final List<ResourceAction<T>> customActions;
+
+  /// A warning shown after a create when the new record still needs a step this
+  /// form cannot perform. Return null when nothing is outstanding.
+  final String? Function(Map<String, dynamic> values)? createFollowUp;
+
+  /// What this module's records are searchable by, in the user's words —
+  /// "Search permissions by name or code" rather than a generic "Search".
+  final String? searchHint;
+
+  final int pageSize;
+  final List<int> pageSizeOptions;
+
+  /// Declared per module; a module with nothing worth filtering shows no bar.
+  final List<ResourceFilter> filters;
+
+  /// Left empty unless the backend genuinely supports the operation in bulk.
+  /// The selection UI still works; it simply offers nothing that cannot be done.
+  final List<WorkspaceBulkAction> bulkActions;
+
+  /// The full-capability loader: page size and filters as well as paging.
+  ///
+  /// [load] is deliberately left alone — most definitions pass an `ApiClient`
+  /// method straight in, and widening that signature would break every one of
+  /// them. A module that wants a page-size selector or filters supplies this
+  /// instead, and gets both only because the request actually carries them.
+  /// Without it the page size stays at the server default and no selector is
+  /// offered, because changing a number that the server ignores is a lie.
+  final Future<PagedResult<T>> Function({
+    int page,
+    int pageSize,
+    String search,
+    String sortBy,
+    bool descending,
+    Map<String, String> filters,
+  })? loadPage;
+
+  /// Pairs short fields two to a row instead of stacking every one full width.
+  ///
+  /// On by default. Stacking every field meant a form capped at 1100px spent
+  /// most of its width on nothing while the user scrolled past it -- 22 rows on
+  /// the firm form for controls that each needed a little over half the width.
+  /// Fields that need a whole row still take one; see [FieldSpec.fullWidth].
+  ///
+  /// Set false for a form whose fields are all long enough that pairing them
+  /// would cramp both.
+  final bool twoColumnForm;
 }
 
 class ResourceManagementPage<T> extends StatefulWidget {
@@ -139,17 +254,39 @@ class ResourceManagementPage<T> extends StatefulWidget {
 }
 
 class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
-  static const int _rowsPerPage = 20;
+  /// Long enough that ordinary typing produces one request rather than one per
+  /// keystroke, short enough that the grid still feels attached to the field.
+  static const Duration _searchDebounce = Duration(milliseconds: 350);
+
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
+  final Map<String, String> _filterValues = {};
+  Set<String> _selectedIds = {};
+  Timer? _searchTimer;
+
+  /// 20 is what `ApiClient._list` asks for when nobody says otherwise, so a
+  /// definition without [ResourceDefinition.loadPage] must show that and not a
+  /// number of its own choosing.
+  late int _rowsPerPage =
+      widget.definition.loadPage != null ? widget.definition.pageSize : 20;
+
+  bool get _canChangePageSize => widget.definition.loadPage != null;
   List<T> _items = const [];
   int _total = 0;
   int _page = 1;
   String _sortBy = 'created_at';
   bool _descending = true;
   bool _loading = true;
+  bool _bulkBusy = false;
   String? _error;
   T? _selected;
+
+  /// Whether the empty result is the user's doing or genuinely an empty table.
+  bool get _isNarrowed =>
+      _search.text.trim().isNotEmpty ||
+      _filterValues.values.any((value) => value.isNotEmpty);
+
+  List<WorkspaceBulkAction> get _bulkActions => widget.definition.bulkActions;
 
   @override
   void initState() {
@@ -160,36 +297,70 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _search.dispose();
     _searchFocus.removeListener(_searchFocusChanged);
     _searchFocus.dispose();
     super.dispose();
   }
 
+  void _onSearchChanged(String _) {
+    _searchTimer?.cancel();
+    _searchTimer = Timer(_searchDebounce, () => _load(page: 1));
+  }
+
+  void _clearNarrowing() {
+    _searchTimer?.cancel();
+    _search.clear();
+    _filterValues.clear();
+    _load(page: 1);
+  }
+
   Future<void> _load({int? page}) async {
+    _searchTimer?.cancel();
     setState(() {
       _loading = true;
       _error = null;
       _page = page ?? _page;
     });
     try {
-      final PagedResult<T> result = await widget.definition.load(
-        page: _page,
-        search: _search.text.trim(),
-        sortBy: _sortBy,
-        descending: _descending,
-      );
+      final Future<PagedResult<T>> Function({
+        int page,
+        int pageSize,
+        String search,
+        String sortBy,
+        bool descending,
+        Map<String, String> filters,
+      })? loadPage = widget.definition.loadPage;
+      final PagedResult<T> result = loadPage != null
+          ? await loadPage(
+              page: _page,
+              pageSize: _rowsPerPage,
+              search: _search.text.trim(),
+              sortBy: _sortBy,
+              descending: _descending,
+              filters: Map.unmodifiable(_filterValues),
+            )
+          : await widget.definition.load(
+              page: _page,
+              search: _search.text.trim(),
+              sortBy: _sortBy,
+              descending: _descending,
+            );
       if (!mounted) return;
       setState(() {
         _items = result.items;
         _total = result.total;
+        final Set<String> visibleIds =
+            result.items.map(widget.definition.id).toSet();
         final T? previouslySelected = _selected;
         if (previouslySelected != null &&
-            !result.items
-                .map(widget.definition.id)
-                .contains(widget.definition.id(previouslySelected))) {
+            !visibleIds.contains(widget.definition.id(previouslySelected))) {
           _selected = null;
         }
+        // Drop ticks for rows this page no longer shows: a bulk action must
+        // never operate on records the user can no longer see.
+        _selectedIds = _selectedIds.intersection(visibleIds);
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -238,6 +409,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       builder: (_) => CrudWorkspaceDialog(
         title: widget.definition.title,
         fields: widget.definition.fields,
+        twoColumn: widget.definition.twoColumnForm,
         values: initialValues,
         api: widget.api,
         mode: mode,
@@ -253,6 +425,20 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       '${widget.definition.title} saved.',
       kind: AppNotificationKind.success,
     );
+    // A resource can leave a record incomplete in a way the form cannot fix --
+    // a firm's business profile lives in that firm's own store and cannot be
+    // set from this platform-level page. Say so at the moment the gap is
+    // created rather than letting it be discovered later.
+    final String? followUp = mode == CrudDialogMode.create
+        ? widget.definition.createFollowUp?.call(values)
+        : null;
+    if (followUp != null && mounted) {
+      NotificationService.show(
+        context,
+        followUp,
+        kind: AppNotificationKind.warning,
+      );
+    }
     await _load();
   }
 
@@ -333,6 +519,21 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     if (mounted) setState(() {});
   }
 
+  /// Good enough for the button label on an empty table; the titles in this
+  /// app are plain plurals.
+  static String _singular(String plural) {
+    if (plural.endsWith('ies')) {
+      return '${plural.substring(0, plural.length - 3)}y';
+    }
+    if (plural.endsWith('ses')) {
+      return plural.substring(0, plural.length - 2);
+    }
+    if (plural.endsWith('s')) {
+      return plural.substring(0, plural.length - 1);
+    }
+    return plural;
+  }
+
   Future<void> _copy(T item) async {
     final String row = widget.definition.cells(item).join('\t');
     await copyTextToClipboard(row);
@@ -342,6 +543,48 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       '${widget.definition.title} row copied.',
       kind: AppNotificationKind.information,
     );
+  }
+
+  Future<void> _runBulkAction(WorkspaceBulkAction action) async {
+    if (_selectedIds.isEmpty || _bulkBusy) return;
+    setState(() => _bulkBusy = true);
+    try {
+      final String message = await action.onInvoke(Set.of(_selectedIds));
+      if (!mounted) return;
+      setState(() => _selectedIds = {});
+      NotificationService.show(
+        context,
+        message,
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      _showError(exception);
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
+    await _load();
+  }
+
+  Future<void> _runCustomAction(ResourceAction<T> action, T item) async {
+    setState(() => _loading = true);
+    try {
+      final String message = await action.onInvoke(item);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        message,
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      _showError(exception);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+    // Reload regardless: the action may have changed the row's state whether it
+    // reported success or failed partway.
+    await _load();
   }
 
   Future<void> _export() async {
@@ -402,9 +645,50 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         selected != null && (widget.definition.canEdit?.call(selected) ?? true);
     final Widget search = SearchFilterPanel(
       controller: _search,
-      hintText: 'Search ${widget.definition.title.toLowerCase()}',
+      hintText: widget.definition.searchHint ??
+          'Search ${widget.definition.title.toLowerCase()}',
       onSearch: (_) => _load(page: 1),
+      onChanged: _onSearchChanged,
+      onClear: () => _load(page: 1),
       focusNode: _searchFocus,
+      filters: widget.definition.filters.isEmpty
+          ? null
+          : [
+              for (final ResourceFilter filter in widget.definition.filters)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _filterValues[filter.key]?.isEmpty ?? true
+                        ? null
+                        : _filterValues[filter.key],
+                    isDense: true,
+                    decoration: InputDecoration(labelText: filter.label),
+                    items: [
+                      DropdownMenuItem<String>(
+                        value: null,
+                        child: Text('All ${filter.label.toLowerCase()}'),
+                      ),
+                      for (final ResourceFilterOption option in filter.options)
+                        DropdownMenuItem<String>(
+                          value: option.value,
+                          child: Text(option.label),
+                        ),
+                    ],
+                    onChanged: _loading
+                        ? null
+                        : (value) {
+                            setState(() {
+                              if (value == null || value.isEmpty) {
+                                _filterValues.remove(filter.key);
+                              } else {
+                                _filterValues[filter.key] = value;
+                              }
+                            });
+                            _load(page: 1);
+                          },
+                  ),
+                ),
+            ],
     );
     final Widget toolbar = WorkspaceToolbar(
       actions: const [
@@ -473,35 +757,84 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             break;
         }
       },
+      trailing: [
+        for (final ResourceAction<T> action in widget.definition.customActions)
+          if (action.isVisible?.call(selected) ?? true)
+            Tooltip(
+              message: action.label,
+              child: OutlinedButton.icon(
+                onPressed: selected != null &&
+                        !_loading &&
+                        (action.isEnabled?.call(selected) ?? true)
+                    ? () => _runCustomAction(action, selected)
+                    : null,
+                icon: Icon(action.icon, size: 18),
+                label: Text(action.label),
+              ),
+            ),
+      ],
     );
-    final List<DetailLine> lines = selected == null
-        ? const []
-        : (widget.definition.details?.call(selected) ??
-                List.generate(
-                  widget.definition.headers.length,
-                  (index) => DetailLine(
-                    widget.definition.headers[index],
-                    widget.definition.cells(selected)[index],
-                  ),
-                ))
-            .take(6)
-            .toList();
     final Widget primaryContent;
     if (_error != null) {
       primaryContent =
           WorkspaceErrorState(message: _error!, onRetry: () => _load());
     } else if (_loading && _items.isEmpty) {
-      primaryContent = const WorkspaceLoadingState();
-    } else if (_items.isEmpty) {
-      primaryContent = WorkspaceEmptyState(
-        title: 'No ${widget.definition.title.toLowerCase()} found',
-        message: 'Try a different search or create a new record.',
+      // A skeleton in the shape of the table, rather than a blank page that
+      // reads as a frozen application.
+      primaryContent = TableLoadingSkeleton(
+        columns: widget.definition.headers.length,
       );
+    } else if (_items.isEmpty) {
+      // "Nothing matched" and "nothing exists" need different words and
+      // different offers; one generic message answered neither.
+      final String noun = widget.definition.title.toLowerCase();
+      primaryContent = _isNarrowed
+          ? WorkspaceEmptyState(
+              title: 'No $noun found',
+              message:
+                  'No $noun match your search or filters. Clear them to see '
+                  'everything.',
+              action: TextButton.icon(
+                onPressed: _clearNarrowing,
+                icon: const Icon(Icons.filter_alt_off_outlined),
+                label: const Text('Clear filters'),
+              ),
+            )
+          : WorkspaceEmptyState(
+              title: 'No $noun yet',
+              message: 'Nothing has been created here.',
+              action: widget.definition.canCreate &&
+                      _hasCapability(ToolbarAction.newItem, null)
+                  ? FilledButton.icon(
+                      onPressed: () => _openDialog(CrudDialogMode.create),
+                      icon: const Icon(Icons.add),
+                      label: Text('Create ${_singular(noun)}'),
+                    )
+                  : null,
+            );
     } else {
       primaryContent = EnterpriseDataGrid<T>(
         items: _items,
         total: _total,
         pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        availableRowsPerPage: _canChangePageSize
+            ? widget.definition.pageSizeOptions
+            : [_rowsPerPage],
+        onRowsPerPageChanged: !_canChangePageSize
+            ? null
+            : (value) {
+                if (value == null || value == _rowsPerPage) return;
+                setState(() => _rowsPerPage = value);
+                _load(page: 1);
+              },
+        selectedIds: _selectedIds,
+        // Only when the module has something to do with a multi-selection.
+        // Wiring this unconditionally put a checkbox column on every grid whose
+        // entire feature was counting the rows you had ticked.
+        onSelectionChanged: _bulkActions.isEmpty
+            ? null
+            : (ids) => setState(() => _selectedIds = ids),
         columns: widget.definition.headers
             .asMap()
             .entries
@@ -562,23 +895,27 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         onPageChanged: (rowIndex) => _load(page: rowIndex ~/ _rowsPerPage + 1),
       );
     }
+    // While rows are ticked the toolbar's single-record actions are the wrong
+    // offer, so the selection bar takes its place. A module with no bulk
+    // endpoint still gets the count and a way out, and no button that lies.
+    final Widget activeToolbar = _selectedIds.isEmpty
+        ? toolbar
+        : WorkspaceBulkActionBar(
+            selectedCount: _selectedIds.length,
+            actions: _bulkActions,
+            busy: _bulkBusy,
+            onAction: _runBulkAction,
+            onClear: () => setState(() => _selectedIds = {}),
+          );
     final Widget layout = ManagementWorkspaceLayout(
-      toolbar: toolbar,
+      toolbar: activeToolbar,
       searchPanel: search,
       primaryContent: primaryContent,
-      detailsPanel: selected == null
-          ? null
-          : QuickSummaryPanel(
-              title: 'Selected ${widget.definition.title}',
-              lines: lines,
-              onView: _hasCapability(ToolbarAction.view, selected)
-                  ? () => _openDialog(CrudDialogMode.view, selected)
-                  : null,
-              onEdit: canEditSelected &&
-                      _hasCapability(ToolbarAction.edit, selected)
-                  ? () => _openDialog(CrudDialogMode.edit, selected)
-                  : null,
-            ),
+      // No summary panel. Selecting a row should select it, not open a second
+      // reading of it beside the table; opening a record is what double-click
+      // and the row's eye icon are for. Passing null also hands the table the
+      // ~300px the panel was holding.
+      detailsPanel: null,
       statusBar: WorkspaceStatusBar(
         total: _total,
         selected: selected != null,
@@ -626,6 +963,7 @@ class CrudWorkspaceDialog extends StatefulWidget {
     required this.api,
     required this.mode,
     required this.onSave,
+    this.twoColumn = true,
     super.key,
   });
   final String title;
@@ -634,6 +972,10 @@ class CrudWorkspaceDialog extends StatefulWidget {
   final ApiClient api;
   final CrudDialogMode mode;
   final Future<void> Function(Map<String, dynamic> values)? onSave;
+
+  /// Pairs short fields two to a row, on by default.
+  /// See [ResourceDefinition.twoColumnForm].
+  final bool twoColumn;
 
   bool get isCreating => mode == CrudDialogMode.create;
   bool get isReadOnly => mode == CrudDialogMode.view;
@@ -812,12 +1154,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                             readOnly: widget.fields
                                 .where((field) => field.section == section)
                                 .every((field) => field.alwaysReadOnly),
-                            children: widget.fields
-                                .where((field) =>
-                                    _isVisible(field) &&
-                                    field.section == section)
-                                .map(_field)
-                                .toList(),
+                            children: _sectionFields(section),
                           ),
                       ],
                     ),
@@ -896,6 +1233,44 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
               });
             },
     );
+  }
+
+  /// The fields of one section, stacked or paired depending on the definition.
+  ///
+  /// Returns a single child when pairing, because `EnterpriseSection` puts its
+  /// children in a stretching `Column` — the arrangement has to happen below
+  /// that, which also keeps the section itself untouched for every other form.
+  List<Widget> _sectionFields(String section) {
+    final List<FieldSpec> fields = widget.fields
+        .where((field) => _isVisible(field) && field.section == section)
+        .toList();
+    if (!widget.twoColumn) {
+      return fields.map(_field).toList();
+    }
+    return [
+      LayoutBuilder(
+        builder: (context, constraints) {
+          // One column on a narrow window: two 300px controls side by side are
+          // worse than one readable one.
+          final bool paired = constraints.maxWidth >= 640;
+          const double gap = AppSpacing.lg;
+          final double half = (constraints.maxWidth - gap) / 2;
+          return Wrap(
+            spacing: gap,
+            runSpacing: 0,
+            children: [
+              for (final FieldSpec field in fields)
+                SizedBox(
+                  width: !paired || field.spansFullWidth
+                      ? constraints.maxWidth
+                      : half,
+                  child: _field(field),
+                ),
+            ],
+          );
+        },
+      ),
+    ];
   }
 
   Widget _field(FieldSpec field) {

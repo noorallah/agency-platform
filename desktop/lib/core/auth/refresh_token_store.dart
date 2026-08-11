@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../logging/app_log.dart';
+
 abstract class RefreshTokenStore {
   Future<String?> read();
   Future<void> write(String token);
@@ -16,14 +18,33 @@ class SecureRefreshTokenStore implements RefreshTokenStore {
   static const _key = 'agency_platform.refresh_token';
   final FlutterSecureStorage _storage;
 
-  @override
-  Future<void> clear() => _storage.delete(key: _key);
+  /// The vault is not always available — on Windows it needs Developer Mode for
+  /// the plugin's symlinks, and it can fail on a locked or roaming profile.
+  /// A vault that will not answer means "no stored session", which costs the
+  /// user a re-login; letting the failure escape costs them the application.
+  Future<T?> _guard<T>(String action, Future<T> Function() call) async {
+    try {
+      return await call();
+    } on Object catch (error, stack) {
+      AppLog.recordError(
+        'Secure storage $action failed',
+        error,
+        stack,
+      );
+      return null;
+    }
+  }
 
   @override
-  Future<String?> read() => _storage.read(key: _key);
+  Future<void> clear() => _guard('clear', () => _storage.delete(key: _key));
 
   @override
-  Future<void> write(String token) => _storage.write(key: _key, value: token);
+  Future<String?> read() =>
+      _guard<String?>('read', () => _storage.read(key: _key));
+
+  @override
+  Future<void> write(String token) =>
+      _guard('write', () => _storage.write(key: _key, value: token));
 }
 
 /// Migrates refresh tokens from the pre-vault local file on first use.
