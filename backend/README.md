@@ -303,12 +303,50 @@ uv run python -m alembic heads
 
 ```powershell
 Copy-Item config\.env.example config\.env
+"AGENCY_DATABASE_PASSWORD=choose-one`nAGENCY_TENANT_DATABASE_PASSWORD=choose-another" |
+  Set-Content .env -Encoding utf8
 docker compose up --build
 ```
 
-Compose starts PostgreSQL, waits for it to be healthy, applies Alembic
-migrations, and starts Uvicorn on `http://localhost:8000`. Stop the stack with:
+Those two passwords go in `backend/.env`, **not** `config/.env`. Compose reads
+the file beside `docker-compose.yml` for `${...}` substitution; `config/.env` is
+handed to the containers as `env_file` and is never seen by the substitution.
+Both are refused rather than defaulted, so a missing one stops the stack with a
+message naming it instead of standing up a server with a guessable password.
+
+Compose starts two PostgreSQL servers, waits for both to be healthy, applies
+Alembic migrations, and starts Uvicorn on `http://localhost:8000`. Stop the
+stack with:
 
 ```powershell
 docker compose down
 ```
+
+### The second server, and what it is for
+
+`postgres-tenant` is a deliberately separate server — user `tenant_admin`, its
+own password, its own volume, host port **5433** — declared to the API as the
+connection profile `REMOTE_A`. It is there so a firm with
+`deployment_mode=DATABASE` can be provisioned somewhere that is genuinely not
+the platform server. A profile pointing back at the platform server would let
+provisioning, the request path and `migrate_all_stores.py` disagree about where
+a firm's data lives and still appear to work.
+
+Create such a firm with `connection_profile = "REMOTE_A"`, then call
+`POST /api/v1/firms/{id}/provision` — see
+[`docs/platform-administration-guide.md`](../docs/platform-administration-guide.md)
+§3a. The firm's database is created *by* provisioning and named from the firm
+record; `POSTGRES_DB: agency_tenant` is only that server's own initial database.
+
+To check it landed where you asked:
+
+```powershell
+docker compose exec postgres-tenant psql -U tenant_admin -d postgres -c "\l"
+```
+
+Running the backend on the machine instead of in the stack? Start just the
+servers (`docker compose up -d postgres postgres-tenant`) and uncomment the
+`127.0.0.1:5433` profile in `config/.env` — the host and port differ because the
+name `postgres-tenant` only resolves inside the compose network.
+
+Skip the second server entirely with `docker compose up -d postgres api`.

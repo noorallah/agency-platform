@@ -20,6 +20,42 @@ services:
       retries: 5
       start_period: 10s
 
+  # A second server, deliberately unlike the first: its own user, its own
+  # password, its own initial database, its own volume, its own host port.
+  #
+  # It exists so DATABASE-mode firms can be exercised for real. A firm created
+  # with deployment_mode=DATABASE and connection_profile=REMOTE_A is provisioned
+  # onto *this* server, which is the only way to find out whether provisioning,
+  # the request path and migrate_all_stores agree about where a firm's data
+  # lives. Pointing a profile back at the platform server proves nothing: every
+  # component would still be right by accident.
+  #
+  # The database a firm gets is created by provisioning and named by the firm
+  # record (AGENCY_TENANCY_DEDICATED_DATABASE_PREFIX + code). POSTGRES_DB below
+  # is only this server's own initial database.
+  #
+  # Skip it with: docker compose up -d postgres api
+  postgres-tenant:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agency_tenant
+      POSTGRES_USER: tenant_admin
+      POSTGRES_PASSWORD: ${AGENCY_TENANT_DATABASE_PASSWORD:?set AGENCY_TENANT_DATABASE_PASSWORD}
+      TZ: Asia/Kolkata
+    ports:
+      # 5433 on the host, so a backend run outside the stack can reach it
+      # alongside the platform server on 5432.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_tenant_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tenant_admin -d agency_tenant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -33,8 +69,21 @@ services:
       AGENCY_DATABASE_NAME: agency_platform
       AGENCY_DATABASE_USERNAME: postgres
       AGENCY_DATABASE_PASSWORD: ${AGENCY_DATABASE_PASSWORD:?set AGENCY_DATABASE_PASSWORD}
+      # Names postgres-tenant as a target for dedicated-database firms. Set here
+      # rather than in config/.env because the host differs by where the backend
+      # runs: `postgres-tenant` on the compose network, 127.0.0.1:5433 from the
+      # machine. `environment` wins over `env_file`, so this is the value the
+      # container uses either way.
+      #
+      # Keep the password free of double quotes and backslashes -- it is
+      # interpolated into JSON here, not escaped.
+      AGENCY_TENANCY_CONNECTION_PROFILES: '{"REMOTE_A":{"username":"tenant_admin","password":"${AGENCY_TENANT_DATABASE_PASSWORD:?set AGENCY_TENANT_DATABASE_PASSWORD}","database_host":"postgres-tenant","database_port":5432,"database_type":"postgresql"}}'
     depends_on:
       postgres:
+        condition: service_healthy
+      # Provisioning is an explicit action taken long after boot, so this only
+      # orders startup; the API does not need the tenant server to serve.
+      postgres-tenant:
         condition: service_healthy
     command:
       [
@@ -89,6 +138,11 @@ services:
       AGENCY_DATABASE_NAME: agency_platform
       AGENCY_DATABASE_USERNAME: postgres
       AGENCY_DATABASE_PASSWORD: ${AGENCY_DATABASE_PASSWORD:?set AGENCY_DATABASE_PASSWORD}
+      # purge_retention.py enumerates every firm store from the registry and
+      # resolves each through its profile, so without this a firm on
+      # postgres-tenant makes the purge fail with "profile is not configured"
+      # -- and its refresh tokens and login history would never be pruned.
+      AGENCY_TENANCY_CONNECTION_PROFILES: '{"REMOTE_A":{"username":"tenant_admin","password":"${AGENCY_TENANT_DATABASE_PASSWORD:?set AGENCY_TENANT_DATABASE_PASSWORD}","database_host":"postgres-tenant","database_port":5432,"database_type":"postgresql"}}'
       AGENCY_RETENTION_MODE: ${AGENCY_RETENTION_MODE:---yes}
       AGENCY_RETENTION_INTERVAL_SECONDS: ${AGENCY_RETENTION_INTERVAL_SECONDS:-86400}
       AGENCY_RETENTION_LOGIN_HISTORY_DAYS: ${AGENCY_RETENTION_LOGIN_HISTORY_DAYS:-365}
@@ -105,3 +159,4 @@ services:
 
 volumes:
   postgres_data:
+  postgres_tenant_data:
