@@ -160,7 +160,9 @@ Prefer extending these over adding module-specific machinery:
   - **To extend a new module:** add an `AttributeEntityType` member, a ~20-line table extending `AttributeValueBase` with `ENTITY_TYPE` / `OWNER_COLUMN` set, a migration, and calls to `replace_values` on save and `values_for` / `values_for_many` on read.
   - Read attributes for a list of records with `values_for_many`, never per row — `ProductService._products_matching_attribute` shows the pattern for filtering.
 - **Document Lifecycle Framework** (`app/document_framework`) — configurable document types, states, numbering rules, and timeline events for transactional modules. Lifecycle states are configuration, not enums.
-- **Tax framework / rule engine** (`app/tax`), **UOM & packaging** (`app/uom`), **batch/serial/expiry** (`app/batch_serial`).
+- **Tax framework / rule engine** (`app/tax`) — `docs/TAX_FRAMEWORK.md` is the reference: how systems, components and profiles relate, what a profile actually holds, effective-dated rates, and the rule evaluation order (ACTIVE rules ordered by `priority ASC, code ASC, version_number DESC`, **first match wins and evaluation stops**). Rules attach to the transaction, never to a product; the product contributes `tax_profile_group_code`, `product_category_id` and `product_type` to the matching context.
+- **UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). All seven transactional modules call `convert_quantity` per line, taking a `factor = 1` short-circuit only when the units match.
+- **batch/serial/expiry** (`app/batch_serial`).
 
 ### Style enforced by tooling
 
