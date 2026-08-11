@@ -52,6 +52,8 @@ class TaxComponentRecord {
     required this.percentage,
     required this.status,
     required this.isDeleted,
+    this.recoverable = false,
+    this.includedInPrice = false,
   });
 
   final String id;
@@ -63,6 +65,11 @@ class TaxComponentRecord {
   final String status;
   final bool isDeleted;
 
+  /// Defaults a profile starts from. The profile's own values are what the
+  /// calculation reads; these only seed the form.
+  final bool recoverable;
+  final bool includedInPrice;
+
   factory TaxComponentRecord.fromJson(Json json) => TaxComponentRecord(
         id: stringValue(json['id']),
         taxSystemId: stringValue(json['tax_system_id']),
@@ -72,6 +79,8 @@ class TaxComponentRecord {
         percentage: stringValue(json['percentage']),
         status: stringValue(json['status']),
         isDeleted: boolValue(json['is_deleted']),
+        recoverable: json['recoverable'] as bool? ?? false,
+        includedInPrice: json['included_in_price'] as bool? ?? false,
       );
 }
 
@@ -83,6 +92,8 @@ class TaxProfileComponentRecord {
     required this.label,
     required this.shortLabel,
     required this.calculationOrder,
+    this.recoverable = false,
+    this.includedInPrice = false,
   });
 
   final String id;
@@ -92,6 +103,14 @@ class TaxProfileComponentRecord {
   final String shortLabel;
   final int calculationOrder;
 
+  /// Input tax the firm can reclaim.
+  final bool recoverable;
+
+  /// The price already contains this tax, so it is reported separately and
+  /// never added to a document total. Both flags come back from the API and
+  /// were being dropped here, which is why editing a profile reset them.
+  final bool includedInPrice;
+
   factory TaxProfileComponentRecord.fromJson(Json json) =>
       TaxProfileComponentRecord(
         id: stringValue(json['id']),
@@ -100,6 +119,8 @@ class TaxProfileComponentRecord {
         label: stringValue(json['label']),
         shortLabel: stringValue(json['short_label']),
         calculationOrder: (json['calculation_order'] as num?)?.toInt() ?? 0,
+        recoverable: json['recoverable'] as bool? ?? false,
+        includedInPrice: json['included_in_price'] as bool? ?? false,
       );
 }
 
@@ -419,8 +440,9 @@ class TaxRuleRecord {
         conditions: _objects(json['conditions'])
             .map(TaxRuleConditionRecord.fromJson)
             .toList(),
-        actions:
-            _objects(json['actions']).map(TaxRuleActionRecord.fromJson).toList(),
+        actions: _objects(json['actions'])
+            .map(TaxRuleActionRecord.fromJson)
+            .toList(),
       );
 }
 
@@ -568,8 +590,9 @@ class TaxRuleSimulationResultRecord {
         appliedComponents: _objects(json['applied_components'])
             .map(TaxRuleSimulationComponentRecord.fromJson)
             .toList(),
-        decisions:
-            _objects(json['decisions']).map(TaxRuleDecisionRecord.fromJson).toList(),
+        decisions: _objects(json['decisions'])
+            .map(TaxRuleDecisionRecord.fromJson)
+            .toList(),
       );
 }
 
