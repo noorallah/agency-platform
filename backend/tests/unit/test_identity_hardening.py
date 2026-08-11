@@ -296,3 +296,49 @@ def test_user_ids_remain_uuids_after_rehire() -> None:
     service, _ = _service()
     user = _user(service, "typed@example.com")
     assert isinstance(user.id, UUID)
+
+
+def test_creating_a_user_keeps_the_profile_fields_it_was_given() -> None:
+    """A mobile number typed at creation has to survive the create.
+
+    ``UserCreate`` carried only the six identity fields, and ``ApiSchema``
+    forbids undeclared ones, so a client that sent a mobile number or a photo
+    got a 422 -- and the desktop, which shows both boxes on the create form,
+    had stopped sending them. The record was written blank and looked blank
+    when it was opened again.
+    """
+    service, session = _service()
+
+    user = service.create_user(
+        UserCreate(
+            email="hired@example.com",
+            full_name="Newly Hired",
+            password=PASSWORD,
+            personal_mobile="+91 98765 43210",
+            profile_photo_url="https://photos.example.test/hired.png",
+            employee_code="EMP-0042",
+            department="Sales",
+        ),
+        actor_id=uuid4(),
+    )
+
+    session.expire_all()
+    stored = session.get(User, user.id)
+    assert stored is not None
+    assert stored.personal_mobile == "+91 98765 43210"
+    assert stored.profile_photo_url == "https://photos.example.test/hired.png"
+    assert stored.employee_code == "EMP-0042"
+    assert stored.department == "Sales"
+
+
+def test_every_profile_field_is_writable_at_creation() -> None:
+    """Create and update write the same set, so neither can drift from it.
+
+    The defect was exactly this drift: update wrote eighteen columns and
+    create wrote none of them.
+    """
+    from app.identity.schemas.api import UserProfileFields
+    from app.identity.services.identity_service import _PROFILE_FIELDS
+
+    assert set(_PROFILE_FIELDS) == set(UserProfileFields.model_fields)
+    assert set(_PROFILE_FIELDS) <= set(UserCreate.model_fields)
