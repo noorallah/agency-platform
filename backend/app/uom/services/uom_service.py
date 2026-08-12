@@ -23,13 +23,13 @@ from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.products.models import Product
 from app.uom.models import (
     BusinessProfileUomDefault,
     ConversionRule,
     IndustryTemplate,
     PackagingType,
     ProductPackagingLevel,
-    ProductUomConfig,
     Uom,
     UomGroup,
     UomGroupUnit,
@@ -47,7 +47,6 @@ from app.uom.schemas import (
     PackagingLevelUpdate,
     PackagingTypeCreate,
     PackagingTypeUpdate,
-    ProductUomConfigUpsert,
     UomCreate,
     UomGroupCreate,
     UomGroupUpdate,
@@ -150,6 +149,14 @@ class UomService:
         the store reads the same rows, so an unguarded delete took a unit out
         from under another firm's products and conversion rules. Usage is
         therefore checked across the whole store, not just the caller's firm.
+
+        A product's units are columns on ``products``. This checked
+        ``product_uom_configs`` instead -- a parallel table holding the same
+        seven slots that nothing ever wrote, so the guard passed no matter how
+        many products used the unit, and deleting STRIP left every medicine
+        pointing at a unit the catalogue no longer offered. That table is gone
+        (``20260812_0068``); this reads the columns documents actually convert
+        with.
         """
         references = (
             (
@@ -162,15 +169,15 @@ class UomService:
             (UomGroupUnit, UomGroupUnit.uom_id == uom_id),
             (ProductPackagingLevel, ProductPackagingLevel.uom_id == uom_id),
             (
-                ProductUomConfig,
+                Product,
                 or_(
-                    ProductUomConfig.base_uom_id == uom_id,
-                    ProductUomConfig.inventory_uom_id == uom_id,
-                    ProductUomConfig.purchase_uom_id == uom_id,
-                    ProductUomConfig.sales_uom_id == uom_id,
-                    ProductUomConfig.default_receiving_uom_id == uom_id,
-                    ProductUomConfig.default_dispatch_uom_id == uom_id,
-                    ProductUomConfig.minimum_sales_uom_id == uom_id,
+                    Product.base_uom_id == uom_id,
+                    Product.inventory_uom_id == uom_id,
+                    Product.purchase_uom_id == uom_id,
+                    Product.sales_uom_id == uom_id,
+                    Product.default_receiving_uom_id == uom_id,
+                    Product.default_dispatch_uom_id == uom_id,
+                    Product.minimum_sales_uom_id == uom_id,
                 ),
             ),
             (
@@ -655,50 +662,6 @@ class UomService:
         if profile_id is None:
             return None
         return self.get_profile_default(firm_scope=firm_scope, profile_id=profile_id)
-
-    def upsert_product_config(
-        self,
-        *,
-        firm_scope: UUID,
-        product_id: UUID,
-        data: ProductUomConfigUpsert,
-        actor_id: UUID,
-    ) -> ProductUomConfig:
-        """Store one product's unit selection and dimensions."""
-        row = self._session.scalar(
-            select(ProductUomConfig).where(
-                ProductUomConfig.firm_id == firm_scope,
-                ProductUomConfig.product_id == product_id,
-                ProductUomConfig.is_deleted.is_(False),
-            )
-        )
-        if row is None:
-            row = ProductUomConfig(
-                firm_id=firm_scope,
-                product_id=product_id,
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-            self._session.add(row)
-        payload = data.model_dump(mode="python")
-        for field, value in payload.items():
-            setattr(row, field, value)
-        row.updated_by = actor_id
-        self._flush_or_conflict("Product UOM config conflicts with existing data.")
-        self._session.commit()
-        return row
-
-    def get_product_config(
-        self, *, firm_scope: UUID, product_id: UUID
-    ) -> ProductUomConfig | None:
-        """Return one product's unit configuration."""
-        return self._session.scalar(
-            select(ProductUomConfig).where(
-                ProductUomConfig.firm_id == firm_scope,
-                ProductUomConfig.product_id == product_id,
-                ProductUomConfig.is_deleted.is_(False),
-            )
-        )
 
     def list_packaging_levels(
         self, *, firm_scope: UUID, product_id: UUID

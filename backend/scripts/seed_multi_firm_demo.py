@@ -85,7 +85,11 @@ from app.products.schemas import ProductAttributeInput, ProductCategoryCreate, P
 from app.products.schemas.product import ProductStatus, ProductType
 from app.products.services.product_service import ProductService
 from app.tax.models import TaxProfile, TaxSystem
-from app.uom.models import Uom
+from sqlalchemy.orm import Session
+
+from app.uom.models import ConversionRule, Uom
+from app.uom.schemas import ConversionRuleCreate
+from app.uom.services import UomService
 from app.vendors.models import Vendor, VendorCategory, VendorType
 from app.vendors.schemas import (
     VendorAddressInput,
@@ -130,6 +134,10 @@ class ProductSeed:
     unit_label: str
     base_uom_code: str
     sales_uom_code: str
+    #: How many base units make one sales unit -- a strip of ten tablets, a
+    #: 25 kg bag. Seeds the conversion rule a sales line needs when it is
+    #: raised in the sales unit; 1 when the two units are the same.
+    sales_uom_factor: Decimal
     purchase_price: Decimal
     selling_price: Decimal
     mrp: Decimal
@@ -194,6 +202,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="STRIP",
                 base_uom_code="TABLET",
                 sales_uom_code="STRIP",
+                sales_uom_factor=Decimal("10"),
                 purchase_price=Decimal("58"),
                 selling_price=Decimal("72"),
                 mrp=Decimal("75"),
@@ -207,6 +216,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="STRIP",
                 base_uom_code="TABLET",
                 sales_uom_code="STRIP",
+                sales_uom_factor=Decimal("15"),
                 purchase_price=Decimal("24"),
                 selling_price=Decimal("31"),
                 mrp=Decimal("35"),
@@ -220,6 +230,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="BOX",
                 base_uom_code="TABLET",
                 sales_uom_code="BOX",
+                sales_uom_factor=Decimal("30"),
                 purchase_price=Decimal("145"),
                 selling_price=Decimal("178"),
                 mrp=Decimal("185"),
@@ -262,6 +273,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="BAG",
                 base_uom_code="KG",
                 sales_uom_code="BAG",
+                sales_uom_factor=Decimal("25"),
                 purchase_price=Decimal("1120"),
                 selling_price=Decimal("1245"),
                 mrp=Decimal("1290"),
@@ -275,6 +287,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="BOTTLE",
                 base_uom_code="L",
                 sales_uom_code="BOTTLE",
+                sales_uom_factor=Decimal("5"),
                 purchase_price=Decimal("620"),
                 selling_price=Decimal("675"),
                 mrp=Decimal("699"),
@@ -288,6 +301,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="PACK",
                 base_uom_code="GRAM",
                 sales_uom_code="PACK",
+                sales_uom_factor=Decimal("100"),
                 purchase_price=Decimal("8"),
                 selling_price=Decimal("10"),
                 mrp=Decimal("10"),
@@ -330,6 +344,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="PACK",
                 base_uom_code="KG",
                 sales_uom_code="PACK",
+                sales_uom_factor=Decimal("1"),
                 purchase_price=Decimal("68"),
                 selling_price=Decimal("84"),
                 mrp=Decimal("89"),
@@ -343,6 +358,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="BOTTLE",
                 base_uom_code="ML",
                 sales_uom_code="BOTTLE",
+                sales_uom_factor=Decimal("180"),
                 purchase_price=Decimal("92"),
                 selling_price=Decimal("116"),
                 mrp=Decimal("120"),
@@ -356,6 +372,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="TUBE",
                 base_uom_code="GRAM",
                 sales_uom_code="TUBE",
+                sales_uom_factor=Decimal("150"),
                 purchase_price=Decimal("46"),
                 selling_price=Decimal("58"),
                 mrp=Decimal("60"),
@@ -398,6 +415,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="PIECE",
                 base_uom_code="PIECE",
                 sales_uom_code="PIECE",
+                sales_uom_factor=Decimal("1"),
                 purchase_price=Decimal("1450"),
                 selling_price=Decimal("1780"),
                 mrp=Decimal("1899"),
@@ -411,6 +429,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="PIECE",
                 base_uom_code="PIECE",
                 sales_uom_code="PIECE",
+                sales_uom_factor=Decimal("1"),
                 purchase_price=Decimal("72"),
                 selling_price=Decimal("95"),
                 mrp=Decimal("99"),
@@ -424,6 +443,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 unit_label="PIECE",
                 base_uom_code="PIECE",
                 sales_uom_code="PIECE",
+                sales_uom_factor=Decimal("1"),
                 purchase_price=Decimal("260"),
                 selling_price=Decimal("325"),
                 mrp=Decimal("349"),
@@ -1599,6 +1619,78 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
             firm_id=firm.id,
             actor_id=actor_id,
         )
+        _seed_sales_conversion_rule(
+            session,
+            firm=firm,
+            product_code=product.code,
+            from_uom=sales_uom,
+            to_uom=base_uom,
+            factor=product.sales_uom_factor,
+            actor_id=actor_id,
+        )
+
+
+def _seed_sales_conversion_rule(
+    session: Session,
+    *,
+    firm: FirmRef,
+    product_code: str,
+    from_uom: Uom,
+    to_uom: Uom,
+    factor: Decimal,
+    actor_id: UUID,
+) -> None:
+    """Give a product the rule its own sales unit needs.
+
+    Seeding 36 units is not seeding conversions. Every demo product sells in a
+    unit it does not stock in -- strips of tablets, bags of kilos -- and with no
+    rule the first sales line raised in the sales unit fails with "No active
+    conversion rule is configured for this UOM pair". That is the correct
+    refusal: guessing a factor of 1 would book ten tablets where a hundred left
+    the shelf.
+
+    The rule is scoped to the product, not the firm, because a strip is ten
+    tablets of one medicine and fifteen of another. That also exercises the
+    specificity ordering the conversion resolver applies.
+    """
+    if from_uom.id == to_uom.id:
+        return
+    product_id = session.scalar(
+        select(Product.id).where(
+            Product.firm_id == firm.id,
+            Product.code == product_code,
+            Product.is_deleted.is_(False),
+        )
+    )
+    if product_id is None:
+        return
+    existing = session.scalar(
+        select(ConversionRule.id).where(
+            ConversionRule.firm_id == firm.id,
+            ConversionRule.product_id == product_id,
+            ConversionRule.from_uom_id == from_uom.id,
+            ConversionRule.to_uom_id == to_uom.id,
+            ConversionRule.is_deleted.is_(False),
+        )
+    )
+    if existing is not None:
+        return
+    UomService(session).create_conversion_rule(
+        ConversionRuleCreate(
+            product_id=product_id,
+            from_uom_id=from_uom.id,
+            to_uom_id=to_uom.id,
+            conversion_factor=factor,
+            effective_from=date(2024, 4, 1),
+            version=1,
+            reason=(
+                f"One {from_uom.code} is {factor} {to_uom.code} "
+                f"for {product_code}."
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
 
 
 def _seed_inventory_opening_stock(

@@ -40,7 +40,6 @@ from app.uom.schemas import (
     ConversionRuleUpdate,
     PackagingLevelCreate,
     PackagingTypeCreate,
-    ProductUomConfigUpsert,
     UomCreate,
 )
 from app.uom.services import UomService
@@ -140,37 +139,19 @@ def test_uom_crud_and_conversion() -> None:
     assert converted.converted_quantity == Decimal("24.0000")
 
 
-def test_product_config_and_packaging_levels() -> None:
-    """A product carries a unit configuration and a packaging hierarchy."""
+def test_packaging_levels_carry_their_own_barcode() -> None:
+    """A product's packaging hierarchy is per firm and per level."""
     session = _session_factory()()
     service = UomService(session)
     actor_id = uuid4()
     firm = _firm(session)
     product = _product(session, firm.id)
 
-    piece = service.create_uom(UomCreate(code="each", name="Each"), actor_id=actor_id)
     box = service.create_uom(UomCreate(code="carton", name="Carton"), actor_id=actor_id)
     packaging = service.create_packaging_type(
         PackagingTypeCreate(code="BOX", name="Box", status="ACTIVE"),
         actor_id=actor_id,
     )
-
-    config = service.upsert_product_config(
-        firm_scope=firm.id,
-        product_id=product.id,
-        data=ProductUomConfigUpsert(
-            base_uom_id=piece.id,
-            inventory_uom_id=piece.id,
-            purchase_uom_id=box.id,
-            sales_uom_id=piece.id,
-            allow_fraction=False,
-            allow_decimal=True,
-            weight=Decimal("0.010"),
-        ),
-        actor_id=actor_id,
-    )
-    assert config.base_uom_id == piece.id
-    assert config.purchase_uom_id == box.id
 
     level = service.create_packaging_level(
         firm_scope=firm.id,
@@ -187,6 +168,32 @@ def test_product_config_and_packaging_levels() -> None:
     )
     assert level.conversion_to_base_factor == Decimal("10")
     assert level.barcode == "123456"
+
+
+def test_a_unit_a_product_uses_cannot_be_deleted() -> None:
+    """The delete guard reads the columns a product actually stores.
+
+    It checked ``product_uom_configs``, a duplicate of these seven columns
+    that nothing ever wrote, so the guard passed however many products used
+    the unit and deleting it left them pointing at a unit the catalogue no
+    longer offered.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session, "UOMN")
+    strip = service.create_uom(UomCreate(code="strip", name="Strip"), actor_id=actor_id)
+    product = _product(session, firm.id, "SKU-UOM-GUARD")
+    product.base_uom_id = strip.id
+    session.commit()
+
+    with pytest.raises(ValidationError, match="in use and cannot be deleted"):
+        service.delete_uom(strip.id, actor_id=actor_id)
+
+    # A unit nothing points at is still deletable.
+    spare = service.create_uom(UomCreate(code="spare", name="Spare"), actor_id=actor_id)
+    service.delete_uom(spare.id, actor_id=actor_id)
+    assert spare.is_deleted is True
 
 
 def test_conversion_rule_is_firm_scoped() -> None:

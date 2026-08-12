@@ -3,8 +3,9 @@
 How one product is bought in boxes, stocked in strips and sold in strips —
 without any of those units being hardcoded.
 
-Verified against the running backend and the seeded `WHOLE01` firm on
-2026-08-11. Counts below were read from `/api/v1/uom-framework`, not remembered.
+Verified against the running backend and the seeded firms on 2026-08-12.
+Counts and conversions below were read from `/api/v1/uom-framework`, not
+remembered — including the worked example, which is live output.
 
 ## The idea
 
@@ -20,7 +21,7 @@ uom_groups              units that may convert; one is flagged is_base
 packaging_types         box / carton / pallet tokens
 
 uom_conversion_rules    from → to × factor, versioned and effective-dated
-product_uom_configs     per product: stock / purchase / sales / receipt / dispatch unit
+products.*_uom_id       per product: stock / purchase / sales / receipt / dispatch unit
 product_packaging_levels the physical hierarchy, each level with its own barcode
 business_profile_uom_defaults   what an industry starts with
 uom_industry_templates  reusable industry payloads
@@ -40,8 +41,20 @@ setting it. Reads must pass `firm_id` to `AttributeService` for the same reason.
 
 ## One product, several units
 
-`ProductUomConfig` holds seven unit slots per product — this is the module's
-whole point:
+**A product's units are columns on `products`.** Seven unit slots, plus
+`allow_fraction` / `allow_decimal` and the physical dimensions — written by the
+product form and read by every transactional module when it builds a line.
+
+There used to be a second home for exactly those fourteen columns,
+`product_uom_configs`, with its own `GET`/`PUT
+/uom-framework/products/{id}/config`. Nothing ever wrote it, nothing outside
+`app/uom` read it, and it held zero rows in every store — but `_assert_uom_unused`
+checked *it* before soft-deleting a unit, so the guard passed however many
+products used the unit. Deleting STRIP left every medicine pointing at a unit
+the catalogue no longer offered. The table was dropped in `20260812_0068` and
+the guard now reads `products`.
+
+The seven slots:
 
 | Slot | Meaning | Medicine example |
 | --- | --- | --- |
@@ -53,8 +66,20 @@ whole point:
 | `default_receiving_uom_id` | what arrives on a GRN | BOX |
 | `default_dispatch_uom_id` | what leaves on a delivery note | STRIP |
 
-Plus `allow_fraction`, `allow_decimal` and physical `weight` / `volume` /
-`length` / `width` / `height`.
+### Who applies them, and who does not
+
+The slots are **defaults for a line, not rules the services enforce**, and the
+two sides of a document do not agree on how much of a default they take:
+
+| Module | Line unit comes from |
+| --- | --- |
+| `purchase` | `line.purchase_uom_id` **or** `product.purchase_uom_id` |
+| `sales_order` | `line.sales_uom_id` only — no fallback to the product |
+| `sales_invoice` | the invoice line's unit against the *source line's* unit |
+
+So a sales order raised without a unit on the line converts nothing, whatever
+the product says. Worth knowing before assuming a product's `sales_uom_id`
+governs what leaves the shelf.
 
 `business_profile_uom_defaults` supplies the starting point for a firm's
 industry (base, inventory, purchase and sales units, plus the two fraction
@@ -187,6 +212,19 @@ Rounding is per rule — `rounding_mode` (`HALF_UP`, `HALF_DOWN`, `HALF_EVEN`,
 `UP`, `DOWN`, `CEILING`, `FLOOR`; default `HALF_UP`) and `precision_scale`
 (default 4).
 
+Both halves, run against the seeded WHOLE01 firm on 2026-08-12:
+
+```
+POST /uom-framework/convert   3 BOTTLE of SHAMP180 → ML
+  → 540.0000   factor 180, rule version 1
+
+POST /uom-framework/convert   3 CARTON of SHAMP180 → ML   (no rule)
+  → 422 "No active conversion rule is configured for this UOM pair."
+```
+
+The second is the point. A factor of 1 would have booked 3 ML where 3 cartons
+left the shelf, and nothing would have reported it.
+
 The date defaults to `utc_now().date()`, never `date.today()`: the server's
 local date can already be tomorrow, which selects a rule that is not yet
 effective. That shipped once here already.
@@ -227,6 +265,7 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 | Tables | `backend/app/uom/models/uom.py` |
 | Conversion and configuration | `backend/app/uom/services/uom_service.py` |
 | Endpoints (`/api/v1/uom-framework`) | `backend/app/uom/api/router.py` |
+| Demo conversions | `backend/scripts/seed_multi_firm_demo.py` (`_seed_sales_conversion_rule`) |
 | Unit tests | `backend/tests/unit/test_uom_packaging_framework.py` |
 | NULL-ordering guard | `backend/tests/integration/test_uom_conversion_resolution.py` |
 | Desktop UI | `desktop/lib/ui/uom/uom_management_page.dart` |
@@ -242,7 +281,14 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 - **The conversion date is the document's date**, resolved with `utc_now()`.
 - **An unconfigured pair is an error, not a factor of 1.** The `factor = 1`
   short-circuit applies *only* when the two units are the same or one is unset.
-- **The seeded firm has 36 units and zero conversion rules.** Same-unit lines
-  take the short-circuit and work; the first line whose purchase unit differs
-  from its inventory unit fails until a rule exists. Seeding the catalogue is
-  not the same as seeding conversions.
+- **Seeding the catalogue is not seeding conversions.** 36 units shipped with
+  zero rules, so the module was inert: every line took the `factor = 1`
+  short-circuit and the first line raised in a different unit would have failed.
+  `scripts/seed_multi_firm_demo.py` now creates one rule per demo product from
+  the blueprint's `sales_uom_factor` — STRIP → TABLET ×10 for amoxicillin, ×15
+  for paracetamol, BOTTLE → ML ×180 for shampoo. They are scoped to the
+  **product**, not the firm, because a strip is ten tablets of one medicine and
+  fifteen of another; that also exercises the specificity ordering above.
+  ELEC01's products sell in the unit they stock in and correctly get no rule.
+- **A product's units live on `products`, not in a config table.** The second
+  home was dropped in `20260812_0068`; see above.

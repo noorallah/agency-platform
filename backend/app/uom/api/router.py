@@ -31,8 +31,6 @@ from app.uom.schemas import (
     PackagingTypeCreate,
     PackagingTypeResponse,
     PackagingTypeUpdate,
-    ProductUomConfigResponse,
-    ProductUomConfigUpsert,
     UomCreate,
     UomGroupCreate,
     UomGroupResponse,
@@ -381,44 +379,6 @@ def upsert_profile_defaults(
         audit_firm_id=scope.firm_id,
     )
     return ApiResponse(data=BusinessProfileUomDefaultResponse.model_validate(row))
-
-
-@router.get(
-    "/products/{product_id}/config",
-    response_model=ApiResponse[ProductUomConfigResponse | None],
-)
-def get_product_config(
-    product_id: UUID,
-    scope: UomViewScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[ProductUomConfigResponse | None]:
-    """Read one product's unit configuration."""
-    row = UomService(db).get_product_config(
-        firm_scope=scope.firm_id, product_id=product_id
-    )
-    return ApiResponse(
-        data=ProductUomConfigResponse.model_validate(row) if row else None
-    )
-
-
-@router.put(
-    "/products/{product_id}/config",
-    response_model=ApiResponse[ProductUomConfigResponse],
-)
-def upsert_product_config(
-    product_id: UUID,
-    data: ProductUomConfigUpsert,
-    scope: PackagingManageScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[ProductUomConfigResponse]:
-    """Store one product's unit configuration."""
-    row = UomService(db).upsert_product_config(
-        firm_scope=scope.firm_id,
-        product_id=product_id,
-        data=data,
-        actor_id=scope.actor_id,
-    )
-    return ApiResponse(data=ProductUomConfigResponse.model_validate(row))
 
 
 @router.get(
