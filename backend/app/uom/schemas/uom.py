@@ -246,49 +246,6 @@ class BusinessProfileUomDefaultResponse(UomSchema):
     updated_at: datetime
 
 
-class ProductUomConfigUpsert(UomSchema):
-    """Per-product unit selection and physical dimensions to store."""
-
-    base_uom_id: UUID | None = None
-    inventory_uom_id: UUID | None = None
-    purchase_uom_id: UUID | None = None
-    sales_uom_id: UUID | None = None
-    default_receiving_uom_id: UUID | None = None
-    default_dispatch_uom_id: UUID | None = None
-    minimum_sales_uom_id: UUID | None = None
-    allow_fraction: bool = False
-    allow_decimal: bool = True
-    weight: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    volume: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    length: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    width: Decimal | None = Field(default=None, ge=0, max_digits=18)
-    height: Decimal | None = Field(default=None, ge=0, max_digits=18)
-
-
-class ProductUomConfigResponse(UomSchema):
-    """A product's unit configuration as exposed by the API."""
-
-    id: UUID
-    firm_id: UUID
-    product_id: UUID
-    base_uom_id: UUID | None
-    inventory_uom_id: UUID | None
-    purchase_uom_id: UUID | None
-    sales_uom_id: UUID | None
-    default_receiving_uom_id: UUID | None
-    default_dispatch_uom_id: UUID | None
-    minimum_sales_uom_id: UUID | None
-    allow_fraction: bool
-    allow_decimal: bool
-    weight: Decimal | None
-    volume: Decimal | None
-    length: Decimal | None
-    width: Decimal | None
-    height: Decimal | None
-    created_at: datetime
-    updated_at: datetime
-
-
 class PackagingLevelCreate(UomSchema):
     """One level of a product's packaging hierarchy."""
 
