@@ -249,7 +249,9 @@ class Tally:
     def line(self) -> str:
         """Render the tally as one reportable line."""
         return (
-            f"{self.years} year(s) | PO {self.purchase_orders} | "
+            # "financial", because --years 2 populates the current financial
+            # year plus the two before it, so the honest count is three.
+            f"{self.years} financial year(s) | PO {self.purchase_orders} | "
             f"GRN {self.goods_receipts} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices}"
         )
@@ -421,7 +423,15 @@ class HistoryBuilder:
         any document dated inside the year. ``seed_finance_setup`` is not
         idempotent over periods -- it raises on the second call for a year it
         already built -- so the year is checked first rather than relying on it.
+
+        The tally counts years of history **generated**, which is what its
+        label claims and what the caller prints. It used to be incremented
+        after the early return below, so it counted years whose accounting
+        setup this call happened to create: a re-run reported "0 year(s)"
+        beside the 29 purchase orders it had just written, because ``--reset``
+        clears documents and leaves financial years alone.
         """
+        self._tally.years += 1
         existing = self._session.scalar(
             select(FinancialYear).where(
                 FinancialYear.firm_id == self._target.firm_id,
@@ -438,7 +448,6 @@ class HistoryBuilder:
             actor_id=ACTOR,
         )
         self._session.commit()
-        self._tally.years += 1
 
     # -- cycles --------------------------------------------------------
 

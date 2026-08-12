@@ -74,7 +74,7 @@ from app.customers.services.customer_service import CustomerService
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
 from app.firms.services.firm_service import FirmService
-from app.identity.models import Role, User, UserFirm
+from app.identity.models import PlatformAdmin, Role, User, UserFirm
 from app.identity.schemas.api import UserCreate, UserFirmAssignment
 from app.identity.services.identity_service import IdentityService
 from app.inventory.models import OpeningStockBatch
@@ -666,6 +666,19 @@ def _ensure_master_user(
         ],
         actor_id,
     )
+    if session.scalar(
+        select(PlatformAdmin.id).where(
+            PlatformAdmin.user_id == master.id,
+            PlatformAdmin.is_deleted.is_(False),
+        )
+    ):
+        # A platform admin already holds every permission, and firm-scoped role
+        # administration deliberately refuses to touch one -- _get_user
+        # excludes them, so a firm admin cannot manage a platform admin. The
+        # first run assigns these roles before anything elevates the user; a
+        # later run would hit that refusal and fail the whole seed. Skipping is
+        # the honest answer: the roles would be redundant either way.
+        return
     for firm in firms:
         identity.set_user_roles(
             master.id,
