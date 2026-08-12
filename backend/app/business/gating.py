@@ -16,7 +16,7 @@ Usage mirrors ``require_permission``::
     @router.post("", dependencies=[require_feature("BATCH_TRACKING")])
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, cast
 from uuid import UUID
@@ -60,7 +60,19 @@ class BusinessCapabilities:
 def resolve_capabilities(
     session: Session, firm_id: UUID | None
 ) -> BusinessCapabilities:
-    """Resolve the active profile's capabilities, falling back to the default."""
+    """Resolve the active profile's capabilities, falling back to the default.
+
+    A profile that carries no mapping row for a feature or module inherits that
+    catalogue entry's ``default_enabled``. This used to be an inner join, which
+    silently read a missing row as "disabled" while
+    ``BusinessProfileFrameworkService.active_features`` -- the endpoint the
+    desktop reads to decide what to render -- applied the default. The two
+    disagreed for any profile missing a row: ``/active-features`` advertised
+    BARCODE to RESTAURANT and SERVICE firms, whose forms then offered the field
+    and were refused on save. A profile created through the API starts with no
+    mapping rows at all, so seeding the missing rows would only have hidden it.
+    One rule, both paths.
+    """
     profile = _resolved_profile(session, firm_id)
     if profile is None:
         # No profile and no platform default: enforce nothing rather than
@@ -69,35 +81,67 @@ def resolve_capabilities(
             profile_code=None, features=frozenset(), modules=frozenset()
         )
 
-    features = frozenset(
-        session.scalars(
-            select(BusinessFeature.code)
-            .join(ProfileFeature, ProfileFeature.feature_id == BusinessFeature.id)
-            .where(
+    feature_rows = session.scalars(
+        select(BusinessFeature).where(
+            BusinessFeature.is_active.is_(True),
+            BusinessFeature.is_deleted.is_(False),
+        )
+    ).all()
+    feature_assignments = {
+        row.feature_id: row.is_enabled
+        for row in session.scalars(
+            select(ProfileFeature).where(
                 ProfileFeature.business_profile_id == profile.id,
-                ProfileFeature.is_enabled.is_(True),
                 ProfileFeature.is_deleted.is_(False),
-                BusinessFeature.is_active.is_(True),
-                BusinessFeature.is_deleted.is_(False),
             )
-        ).all()
-    )
-    modules = frozenset(
-        session.scalars(
-            select(BusinessModule.code)
-            .join(ProfileModule, ProfileModule.module_id == BusinessModule.id)
-            .where(
+        )
+    }
+    module_rows = session.scalars(
+        select(BusinessModule).where(
+            BusinessModule.is_active.is_(True),
+            BusinessModule.is_deleted.is_(False),
+        )
+    ).all()
+    # ProfileModule.is_visible is deliberately not read. Visibility decides
+    # whether a workspace appears in the desktop's menu; it must not decide
+    # whether a write is refused, or hiding a module from the sidebar would
+    # quietly revoke the right to use it.
+    module_assignments = {
+        row.module_id: row.is_enabled
+        for row in session.scalars(
+            select(ProfileModule).where(
                 ProfileModule.business_profile_id == profile.id,
-                ProfileModule.is_enabled.is_(True),
                 ProfileModule.is_deleted.is_(False),
-                BusinessModule.is_active.is_(True),
-                BusinessModule.is_deleted.is_(False),
             )
-        ).all()
-    )
+        )
+    }
     return BusinessCapabilities(
-        profile_code=profile.code, features=features, modules=modules
+        profile_code=profile.code,
+        features=_enabled_codes(feature_rows, feature_assignments),
+        modules=_enabled_codes(module_rows, module_assignments),
     )
+
+
+def _enabled_codes(
+    catalogue: Sequence[BusinessFeature] | Sequence[BusinessModule],
+    assignments: Mapping[UUID, bool],
+) -> frozenset[str]:
+    """Return the codes enabled, an explicit row beating ``default_enabled``."""
+    return frozenset(
+        row.code for row in catalogue if assignments.get(row.id, row.default_enabled)
+    )
+
+
+def resolve_profile_id(session: Session, firm_id: UUID | None) -> UUID | None:
+    """Return the id of the profile a firm operates under, or None.
+
+    Exposed so other modules can key profile-scoped configuration off the same
+    answer the gate uses. A firm-owned module must not resolve the assignment
+    itself: two resolvers drift, and this one already handles the assignment,
+    the platform default, and the case where neither exists.
+    """
+    profile = _resolved_profile(session, firm_id)
+    return None if profile is None else profile.id
 
 
 def _resolved_profile(session: Session, firm_id: UUID | None) -> BusinessProfile | None:

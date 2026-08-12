@@ -1,14 +1,15 @@
 """Firm-scoped REST endpoints for enterprise UOM and packaging framework."""
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
+from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -303,6 +304,27 @@ def convert(
 
 
 @router.get(
+    "/profile-defaults",
+    response_model=ApiResponse[BusinessProfileUomDefaultResponse | None],
+)
+def get_firm_profile_defaults(
+    scope: UomViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BusinessProfileUomDefaultResponse | None]:
+    """Return the default units this firm's own business profile carries.
+
+    The per-profile route needs a profile id, and every route that reveals one
+    is platform-admin only, so a firm client could not reach the defaults
+    intended for it. This resolves the profile from the firm context instead,
+    the way ``/business-framework/active-features`` does.
+    """
+    row = UomService(db).resolve_firm_profile_default(firm_scope=scope.firm_id)
+    return ApiResponse(
+        data=BusinessProfileUomDefaultResponse.model_validate(row) if row else None
+    )
+
+
+@router.get(
     "/profiles/{profile_id}/defaults",
     response_model=ApiResponse[BusinessProfileUomDefaultResponse | None],
 )
@@ -328,14 +350,35 @@ def upsert_profile_defaults(
     profile_id: UUID,
     data: BusinessProfileUomDefaultUpsert,
     scope: ConversionManageScope,
+    apply_to: Annotated[Literal["FIRM", "PROFILE"], Query()] = "FIRM",
     db: Session = Depends(get_db),
 ) -> ApiResponse[BusinessProfileUomDefaultResponse]:
-    """Store a business profile's default unit behaviour."""
+    """Store default unit behaviour for this firm, or for the whole profile.
+
+    ``apply_to=FIRM`` writes this firm's override and is the default, so a
+    client that does not know about the distinction cannot change another
+    firm's units by accident. ``apply_to=PROFILE`` writes the row every firm on
+    the profile inherits, which is how a newly created profile gets units at
+    all -- until this existed, only the seed could write one, so a profile
+    added through the API could never carry defaults for the firms put on it.
+
+    That write reaches every firm on the profile, so it needs platform
+    authority (`PLATFORM_SETTINGS`) rather than the firm-level permission that
+    governs a firm's own override.
+    """
+    if apply_to == "PROFILE" and not scope.principal.has_permission(
+        "PLATFORM_SETTINGS"
+    ):
+        raise AuthorizationError(
+            "Setting the units every firm on this profile inherits needs "
+            "platform settings permission."
+        )
     row = UomService(db).upsert_profile_default(
-        firm_scope=scope.firm_id,
+        firm_scope=None if apply_to == "PROFILE" else scope.firm_id,
         profile_id=profile_id,
         data=data,
         actor_id=scope.actor_id,
+        audit_firm_id=scope.firm_id,
     )
     return ApiResponse(data=BusinessProfileUomDefaultResponse.model_validate(row))
 

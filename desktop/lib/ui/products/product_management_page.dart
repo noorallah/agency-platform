@@ -30,6 +30,13 @@ class ProductController extends ChangeNotifier {
 
   List<ProductCategoryRecord> categories = const [];
   List<UomRecord> uoms = const [];
+
+  /// The firm's industry defaults, used to pre-fill a new product's units.
+  ///
+  /// Pre-filled rather than applied on the server: a unit that appears in the
+  /// form can be seen and changed before saving, while one filled in silently
+  /// is noticed only when a conversion comes out wrong.
+  BusinessProfileUomDefaults? profileUomDefaults;
   List<AttributeDefinitionRecord> attributeDefinitions = const [];
   ProductMetadataRecord metadata = const ProductMetadataRecord(
     profileCode: '',
@@ -75,6 +82,14 @@ class ProductController extends ChangeNotifier {
       uoms = await _api.uoms();
     } on ApiException {
       uoms = const [];
+    }
+    try {
+      profileUomDefaults = await _api.firmUomDefaults();
+    } on ApiException {
+      // Only used to pre-fill a new product's units. A firm that cannot read
+      // them, or has none, gets an empty form rather than an error: this is a
+      // convenience, not a requirement for creating a product.
+      profileUomDefaults = null;
     }
     notifyListeners();
   }
@@ -587,6 +602,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         product: product,
         categories: _controller.categories,
         uoms: _controller.uoms,
+        profileUomDefaults: _controller.profileUomDefaults,
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
         initialTab: _dialogTab,
@@ -1350,12 +1366,16 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.onMetadataForCategory,
     required this.onSave,
     required this.onTabChanged,
+    this.profileUomDefaults,
   });
 
   final ProductDialogMode mode;
   final Product? product;
   final List<ProductCategoryRecord> categories;
   final List<UomRecord> uoms;
+
+  /// The firm's industry defaults, applied only to a product being created.
+  final BusinessProfileUomDefaults? profileUomDefaults;
   final List<AttributeDefinitionRecord> definitions;
   final ProductMetadataRecord metadata;
   final String initialTab;
@@ -1408,6 +1428,12 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _minimumSalesUomId;
   late bool _allowFraction;
   late bool _allowDecimal;
+
+  /// Whether the units on screen came from the profile rather than the user.
+  ///
+  /// Only true until the form is first saved. It drives a single line of text:
+  /// a pre-filled value the user cannot account for is worse than a blank one.
+  bool _prefilledUnits = false;
   late bool _trackBatch;
   late bool _trackLot;
   late bool _trackSerial;
@@ -1477,15 +1503,24 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
-    _baseUomId = product?.baseUomId ?? '';
-    _inventoryUomId = product?.inventoryUomId ?? '';
-    _purchaseUomId = product?.purchaseUomId ?? '';
-    _salesUomId = product?.salesUomId ?? '';
+    // A new product starts on the firm's industry defaults; an existing one
+    // keeps exactly what it was saved with. Defaulting an edit would silently
+    // rewrite units a user had deliberately cleared.
+    final BusinessProfileUomDefaults? defaults =
+        product == null ? widget.profileUomDefaults : null;
+    _baseUomId = product?.baseUomId ?? _knownUom(defaults?.baseUomId);
+    _inventoryUomId =
+        product?.inventoryUomId ?? _knownUom(defaults?.inventoryUomId);
+    _purchaseUomId = product?.purchaseUomId ?? _knownUom(defaults?.purchaseUomId);
+    _salesUomId = product?.salesUomId ?? _knownUom(defaults?.salesUomId);
+    _prefilledUnits = product == null &&
+        [_baseUomId, _inventoryUomId, _purchaseUomId, _salesUomId]
+            .any((id) => id.isNotEmpty);
     _defaultReceivingUomId = product?.defaultReceivingUomId ?? '';
     _defaultDispatchUomId = product?.defaultDispatchUomId ?? '';
     _minimumSalesUomId = product?.minimumSalesUomId ?? '';
-    _allowFraction = product?.allowFraction ?? false;
-    _allowDecimal = product?.allowDecimal ?? true;
+    _allowFraction = product?.allowFraction ?? defaults?.allowFraction ?? false;
+    _allowDecimal = product?.allowDecimal ?? defaults?.allowDecimal ?? true;
     _trackBatch = product?.trackBatch ?? false;
     _trackLot = product?.trackLot ?? false;
     _trackSerial = product?.trackSerial ?? false;
@@ -1866,6 +1901,38 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
               child: Text('${item.name} (${item.code})'),
             ))
         .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_prefilledUnits) ...[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.auto_awesome_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Filled in from this firm\'s business profile. Change '
+                  'anything that does not fit this product.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        _packagingFields(uomItems),
+      ],
+    );
+  }
+
+  Widget _packagingFields(List<DropdownMenuItem<String>> uomItems) {
     return Wrap(
       spacing: 16,
       runSpacing: 12,
@@ -2371,6 +2438,13 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           onChanged: _readOnly ? null : onChanged,
         ),
       );
+
+  /// Return a default unit id only when the catalogue still offers it.
+  ///
+  /// A profile default can name a unit that was since deactivated, and a
+  /// dropdown throws when its value is missing from its items.
+  String _knownUom(String? id) =>
+      id != null && widget.uoms.any((unit) => unit.id == id) ? id : '';
 
   Widget _uomDropdown({
     required String label,

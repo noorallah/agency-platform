@@ -138,3 +138,60 @@ class IndustryTemplateRecord {
       );
 }
 
+
+/// A business profile's default unit behaviour, as the calling firm sees it.
+///
+/// `firmId` is what tells the two cases apart: null means this is the
+/// profile-wide default every firm on the profile inherits, a value means this
+/// firm has its own override. Saving always writes the firm's own row — the
+/// profile-wide one is seeded and is not editable through the API.
+class BusinessProfileUomDefaults {
+  const BusinessProfileUomDefaults({
+    required this.businessProfileId,
+    required this.firmId,
+    required this.baseUomId,
+    required this.inventoryUomId,
+    required this.purchaseUomId,
+    required this.salesUomId,
+    required this.allowFraction,
+    required this.allowDecimal,
+  });
+
+  final String businessProfileId;
+  final String? firmId;
+  final String? baseUomId;
+  final String? inventoryUomId;
+  final String? purchaseUomId;
+  final String? salesUomId;
+  final bool allowFraction;
+  final bool allowDecimal;
+
+  /// True when these values come from the profile rather than this firm.
+  bool get isInherited => firmId == null;
+
+  factory BusinessProfileUomDefaults.fromJson(Json json) =>
+      BusinessProfileUomDefaults(
+        businessProfileId: stringValue(json['business_profile_id']),
+        firmId: _orNull(json['firm_id']),
+        baseUomId: _orNull(json['base_uom_id']),
+        inventoryUomId: _orNull(json['inventory_uom_id']),
+        purchaseUomId: _orNull(json['purchase_uom_id']),
+        salesUomId: _orNull(json['sales_uom_id']),
+        allowFraction: boolValue(json['allow_fraction']),
+        allowDecimal: boolValue(json['allow_decimal'], fallback: true),
+      );
+
+  static String? _orNull(dynamic value) {
+    final String text = stringValue(value);
+    return text.isEmpty ? null : text;
+  }
+
+  Json toJson() => <String, dynamic>{
+        'base_uom_id': baseUomId,
+        'inventory_uom_id': inventoryUomId,
+        'purchase_uom_id': purchaseUomId,
+        'sales_uom_id': salesUomId,
+        'allow_fraction': allowFraction,
+        'allow_decimal': allowDecimal,
+      };
+}

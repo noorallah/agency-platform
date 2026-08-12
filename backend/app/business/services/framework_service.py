@@ -817,10 +817,14 @@ class BusinessProfileFrameworkService:
             select(func.count()).select_from(model).where(model.is_deleted.is_(False))
         )
         if search:
-            condition = or_(
-                model.code.ilike(f"%{search.strip()}%"),
-                model.name.ilike(f"%{search.strip()}%"),
-            )
+            term = f"%{search.strip()}%"
+            matches = [model.code.ilike(term), model.name.ilike(term)]
+            # Features carry a category and modules do not. It is worth
+            # searching now that it names something ("traceability") rather
+            # than holding OPERATIONS for all 21 rows.
+            if model is BusinessFeature:
+                matches.append(BusinessFeature.category.ilike(term))
+            condition = or_(*matches)
             statement = statement.where(condition)
             count = count.where(condition)
         ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()

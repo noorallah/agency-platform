@@ -61,6 +61,80 @@ industry (base, inventory, purchase and sales units, plus the two fraction
 flags), with `firm_id` nullable so a platform default can be overridden per
 firm.
 
+**Resolution is two-level, and only the second level used to exist.** NULL
+`firm_id` is the profile-wide default every firm on that profile inherits; a
+set `firm_id` is that firm's own override, and it wins. `get_profile_default`
+filtered on the caller's firm alone until 2026-08-12, so it never matched the
+seeded rows: `GET /api/v1/uom-framework/profiles/{id}/defaults` answered `null`
+for a profile whose row was sitting in the same store, and all five industry
+defaults shipped invisible. The rank is now explicit —
+`case((firm_id.is_(None), 1), else_=0)` — rather than an `ORDER BY firm_id`,
+because PostgreSQL sorts NULLs first in DESC and SQLite last, which is exactly
+how a firm-wide conversion rule once outranked a product's own factor in
+production while the unit suite saw the right answer.
+
+### Writing either level
+
+`PUT /profiles/{id}/defaults` takes `apply_to`:
+
+| `apply_to` | Writes | Needs |
+| --- | --- | --- |
+| `FIRM` *(default)* | this firm's override | `CONVERSION_RULE_MANAGE` |
+| `PROFILE` | the row every firm on the profile inherits | `PLATFORM_SETTINGS` |
+
+`FIRM` is the default so a client that does not know about the distinction
+cannot change another firm's units by accident. `PROFILE` needs platform
+authority because it reaches every firm on the profile, not just the caller's —
+that is a different decision from "what units does *my* firm trade in", and the
+role that makes it is different too.
+
+Until `apply_to` existed, only `seed_uom_reference_data` could write a
+profile-wide row, so a profile created through the API could never carry
+defaults for the firms put on it: each firm had to set its own copy. Only five
+profiles are seeded with defaults (GENERIC, AGENCY, PHARMACY, FOOD, WHOLESALE);
+the other seven start empty and are filled in this way.
+
+Both levels are audited (`uom.profile_default.created` / `.updated`). A
+profile-wide row has no owning firm, so the entry is written against the firm
+whose store the change happened in — otherwise the trail would lose it.
+
+`UQ_business_profile_uom_defaults_firm_profile` covers `(firm_id,
+business_profile_id)` and PostgreSQL treats NULLs as distinct, so it constrains
+overrides and not profile-wide rows. That did not matter while only the seed
+could write one; `20260812_0066` adds the partial unique index now that the API
+can, because two administrators saving at once would otherwise each insert one
+and a firm would inherit whichever the query happened to return.
+
+Edit both from **Administration → Business Profiles → Default units**
+(`ui/uom/profile_uom_defaults_dialog.dart`). The dialog says which level it is
+showing, and offers the profile-wide switch only to someone who holds
+`PLATFORM_SETTINGS`; it defaults to off.
+
+### How the defaults reach a product
+
+**By pre-filling the create form, not by filling them in on the server.** A
+unit the user can see and change before saving is one they can disagree with; a
+unit applied silently is noticed only when a conversion comes out wrong three
+documents later. So `ProductService` still stores exactly what it is sent, and
+`products/product_management_page.dart` seeds a *new* product's base,
+inventory, purchase and sales units — plus `allow_fraction` / `allow_decimal` —
+from the firm's profile, saying so above the fields.
+
+Two rules the widget tests pin:
+
+- **Only a product being created.** Defaulting an edit would put the profile's
+  units back on a product whose units someone had deliberately cleared.
+- **A default naming a withdrawn unit is dropped.** A stored default can point
+  at a deactivated unit, and a dropdown throws when its value is absent from
+  its items.
+
+A firm reads its own defaults from `GET /api/v1/uom-framework/profile-defaults`
+— no profile id, because every route that reveals one is platform-admin only,
+which is why a client previously had no way to reach the defaults meant for it.
+The profile is resolved through `app.business.gating.resolve_profile_id`, so
+the units a firm is offered come from the same assignment its feature gates
+use.
+
 ## Conversion happens on the line, only when the units differ
 
 All **seven** transactional modules convert this way — purchase, goods receipt,

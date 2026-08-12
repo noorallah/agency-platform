@@ -13,9 +13,13 @@ AttributeDefinitionRecord _definition(
       code: code,
       name: code.replaceAll('_', ' '),
       dataType: dataType,
+      entityType: 'PRODUCT',
       mandatory: mandatory,
       isActive: true,
       applicableCategory: '',
+      description: '',
+      defaultValue: '',
+      applicableBusinessProfileId: '',
     );
 
 Future<void> _pump(

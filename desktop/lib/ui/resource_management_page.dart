@@ -25,6 +25,8 @@ class FieldSpec {
     this.multiline = false,
     this.boolean = false,
     this.optionsResource,
+    this.choices,
+    this.submitsCode = false,
     this.singleSelection = false,
     this.readOnlyWhenEditing = false,
     this.createOnly = false,
@@ -39,6 +41,22 @@ class FieldSpec {
   final String key, label;
   final bool required, requiredOnCreate, multiline, boolean;
   final String? optionsResource;
+
+  /// A fixed set of values this field accepts, rendered as a dropdown.
+  ///
+  /// For a column backed by an enum the server validates — a free text box
+  /// there only converts a typo into a round trip and a 422. Leave null for a
+  /// plain text field. Include an empty string to offer "not set".
+  final List<String>? choices;
+
+  /// Submit the option's code rather than its id.
+  ///
+  /// [optionsResource] fields normally store the record id, which is what a
+  /// foreign key wants. `attribute_definitions.applicable_category` is matched
+  /// against the product category's *code*, and an id stored there matches no
+  /// category and no error is raised — the definition simply never applies.
+  final bool submitsCode;
+
   final bool singleSelection, readOnlyWhenEditing, createOnly, editOnly;
   final String? helperText;
   final String section;
@@ -571,11 +589,16 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     try {
       final String message = await action.onInvoke(item);
       if (!mounted) return;
-      NotificationService.show(
-        context,
-        message,
-        kind: AppNotificationKind.success,
-      );
+      // An empty message means the action reported its own outcome — an action
+      // that opens a dialog knows whether the user saved or just closed it,
+      // and a blank success toast on cancel would say the opposite.
+      if (message.isNotEmpty) {
+        NotificationService.show(
+          context,
+          message,
+          kind: AppNotificationKind.success,
+        );
+      }
     } on ApiException catch (exception) {
       if (!mounted) return;
       _showError(exception);
@@ -1093,7 +1116,20 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       if (!mounted) return;
       setState(() {
         for (int index = 0; index < fields.length; index++) {
-          _options[fields[index].key] = results[index];
+          final FieldSpec field = fields[index];
+          // A code-valued field selects on the code, so the option's identity
+          // has to be the code too -- selection state, chip rendering and the
+          // submitted value all key off `id`.
+          _options[field.key] = field.submitsCode
+              ? [
+                  for (final AssignmentOption option in results[index])
+                    AssignmentOption(
+                      id: option.label,
+                      label: option.label,
+                      group: option.group,
+                    ),
+                ]
+              : results[index];
         }
         _loadingOptions = false;
       });
@@ -1206,17 +1242,33 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   /// Groups options by inferring a category from the code prefix before the
   /// first underscore (e.g. "USER_CREATE" -> "User"). Falls back to a single
   /// "General" group when there is nothing to usefully group by.
+  /// Bucket options under headings, by what the API says where it says it.
+  ///
+  /// A catalogue that names a group for its rows — business features carry a
+  /// category — is grouped by that. Everything else falls back to the leading
+  /// word of the code, which suits permissions (`CUSTOMER_VIEW` under
+  /// "Customer") and nothing else: feature codes would scatter 21 rows across
+  /// sixteen buckets, several of them one row, and `BARCODE` and `IMEI` have
+  /// no underscore to split on at all.
   Map<String, List<AssignmentOption>> _groupOptions(
       List<AssignmentOption> options) {
-    if (options.length <= 8) {
+    final bool named =
+        options.any((option) => (option.group ?? '').trim().isNotEmpty);
+    if (!named && options.length <= 8) {
       return {'': options};
     }
     final Map<String, List<AssignmentOption>> grouped = {};
     for (final option in options) {
-      final int underscoreIndex = option.label.indexOf('_');
-      final String rawKey = underscoreIndex > 0
-          ? option.label.substring(0, underscoreIndex)
-          : 'General';
+      final String rawKey;
+      if (named) {
+        final String group = (option.group ?? '').trim();
+        rawKey = group.isEmpty ? 'General' : group;
+      } else {
+        final int underscoreIndex = option.label.indexOf('_');
+        rawKey = underscoreIndex > 0
+            ? option.label.substring(0, underscoreIndex)
+            : 'General';
+      }
       final String key = rawKey
           .split('_')
           .map((w) => w.isEmpty
@@ -1430,6 +1482,41 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                 ),
               ),
           ]),
+        ),
+      );
+    }
+    final List<String>? choices = field.choices;
+    if (choices != null) {
+      final String current = _controllers[field.key]?.text ?? '';
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: DropdownButtonFormField<String>(
+          // A stored value the catalogue no longer offers would throw, so an
+          // unrecognised one falls back to nothing selected rather than
+          // taking the form down.
+          initialValue: choices.contains(current) ? current : null,
+          isExpanded: true,
+          decoration: InputDecoration(
+            labelText: field.label,
+            helperText: field.helperText,
+          ),
+          validator: field.required
+              ? (value) =>
+                  (value ?? '').isEmpty ? '${field.label} is required' : null
+              : null,
+          items: [
+            for (final String choice in choices)
+              DropdownMenuItem<String>(
+                value: choice,
+                child: Text(choice.isEmpty ? 'Not set' : choice),
+              ),
+          ],
+          onChanged: widget.isReadOnly
+              ? null
+              : (value) => setState(() {
+                    _controllers[field.key]?.text = value ?? '';
+                    _dirty = true;
+                  }),
         ),
       );
     }

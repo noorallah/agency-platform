@@ -14,6 +14,7 @@ import '../core/theme/theme_manager.dart';
 import '../models/branch_warehouse.dart';
 import '../models/entities.dart';
 import '../models/inventory.dart';
+import '../models/uom_packaging.dart';
 import '../models/product.dart';
 import 'customers/customer_management_page.dart';
 import 'inventory/inventory_management_page.dart';
@@ -32,6 +33,7 @@ import 'tax/tax_configuration_page.dart';
 import 'tax/tax_management_page.dart';
 import 'tax/tax_rule_simulator_page.dart';
 import 'tax/tax_rules_page.dart';
+import 'uom/profile_uom_defaults_dialog.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
@@ -1362,6 +1364,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition: _businessProfileDefinition(
             widget.api,
             widget.permissions,
+            context: context,
             showFrame: false,
           ),
         ),
@@ -3127,12 +3130,41 @@ ResourceDefinition<Permission> permissionDefinition(
 ResourceDefinition<BusinessProfileRecord> _businessProfileDefinition(
   ApiClient api,
   PermissionService permissions, {
+  BuildContext? context,
   bool showFrame = true,
 }) =>
     ResourceDefinition(
       title: 'Business Profiles',
       resource: 'business-framework/profiles',
       showFrame: showFrame,
+      // Default units are not fields on the profile: the profile is
+      // platform-wide while units are firm-owned, so they have their own
+      // endpoint. The action lives here because this is the only screen that
+      // lists profiles, and it is where someone configuring one looks for
+      // them.
+      customActions: [
+        if (context != null)
+          ResourceAction<BusinessProfileRecord>(
+            label: 'Default units',
+            icon: Icons.straighten_outlined,
+            isVisible: (_) => permissions.hasPermission('UOM_VIEW'),
+            onInvoke: (profile) async {
+              if (!context.mounted) return '';
+              await showDialog<BusinessProfileUomDefaults>(
+                context: context,
+                builder: (_) => ProfileUomDefaultsDialog(
+                  api: api,
+                  permissions: permissions,
+                  profileId: profile.id,
+                  profileName: profile.name,
+                ),
+              );
+              // The dialog announces its own result; saying anything here
+              // would also congratulate someone who just closed it.
+              return '';
+            },
+          ),
+      ],
       description:
           'Configure industry profiles that control modules, feature flags, and validations.',
       headers: const ['Code', 'Name', 'Industry', 'Status', 'Default'],
@@ -3354,21 +3386,27 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
-}) =>
-    ResourceDefinition(
+}) {
+  // The update endpoint replaces the whole record, so anything the form does
+  // not send is reset. `validation_rule` has no editor, so the record being
+  // edited is held here and its rule echoed back rather than dropped.
+  // `initialValues` always runs before `payload` for the same dialog, and a
+  // create passes null, which clears it.
+  AttributeDefinitionRecord? editing;
+  return ResourceDefinition(
       title: 'Attribute Definitions',
       resource: 'business-framework/attribute-definitions',
       showFrame: showFrame,
       description:
           'Define reusable attribute metadata for future product and inventory modules.',
-      headers: const ['Code', 'Name', 'Data type', 'Category', 'Mandatory'],
-      sortFields: const ['code', 'name', null, null, null],
+      headers: const ['Code', 'Applies to', 'Name', 'Data type', 'Category'],
+      sortFields: const ['code', null, 'name', null, null],
       cells: (attribute) => [
         attribute.code,
+        attribute.entityType,
         attribute.name,
         attribute.dataType,
         attribute.applicableCategory,
-        attribute.mandatory ? 'Yes' : 'No',
       ],
       id: (attribute) => attribute.id,
       load: api.attributeDefinitions,
@@ -3388,40 +3426,108 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
           readOnlyWhenEditing: true,
         ),
         FieldSpec(key: 'name', label: 'Name', required: true),
-        FieldSpec(key: 'data_type', label: 'Data type', required: true),
-        FieldSpec(key: 'applicable_category', label: 'Applicable category'),
+        FieldSpec(
+          key: 'entity_type',
+          label: 'Applies to',
+          required: true,
+          choices: [
+            'PRODUCT',
+            'CUSTOMER',
+            'VENDOR',
+            'BRANCH',
+            'WAREHOUSE',
+            'TAX_PROFILE',
+            'UOM',
+          ],
+          helperText: 'Which record carries this field.',
+        ),
+        FieldSpec(
+          key: 'data_type',
+          label: 'Data type',
+          required: true,
+          choices: ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN'],
+          helperText: 'Decides which column stores the value, and how it is '
+              'validated and reported on.',
+        ),
+        FieldSpec(key: 'description', label: 'Description', multiline: true),
+        FieldSpec(key: 'default_value', label: 'Default value'),
         FieldSpec(
           key: 'mandatory',
           label: 'Mandatory',
           boolean: true,
         ),
-        FieldSpec(key: 'description', label: 'Description', multiline: true),
-        FieldSpec(key: 'default_value', label: 'Default value'),
         FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+        FieldSpec(
+          key: 'applicable_business_profile_id',
+          label: 'Limit to business profile',
+          optionsResource: 'business-framework/profiles',
+          singleSelection: true,
+          section: 'Where it applies',
+          helperText: 'Leave empty to offer this field to every industry.',
+        ),
+        FieldSpec(
+          key: 'applicable_category',
+          label: 'Limit to product category',
+          optionsResource: 'products/categories',
+          singleSelection: true,
+          // Matched against the category's code, not its id.
+          submitsCode: true,
+          section: 'Where it applies',
+          helperText: 'Leave empty to offer this field in every category.',
+        ),
       ],
-      initialValues: (attribute) => attribute == null
-          ? {'mandatory': false, 'is_active': true}
+      initialValues: (attribute) {
+        editing = attribute;
+        return attribute == null
+          ? {
+              'mandatory': false,
+              'is_active': true,
+              'entity_type': 'PRODUCT',
+              'data_type': 'TEXT',
+            }
           : {
               'code': attribute.code,
               'name': attribute.name,
+              'entity_type': attribute.entityType,
               'data_type': attribute.dataType,
               'applicable_category': attribute.applicableCategory,
+              'applicable_business_profile_id':
+                  attribute.applicableBusinessProfileId,
               'mandatory': attribute.mandatory,
-              'description': '',
-              'default_value': '',
+              'description': attribute.description,
+              'default_value': attribute.defaultValue,
               'is_active': attribute.isActive,
-            },
-      payload: (values, _) => {
+            };
+      },
+      payload: (values, isCreating) => {
         'code': values['code'],
         'name': values['name'],
+        'entity_type': values['entity_type'],
         'data_type': values['data_type'],
-        'applicable_category': values['applicable_category'],
+        'applicable_category': _blankToNull(values['applicable_category']),
+        'applicable_business_profile_id':
+            _blankToNull(values['applicable_business_profile_id']),
         'mandatory': values['mandatory'],
-        'description': values['description'],
-        'default_value': values['default_value'],
+        'description': _blankToNull(values['description']),
+        'default_value': _blankToNull(values['default_value']),
         'is_active': values['is_active'],
+        // Round-tripped, not edited. Omitting it would null a rule the form
+        // never showed.
+        if (!isCreating && editing?.validationRule != null)
+          'validation_rule': editing!.validationRule,
       },
     );
+}
+
+/// Send null rather than an empty string for an optional column.
+///
+/// A blank text box means "not set"; storing `''` makes
+/// `applicable_category` a category code no product has, which silently stops
+/// the definition applying anywhere.
+Object? _blankToNull(Object? value) {
+  final String text = (value ?? '').toString().trim();
+  return text.isEmpty ? null : text;
+}
 
 ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
   ApiClient api,

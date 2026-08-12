@@ -14,8 +14,14 @@ class PagedResult<T> {
 }
 
 class AssignmentOption {
-  const AssignmentOption({required this.id, required this.label});
+  const AssignmentOption({required this.id, required this.label, this.group});
   final String id, label;
+
+  /// The heading this option belongs under, when the API names one.
+  ///
+  /// Business features carry a category; permissions and most other catalogues
+  /// do not, and fall back to being grouped by the leading word of their code.
+  final String? group;
 }
 
 class AssignedFirm {
@@ -406,18 +412,37 @@ class BusinessModuleRecord {
       );
 }
 
+/// One configurable field definition, carrying **every** column the API sends.
+///
+/// The update endpoint replaces the whole record, so a column missing here is
+/// a column the edit form silently resets: description and default value were
+/// wiped on every save, `entity_type` reverted to PRODUCT, and a definition
+/// scoped to one business profile was quietly un-scoped to all of them.
 class AttributeDefinitionRecord {
   const AttributeDefinitionRecord({
     required this.id,
     required this.code,
     required this.name,
     required this.dataType,
+    required this.entityType,
     required this.mandatory,
     required this.isActive,
     required this.applicableCategory,
+    required this.description,
+    required this.defaultValue,
+    required this.applicableBusinessProfileId,
+    this.validationRule,
   });
 
   final String id, code, name, dataType, applicableCategory;
+  final String entityType, description, defaultValue;
+
+  /// The business profile this field is limited to, or empty for every one.
+  final String applicableBusinessProfileId;
+
+  /// Round-tripped untouched: the form cannot edit it, so it must not drop it.
+  final Map<String, dynamic>? validationRule;
+
   final bool mandatory, isActive;
 
   String get _type => dataType.toUpperCase();
@@ -432,8 +457,16 @@ class AttributeDefinitionRecord {
         code: stringValue(json['code']),
         name: stringValue(json['name']),
         dataType: stringValue(json['data_type']),
+        entityType: stringValue(json['entity_type']),
         mandatory: boolValue(json['mandatory']),
         isActive: boolValue(json['is_active'], fallback: true),
         applicableCategory: stringValue(json['applicable_category']),
+        description: stringValue(json['description']),
+        defaultValue: stringValue(json['default_value']),
+        applicableBusinessProfileId:
+            stringValue(json['applicable_business_profile_id']),
+        validationRule: json['validation_rule'] is Map
+            ? Map<String, dynamic>.from(json['validation_rule'] as Map)
+            : null,
       );
 }
