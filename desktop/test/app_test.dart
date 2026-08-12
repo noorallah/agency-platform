@@ -988,9 +988,13 @@ class _ProductApi extends ApiClient {
             code: 'EXPIRY_DATE',
             name: 'Expiry Date',
             dataType: 'DATE',
+            entityType: 'PRODUCT',
             mandatory: true,
             isActive: true,
             applicableCategory: 'MEDICINE',
+            description: '',
+            defaultValue: '',
+            applicableBusinessProfileId: '',
           )
         ],
         total: 1,

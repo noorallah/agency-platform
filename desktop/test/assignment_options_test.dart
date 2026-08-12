@@ -75,4 +75,50 @@ void main() {
     expect(await api.options('permissions'), isEmpty);
     expect(api.requestedPages, [1]);
   });
+
+  test('an option carries the category the API names, and null when absent',
+      () async {
+    final api = _CategorisedApi();
+    final List<AssignmentOption> options =
+        await api.options('business-framework/features');
+
+    expect(options.first.group, 'TRACEABILITY');
+    expect(
+      options.last.group,
+      isNull,
+      reason: 'permissions have no category and must fall back to the code',
+    );
+  });
+}
+
+/// Two rows, one categorised and one not, as a mixed catalogue would be.
+class _CategorisedApi extends ApiClient {
+  _CategorisedApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => null,
+        );
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+  }) async =>
+      {
+        'data': [
+          {
+            'id': 'id-1',
+            'code': 'BATCH_TRACKING',
+            'category': 'TRACEABILITY',
+          },
+          {'id': 'id-2', 'code': 'CUSTOMER_VIEW'},
+        ],
+        'pagination': {'total_records': 2},
+      };
 }

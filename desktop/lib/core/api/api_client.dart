@@ -1295,6 +1295,55 @@ class ApiClient {
   Future<void> deleteUomGroup(String id) =>
       request('DELETE', '/api/v1/uom-framework/uom-groups/$id');
 
+  /// The default units the active firm's own business profile carries.
+  ///
+  /// Keyed off the firm context rather than a profile id, because every route
+  /// that reveals a profile id is platform-admin only. Returns null when the
+  /// firm's profile has no defaults, or when the caller may not read units.
+  Future<BusinessProfileUomDefaults?> firmUomDefaults() async {
+    final Json response =
+        await request('GET', '/api/v1/uom-framework/profile-defaults');
+    final dynamic data = response['data'];
+    if (data is! Map) return null;
+    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
+  }
+
+  /// The default units a business profile carries, for the active firm.
+  ///
+  /// Returns null when neither the firm nor the profile has any defaults set.
+  /// A returned record with a null `firmId` is the profile-wide default the
+  /// firm inherits rather than one it has chosen.
+  Future<BusinessProfileUomDefaults?> businessProfileUomDefaults(
+      String profileId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/uom-framework/profiles/$profileId/defaults',
+    );
+    final dynamic data = response['data'];
+    if (data is! Map) return null;
+    return BusinessProfileUomDefaults.fromJson(
+        Map<String, dynamic>.from(data));
+  }
+
+  /// Store default units for a business profile.
+  ///
+  /// [forEveryFirm] writes the row every firm on the profile inherits, which
+  /// needs platform settings permission. The default writes only the active
+  /// firm's own override.
+  Future<BusinessProfileUomDefaults> updateBusinessProfileUomDefaults(
+    String profileId,
+    Json data, {
+    bool forEveryFirm = false,
+  }) async =>
+      BusinessProfileUomDefaults.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/profiles/$profileId/defaults',
+          query: {'apply_to': forEveryFirm ? 'PROFILE' : 'FIRM'},
+          body: data,
+        )),
+      );
+
   Future<List<PackagingTypeRecord>> packagingTypes() async {
     final Json response =
         await request('GET', '/api/v1/uom-framework/packaging-types');
@@ -1823,6 +1872,9 @@ class ApiClient {
         (json) => AssignmentOption(
           id: stringValue(json['id']),
           label: stringValue(json['code'] ?? json['name'] ?? json['email']),
+          group: json['category'] == null
+              ? null
+              : stringValue(json['category']),
         ),
         page,
         '',

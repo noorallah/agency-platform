@@ -253,3 +253,94 @@ def test_capabilities_are_typed_frozen_sets() -> None:
     assert isinstance(capabilities.features, frozenset)
     assert isinstance(capabilities.modules, frozenset)
     assert isinstance(firm.id, UUID)
+
+
+def test_a_missing_mapping_row_inherits_the_catalogue_default() -> None:
+    """A profile with no row for a feature falls back to ``default_enabled``.
+
+    ``/active-features`` has always applied this fallback, so an inner join
+    here made the gate disagree with the screen: RESTAURANT and SERVICE were
+    advertised BARCODE, rendered the field, and were refused on save.
+    """
+    session = _session()
+    firm = _firm(session, "REST")
+    profile = _profile(session, "RESTAURANT", features=("EXPIRY_TRACKING",))
+    session.add(BusinessFeature(code="BARCODE", name="Barcode", default_enabled=True))
+    session.add(BusinessFeature(code="IMEI", name="IMEI", default_enabled=False))
+    session.commit()
+    _assign(session, firm, profile)
+
+    capabilities = resolve_capabilities(session, firm.id)
+    assert capabilities.has_feature("BARCODE")
+    assert capabilities.has_feature("EXPIRY_TRACKING")
+    assert not capabilities.has_feature("IMEI")
+    # The gate must now agree with what the screen was told.
+    assert _call(require_feature("BARCODE"), _Request("POST"), capabilities) is (
+        capabilities
+    )
+
+
+def test_an_explicit_mapping_row_beats_the_catalogue_default() -> None:
+    """Turning a feature off for one profile survives a permissive default."""
+    session = _session()
+    firm = _firm(session, "SERV")
+    profile = _profile(session, "SERVICE")
+    feature = BusinessFeature(code="BARCODE", name="Barcode", default_enabled=True)
+    session.add(feature)
+    session.flush()
+    session.add(
+        ProfileFeature(
+            business_profile_id=profile.id,
+            feature_id=feature.id,
+            is_enabled=False,
+        )
+    )
+    session.commit()
+    _assign(session, firm, profile)
+
+    capabilities = resolve_capabilities(session, firm.id)
+    assert not capabilities.has_feature("BARCODE")
+    with pytest.raises(AuthorizationError, match="does not enable: BARCODE"):
+        _call(require_feature("BARCODE"), _Request("POST"), capabilities)
+
+
+def test_a_deactivated_feature_is_withdrawn_despite_a_permissive_default() -> None:
+    """``is_active`` still wins: the fallback must not resurrect it."""
+    session = _session()
+    firm = _firm(session, "CUST")
+    profile = _profile(session, "CUSTOM")
+    session.add(
+        BusinessFeature(
+            code="BARCODE", name="Barcode", default_enabled=True, is_active=False
+        )
+    )
+    session.commit()
+    _assign(session, firm, profile)
+
+    assert not resolve_capabilities(session, firm.id).has_feature("BARCODE")
+
+
+def test_module_visibility_does_not_decide_whether_a_write_is_refused() -> None:
+    """Hiding a workspace from the menu must not revoke the right to use it."""
+    session = _session()
+    firm = _firm(session, "WHOL")
+    profile = _profile(session, "WHOLESALE")
+    module = BusinessModule(code="SALES", name="Sales", default_enabled=False)
+    session.add(module)
+    session.flush()
+    session.add(
+        ProfileModule(
+            business_profile_id=profile.id,
+            module_id=module.id,
+            is_enabled=True,
+            is_visible=False,
+        )
+    )
+    session.commit()
+    _assign(session, firm, profile)
+
+    capabilities = resolve_capabilities(session, firm.id)
+    assert capabilities.has_module("SALES")
+    assert _call(require_module("SALES"), _Request("POST"), capabilities) is (
+        capabilities
+    )

@@ -19,6 +19,7 @@ from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -541,8 +542,27 @@ class UomService:
         profile_id: UUID,
         data: BusinessProfileUomDefaultUpsert,
         actor_id: UUID,
+        audit_firm_id: UUID | None = None,
     ) -> BusinessProfileUomDefault:
-        """Store a business profile's default unit behaviour."""
+        """Store default unit behaviour for one firm, or for a whole profile.
+
+        ``firm_scope`` is the row's owner, not merely a filter: a firm id
+        writes that firm's override, and None writes the profile-wide row every
+        firm on the profile inherits. The caller decides which, because the two
+        differ in blast radius -- the profile-wide row reaches every firm on
+        the profile and the router demands platform authority for it.
+
+        Args:
+            firm_scope: The firm whose override to write, or None for the
+                profile-wide default.
+            profile_id: The business profile these units belong to.
+            data: The units and quantity flags to store.
+            actor_id: The acting user.
+            audit_firm_id: The firm the audit entry belongs to. A profile-wide
+                write has no owning firm, so the trail would otherwise lose the
+                store it happened in.
+
+        """
         row = self._session.scalar(
             select(BusinessProfileUomDefault).where(
                 BusinessProfileUomDefault.firm_id == firm_scope,
@@ -550,6 +570,7 @@ class UomService:
                 BusinessProfileUomDefault.is_deleted.is_(False),
             )
         )
+        created = row is None
         if row is None:
             row = BusinessProfileUomDefault(
                 firm_id=firm_scope,
@@ -563,20 +584,77 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Business profile UOM defaults conflict.")
+        record_audit(
+            self._session,
+            action=(
+                "uom.profile_default.created"
+                if created
+                else "uom.profile_default.updated"
+            ),
+            entity_type="business_profile_uom_default",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=audit_firm_id if firm_scope is None else firm_scope,
+        )
         self._session.commit()
         return row
 
     def get_profile_default(
         self, *, firm_scope: UUID | None, profile_id: UUID
     ) -> BusinessProfileUomDefault | None:
-        """Return a business profile's default unit behaviour."""
+        """Return a business profile's default unit behaviour.
+
+        ``firm_id`` is nullable so one row can serve every firm on a profile
+        while a firm may override it: NULL is the profile-wide default, a set
+        value is that firm's own. Only the override half was implemented, so
+        this filtered on the caller's firm and never matched the seeded rows --
+        every industry default shipped invisible, and ``GET
+        /uom-framework/profiles/{id}/defaults`` answered ``null`` for a profile
+        whose row was sitting in the same store.
+
+        The firm's own row wins; the profile-wide row is the fallback. The rank
+        is explicit rather than an ``ORDER BY firm_id``: PostgreSQL sorts NULLs
+        first in DESC and SQLite last, which is how a firm-wide UOM conversion
+        rule once outranked a product's own factor in production while the unit
+        suite saw the right answer.
+        """
         return self._session.scalar(
-            select(BusinessProfileUomDefault).where(
-                BusinessProfileUomDefault.firm_id == firm_scope,
+            select(BusinessProfileUomDefault)
+            .where(
                 BusinessProfileUomDefault.business_profile_id == profile_id,
                 BusinessProfileUomDefault.is_deleted.is_(False),
+                or_(
+                    BusinessProfileUomDefault.firm_id == firm_scope,
+                    BusinessProfileUomDefault.firm_id.is_(None),
+                ),
             )
+            .order_by(
+                case(
+                    (BusinessProfileUomDefault.firm_id.is_(None), 1),
+                    else_=0,
+                )
+            )
+            .limit(1)
         )
+
+    def resolve_firm_profile_default(
+        self, *, firm_scope: UUID | None
+    ) -> BusinessProfileUomDefault | None:
+        """Return the default units the calling firm's own profile carries.
+
+        A firm cannot look this up for itself through
+        ``/profiles/{id}/defaults``: it would need its own profile id, and
+        every route that reveals one is platform-admin only. So a client had no
+        way to reach the defaults meant for it.
+
+        The profile is resolved through ``app.business.gating`` rather than
+        queried here, so the units a firm is offered come from the same
+        assignment its feature gates use.
+        """
+        profile_id = resolve_profile_id(self._session, firm_scope)
+        if profile_id is None:
+            return None
+        return self.get_profile_default(firm_scope=firm_scope, profile_id=profile_id)
 
     def upsert_product_config(
         self,
