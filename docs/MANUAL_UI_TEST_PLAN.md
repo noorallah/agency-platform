@@ -243,6 +243,10 @@ each was, at some point, wrong.
 | 8.11 | Document totals | Create a document with discounts, charges and round-off | Header totals equal the sum of the lines. Check to the last paisa |
 | 8.12 | Editing a document keeps its links | Edit an approved-then-reopened document's lines and save | Downstream documents still reference the right lines |
 | 8.13 | Audit trail is per firm | Make a change in FOOD01, then open the audit log in MEDI01 | The FOOD01 change is **not** there. Each firm has its own trail |
+| 8.14 | Receive goods against an order | Goods Receipts → **New Receipt**, choose an approved order, accept the quantities, save | A draft GRN. Stock has **not** moved yet — completing it is what posts stock |
+| 8.15 | A part-received order defaults to what is left | Complete a receipt for part of an order, then raise a second receipt against the same order | The second receipt defaults to the outstanding quantity, not the full order. Saving the full order again is refused for over-receipt |
+| 8.16 | The batch on the carton reaches the shelf | Receive a line with a batch number, then complete it | A batch of that number exists under Batches, holding what was received. The stock row is that batch's, not the product's |
+| 8.17 | A batch-tracked product refuses a blank batch | Receive a product whose profile requires a batch on receipt, leaving the batch number empty | Refused **before** the round trip, naming the line. Completing it server-side is refused too |
 
 ---
 

@@ -172,18 +172,28 @@ A batch no longer stores its own quantities either: the six columns are gone
 and the API reports what the stock rows hold.
 
 `docs/INVENTORY_FRAMEWORK.md` describes the module as it stands, including
-which document does what with a batch. One piece is left, and it is not really
-a stage of this work:
+which document does what with a batch. What is left is desktop document entry,
+which is its own piece of work rather than a stage of this one:
 
-**The desktop cannot create a goods receipt, a delivery note or a purchase
-return.** This is the large one, and it is why none of the batch work is
-reachable by a user. The pages list and view documents --
-`EnterpriseDocumentLines` renders a `DocumentLineSnapshot`, with no line editor
--- and `ApiClient` has a `createGoodsReceipt` that nothing calls. A batch field
-is a small part of building document entry; treat it as its own piece of work
-with its own review, not as a stage of this one.
+**Goods receipt entry is built** (`goods_receipt_editor_dialog.dart`): the
+workspace has a New Receipt action, lines are seeded from the purchase order
+being received, each defaults to what is still outstanding on it, and the batch
+number typed off the carton reaches the server. That is the first document the
+desktop can create, and it makes the batch work reachable by a user.
 
-Two things the batch work leaves behind for whoever picks that up:
+**The delivery note and purchase return pages still cannot create one.** Both
+list and view documents only -- `EnterpriseDocumentLines` renders a
+`DocumentLineSnapshot`, with no line editor. Neither is a copy of the receipt
+editor:
+
+- A **delivery note** is raised against a sales order and allocates across
+  batches by earliest expiry, so the line editor shows what will be drawn from
+  where rather than taking a batch number as input.
+- A **purchase return** names one batch per line and refuses a number that was
+  never received, so its field needs the batch register behind it rather than
+  free text.
+
+Two things the batch work leaves behind for whoever picks those up:
 
 - **`BatchResponse` still returns `product_code`, `product_name`,
   `warehouse_code`, `warehouse_name`, `branch_code` and `branch_name` as null.**
@@ -195,6 +205,19 @@ Two things the batch work leaves behind for whoever picks that up:
   batch-grained stock. `scripts/generate_sample_data.py` writes `batch_number`
   onto document lines but never registers a batch, which is why the receipt path
   that creates them never runs during a seed.
+
+Two decisions in the receipt editor worth knowing before copying it:
+
+- **It offers only APPROVED purchase orders.** The backend accepts a receipt
+  against an order in any state, so this is a client-side policy: goods should
+  not be booked in against an order nobody approved. If that turns out to be
+  wrong for a warehouse that receives before the paperwork catches up, the fix
+  is to widen the filter, not to loosen the server.
+- **The expiry and vehicle fields are shown to every firm**, so a firm without
+  EXPIRY_TRACKING or VEHICLE_TRACKING can type one and be refused on save --
+  proven while verifying this, where completing a receipt carrying an expiry
+  date returned a 403 naming the feature. That is the "desktop does not pre-hide
+  feature-gated fields" item under **Also open**, now with a concrete case.
 
 Not part of this, but adjacent and unbuilt: warehouse-to-warehouse transfers,
 physical count reconciliation, and dedicated damage/expiry/quarantine
