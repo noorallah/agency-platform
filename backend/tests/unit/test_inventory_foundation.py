@@ -39,6 +39,7 @@ from app.inventory.schemas import (
     OpeningStockBatchCreate,
 )
 from app.inventory.services import InventoryService
+from app.inventory.services.inventory_service import _Movement
 from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -549,3 +550,97 @@ def test_the_ledger_renders_every_movement_type_the_service_writes() -> None:
     assert {"ADJUSTMENT", "RESERVE", "UNRESERVE", "DISPATCH"}.issubset(written)
     assert any(item.endswith("_REVERSAL") for item in written)
     assert {row.transaction_type for row in transactions.data} == written
+
+
+def test_two_batches_of_one_product_are_two_stock_rows() -> None:
+    """The batch is part of a stock row's identity, not a label on it.
+
+    Two deliveries of the same medicine expiring months apart were one number,
+    so "which units are being recalled" and "which expire first" had no data
+    behind them.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "GRAIN")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    first = uuid4()
+    second = uuid4()
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    rows = [
+        service._ensure_inventory_projection(
+            firm_id=firm.id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        for batch_id in (first, second, None, first)
+    ]
+
+    assert rows[0].id != rows[1].id, "two batches must not share a stock row"
+    assert rows[2].id not in {
+        rows[0].id,
+        rows[1].id,
+    }, "untracked stock is its own row, not either batch"
+    assert rows[3].id == rows[0].id, "the same batch must resolve to its own row"
+    assert rows[0].batch_id == first
+    assert rows[2].batch_id is None
+
+
+def test_a_movement_records_the_batch_it_moved() -> None:
+    """The ledger could not say which batch moved, so batch cost was unanswerable."""
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "GRAINL")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    batch_id = uuid4()
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    inventory = service._ensure_inventory_projection(
+        firm_id=firm.id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        actor_id=actor_id,
+        batch_id=batch_id,
+    )
+    session.flush()
+    transaction = service._stage_movement(
+        inventory,
+        actor_id=actor_id,
+        movement=_Movement(
+            transaction_type="GOODS_RECEIPT",
+            reference_number="GRN-GRAIN-1",
+            reference_type="GOODS_RECEIPT",
+            transaction_date=date(2026, 8, 13),
+            quantity=Decimal("10"),
+            current_delta=Decimal("10"),
+            unit_cost=Decimal("100"),
+        ),
+    )
+    session.commit()
+
+    assert (
+        transaction.batch_id == batch_id
+    ), "the movement takes the batch of the stock it moved"
+    ledger = session.scalar(
+        select(StockLedgerEntry).where(
+            StockLedgerEntry.transaction_id == transaction.id
+        )
+    )
+    assert ledger is not None
+    assert ledger.batch_id == batch_id, "the ledger must be able to price a batch"
