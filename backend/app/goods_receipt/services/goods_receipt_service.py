@@ -159,9 +159,16 @@ class GoodsReceiptService(TransactionalDocumentService):
             count = count.where(condition)
         rows = self._session.scalars(
             statement.order_by(
-                columns.get(sort_by, GoodsReceipt.created_at).desc()
-                if descending
-                else columns.get(sort_by, GoodsReceipt.created_at).asc()
+                (
+                    columns.get(sort_by, GoodsReceipt.created_at).desc()
+                    if descending
+                    else columns.get(sort_by, GoodsReceipt.created_at).asc()
+                ),
+                # A sort column alone is not a total order: created_at is the
+                # transaction's start instant, shared by every row one request
+                # wrote, and paging over a tie can show one row twice and hide
+                # another.
+                GoodsReceipt.id.desc() if descending else GoodsReceipt.id.asc(),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)

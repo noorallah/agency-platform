@@ -1123,7 +1123,13 @@ class SalesTerritoryService:
             )
         rows = list(
             self._session.scalars(
-                statement.order_by(BeatPlan.created_at.desc())
+                statement.order_by(
+                    BeatPlan.created_at.desc(),
+                    # created_at is the transaction's start instant, shared by
+                    # every row one request wrote, and OFFSET over a tie can
+                    # repeat a row on the next page and skip another.
+                    BeatPlan.id.desc(),
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

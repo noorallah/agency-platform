@@ -957,7 +957,10 @@ class TaxFrameworkService:
                     ]
                 ),
             )
-            .order_by(AuditLog.created_at.desc())
+            # One request writes several audit rows and they all share
+            # created_at -- 13 of them in the seeded store -- so the cut at
+            # `limit` lands mid-tie and shows an arbitrary subset.
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
             .limit(limit)
         ).all()
         return [
