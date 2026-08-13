@@ -52,6 +52,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import inspect, select, text
+from sqlalchemy.engine import Inspector
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
@@ -140,8 +141,8 @@ RESET_ORDER: tuple[str, ...] = (
     "goods_receipt_notes",
     "goods_receipt_lines",
     "goods_receipts",
-    "purchase_order_attachments",
-    "purchase_order_notes",
+    "purchase_attachments",
+    "purchase_notes",
     "purchase_order_lines",
     "purchase_orders",
     "gl_postings",
@@ -152,7 +153,7 @@ RESET_ORDER: tuple[str, ...] = (
     "opening_stock_batches",
     "stock_ledger_entries",
     "inventory_transactions",
-    "inventory_records",
+    "inventories",
     "product_valuations",
     "document_lifecycle_events",
     "document_number_sequences",
@@ -169,6 +170,35 @@ CHILD_TABLES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def _assert_reset_tables_exist(inspector: Inspector) -> None:
+    """Refuse to reset when a configured table name is not a real table.
+
+    The loops below used to skip a name the store did not have, silently. Three
+    names were wrong and nobody could tell: ``purchase_order_attachments`` and
+    ``purchase_order_notes`` (really ``purchase_attachments`` /
+    ``purchase_notes``, and harmless because they cascade from the order) and
+    ``inventory_records`` -- really ``inventories``, and not harmless at all.
+
+    That one meant every regeneration deleted the movements, the ledger and the
+    valuation while leaving the stock projection standing, so a firm's on-hand
+    quantity grew by a run's worth each time and no ledger entry explained the
+    balance. One store had 4,547 units on hand with 700 accounted for.
+
+    A wrong name is a bug in this file, not a property of the database, so it
+    stops the run rather than quietly doing less than it says.
+    """
+    configured = {table for table in RESET_ORDER}
+    configured.update(table for table, _, _ in CHILD_TABLES)
+    configured.update(parent for _, _, parent in CHILD_TABLES)
+    missing = sorted(name for name in configured if not inspector.has_table(name))
+    if missing:
+        raise RuntimeError(
+            "reset_history is configured with table(s) that do not exist: "
+            f"{', '.join(missing)}. Correct the name -- skipping it would "
+            "leave the rows it was meant to clear."
+        )
+
+
 def reset_history(session: Session, firm_id: UUID) -> int:
     """Delete one firm's trading history, leaving its master data alone.
 
@@ -181,10 +211,9 @@ def reset_history(session: Session, firm_id: UUID) -> int:
     # engine gets a fresh one without it -- it then finds none of the
     # tables and deletes nothing, silently.
     inspector = inspect(session.connection())
+    _assert_reset_tables_exist(inspector)
     removed = 0
     for table, parent_column, parent_table in CHILD_TABLES:
-        if not inspector.has_table(table) or not inspector.has_table(parent_table):
-            continue
         result = session.execute(
             text(
                 f"DELETE FROM {table} WHERE {parent_column} IN "  # noqa: S608
@@ -194,8 +223,6 @@ def reset_history(session: Session, firm_id: UUID) -> int:
         )
         removed += result.rowcount or 0
     for table in RESET_ORDER:
-        if not inspector.has_table(table):
-            continue
         columns = {column["name"] for column in inspector.get_columns(table)}
         if "firm_id" not in columns:
             continue
