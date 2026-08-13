@@ -18,7 +18,7 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
@@ -697,3 +697,59 @@ def test_product_totals_sum_across_a_product_s_batches() -> None:
     assert totals[0].current_quantity == Decimal("105"), (
         "two batches and the untracked row must add up"
     )
+
+
+def test_a_product_that_must_be_issued_from_a_batch_is_not_shipped_untracked() -> None:
+    """``require_batch_on_issue`` was stored and read by nothing.
+
+    Untracked stock is exactly what the flag forbids, so it must not be
+    allocated: shipping it is shipping goods nobody can trace, which is the
+    situation the flag exists to prevent.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "MUSTBAT")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    product.require_batch_on_issue = True
+    setup.commit()
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    # Stock exists, but none of it is in a batch.
+    inventory = service._ensure_inventory_projection(
+        firm_id=firm.id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        actor_id=actor_id,
+        batch_id=None,
+    )
+    session.flush()
+    service._stage_movement(
+        inventory,
+        actor_id=actor_id,
+        movement=_Movement(
+            transaction_type="GOODS_RECEIPT",
+            reference_number="GRN-MUSTBAT",
+            reference_type="GOODS_RECEIPT",
+            transaction_date=date(2026, 8, 13),
+            quantity=Decimal("50"),
+            current_delta=Decimal("50"),
+        ),
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="only be issued from a batch"):
+        service.allocate_for_dispatch(
+            firm_scope=firm.id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            quantity=Decimal("10"),
+        )
