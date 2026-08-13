@@ -27,6 +27,7 @@ from app.batch_serial.schemas.batch_serial import (
     SerialListFilters,
     SerialUpdate,
 )
+from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import (
@@ -37,6 +38,7 @@ from app.core.exceptions import (
 from app.core.utils.dates import utc_now
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
+from app.products.models import Product
 
 
 class BatchSerialService:
@@ -121,15 +123,31 @@ class BatchSerialService:
         it there. It used to be both, and the two answers drifted the moment
         anything moved stock without going through the batch API.
 
-        One query serves the whole page, however many batches are on it.
+        The product, warehouse and branch a batch belongs to are named here
+        too. The response has declared those six fields since it was written
+        and nothing ever filled them, so the desktop's batch grid rendered a
+        product column reading " - " and a warehouse column reading "—" for
+        every row -- the batch register was unreadable without knowing UUIDs.
+
+        Four queries serve the whole page, however many batches are on it: one
+        for the stock and one for each kind of name. Looking a name up per row
+        is the shape that makes a twenty-row page eighty queries.
         """
         totals = InventoryService(self._session).stock_by_batch(
             firm_scope=firm_scope, batch_ids=[record.id for record in records]
         )
+        products = self._names(Product, {record.product_id for record in records})
+        warehouses = self._names(Warehouse, {record.warehouse_id for record in records})
+        branches = self._names(Branch, {record.branch_id for record in records})
         empty = BatchStockTotals()
         responses = []
         for record in records:
             held = totals.get(record.id, empty)
+            product_code, product_name = self._named(products, record.product_id)
+            warehouse_code, warehouse_name = self._named(
+                warehouses, record.warehouse_id
+            )
+            branch_code, branch_name = self._named(branches, record.branch_id)
             responses.append(
                 BatchResponse.model_validate(record).model_copy(
                     update={
@@ -139,10 +157,48 @@ class BatchSerialService:
                         "blocked_quantity": held.blocked_quantity,
                         "damaged_quantity": held.damaged_quantity,
                         "quarantine_quantity": held.quarantine_quantity,
+                        "product_code": product_code,
+                        "product_name": product_name,
+                        "warehouse_code": warehouse_code,
+                        "warehouse_name": warehouse_name,
+                        "branch_code": branch_code,
+                        "branch_name": branch_name,
                     }
                 )
             )
         return responses
+
+    def _named(
+        self, lookup: dict[UUID, tuple[str, str]], record_id: UUID | None
+    ) -> tuple[str | None, str | None]:
+        """Read one code and name out of a bulk lookup, or nulls.
+
+        A batch's warehouse and branch are optional, and a record can be
+        missing -- a soft-deleted product still has batches. Neither is worth
+        failing a list over; the id is still in the response.
+        """
+        if record_id is None:
+            return None, None
+        found = lookup.get(record_id)
+        return found if found is not None else (None, None)
+
+    def _names(
+        self,
+        model: type[Branch] | type[Product] | type[Warehouse],
+        ids: set[UUID | None],
+    ) -> dict[UUID, tuple[str, str]]:
+        """Return the code and name of each of these records, in one query.
+
+        A batch's warehouse and branch are optional, so the ids arrive with
+        NULLs mixed in; they are dropped rather than queried for.
+        """
+        wanted = {value for value in ids if value is not None}
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(model.id, model.code, model.name).where(model.id.in_(wanted))
+        ).all()
+        return {row[0]: (row[1], row[2]) for row in rows}
 
     def batch_response(self, record: BatchRecord, *, firm_scope: UUID) -> BatchResponse:
         """Render one batch with the stock it is actually holding."""

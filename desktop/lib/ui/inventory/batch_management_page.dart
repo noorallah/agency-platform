@@ -401,7 +401,9 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       selectedId: _selectedBatch?.id,
       cells: (b) => [
         b.batchNumber,
-        '${b.productCode} - ${b.productName}',
+        // A product whose code and name are both missing -- soft-deleted, or
+        // an older record -- would otherwise render as a bare " - ".
+        _productLabel(b),
         b.status,
         b.quantity,
         b.availableQuantity,
@@ -546,6 +548,14 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         }
       },
     );
+  }
+
+  /// Name the product a batch holds, however much of it the server knew.
+  String _productLabel(BatchRecord batch) {
+    if (batch.productCode.isEmpty && batch.productName.isEmpty) return '—';
+    if (batch.productCode.isEmpty) return batch.productName;
+    if (batch.productName.isEmpty) return batch.productCode;
+    return '${batch.productCode} - ${batch.productName}';
   }
 
   /// What a batche's details are, in one place.
