@@ -6,11 +6,15 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
+import '../../models/product.dart';
+import '../../models/purchase.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import 'goods_receipt_editor_dialog.dart';
 
 class GoodsReceiptManagementPage extends StatefulWidget {
   const GoodsReceiptManagementPage({
@@ -48,11 +52,20 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   List<GoodsReceiptRecord> _receipts = const [];
   GoodsReceiptRecord? _selected;
   List<DocumentTimelineSnapshot> _history = const [];
+  // Reference data the receipt editor needs. Loaded once when the workspace
+  // opens rather than each time the dialog does, so choosing an order is
+  // immediate.
+  List<PurchaseOrder> _receivableOrders = const [];
+  List<WarehouseRecord> _warehouses = const [];
+  List<Product> _products = const [];
+
+  bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadReferenceData());
   }
 
   @override
@@ -126,6 +139,64 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         setState(() => _loading = false);
       }
     }
+  }
+
+  /// Load what the editor needs to seed a receipt: the orders that can still
+  /// be received against, the bays goods can go to, and product names.
+  ///
+  /// Failure here is not fatal to the workspace -- the list of receipts is
+  /// still readable -- so it leaves the create action disabled rather than
+  /// taking the page down with it.
+  Future<void> _loadReferenceData() async {
+    if (!widget.hasActiveFirm || !_canCreate) return;
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        widget.api.purchases(
+          page: 1,
+          pageSize: 100,
+          sortBy: 'purchase_date',
+          descending: true,
+          filters: const PurchaseQuery(status: 'APPROVED'),
+        ),
+        widget.api.warehouses(page: 1, pageSize: 100),
+        widget.api.products(page: 1, pageSize: 100),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _receivableOrders = (results[0] as PagedResult<PurchaseOrder>).items;
+        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
+        _products = (results[2] as PagedResult<Product>).items;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() {
+        _receivableOrders = const [];
+      });
+    }
+  }
+
+  /// Open the receipt editor and reload if it saved one.
+  Future<void> _createReceipt() async {
+    final GoodsReceiptRecord? saved = await showDialog<GoodsReceiptRecord>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => GoodsReceiptEditorDialog(
+        api: widget.api,
+        purchaseOrders: _receivableOrders,
+        warehouses: _warehouses,
+        products: _products,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    setState(() => _selected = saved);
+    NotificationService.show(
+      context,
+      'Goods receipt ${saved.grnNumber} created as a draft. Complete it to '
+      'post the stock.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   /// Whether [action] is valid for the selected receipt's current status.
@@ -225,13 +296,35 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
                         children: [
                           Padding(
                             padding: const EdgeInsets.all(16),
-                            child: TextField(
-                              controller: _search,
-                              decoration: const InputDecoration(
-                                labelText: 'Search receipts',
-                                prefixIcon: Icon(Icons.search),
-                              ),
-                              onSubmitted: (_) => _load(requestedPage: 1),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _search,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Search receipts',
+                                      prefixIcon: Icon(Icons.search),
+                                    ),
+                                    onSubmitted: (_) =>
+                                        _load(requestedPage: 1),
+                                  ),
+                                ),
+                                if (_canCreate) ...[
+                                  const SizedBox(width: 12),
+                                  FilledButton.icon(
+                                    // Nothing to receive against means nothing
+                                    // to raise: a goods receipt line requires a
+                                    // purchase order line, so an empty order
+                                    // list is a disabled button and not an
+                                    // empty dialog.
+                                    onPressed: _receivableOrders.isEmpty
+                                        ? null
+                                        : _createReceipt,
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('New Receipt'),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                           Expanded(
