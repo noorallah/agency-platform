@@ -8,8 +8,11 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
+import '../../models/goods_receipt.dart';
+import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import 'purchase_return_editor_dialog.dart';
 
 class PurchaseReturnManagementPage extends StatefulWidget {
   const PurchaseReturnManagementPage({
@@ -43,11 +46,68 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
   List<_PurchaseReturnRecord> _returns = const [];
   _PurchaseReturnRecord? _selected;
   List<DocumentTimelineSnapshot> _history = const [];
+  // Reference data the editor needs, loaded once with the workspace.
+  List<GoodsReceiptRecord> _returnableReceipts = const [];
+  List<Product> _products = const [];
+
+  bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadReferenceData());
+  }
+
+  /// Load the receipts that can be sent back and the products they name.
+  ///
+  /// Failing here leaves the create action disabled rather than taking the
+  /// workspace down; the list of returns is still readable without it.
+  Future<void> _loadReferenceData() async {
+    if (!widget.hasActiveFirm || !_canCreate) return;
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        widget.api.goodsReceipts(
+          page: 1,
+          pageSize: 100,
+          sortBy: 'receipt_date',
+          descending: true,
+          filters: const {'status': 'COMPLETED'},
+        ),
+        widget.api.products(page: 1, pageSize: 100),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _returnableReceipts =
+            (results[0] as PagedResult<GoodsReceiptRecord>).items;
+        _products = (results[1] as PagedResult<Product>).items;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _returnableReceipts = const []);
+    }
+  }
+
+  /// Open the editor and reload if it saved a return.
+  Future<void> _createReturn() async {
+    final Json? saved = await showDialog<Json>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PurchaseReturnEditorDialog(
+        api: widget.api,
+        receipts: _returnableReceipts,
+        products: _products,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Purchase return ${stringValue(saved['return_number'])} created as a '
+      'draft. Approving and completing it is what takes the stock off.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   @override
@@ -211,13 +271,34 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
                         children: [
                           Padding(
                             padding: const EdgeInsets.all(16),
-                            child: TextField(
-                              controller: _search,
-                              decoration: const InputDecoration(
-                                labelText: 'Search returns',
-                                prefixIcon: Icon(Icons.search),
-                              ),
-                              onSubmitted: (_) => _load(requestedPage: 1),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _search,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Search returns',
+                                      prefixIcon: Icon(Icons.search),
+                                    ),
+                                    onSubmitted: (_) => _load(requestedPage: 1),
+                                  ),
+                                ),
+                                if (_canCreate) ...[
+                                  const SizedBox(width: 12),
+                                  FilledButton.icon(
+                                    // Nothing received is nothing to send
+                                    // back: a return line belongs to a
+                                    // receipt line, so an empty list is a
+                                    // disabled button rather than an empty
+                                    // dialog.
+                                    onPressed: _returnableReceipts.isEmpty
+                                        ? null
+                                        : _createReturn,
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('New Return'),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                           Expanded(
