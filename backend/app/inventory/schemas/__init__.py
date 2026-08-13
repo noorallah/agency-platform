@@ -1,6 +1,7 @@
 """Inventory API contracts."""
 
 from app.inventory.schemas.inventory import (
+    REVERSAL_SUFFIX,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -9,6 +10,7 @@ from app.inventory.schemas.inventory import (
     InventorySummary,
     InventoryTransactionListFilters,
     InventoryTransactionResponse,
+    InventoryTransactionType,
     InventoryUpdate,
     OpeningStockBatchCreate,
     OpeningStockBatchListFilters,
@@ -22,6 +24,7 @@ from app.inventory.schemas.inventory import (
 )
 
 __all__ = [
+    "REVERSAL_SUFFIX",
     "InventoryAdjustmentCreate",
     "InventoryCreate",
     "InventoryListFilters",
@@ -29,6 +32,7 @@ __all__ = [
     "InventoryResponse",
     "InventorySummary",
     "InventoryTransactionListFilters",
+    "InventoryTransactionType",
     "InventoryTransactionResponse",
     "InventoryUpdate",
     "OpeningStockBatchCreate",

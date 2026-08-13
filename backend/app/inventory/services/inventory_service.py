@@ -29,6 +29,7 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.schemas import (
+    REVERSAL_SUFFIX,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -37,6 +38,7 @@ from app.inventory.schemas import (
     InventorySummary,
     InventoryTransactionListFilters,
     InventoryTransactionResponse,
+    InventoryTransactionType,
     InventoryUpdate,
     OpeningStockBatchCreate,
     OpeningStockBatchListFilters,
@@ -849,7 +851,7 @@ class InventoryService:
                 inventory,
                 actor_id=actor_id,
                 movement=_Movement(
-                    transaction_type="OPENING_STOCK",
+                    transaction_type=InventoryTransactionType.OPENING_STOCK.value,
                     reference_number=batch.reference_number,
                     reference_type="OPENING_STOCK",
                     transaction_date=batch.posting_date,
@@ -1107,7 +1109,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="ADJUSTMENT",
+                transaction_type=InventoryTransactionType.ADJUSTMENT.value,
                 reference_number=data.reference_number.strip().upper(),
                 reference_type=data.reference_type.strip().upper(),
                 transaction_date=data.transaction_date,
@@ -1178,7 +1180,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="GOODS_RECEIPT",
+                transaction_type=InventoryTransactionType.GOODS_RECEIPT.value,
                 unit_cost=unit_cost,
                 reference_number=reference_number.strip().upper(),
                 reference_type="GOODS_RECEIPT",
@@ -1325,7 +1327,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type=f"{original.transaction_type}_REVERSAL"[:40],
+                transaction_type=f"{original.transaction_type}{REVERSAL_SUFFIX}"[:40],
                 reference_number=original.reference_number,
                 reference_type=original.reference_type,
                 transaction_date=original.transaction_date,
@@ -1408,7 +1410,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="RETURN",
+                transaction_type=InventoryTransactionType.RETURN.value,
                 reference_number=reference_number.strip().upper(),
                 reference_type="PURCHASE_RETURN",
                 transaction_date=transaction_date,
@@ -1480,7 +1482,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="RESERVE",
+                transaction_type=InventoryTransactionType.RESERVE.value,
                 reference_number=reference_number.strip().upper(),
                 reference_type="SALES_ORDER",
                 transaction_date=transaction_date,
@@ -1540,7 +1542,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="UNRESERVE",
+                transaction_type=InventoryTransactionType.UNRESERVE.value,
                 reference_number=reference_number.strip().upper(),
                 reference_type="SALES_ORDER",
                 transaction_date=transaction_date,
@@ -1600,7 +1602,7 @@ class InventoryService:
             inventory,
             actor_id=actor_id,
             movement=_Movement(
-                transaction_type="DISPATCH",
+                transaction_type=InventoryTransactionType.DISPATCH.value,
                 reference_number=reference_number.strip().upper(),
                 reference_type="DELIVERY_NOTE",
                 transaction_date=transaction_date,
@@ -2034,10 +2036,10 @@ class InventoryService:
     ) -> tuple[Select[Any], Select[Any]]:
         if filters.transaction_type is not None:
             statement = statement.where(
-                InventoryTransaction.transaction_type == filters.transaction_type.value
+                InventoryTransaction.transaction_type == filters.transaction_type
             )
             count = count.where(
-                InventoryTransaction.transaction_type == filters.transaction_type.value
+                InventoryTransaction.transaction_type == filters.transaction_type
             )
         for field, value in {
             InventoryTransaction.branch_id: filters.branch_id,
@@ -2092,10 +2094,10 @@ class InventoryService:
     ) -> tuple[Select[Any], Select[Any]]:
         if filters.transaction_type is not None:
             statement = statement.where(
-                StockLedgerEntry.transaction_type == filters.transaction_type.value
+                StockLedgerEntry.transaction_type == filters.transaction_type
             )
             count = count.where(
-                StockLedgerEntry.transaction_type == filters.transaction_type.value
+                StockLedgerEntry.transaction_type == filters.transaction_type
             )
         for field, value in {
             StockLedgerEntry.branch_id: filters.branch_id,
