@@ -782,6 +782,84 @@ def test_a_batch_holds_what_its_movements_gave_it_and_nothing_else() -> None:
     assert reported.available_quantity == Decimal("40")
 
 
+def test_a_stock_row_says_which_batch_it_holds() -> None:
+    """The list returns a row per batch, so a row has to name its batch.
+
+    The grain changed in stage one and the response did not follow, so two
+    rows of one product in one bay were indistinguishable to any caller --
+    including a dispatch screen trying to show which stock would go first.
+    Expiry travels with the number because that is what decides the order.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "ROWBAT")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    batch = BatchRecord(
+        firm_id=firm.id,
+        product_id=product.id,
+        batch_number="MARCH-01",
+        expiry_date=date(2027, 3, 31),
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    setup.add(batch)
+    setup.commit()
+
+    service = InventoryService(setup)
+    actor_id = uuid4()
+    tracked = service._ensure_inventory_projection(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        actor_id=actor_id,
+        batch_id=batch.id,
+    )
+    untracked = service._ensure_inventory_projection(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        actor_id=actor_id,
+    )
+    setup.commit()
+
+    named = service.inventory_response(tracked)
+    assert named.batch_id == batch.id
+    assert named.batch_number == "MARCH-01"
+    assert named.batch_expiry_date == date(2027, 3, 31)
+
+    plain = service.inventory_response(untracked)
+    assert plain.batch_id is None
+    assert plain.batch_number is None, "untracked stock belongs to no batch"
+
+    # The movement carries it too. The ledger has recorded which batch moved
+    # since the grain changed, which is what makes batch cost and a recall
+    # answerable -- but no response carried it, so the question could only be
+    # asked in SQL.
+    movement = service._stage_movement(
+        tracked,
+        actor_id=actor_id,
+        movement=_Movement(
+            transaction_type="GOODS_RECEIPT",
+            reference_number="GRN-ROWBAT",
+            reference_type="GOODS_RECEIPT",
+            transaction_date=date(2026, 8, 13),
+            quantity=Decimal("5"),
+            current_delta=Decimal("5"),
+            batch_id=batch.id,
+        ),
+    )
+    setup.commit()
+    reported = service.transaction_response(movement)
+    assert reported.batch_id == batch.id
+    assert reported.batch_number == "MARCH-01"
+
+
 def test_a_batch_that_never_received_stock_reports_zero() -> None:
     """A registered batch with no movements holds nothing, and must say so.
 

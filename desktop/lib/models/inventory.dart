@@ -27,6 +27,9 @@ class InventoryRecord {
     required this.productId,
     required this.productCode,
     required this.productName,
+    required this.batchId,
+    required this.batchNumber,
+    required this.batchExpiryDate,
     required this.businessProfileId,
     required this.businessProfileCode,
     required this.currentQuantity,
@@ -61,6 +64,13 @@ class InventoryRecord {
   final String productId;
   final String productCode;
   final String productName;
+
+  /// The batch this row holds, empty where the product is not tracked. A stock
+  /// row is identified by its batch, so two rows of one product in one bay are
+  /// told apart by this and nothing else.
+  final String batchId;
+  final String batchNumber;
+  final String batchExpiryDate;
   final String businessProfileId;
   final String businessProfileCode;
   final String currentQuantity;
@@ -95,6 +105,9 @@ class InventoryRecord {
         productId: stringValue(json['product_id']),
         productCode: stringValue(json['product_code']),
         productName: stringValue(json['product_name']),
+        batchId: stringValue(json['batch_id']),
+        batchNumber: stringValue(json['batch_number']),
+        batchExpiryDate: stringValue(json['batch_expiry_date']),
         businessProfileId: stringValue(json['business_profile_id']),
         businessProfileCode: stringValue(json['business_profile_code']),
         currentQuantity: _numberValue(json['current_quantity']),

@@ -2033,8 +2033,12 @@ class InventoryService:
 
     def inventory_response(self, row: InventoryRecord) -> InventoryResponse:
         """Expose one stock projection."""
+        batch_number, batch_expiry = self._lookup_batch(row.batch_id)
         return InventoryResponse.model_validate(
             {
+                "batch_id": row.batch_id,
+                "batch_number": batch_number,
+                "batch_expiry_date": batch_expiry,
                 "id": row.id,
                 "firm_id": row.firm_id,
                 "branch_id": row.branch_id,
@@ -2111,6 +2115,8 @@ class InventoryService:
             "product_id": row.product_id,
             "product_code": self._lookup_product_code(row.product_id),
             "product_name": self._lookup_product_name(row.product_id),
+            "batch_id": row.batch_id,
+            "batch_number": self._lookup_batch(row.batch_id)[0],
             "business_profile_id": row.business_profile_id,
             "transaction_type": row.transaction_type,
             "reference_number": row.reference_number,
@@ -2979,6 +2985,19 @@ class InventoryService:
             self._session.scalar(select(Product.name).where(Product.id == product_id))
             or ""
         )
+
+    def _lookup_batch(self, batch_id: UUID | None) -> tuple[str | None, date | None]:
+        """Return a batch's number and expiry, in one query rather than two."""
+        if batch_id is None:
+            return None, None
+        row = self._session.execute(
+            select(BatchRecord.batch_number, BatchRecord.expiry_date).where(
+                BatchRecord.id == batch_id
+            )
+        ).first()
+        if row is None:
+            return None, None
+        return row[0], row[1]
 
     def _lookup_profile_code(self, profile_id: UUID | None) -> str | None:
         if profile_id is None:

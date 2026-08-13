@@ -181,19 +181,21 @@ being received, each defaults to what is still outstanding on it, and the batch
 number typed off the carton reaches the server. That is the first document the
 desktop can create, and it makes the batch work reachable by a user.
 
-**The delivery note and purchase return pages still cannot create one.** Both
-list and view documents only -- `EnterpriseDocumentLines` renders a
-`DocumentLineSnapshot`, with no line editor. Neither is a copy of the receipt
-editor:
+**Delivery note entry is built** (`delivery_note_editor_dialog.dart`): lines are
+seeded from the sales order, each defaults to what is **reserved** rather than
+what was ordered — dispatching more than is reserved is refused, so the ordered
+quantity would look right and fail — and each line shows which batches it is
+expected to ship from, earliest expiry first. Nobody types a batch: the server
+allocates at dispatch, and the preview says so rather than implying a decision
+has been made.
 
-- A **delivery note** is raised against a sales order and allocates across
-  batches by earliest expiry, so the line editor shows what will be drawn from
-  where rather than taking a batch number as input.
-- A **purchase return** names one batch per line and refuses a number that was
-  never received, so its field needs the batch register behind it rather than
-  free text.
+**The purchase return page still cannot create one.** It lists and views only --
+`EnterpriseDocumentLines` renders a `DocumentLineSnapshot`, with no line editor.
+It is not a copy of either editor built so far: a purchase return names one
+batch per line and refuses a number that was never received, so its field wants
+the batch register behind it rather than free text or a preview.
 
-Two things the batch work leaves behind for whoever picks those up:
+Two things the batch work leaves behind for whoever picks that up:
 
 - **`BatchResponse` still returns `product_code`, `product_name`,
   `warehouse_code`, `warehouse_name`, `branch_code` and `branch_name` as null.**
@@ -206,13 +208,22 @@ Two things the batch work leaves behind for whoever picks those up:
   onto document lines but never registers a batch, which is why the receipt path
   that creates them never runs during a seed.
 
-Two decisions in the receipt editor worth knowing before copying it:
+Decisions in the two editors worth knowing before copying them:
 
-- **It offers only APPROVED purchase orders.** The backend accepts a receipt
-  against an order in any state, so this is a client-side policy: goods should
-  not be booked in against an order nobody approved. If that turns out to be
-  wrong for a warehouse that receives before the paperwork catches up, the fix
-  is to widen the filter, not to loosen the server.
+- **They offer only APPROVED source documents.** The backend accepts a receipt
+  against a purchase order in any state, so this is a client-side policy: goods
+  should not be booked in against an order nobody approved. If that turns out to
+  be wrong for a warehouse that receives before the paperwork catches up, the
+  fix is to widen the filter, not to loosen the server.
+- **The delivery editor's allocation is a preview, not a decision.** It mirrors
+  `allocate_for_dispatch` client-side over the stock rows it can see, and the
+  server allocates for real at dispatch — stock can move in between, so the
+  wording on screen says "expected to ship from" and never claims more.
+- **`reserved_quantity` of zero has two meanings** and the editor separates
+  them: an order nobody approved has reserved nothing yet, while a fully
+  delivered one released its reservation on the way out. Every seeded order in
+  the demo store is in the second state, so a single message would have been
+  wrong for all of them.
 - **The expiry and vehicle fields are shown to every firm**, so a firm without
   EXPIRY_TRACKING or VEHICLE_TRACKING can type one and be refused on save --
   proven while verifying this, where completing a receipt carrying an expiry

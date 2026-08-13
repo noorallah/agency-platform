@@ -123,6 +123,16 @@ class InventoryResponse(InventorySchema):
     product_id: UUID
     product_code: str
     product_name: str
+    #: The batch this row holds, or null where the product is not tracked.
+    #: A stock row has been identified by its batch since the grain changed,
+    #: and the list endpoint returns the individual rows precisely because
+    #: which batch stock is in is the reason it changed -- but it could not say
+    #: which, so two rows of one product in one bay were indistinguishable.
+    #: The number and expiry travel with it because every caller that wants the
+    #: batch wants to show it, and expiry is what decides which goes first.
+    batch_id: UUID | None = None
+    batch_number: str | None = None
+    batch_expiry_date: date | None = None
     business_profile_id: UUID | None
     business_profile_code: str | None = None
     current_quantity: Decimal
@@ -226,6 +236,12 @@ class InventoryTransactionResponse(InventorySchema):
     product_id: UUID
     product_code: str
     product_name: str
+    #: The batch this movement moved, or null where the stock is untracked.
+    #: The ledger has recorded it since the grain changed -- that is what makes
+    #: batch cost and a recall answerable -- but no response carried it, so the
+    #: question could only be asked in SQL.
+    batch_id: UUID | None = None
+    batch_number: str | None = None
     business_profile_id: UUID | None
     # A recorded movement type, not a closed set. The ledger is an immutable
     # historical record: it already holds RESERVE, UNRESERVE and DISPATCH,
