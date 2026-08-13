@@ -263,6 +263,10 @@ class CustomerRepository:
             .order_by(
                 CustomerReceivableTransaction.transaction_date.desc(),
                 CustomerReceivableTransaction.created_at.desc(),
+                # created_at is the transaction's start instant, so rows one
+                # request wrote share it and OFFSET is free to repeat one page's
+                # row on the next and skip another.
+                CustomerReceivableTransaction.id.desc(),
             )
             .offset(offset)
             .limit(limit)

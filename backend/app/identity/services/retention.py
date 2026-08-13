@@ -117,7 +117,12 @@ class IdentityRetentionService:
                 self._session.scalars(
                     select(PasswordHistory.id)
                     .where(PasswordHistory.user_id == user_id)
-                    .order_by(PasswordHistory.created_at.desc())
+                    # Ties decide which row survives the cut, and created_at
+                    # is shared by everything one request wrote.
+                    .order_by(
+                        PasswordHistory.created_at.desc(),
+                        PasswordHistory.id.desc(),
+                    )
                     .offset(keep)
                 ).all()
             )

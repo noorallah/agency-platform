@@ -119,6 +119,9 @@ class TaxRuleService:
                 TaxRule.code.asc(),
                 TaxRule.version_number.desc(),
                 TaxRule.created_at.desc(),
+                # Priority, code and version are near-unique together, but
+                # "near" is not a total order and this query pages.
+                TaxRule.id.desc(),
             )
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -209,7 +212,12 @@ class TaxRuleService:
             )
         return list(
             self._session.scalars(
-                statement.order_by(TaxRuleExecutionLog.created_at.desc()).limit(limit)
+                statement.order_by(
+                    TaxRuleExecutionLog.created_at.desc(),
+                    # A document line writes one log each, in one request, so
+                    # they share created_at and the cut is otherwise arbitrary.
+                    TaxRuleExecutionLog.id.desc(),
+                ).limit(limit)
             ).all()
         )
 

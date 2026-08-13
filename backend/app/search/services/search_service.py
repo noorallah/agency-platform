@@ -739,6 +739,11 @@ class SearchService:
             statement = statement.order_by(model.updated_at.desc())
         elif hasattr(model, "created_at"):
             statement = statement.order_by(model.created_at.desc())
+        # Both timestamps are the transaction's start instant, so every row one
+        # request wrote shares them and the cut at `limit` would otherwise take
+        # an arbitrary subset of the tie.
+        if hasattr(model, "id"):
+            statement = statement.order_by(model.id.desc())
         statement = statement.limit(limit)
         rows = self._session.scalars(statement).all()
         return [

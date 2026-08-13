@@ -267,7 +267,12 @@ class IdentityService:
                 PasswordHistory.user_id == user_id,
                 PasswordHistory.is_deleted.is_(False),
             )
-            .order_by(PasswordHistory.created_at.desc())
+            # Which rows fall inside the reuse window must not be arbitrary:
+            # created_at is shared by everything one request wrote.
+            .order_by(
+                PasswordHistory.created_at.desc(),
+                PasswordHistory.id.desc(),
+            )
             .limit(self._settings.security.password_history_count)
         ).all()
         if any(
