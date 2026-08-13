@@ -197,7 +197,10 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         ),
         filterPanel: _buildFilterPanel(),
         primaryContent: _buildPrimaryContent(),
-        detailsPanel: _buildDetailsPanel(),
+        // Selecting a row selects it; opening one is what double-click and
+        // the row's eye icon are for. The panel re-read a record the user had
+        // only pointed at, and took ~300px of the grid to do it.
+        detailsPanel: null,
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _selectedCount > 0,
@@ -545,90 +548,82 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     );
   }
 
-  Widget _buildDetailsPanel() {
-    final String title;
-    final List<DetailLine> lines;
-    switch (widget.section) {
-      case BatchSerialSection.batches:
-        title = 'Batch details';
-        lines = _selectedBatch == null
-            ? const []
-            : [
-                DetailLine('Batch #', _selectedBatch!.batchNumber),
-                DetailLine('Product', _selectedBatch!.productName),
-                DetailLine('Status', _selectedBatch!.status),
-                DetailLine('Quantity', _selectedBatch!.quantity),
-                DetailLine('Available', _selectedBatch!.availableQuantity),
-                DetailLine('Reserved', _selectedBatch!.reservedQuantity),
-                if (_selectedBatch!.expiryDate.isNotEmpty)
-                  DetailLine('Expiry', _selectedBatch!.expiryDate),
-                if (_selectedBatch!.manufacturingDate.isNotEmpty)
-                  DetailLine('Mfg Date', _selectedBatch!.manufacturingDate),
-                if (_selectedBatch!.warehouseName.isNotEmpty)
-                  DetailLine('Warehouse', _selectedBatch!.warehouseName),
-                if (_selectedBatch!.branchName.isNotEmpty)
-                  DetailLine('Branch', _selectedBatch!.branchName),
-                if (_selectedBatch!.supplierBatch.isNotEmpty)
-                  DetailLine('Supplier Batch', _selectedBatch!.supplierBatch),
-                if (_selectedBatch!.shelfLifeDays != null)
+  /// What a batche's details are, in one place.
+  ///
+  /// The dialog renders these; they were the selection panel's lines before it
+  /// was removed, so opening a row shows what pointing at one used to.
+  List<DetailLine> _batchLines(BatchRecord batch) =>
+      [
+                DetailLine('Batch #', batch.batchNumber),
+                DetailLine('Product', batch.productName),
+                DetailLine('Status', batch.status),
+                DetailLine('Quantity', batch.quantity),
+                DetailLine('Available', batch.availableQuantity),
+                DetailLine('Reserved', batch.reservedQuantity),
+                if (batch.expiryDate.isNotEmpty)
+                  DetailLine('Expiry', batch.expiryDate),
+                if (batch.manufacturingDate.isNotEmpty)
+                  DetailLine('Mfg Date', batch.manufacturingDate),
+                if (batch.warehouseName.isNotEmpty)
+                  DetailLine('Warehouse', batch.warehouseName),
+                if (batch.branchName.isNotEmpty)
+                  DetailLine('Branch', batch.branchName),
+                if (batch.supplierBatch.isNotEmpty)
+                  DetailLine('Supplier Batch', batch.supplierBatch),
+                if (batch.shelfLifeDays != null)
                   DetailLine(
-                      'Shelf Life', '${_selectedBatch!.shelfLifeDays} days'),
-                if (_selectedBatch!.remarks.isNotEmpty)
-                  DetailLine('Remarks', _selectedBatch!.remarks),
-                DetailLine('Created', _selectedBatch!.createdAt),
+                      'Shelf Life', '${batch.shelfLifeDays} days'),
+                if (batch.remarks.isNotEmpty)
+                  DetailLine('Remarks', batch.remarks),
+                DetailLine('Created', batch.createdAt),
               ];
-      case BatchSerialSection.lots:
-        title = 'Lot details';
-        lines = _selectedLot == null
-            ? const []
-            : [
-                DetailLine('Lot #', _selectedLot!.lotNumber),
-                DetailLine('Product', _selectedLot!.productName),
-                DetailLine('Type', _selectedLot!.lotType),
-                DetailLine('Status', _selectedLot!.status),
-                DetailLine('Quantity', _selectedLot!.quantity),
-                if (_selectedLot!.expiryDate.isNotEmpty)
-                  DetailLine('Expiry', _selectedLot!.expiryDate),
-                if (_selectedLot!.productionDate.isNotEmpty)
-                  DetailLine('Production Date', _selectedLot!.productionDate),
-                if (_selectedLot!.warehouseName.isNotEmpty)
-                  DetailLine('Warehouse', _selectedLot!.warehouseName),
-                if (_selectedLot!.remarks.isNotEmpty)
-                  DetailLine('Remarks', _selectedLot!.remarks),
-                DetailLine('Created', _selectedLot!.createdAt),
+
+  /// What a lot's details are, in one place.
+  ///
+  /// The dialog renders these; they were the selection panel's lines before it
+  /// was removed, so opening a row shows what pointing at one used to.
+  List<DetailLine> _lotLines(LotRecord lot) =>
+      [
+                DetailLine('Lot #', lot.lotNumber),
+                DetailLine('Product', lot.productName),
+                DetailLine('Type', lot.lotType),
+                DetailLine('Status', lot.status),
+                DetailLine('Quantity', lot.quantity),
+                if (lot.expiryDate.isNotEmpty)
+                  DetailLine('Expiry', lot.expiryDate),
+                if (lot.productionDate.isNotEmpty)
+                  DetailLine('Production Date', lot.productionDate),
+                if (lot.warehouseName.isNotEmpty)
+                  DetailLine('Warehouse', lot.warehouseName),
+                if (lot.remarks.isNotEmpty)
+                  DetailLine('Remarks', lot.remarks),
+                DetailLine('Created', lot.createdAt),
               ];
-      case BatchSerialSection.serials:
-        title = 'Serial details';
-        lines = _selectedSerial == null
-            ? const []
-            : [
-                DetailLine('Serial #', _selectedSerial!.serialNumber),
-                DetailLine('Product', _selectedSerial!.productName),
-                DetailLine('Status', _selectedSerial!.status),
-                if (_selectedSerial!.batchNumber.isNotEmpty)
-                  DetailLine('Batch', _selectedSerial!.batchNumber),
-                if (_selectedSerial!.warrantyStart.isNotEmpty)
-                  DetailLine('Warranty Start', _selectedSerial!.warrantyStart),
-                if (_selectedSerial!.warrantyEnd.isNotEmpty)
-                  DetailLine('Warranty End', _selectedSerial!.warrantyEnd),
-                if (_selectedSerial!.manufacturedDate.isNotEmpty)
-                  DetailLine('Manufactured', _selectedSerial!.manufacturedDate),
-                if (_selectedSerial!.warehouseName.isNotEmpty)
-                  DetailLine('Warehouse', _selectedSerial!.warehouseName),
-                if (_selectedSerial!.currentOwner.isNotEmpty)
-                  DetailLine('Owner', _selectedSerial!.currentOwner),
-                if (_selectedSerial!.assetReference.isNotEmpty)
-                  DetailLine('Asset Ref', _selectedSerial!.assetReference),
-                if (_selectedSerial!.remarks.isNotEmpty)
-                  DetailLine('Remarks', _selectedSerial!.remarks),
-                DetailLine('Created', _selectedSerial!.createdAt),
+
+  /// What a serial's details are, in one place.
+  List<DetailLine> _serialLines(SerialRecord serial) =>
+      [
+                DetailLine('Serial #', serial.serialNumber),
+                DetailLine('Product', serial.productName),
+                DetailLine('Status', serial.status),
+                if (serial.batchNumber.isNotEmpty)
+                  DetailLine('Batch', serial.batchNumber),
+                if (serial.warrantyStart.isNotEmpty)
+                  DetailLine('Warranty Start', serial.warrantyStart),
+                if (serial.warrantyEnd.isNotEmpty)
+                  DetailLine('Warranty End', serial.warrantyEnd),
+                if (serial.manufacturedDate.isNotEmpty)
+                  DetailLine('Manufactured', serial.manufacturedDate),
+                if (serial.warehouseName.isNotEmpty)
+                  DetailLine('Warehouse', serial.warehouseName),
+                if (serial.currentOwner.isNotEmpty)
+                  DetailLine('Owner', serial.currentOwner),
+                if (serial.assetReference.isNotEmpty)
+                  DetailLine('Asset Ref', serial.assetReference),
+                if (serial.remarks.isNotEmpty)
+                  DetailLine('Remarks', serial.remarks),
+                DetailLine('Created', serial.createdAt),
               ];
-      case BatchSerialSection.expiryMonitor:
-        title = 'Expiry details';
-        lines = const [];
-    }
-    return DetailsPanel(title: title, lines: lines);
-  }
 
   Widget _buildExpiryDashboard() {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -729,26 +724,18 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   void _openBatchDetailsDialog(BatchRecord batch) {
     showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.inventory_2_outlined),
         title: Text('Batch: ${batch.batchNumber}'),
         content: SizedBox(
-          width: 480,
+          width: 520,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _infoRow('Product', batch.productName),
-                _infoRow('Status', batch.status),
-                _infoRow('Quantity', batch.quantity),
-                _infoRow('Available', batch.availableQuantity),
-                if (batch.expiryDate.isNotEmpty)
-                  _infoRow('Expiry', batch.expiryDate),
-                if (batch.manufacturingDate.isNotEmpty)
-                  _infoRow('Mfg Date', batch.manufacturingDate),
-                if (batch.warehouseName.isNotEmpty)
-                  _infoRow('Warehouse', batch.warehouseName),
-                if (batch.branchName.isNotEmpty)
-                  _infoRow('Branch', batch.branchName),
+                for (final DetailLine line in _batchLines(batch))
+                  _infoRow(line.label, line.value),
               ],
             ),
           ),
@@ -823,29 +810,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   // ── Lot dialogs ──────────────────────────────────────────────────────────
 
   void _openLotDetailsDialog(LotRecord lot) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Lot: ${lot.lotNumber}'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _infoRow('Product', lot.productName),
-              _infoRow('Type', lot.lotType),
-              _infoRow('Status', lot.status),
-              _infoRow('Quantity', lot.quantity),
-              if (lot.expiryDate.isNotEmpty) _infoRow('Expiry', lot.expiryDate),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('Close')),
-        ],
-      ),
+    showDetailLinesDialog(
+      context,
+      title: 'Lot: ${lot.lotNumber}',
+      lines: _lotLines(lot),
+      icon: Icons.layers_outlined,
     );
   }
 
@@ -900,32 +869,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   // ── Serial dialogs ───────────────────────────────────────────────────────
 
   void _openSerialDetailsDialog(SerialRecord serial) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Serial: ${serial.serialNumber}'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _infoRow('Product', serial.productName),
-              _infoRow('Status', serial.status),
-              if (serial.warrantyEnd.isNotEmpty)
-                _infoRow('Warranty End', serial.warrantyEnd),
-              if (serial.warehouseName.isNotEmpty)
-                _infoRow('Warehouse', serial.warehouseName),
-              if (serial.currentOwner.isNotEmpty)
-                _infoRow('Owner', serial.currentOwner),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context), child: const Text('Close')),
-        ],
-      ),
+    showDetailLinesDialog(
+      context,
+      title: 'Serial: ${serial.serialNumber}',
+      lines: _serialLines(serial),
+      icon: Icons.qr_code_2_outlined,
     );
   }
 
