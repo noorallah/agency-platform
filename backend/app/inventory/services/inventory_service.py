@@ -1675,6 +1675,14 @@ class InventoryService:
                 )
             ).all()
         )
+        # `require_batch_on_issue` is the product saying its goods cannot leave
+        # unidentified. Untracked stock -- the row whose batch is NULL -- is
+        # exactly what that forbids, so it is dropped from the candidates and
+        # the dispatch is short rather than silently shipping stock nobody can
+        # trace.
+        product = self._session.get(Product, product_id)
+        if product is not None and product.require_batch_on_issue:
+            rows = [row for row in rows if row.batch_id is not None]
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -1687,7 +1695,13 @@ class InventoryService:
             outstanding -= take
         if outstanding > ZERO:
             raise ValidationError(
-                "Insufficient available stock to dispatch: short by " f"{outstanding}."
+                "Insufficient available stock to dispatch: short by "
+                f"{outstanding}."
+                + (
+                    " This product may only be issued from a batch."
+                    if product is not None and product.require_batch_on_issue
+                    else ""
+                )
             )
         return allocation
 

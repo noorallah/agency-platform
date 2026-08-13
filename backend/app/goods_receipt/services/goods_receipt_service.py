@@ -1075,6 +1075,21 @@ class GoodsReceiptService(TransactionalDocumentService):
             # the product's single one; without it the batch register and the
             # goods on the shelf stay two unrelated records of one delivery.
             batch_id: UUID | None = None
+            # `require_batch_on_receipt` is the product saying its goods cannot
+            # be taken in unidentified -- a medicine that has to be recallable,
+            # a food with an expiry. It was stored, returned by the API and
+            # read by nothing, so a receipt could take in batch-tracked stock
+            # with no batch and the shortfall only surfaced at a recall, when
+            # it is too late to fix.
+            product = self._session.get(Product, line.product_id)
+            if (
+                product is not None
+                and product.require_batch_on_receipt
+                and not (line.batch_number or "").strip()
+            ):
+                raise ValidationError(
+                    f"{product.code} must be received with a batch number."
+                )
             if (line.batch_number or "").strip():
                 batch_id = (
                     BatchSerialService(self._session)
