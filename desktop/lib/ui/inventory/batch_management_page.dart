@@ -955,7 +955,6 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _batchNumber = TextEditingController();
   final _supplierBatch = TextEditingController();
-  final _quantity = TextEditingController();
   final _expiryDate = TextEditingController();
   final _manufacturingDate = TextEditingController();
   final _remarks = TextEditingController();
@@ -968,7 +967,6 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
     if (widget.existing case final BatchRecord b) {
       _batchNumber.text = b.batchNumber;
       _supplierBatch.text = b.supplierBatch;
-      _quantity.text = b.quantity;
       _expiryDate.text = b.expiryDate;
       _manufacturingDate.text = b.manufacturingDate;
       _remarks.text = b.remarks;
@@ -980,7 +978,6 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   void dispose() {
     _batchNumber.dispose();
     _supplierBatch.dispose();
-    _quantity.dispose();
     _expiryDate.dispose();
     _manufacturingDate.dispose();
     _remarks.dispose();
@@ -995,7 +992,6 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
         'batch_number': _batchNumber.text.trim(),
         if (_supplierBatch.text.isNotEmpty)
           'supplier_batch': _supplierBatch.text.trim(),
-        'quantity': double.tryParse(_quantity.text.trim()) ?? 0,
         if (_expiryDate.text.isNotEmpty) 'expiry_date': _expiryDate.text.trim(),
         if (_manufacturingDate.text.isNotEmpty)
           'manufacturing_date': _manufacturingDate.text.trim(),
@@ -1042,12 +1038,21 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                     decoration:
                         const InputDecoration(labelText: 'Supplier Batch'),
                   ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _quantity,
-                    decoration: const InputDecoration(labelText: 'Quantity'),
-                    keyboardType: TextInputType.number,
-                  ),
+                  // Quantity is not editable here. What a batch holds comes
+                  // from the movements that put it there -- a goods receipt,
+                  // a dispatch, an adjustment -- so typing it would create
+                  // stock the ledger cannot explain.
+                  if (widget.existing case final BatchRecord b) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'In stock: ${b.quantity} '
+                        '(${b.availableQuantity} available) — from stock movements',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _manufacturingDate,

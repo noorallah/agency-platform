@@ -9,6 +9,8 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.batch_serial.models.batch_serial import BatchRecord
+from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.scope import (
@@ -694,9 +696,121 @@ def test_product_totals_sum_across_a_product_s_batches() -> None:
 
     assert len(totals) == 1, "one product, however many batches hold it"
     assert totals[0].scope_id == product_id
-    assert totals[0].current_quantity == Decimal("105"), (
-        "two batches and the untracked row must add up"
+    assert totals[0].current_quantity == Decimal(
+        "105"
+    ), "two batches and the untracked row must add up"
+
+
+def test_a_batch_holds_what_its_movements_gave_it_and_nothing_else() -> None:
+    """`batches` kept six quantity columns that nothing reconciled.
+
+    They were written by the batch API, so any movement that went through a
+    document instead widened the gap -- the seeded demo store had one batch
+    claiming ten units while no stock row anywhere held any of it. The stock
+    rows are now the only answer, and this is the sum that replaced them.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "BATQTY")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    march = BatchRecord(
+        firm_id=firm.id,
+        product_id=product_id,
+        batch_number="MARCH",
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
     )
+    june = BatchRecord(
+        firm_id=firm.id,
+        product_id=product_id,
+        batch_number="JUNE",
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    setup.add_all([march, june])
+    setup.commit()
+    march_id, june_id = march.id, june.id
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    # Two batches of one product, plus stock nobody tracked, in one bay.
+    for batch_id, quantity in ((march_id, "40"), (june_id, "60"), (None, "5")):
+        inventory = service._ensure_inventory_projection(
+            firm_id=firm.id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        session.flush()
+        service._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type="GOODS_RECEIPT",
+                reference_number=f"GRN-BATQTY-{quantity}",
+                reference_type="GOODS_RECEIPT",
+                transaction_date=date(2026, 8, 13),
+                quantity=Decimal(quantity),
+                current_delta=Decimal(quantity),
+                batch_id=batch_id,
+            ),
+        )
+    session.commit()
+
+    totals = service.stock_by_batch(firm_scope=firm.id, batch_ids=[march_id, june_id])
+
+    assert totals[march_id].current_quantity == Decimal("40")
+    assert totals[june_id].current_quantity == Decimal("60")
+    assert totals[march_id].available_quantity == Decimal("40")
+    assert None not in totals, "untracked stock belongs to no batch"
+
+    # And the API reports that sum rather than a column of its own.
+    batches = BatchSerialService(session)
+    reported = batches.batch_response(
+        batches.get_batch(firm_scope=firm.id, batch_id=march_id), firm_scope=firm.id
+    )
+    assert reported.quantity == Decimal("40")
+    assert reported.available_quantity == Decimal("40")
+
+
+def test_a_batch_that_never_received_stock_reports_zero() -> None:
+    """A registered batch with no movements holds nothing, and must say so.
+
+    ``resolve_for_receipt`` registers a batch before the movement is staged, so
+    a batch with no stock rows is a normal state and not a missing row to
+    report as an error.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "BATNIL")
+    profile = _profile(setup, firm.id)
+    _, _, product = _branch_warehouse_product(setup, firm, profile)
+    batch = BatchRecord(
+        firm_id=firm.id,
+        product_id=product.id,
+        batch_number="EMPTY",
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    setup.add(batch)
+    setup.commit()
+
+    service = BatchSerialService(setup)
+    reported = service.batch_response(batch, firm_scope=firm.id)
+
+    assert reported.quantity == Decimal("0")
+    assert reported.available_quantity == Decimal("0")
+    assert reported.reserved_quantity == Decimal("0")
 
 
 def test_a_product_that_must_be_issued_from_a_batch_is_not_shipped_untracked() -> None:

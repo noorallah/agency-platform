@@ -72,7 +72,6 @@ class BatchCreate(BatchSchema):
     expiry_date: date | None = None
     best_before_date: date | None = None
     status: BatchStatus = BatchStatus.AVAILABLE
-    quantity: Decimal = Field(default=Decimal("0"), ge=0)
     shelf_life_days: int | None = Field(default=None, ge=1)
     remarks: str | None = None
 
@@ -92,7 +91,6 @@ class BatchUpdate(BatchSchema):
     expiry_date: date | None = None
     best_before_date: date | None = None
     status: BatchStatus | None = None
-    quantity: Decimal | None = Field(default=None, ge=0)
     shelf_life_days: int | None = Field(default=None, ge=1)
     remarks: str | None = None
 
@@ -120,12 +118,18 @@ class BatchResponse(BatchSchema):
     expiry_date: date | None
     best_before_date: date | None
     status: str
-    quantity: Decimal
-    available_quantity: Decimal
-    reserved_quantity: Decimal
-    blocked_quantity: Decimal
-    damaged_quantity: Decimal
-    quarantine_quantity: Decimal
+    #: What the batch is holding, summed from `inventories` by
+    #: ``BatchSerialService.batch_responses``. The batch itself stores none of
+    #: these -- it is a register entry, and how much of it is on the shelf is a
+    #: consequence of the movements that put it there. They default to zero so
+    #: the response can be validated from a record that has no such columns;
+    #: every endpoint fills them through the builder.
+    quantity: Decimal = Decimal("0")
+    available_quantity: Decimal = Decimal("0")
+    reserved_quantity: Decimal = Decimal("0")
+    blocked_quantity: Decimal = Decimal("0")
+    damaged_quantity: Decimal = Decimal("0")
+    quarantine_quantity: Decimal = Decimal("0")
     shelf_life_days: int | None
     remarks: str | None
     is_deleted: bool

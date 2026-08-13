@@ -2,6 +2,7 @@
 
 from app.inventory.schemas.inventory import (
     REVERSAL_SUFFIX,
+    BatchStockTotals,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -25,6 +26,7 @@ from app.inventory.schemas.inventory import (
 
 __all__ = [
     "REVERSAL_SUFFIX",
+    "BatchStockTotals",
     "InventoryAdjustmentCreate",
     "InventoryCreate",
     "InventoryListFilters",

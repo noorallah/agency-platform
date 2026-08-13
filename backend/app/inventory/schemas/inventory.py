@@ -161,6 +161,23 @@ class InventorySummary(InventorySchema):
     negative_stock_count: int
 
 
+class BatchStockTotals(InventorySchema):
+    """What one batch is actually holding, summed from the stock rows.
+
+    A batch is held per location, so its total is a sum across however many
+    `inventories` rows carry it. ``batches`` used to keep its own copy of these
+    six numbers, maintained by the batch API and reconciled against the stock
+    projection by nothing; this is the derived answer that replaced them.
+    """
+
+    current_quantity: Decimal = Decimal("0")
+    available_quantity: Decimal = Decimal("0")
+    reserved_quantity: Decimal = Decimal("0")
+    blocked_quantity: Decimal = Decimal("0")
+    damaged_quantity: Decimal = Decimal("0")
+    quarantine_quantity: Decimal = Decimal("0")
+
+
 class InventoryLocationSummary(InventorySchema):
     """Aggregate stock summary grouped by firm, branch, or warehouse."""
 

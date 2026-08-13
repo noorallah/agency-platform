@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialN
 from app.batch_serial.schemas.batch_serial import (
     BatchCreate,
     BatchListFilters,
+    BatchResponse,
     BatchStatus,
     BatchSummary,
     BatchUpdate,
@@ -34,6 +35,8 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.inventory.schemas import BatchStockTotals
+from app.inventory.services import InventoryService
 
 
 class BatchSerialService:
@@ -107,6 +110,44 @@ class BatchSerialService:
         total = int(self._session.scalar(count_stmt) or 0)
         return rows, total
 
+    def batch_responses(
+        self, records: Sequence[BatchRecord], *, firm_scope: UUID
+    ) -> list[BatchResponse]:
+        """Render batches with the stock each one is actually holding.
+
+        The six quantities are read from `inventories`, not from the batch. A
+        batch is a register entry -- number, expiry, vendor, status -- and how
+        much of it is on the shelf is a consequence of the movements that put
+        it there. It used to be both, and the two answers drifted the moment
+        anything moved stock without going through the batch API.
+
+        One query serves the whole page, however many batches are on it.
+        """
+        totals = InventoryService(self._session).stock_by_batch(
+            firm_scope=firm_scope, batch_ids=[record.id for record in records]
+        )
+        empty = BatchStockTotals()
+        responses = []
+        for record in records:
+            held = totals.get(record.id, empty)
+            responses.append(
+                BatchResponse.model_validate(record).model_copy(
+                    update={
+                        "quantity": held.current_quantity,
+                        "available_quantity": held.available_quantity,
+                        "reserved_quantity": held.reserved_quantity,
+                        "blocked_quantity": held.blocked_quantity,
+                        "damaged_quantity": held.damaged_quantity,
+                        "quarantine_quantity": held.quarantine_quantity,
+                    }
+                )
+            )
+        return responses
+
+    def batch_response(self, record: BatchRecord, *, firm_scope: UUID) -> BatchResponse:
+        """Render one batch with the stock it is actually holding."""
+        return self.batch_responses([record], firm_scope=firm_scope)[0]
+
     def get_batch(self, *, firm_scope: UUID, batch_id: UUID) -> BatchRecord:
         """Return one batch the firm owns."""
         row = self._session.scalar(
@@ -160,8 +201,6 @@ class BatchSerialService:
             expiry_date=data.expiry_date,
             best_before_date=data.best_before_date,
             status=data.status,
-            quantity=data.quantity,
-            available_quantity=data.quantity,
             shelf_life_days=data.shelf_life_days,
             remarks=data.remarks,
             created_by=actor_id,

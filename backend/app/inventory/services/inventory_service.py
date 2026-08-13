@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -31,6 +31,7 @@ from app.inventory.models import (
 )
 from app.inventory.schemas import (
     REVERSAL_SUFFIX,
+    BatchStockTotals,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -307,6 +308,60 @@ class InventoryService:
             )
             for row in rows
         ]
+
+    def stock_by_batch(
+        self, *, firm_scope: UUID, batch_ids: Sequence[UUID]
+    ) -> dict[UUID, BatchStockTotals]:
+        """Return what each of these batches is holding, in one query.
+
+        A batch is held per location, so its total is a sum across however many
+        stock rows carry it. ``batches`` used to keep its own copy of these six
+        numbers, written by the batch API and reconciled against the projection
+        by nothing -- so a batch could claim ten on the shelf while no stock row
+        anywhere held any of it.
+
+        Callers rendering a page of batches pass every id on the page. Asking
+        per row would be a query per batch, which is the mistake
+        ``values_for_many`` exists to avoid elsewhere.
+
+        Returns:
+            The totals for each batch that holds stock. A batch with no stock
+            rows is absent -- ``BatchStockTotals()`` is its answer, and the
+            caller supplies it rather than this running a query per empty
+            batch.
+
+        """
+        if not batch_ids:
+            return {}
+        rows = self._session.execute(
+            select(
+                InventoryRecord.batch_id,
+                func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.reserved_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.blocked_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.damaged_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.quarantine_quantity), 0),
+            )
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.batch_id.in_(batch_ids),
+                InventoryRecord.is_deleted.is_(False),
+            )
+            .group_by(InventoryRecord.batch_id)
+        ).all()
+        return {
+            row[0]: BatchStockTotals(
+                current_quantity=Decimal(row[1] or 0),
+                available_quantity=Decimal(row[2] or 0),
+                reserved_quantity=Decimal(row[3] or 0),
+                blocked_quantity=Decimal(row[4] or 0),
+                damaged_quantity=Decimal(row[5] or 0),
+                quarantine_quantity=Decimal(row[6] or 0),
+            )
+            for row in rows
+            if row[0] is not None
+        }
 
     def stock_by_product(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
         """Return stock totals per product, across batches and locations.

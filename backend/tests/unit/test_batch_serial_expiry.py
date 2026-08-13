@@ -5,37 +5,37 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialNumber
+import app.batch_serial.models.batch_serial  # noqa: F401 – register tables
+import app.inventory.models.inventory  # noqa: F401 – register inventories table
+from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.schemas.batch_serial import (
     BatchCreate,
     BatchStatus,
     BatchUpdate,
     ExpiryDashboard,
     LotCreate,
-    LotStatus,
     LotType,
     SerialCreate,
     SerialStatus,
 )
 from app.batch_serial.services import BatchSerialService
-from app.core.utils.dates import utc_now
-from app.branches.models import Branch, Warehouse
-from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
+from app.identity.models import (
+    identity as _identity_models,  # noqa: F401 – register users table
+)
 from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.vendors.models import vendor as _vendor_models  # noqa: F401
-from app.identity.models import identity as _identity_models  # noqa: F401 – register users table
-import app.batch_serial.models.batch_serial  # noqa: F401 – register tables
-import app.inventory.models.inventory  # noqa: F401 – register inventories table
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -81,12 +81,30 @@ def _batch_create(product_id: UUID, batch_number: str = "BATCH-001") -> BatchCre
     return BatchCreate(
         product_id=product_id,
         batch_number=batch_number,
-        quantity=Decimal("100"),
         status=BatchStatus.AVAILABLE,
     )
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
+
+
+def test_a_batch_cannot_be_created_holding_stock() -> None:
+    """Registering a batch is not a way to put stock on the shelf.
+
+    ``create_batch`` used to take a quantity and write it straight onto the
+    batch, which produced a number no movement explained and which the stock
+    projection never saw. Stock arrives through a document; the batch says what
+    it is, not how much of it there is.
+    """
+    with pytest.raises(ValidationError) as caught:
+        BatchCreate(
+            product_id=uuid4(),
+            batch_number="BATCH-WITH-STOCK",
+            quantity=Decimal("50"),
+        )
+
+    assert "quantity" in str(caught.value)
+
 
 def test_create_batch_success() -> None:
     session = _session_factory()()
@@ -101,7 +119,6 @@ def test_create_batch_success() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="BATCH-2026-001",
-            quantity=Decimal("50"),
             manufacturing_date=date(2026, 1, 1),
             expiry_date=date(2027, 1, 1),
             shelf_life_days=365,
@@ -112,7 +129,6 @@ def test_create_batch_success() -> None:
     assert batch.firm_id == firm.id
     assert batch.product_id == product.id
     assert batch.batch_number == "BATCH-2026-001"
-    assert batch.quantity == Decimal("50")
     assert batch.status == "AVAILABLE"
     assert batch.shelf_life_days == 365
     assert batch.expiry_date == date(2027, 1, 1)
@@ -203,7 +219,6 @@ def test_expiry_dashboard() -> None:
             product_id=product.id,
             batch_number="EXP-001",
             status=BatchStatus.EXPIRED,
-            quantity=Decimal("10"),
         ),
     )
     # Create a batch expiring in 5 days
@@ -213,7 +228,6 @@ def test_expiry_dashboard() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="EXP-002",
-            quantity=Decimal("10"),
             expiry_date=date.today(),
         ),
     )
@@ -225,7 +239,6 @@ def test_expiry_dashboard() -> None:
             product_id=product.id,
             batch_number="QRN-001",
             status=BatchStatus.QUARANTINE,
-            quantity=Decimal("5"),
         ),
     )
 
@@ -253,7 +266,6 @@ def test_create_lot_success() -> None:
             product_id=product.id,
             lot_number="LOT-2026-001",
             lot_type=LotType.PRODUCTION,
-            quantity=Decimal("200"),
         ),
     )
 
@@ -386,7 +398,6 @@ def test_expired_counts_come_from_the_date_not_a_status() -> None:
             data=BatchCreate(
                 product_id=product.id,
                 batch_number=number,
-                quantity=Decimal("10"),
                 expiry_date=expiry,
                 status=status,
             ),
@@ -418,7 +429,6 @@ def test_a_destroyed_batch_is_not_counted_as_expired() -> None:
         data=BatchCreate(
             product_id=product.id,
             batch_number="GONE",
-            quantity=Decimal("1"),
             expiry_date=utc_now().date() - timedelta(days=10),
             status=BatchStatus.DESTROYED,
         ),
