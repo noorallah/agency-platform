@@ -28,7 +28,7 @@ from app.delivery_note.services import DeliveryNoteService
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
-from app.inventory.models import InventoryTransaction
+from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
@@ -360,6 +360,187 @@ def test_a_line_larger_than_any_one_batch_still_dispatches() -> None:
     )
     assert len(movements) == 2, "one movement per batch drawn from"
     assert sum(row.current_quantity_delta for row in movements) == Decimal("-45.0000")
+
+
+def test_a_reservation_holds_the_batch_it_will_ship_from() -> None:
+    """Committing stock commits particular stock, not just the product.
+
+    The reservation used to go to the untracked row whatever the goods were
+    held in, so a firm whose stock is all in batches had reservations against a
+    row with nothing in it -- its available driven negative while the batch
+    rows sat apparently free, ready to be promised to somebody else.
+
+    Dispatch then releases and immediately draws, both ranking by earliest
+    expiry, so the batch freed is the batch shipped.
+    """
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    inventory = InventoryService(session)
+    batches: dict[str, BatchRecord] = {}
+    for batch_number, expiry, quantity in (
+        ("MARCH", date(2027, 3, 31), "20"),
+        ("JUNE", date(2027, 6, 30), "20"),
+    ):
+        batch = BatchRecord(
+            firm_id=firm.id,
+            product_id=product.id,
+            batch_number=batch_number,
+            expiry_date=expiry,
+            status="AVAILABLE",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(batch)
+        session.flush()
+        batches[batch_number] = batch
+        inventory.record_goods_receipt(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            storage_node_id=None,
+            product_id=product.id,
+            reference_number=f"GRN-{batch_number}",
+            transaction_date=date(2026, 8, 3),
+            total_quantity=Decimal(quantity),
+            unit_cost=Decimal("0"),
+            batch_id=batch.id,
+        )
+    session.commit()
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("15"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+
+    reserved = list(
+        session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "RESERVE",
+                InventoryTransaction.reference_number == approved.order_number,
+            )
+        ).all()
+    )
+    assert len(reserved) == 1, "fifteen fits in the March batch alone"
+    assert (
+        reserved[0].batch_id == batches["MARCH"].id
+    ), "the earliest expiry is held first, which is what will ship first"
+    march_row = session.scalar(
+        select(InventoryRecord).where(InventoryRecord.batch_id == batches["MARCH"].id)
+    )
+    assert march_row is not None
+    assert march_row.reserved_quantity == Decimal("15.0000")
+    assert march_row.available_quantity == Decimal("5.0000")
+    untracked = session.scalar(
+        select(InventoryRecord).where(
+            InventoryRecord.product_id == product.id,
+            InventoryRecord.batch_id.is_(None),
+        )
+    )
+    assert untracked is None, "nothing was reserved against stock that is not there"
+
+
+def test_a_reservation_larger_than_the_stock_holds_what_it_can() -> None:
+    """An order may be taken for more than is on the shelf.
+
+    That is a back order and the reports count on it, so a reservation must
+    not fail for want of stock. The batches hold what they can and the rest is
+    held with no batch, because there is no batch behind it.
+    """
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    batch = BatchRecord(
+        firm_id=firm.id,
+        product_id=product.id,
+        batch_number="MARCH",
+        expiry_date=date(2027, 3, 31),
+        status="AVAILABLE",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(batch)
+    session.flush()
+    InventoryService(session).record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-MARCH",
+        transaction_date=date(2026, 8, 3),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("0"),
+        batch_id=batch.id,
+    )
+    session.commit()
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("25"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+
+    reserved = list(
+        session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "RESERVE",
+                InventoryTransaction.reference_number == approved.order_number,
+            )
+        ).all()
+    )
+    held = {row.batch_id: row.reserved_quantity_delta for row in reserved}
+    assert held[batch.id] == Decimal("10.0000"), "the batch holds all it has"
+    assert held[None] == Decimal("15.0000"), "the back order is held by no batch"
 
 
 def test_delivery_by_route_labels_the_route_without_crashing() -> None:

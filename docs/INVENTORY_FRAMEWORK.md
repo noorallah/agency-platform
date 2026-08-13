@@ -91,8 +91,10 @@ Where each document stands:
 
 | Document | What it does with the batch |
 | --- | --- |
+| opening stock | resolves the number on the day-one paperwork, **creating** the batch when it is new |
 | `goods_receipt` | resolves the number typed off the carton, **creating** the batch when it is new |
-| `delivery_note` | allocates across batches by earliest expiry, one movement per batch drawn from |
+| `sales_order` | holds batches by earliest expiry when the order is approved |
+| `delivery_note` | releases those batches and allocates by earliest expiry, one movement per batch |
 | `purchase_return` | posts against the batch the line names, and **never creates** one |
 
 The asymmetry between the first and last row is deliberate. Goods that have
@@ -115,6 +117,14 @@ Three levels decide whether any of this applies, and all three are enforced:
 
 `GET /inventory/summary/by-product` totals a product across its batches, which
 is the figure that used to be a single row.
+
+**A reservation names its batch too.** Approving a sales order holds particular
+stock, not just the product: the movement goes to the batch rows by earliest
+expiry, so dispatch releases the batch it is about to draw from. What no batch
+can cover is held with no batch, because that part is a back order and there is
+nothing behind it. Before this, every reservation landed on the untracked row —
+which for a batch-tracked firm holds nothing — driving its available negative
+while the batch rows sat apparently free, ready to be promised to somebody else.
 
 **Stock is a sum, not a row.** Anything asking how much of a product is on hand
 in one place has to add its rows up, because a batch-tracked product is one row

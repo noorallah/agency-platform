@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.sql import Select
 
 from app.batch_serial.models import BatchRecord
@@ -921,6 +922,55 @@ class InventoryService:
         self._session.refresh(batch)
         return batch
 
+    def _opening_stock_batch_id(
+        self,
+        line: OpeningStockLine,
+        batch: OpeningStockBatch,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> UUID | None:
+        """Resolve the batch one opening-stock line puts its goods in.
+
+        Opening stock is stock arriving, so it behaves like a goods receipt:
+        an unknown number registers the batch rather than being refused, and a
+        product whose profile requires a batch on receipt is refused without
+        one. Enforcing it here as well as on receipts is what makes the rule
+        mean something -- otherwise a firm could take in untraceable stock on
+        day one and never be able to say where it came from.
+
+        Returns:
+            The batch id, or None where the line names none and the product
+            does not require one.
+
+        """
+        number = (line.batch_number or "").strip()
+        if not number:
+            product = self._session.get(Product, line.product_id)
+            if product is not None and product.require_batch_on_receipt:
+                raise ValidationError(
+                    f"{product.code} must be taken in with a batch number, "
+                    "including as opening stock."
+                )
+            return None
+        # Imported here rather than at the top: `batch_serial` reads stock
+        # totals from this service, so the two modules would import each other
+        # at load. The dependency is real in both directions -- a batch is
+        # identity and stock is quantity, and each needs the other's answer.
+        from app.batch_serial.services import BatchSerialService
+
+        resolved = BatchSerialService(self._session).resolve_for_receipt(
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            product_id=line.product_id,
+            batch_number=number,
+            branch_id=batch.branch_id,
+            warehouse_id=batch.warehouse_id,
+            expiry_date=line.expiry_date,
+        )
+        line.batch_id = resolved.id
+        return resolved.id
+
     def post_opening_stock_batch(
         self, batch_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> OpeningStockBatch:
@@ -944,6 +994,14 @@ class InventoryService:
                 conversion_version=line.conversion_version,
                 on_date=batch.posting_date,
             )
+            # Day-one stock arrives in a batch like any other stock. It was
+            # the last way stock could enter with no batch behind it, so a
+            # pharmacy's opening shelf was one untraceable heap while every
+            # later delivery was traced -- and a product that requires a batch
+            # on issue could never ship what it started with.
+            line_batch_id = self._opening_stock_batch_id(
+                line, batch, firm_scope=firm_scope, actor_id=actor_id
+            )
             inventory = self._ensure_inventory_projection(
                 firm_id=firm_scope,
                 branch_id=batch.branch_id,
@@ -951,6 +1009,7 @@ class InventoryService:
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 actor_id=actor_id,
+                batch_id=line_batch_id,
             )
             self._apply_thresholds(
                 inventory,
@@ -965,6 +1024,7 @@ class InventoryService:
                 actor_id=actor_id,
                 movement=_Movement(
                     transaction_type=InventoryTransactionType.OPENING_STOCK.value,
+                    batch_id=line_batch_id,
                     reference_number=batch.reference_number,
                     reference_type="OPENING_STOCK",
                     transaction_date=batch.posting_date,
@@ -1582,8 +1642,16 @@ class InventoryService:
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
         remarks: str | None = None,
+        batch_id: UUID | None = None,
     ) -> InventoryTransaction:
-        """Reserve stock for a sales order line."""
+        """Reserve stock for a sales order line, against one batch.
+
+        ``batch_id`` holds that batch's stock rather than the product's
+        untracked row. Callers split the line with
+        ``allocate_for_reservation`` and call this once per batch; the part of
+        a reservation no batch can cover is passed with no batch, because there
+        is no batch behind it.
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1606,12 +1674,14 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
             actor_id=actor_id,
+            batch_id=batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.RESERVE.value,
+                batch_id=batch_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="SALES_ORDER",
                 transaction_date=transaction_date,
@@ -1642,6 +1712,7 @@ class InventoryService:
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
         remarks: str | None = None,
+        batch_id: UUID | None = None,
     ) -> InventoryTransaction:
         """Release a sales order's reservation."""
         (
@@ -1666,12 +1737,14 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
             actor_id=actor_id,
+            batch_id=batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.UNRESERVE.value,
+                batch_id=batch_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="SALES_ORDER",
                 transaction_date=transaction_date,
@@ -1685,6 +1758,146 @@ class InventoryService:
         )
         self._session.flush()
         return transaction
+
+    def allocate_for_reservation(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        quantity: Decimal,
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Choose which batches a sales order holds, earliest expiry first.
+
+        Committing stock at approval is what stops two salespeople promising
+        the same box, and until now it committed the *product*: the movement
+        went to the untracked row whatever the goods were held in. A firm whose
+        stock is all in batches then had reservations on a row with nothing in
+        it, driving its available negative while the batch rows sat untouched
+        and apparently free.
+
+        Reserving in the same order the goods will ship in keeps the two
+        halves of the sales flow talking about the same stock -- dispatch
+        releases a batch's reservation and immediately draws from it, because
+        both rank by expiry.
+
+        **Short stock does not fail here.** An order may be taken for more than
+        is on the shelf; that is a back order, and the reports count on it. The
+        batches cover what they can and the remainder is returned as a single
+        pair with no batch, which is the truth: there is no batch behind it.
+
+        Returns:
+            The batches to hold, in the order to hold them, and any uncovered
+            remainder last under ``None``.
+
+        """
+        rows = self._expiry_ranked_rows(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            column=InventoryRecord.available_quantity,
+        )
+        outstanding = Decimal(str(quantity))
+        allocation: list[tuple[UUID | None, Decimal]] = []
+        for row in rows:
+            if outstanding <= ZERO:
+                break
+            take = min(outstanding, Decimal(str(row.available_quantity)))
+            if take <= ZERO:
+                continue
+            allocation.append((row.batch_id, take))
+            outstanding -= take
+        if outstanding > ZERO:
+            allocation.append((None, outstanding))
+        return allocation
+
+    def allocate_for_release(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        quantity: Decimal,
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Choose which reservations to let go, earliest expiry first.
+
+        The mirror of ``allocate_for_reservation``, and it has to walk the rows
+        that actually hold a reservation rather than the ones holding stock:
+        releasing a batch that was never held would drive its reserved
+        quantity negative.
+
+        Earliest expiry first again, so a dispatch that releases and then
+        allocates frees exactly the batch it is about to draw from. Anything
+        left over comes off the untracked row, which is where a reservation
+        goes that no batch could cover.
+
+        Returns:
+            The reservations to release, in the order to release them.
+
+        """
+        rows = self._expiry_ranked_rows(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            column=InventoryRecord.reserved_quantity,
+        )
+        outstanding = Decimal(str(quantity))
+        allocation: list[tuple[UUID | None, Decimal]] = []
+        for row in rows:
+            if outstanding <= ZERO:
+                break
+            take = min(outstanding, Decimal(str(row.reserved_quantity)))
+            if take <= ZERO:
+                continue
+            allocation.append((row.batch_id, take))
+            outstanding -= take
+        if outstanding > ZERO:
+            allocation.append((None, outstanding))
+        return allocation
+
+    def _expiry_ranked_rows(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        product_id: UUID,
+        column: InstrumentedAttribute[Decimal],
+    ) -> list[InventoryRecord]:
+        """Return this product's stock rows, the batch nearest expiry first.
+
+        Expiry is ranked explicitly rather than left to the backend's NULL
+        ordering -- PostgreSQL sorts NULLs first in ASC and SQLite last, so a
+        batch with no expiry date would be picked first on one and last on the
+        other. A batch without an expiry is not urgent, so it goes last, and
+        ties break on the batch id to keep two runs of the same allocation
+        identical.
+        """
+        return list(
+            self._session.scalars(
+                select(InventoryRecord)
+                .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
+                .where(
+                    InventoryRecord.firm_id == firm_scope,
+                    InventoryRecord.branch_id == branch_id,
+                    InventoryRecord.warehouse_id == warehouse_id,
+                    InventoryRecord.product_id == product_id,
+                    InventoryRecord.is_deleted.is_(False),
+                    column > ZERO,
+                )
+                .order_by(
+                    case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
+                    BatchRecord.expiry_date.asc(),
+                    InventoryRecord.batch_id.asc(),
+                )
+            ).all()
+        )
 
     def allocate_for_dispatch(
         self,
@@ -1719,24 +1932,12 @@ class InventoryService:
             the available stock across all of them is short.
 
         """
-        rows = list(
-            self._session.scalars(
-                select(InventoryRecord)
-                .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
-                .where(
-                    InventoryRecord.firm_id == firm_scope,
-                    InventoryRecord.branch_id == branch_id,
-                    InventoryRecord.warehouse_id == warehouse_id,
-                    InventoryRecord.product_id == product_id,
-                    InventoryRecord.is_deleted.is_(False),
-                    InventoryRecord.available_quantity > ZERO,
-                )
-                .order_by(
-                    case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
-                    BatchRecord.expiry_date.asc(),
-                    InventoryRecord.batch_id.asc(),
-                )
-            ).all()
+        rows = self._expiry_ranked_rows(
+            firm_scope=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            product_id=product_id,
+            column=InventoryRecord.available_quantity,
         )
         # `require_batch_on_issue` is the product saying its goods cannot leave
         # unidentified. Untracked stock -- the row whose batch is NULL -- is
@@ -2203,6 +2404,9 @@ class InventoryService:
                 "entered_quantity": row.entered_quantity,
                 "entered_uom_id": row.entered_uom_id,
                 "conversion_version": row.conversion_version,
+                "batch_number": row.batch_number,
+                "batch_id": row.batch_id,
+                "expiry_date": row.expiry_date,
                 "minimum_level": row.minimum_level,
                 "maximum_level": row.maximum_level,
                 "reorder_level": row.reorder_level,
@@ -2624,7 +2828,7 @@ class InventoryService:
         actor_id: UUID,
     ) -> list[OpeningStockLine]:
         items: list[OpeningStockLine] = []
-        seen: set[tuple[UUID, str]] = set()
+        seen: set[tuple[UUID, str, str]] = set()
         profile = self._resolved_profile(firm_id)
         for index, line in enumerate(lines, start=1):
             product = self._session.scalar(
@@ -2653,11 +2857,13 @@ class InventoryService:
                         "the selected warehouse."
                     )
             locator = self._storage_locator(storage_node.id if storage_node else None)
-            unique_key = (line.product_id, locator)
+            # The batch is part of the key, so one count of one shelf can
+            # record two deliveries of a product expiring months apart.
+            unique_key = (line.product_id, locator, (line.batch_number or "").strip())
             if unique_key in seen:
                 raise ValidationError(
-                    "Duplicate opening stock lines for the same product and "
-                    "storage location are not allowed."
+                    "Duplicate opening stock lines for the same product, "
+                    "storage location and batch are not allowed."
                 )
             seen.add(unique_key)
             items.append(
@@ -2671,6 +2877,8 @@ class InventoryService:
                     entered_quantity=line.entered_quantity,
                     entered_uom_id=line.entered_uom_id,
                     conversion_version=line.conversion_version,
+                    batch_number=(line.batch_number or "").strip() or None,
+                    expiry_date=line.expiry_date,
                     minimum_level=line.minimum_level,
                     maximum_level=line.maximum_level,
                     reorder_level=line.reorder_level,
