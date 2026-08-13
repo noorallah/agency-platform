@@ -1371,8 +1371,25 @@ class DeliveryNoteService(TransactionalDocumentService):
         storage_node_id: UUID | None,
         product_id: UUID,
     ) -> tuple[Decimal, Decimal]:
-        row = self._session.scalar(
-            select(InventoryRecord).where(
+        """Return what this product has available and reserved in one bay.
+
+        A sum, not a row. Stock has been held per batch since the grain
+        changed, so a product in one bay is as many rows as it has batches --
+        and this read one of them with ``scalar()``, which does not complain
+        about the others, it just returns the first. The gate below then
+        compared a single batch's quantity against the whole line: sixty
+        strips in March and forty in June refused a line of eighty, while
+        ``allocate_for_dispatch`` -- which runs on the next line and splits
+        across batches by design -- would have filled it without trouble.
+
+        Untracked stock is one of the rows summed here, so a product nobody
+        tracks behaves exactly as it did.
+        """
+        row = self._session.execute(
+            select(
+                func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.reserved_quantity), 0),
+            ).where(
                 InventoryRecord.firm_id == firm_id,
                 InventoryRecord.branch_id == branch_id,
                 InventoryRecord.warehouse_id == warehouse_id,
@@ -1380,10 +1397,10 @@ class DeliveryNoteService(TransactionalDocumentService):
                 InventoryRecord.product_id == product_id,
                 InventoryRecord.is_deleted.is_(False),
             )
-        )
+        ).first()
         if row is None:
             return ZERO, ZERO
-        return self._q(row.available_quantity), self._q(row.reserved_quantity)
+        return self._q(row[0]), self._q(row[1])
 
     def _validate_storage_scope(
         self, *, firm_id: UUID, warehouse_id: UUID, storage_node_id: UUID | None

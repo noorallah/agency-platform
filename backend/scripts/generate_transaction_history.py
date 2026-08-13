@@ -47,7 +47,7 @@ import argparse
 import sys
 from calendar import monthrange
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -478,6 +478,45 @@ class HistoryBuilder:
 
     # -- cycles --------------------------------------------------------
 
+    def _batch_for(self, product: Product, on: date) -> tuple[str | None, date | None]:
+        """Name the batch a delivery arrives in, if this firm works that way.
+
+        Seeded history had no batches at all, so nothing in the demo stores
+        exercised batch-grained stock: no receipt created a batch, every stock
+        row was the untracked one, and a dispatch never had two batches to
+        choose between. The receipt path is what registers a batch, so this is
+        where it has to start.
+
+        Both switches have to be on. The firm's BATCH_TRACKING feature says the
+        firm may use batches at all; the product's ``require_batch_on_receipt``
+        says these particular goods cannot be taken in unidentified. A firm
+        that tracks batches still buys things nobody traces, and seeding those
+        without a batch is what keeps untracked stock in the demo data beside
+        the tracked kind.
+
+        One batch per product per month, which is how a monthly delivery
+        actually arrives, and it gives a dispatch several batches to rank by
+        expiry once a few months have run.
+
+        Returns:
+            The batch number and its expiry date, either of which may be None.
+            The expiry is only set where the firm has EXPIRY_TRACKING -- the
+            field is gated, and sending it to a firm without the feature is
+            refused when the receipt completes.
+
+        """
+        if "BATCH_TRACKING" not in self._features:
+            return None, None
+        if not product.require_batch_on_receipt:
+            return None, None
+        number = f"{product.code}-{on:%Y%m}"
+        if "EXPIRY_TRACKING" not in self._features:
+            return number, None
+        # Eighteen months is a plausible shelf life for a medicine or a
+        # packaged food, and it puts the expiry far enough out that a two-year
+        # history has both live and expired batches to look at.
+        return number, on + timedelta(days=548)
+
     def buy(
         self,
         *,
@@ -517,6 +556,7 @@ class HistoryBuilder:
             )
         )
         assert line is not None
+        batch_number, expiry_date = self._batch_for(product, on)
         receipts = GoodsReceiptService(self._session)
         receipt = receipts.create_receipt(
             GoodsReceiptCreate(
@@ -529,6 +569,8 @@ class HistoryBuilder:
                         current_receipt_quantity=Decimal(quantity),
                         unit_price=Decimal(unit_price),
                         warehouse_id=warehouse.id,
+                        batch_number=batch_number,
+                        expiry_date=expiry_date,
                     )
                 ],
             ),

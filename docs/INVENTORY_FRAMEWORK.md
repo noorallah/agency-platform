@@ -116,6 +116,14 @@ Three levels decide whether any of this applies, and all three are enforced:
 `GET /inventory/summary/by-product` totals a product across its batches, which
 is the figure that used to be a single row.
 
+**Stock is a sum, not a row.** Anything asking how much of a product is on hand
+in one place has to add its rows up, because a batch-tracked product is one row
+per batch. The dispatch gate in `delivery_note` and the stock figures on a sales
+order line both read a single row with `scalar()` until 2026-08-13 — which
+returns the first of several and mentions nothing — so a line of eighty was
+refused with sixty in March and forty in June, while the allocator on the next
+line would have split it happily.
+
 **Every response names the batch.** A stock row carries `batch_id`,
 `batch_number` and `batch_expiry_date`; a movement and its ledger entry carry
 `batch_id` and `batch_number`. The grain changed before the responses did, so

@@ -210,13 +210,26 @@ row. They are filled in `batch_responses` in bulk -- one query per kind of name
 for the whole page, guarded by a test that counts the statements, because a
 lookup per row is what turns a twenty-row page into eighty queries.
 
-One thing the batch work leaves behind:
+**The demo data carries batches.** PHARMACY and FOOD enable BATCH_TRACKING, the
+medicines and the packaged food require a batch on receipt, and
+`generate_transaction_history.py` names one per product per month, with an
+expiry where the firm has EXPIRY_TRACKING. A seed produces batch-grained stock
+rows, dispatches that name the batch they came off, lines that span two batches,
+and untracked stock beside all of it -- the vitamin box and the biscuits are
+deliberately left untraced, so both paths are exercised.
 
-- **The demo data has no batches**, so nothing in the seeded stores exercises
-  batch-grained stock. `scripts/generate_sample_data.py` writes `batch_number`
-  onto document lines but never registers a batch, which is why the receipt path
-  that creates them never runs during a seed. Everything above was verified by
-  hand against a batch raised through the desktop instead.
+Only the **receipt** flag is seeded. Opening stock cannot carry a batch --
+`post_opening_stock_batch` has nothing to give it -- so a product that also
+required one on issue could never ship the stock it started with. That is the
+next thing to fix if `require_batch_on_issue` needs seeded coverage.
+
+**Reservations are not batch-grained**, and it shows in the arithmetic.
+`record_sales_order_reservation` posts to the untracked row, so a reservation
+against batch-held stock drives that row's `available_quantity` negative while
+the batch rows stay positive. Summing across the rows nets it out, which is
+right, but it means "available" for a batch-tracked product is only correct as a
+sum and never as a row. Worth deciding whether a reservation should name the
+batch it holds; nothing depends on it today.
 
 **The batch field is a different control in each editor, and that is the point.**
 A receipt takes free text, because the goods are on the dock and the number is

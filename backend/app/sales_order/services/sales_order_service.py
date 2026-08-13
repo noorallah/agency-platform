@@ -1186,8 +1186,23 @@ class SalesOrderService(TransactionalDocumentService):
         storage_node_id: UUID | None,
         product_id: UUID,
     ) -> tuple[Decimal, Decimal]:
-        row = self._session.scalar(
-            select(InventoryRecord).where(
+        """Return what this product has available and reserved in one bay.
+
+        A sum, not a row. Stock has been held per batch since the grain
+        changed, so a product in one bay is as many rows as it has batches --
+        and this read one of them with ``scalar()``, which returns the first
+        and says nothing about the rest. An order line for a batch-tracked
+        product then reported one arbitrary batch's quantity as the stock
+        behind it, which is the figure a salesperson decides on.
+
+        The delivery note service carries the same helper and had the same
+        defect, where it gates the dispatch rather than merely reporting.
+        """
+        row = self._session.execute(
+            select(
+                func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.reserved_quantity), 0),
+            ).where(
                 InventoryRecord.firm_id == firm_id,
                 InventoryRecord.branch_id == branch_id,
                 InventoryRecord.warehouse_id == warehouse_id,
@@ -1195,10 +1210,10 @@ class SalesOrderService(TransactionalDocumentService):
                 InventoryRecord.product_id == product_id,
                 InventoryRecord.is_deleted.is_(False),
             )
-        )
+        ).first()
         if row is None:
             return ZERO, ZERO
-        return self._q(row.available_quantity), self._q(row.reserved_quantity)
+        return self._q(row[0]), self._q(row[1])
 
     def _validate_scope_references(
         self,
