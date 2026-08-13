@@ -644,3 +644,56 @@ def test_a_movement_records_the_batch_it_moved() -> None:
     )
     assert ledger is not None
     assert ledger.batch_id == batch_id, "the ledger must be able to price a batch"
+
+
+def test_product_totals_sum_across_a_product_s_batches() -> None:
+    """A batch-tracked product is several rows, so its total is a sum.
+
+    The list endpoint still returns the individual rows -- which batch stock is
+    in is the reason the grain changed -- so the total has to live somewhere
+    else, beside the by-branch and by-warehouse rollups.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "ROLLUP")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    for batch_id, quantity in ((uuid4(), "40"), (uuid4(), "60"), (None, "5")):
+        inventory = service._ensure_inventory_projection(
+            firm_id=firm.id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        session.flush()
+        service._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type="GOODS_RECEIPT",
+                reference_number=f"GRN-ROLLUP-{quantity}",
+                reference_type="GOODS_RECEIPT",
+                transaction_date=date(2026, 8, 13),
+                quantity=Decimal(quantity),
+                current_delta=Decimal(quantity),
+                batch_id=batch_id,
+            ),
+        )
+    session.commit()
+
+    totals = service.stock_by_product(firm_scope=firm.id)
+
+    assert len(totals) == 1, "one product, however many batches hold it"
+    assert totals[0].scope_id == product_id
+    assert totals[0].current_quantity == Decimal("105"), (
+        "two batches and the untracked row must add up"
+    )
