@@ -251,6 +251,10 @@ each was, at some point, wrong.
 | 8.19 | A line defaults to what is reserved | Compare the Delivering box with the line's ordered and reserved figures | It matches **reserved**, not ordered. Delivering more than is reserved is refused at dispatch |
 | 8.20 | The batch preview matches what ships | Note which batches a line says it will ship from, then dispatch it and open the stock ledger | The dispatch came off those batches, earliest expiry first |
 | 8.21 | An unapproved order cannot ship | Open a note for an order with nothing reserved | The line says so and Save is refused. It must not offer to ship stock nobody committed |
+| 8.22 | Return goods to a supplier | Purchase Returns → **New Return**, choose a completed receipt, save | A draft return. Approving **and** completing it is what takes the stock off |
+| 8.23 | The batch is chosen, not typed | Open a return line for a batch-tracked product | A dropdown of that product's registered batches showing what each holds, defaulting to the batch the receipt brought in. There must be **no** free-text batch box |
+| 8.24 | The return comes off the named batch | Complete a return for a batch, then open Batches | That batch holds less by exactly the returned quantity. The stock ledger names it on the RETURN row |
+| 8.25 | The whole loop balances | Receive 20 on a batch, deliver 5, return 5 | The batch holds 10, and the ledger shows GOODS_RECEIPT +20, DISPATCH −5, RETURN −5 all naming it |
 
 ---
 

@@ -172,8 +172,11 @@ A batch no longer stores its own quantities either: the six columns are gone
 and the API reports what the stock rows hold.
 
 `docs/INVENTORY_FRAMEWORK.md` describes the module as it stands, including
-which document does what with a batch. What is left is desktop document entry,
-which is its own piece of work rather than a stage of this one:
+which document does what with a batch.
+
+**This item is done.** It is kept here rather than deleted because the three
+editors below took three different shapes for reasons that are not obvious from
+the code, and the next person to touch document entry needs them.
 
 **Goods receipt entry is built** (`goods_receipt_editor_dialog.dart`): the
 workspace has a New Receipt action, lines are seeded from the purchase order
@@ -189,13 +192,18 @@ expected to ship from, earliest expiry first. Nobody types a batch: the server
 allocates at dispatch, and the preview says so rather than implying a decision
 has been made.
 
-**The purchase return page still cannot create one.** It lists and views only --
-`EnterpriseDocumentLines` renders a `DocumentLineSnapshot`, with no line editor.
-It is not a copy of either editor built so far: a purchase return names one
-batch per line and refuses a number that was never received, so its field wants
-the batch register behind it rather than free text or a preview.
+**Purchase return entry is built** (`purchase_return_editor_dialog.dart`): lines
+are seeded from the completed goods receipt being sent back, default to what is
+still returnable, and the batch is **chosen from the register** rather than
+typed — the batch the goods arrived in is the default. The server refuses a
+number nobody received, and it refuses it at completion, after the whole
+document has been typed and approved; a picker means that refusal cannot be
+reached by hand.
 
-Two things the batch work leaves behind for whoever picks that up:
+**All three document types can now be created from the desktop**, which was the
+last thing standing between the batch work and a user.
+
+Two things the batch work leaves behind:
 
 - **`BatchResponse` still returns `product_code`, `product_name`,
   `warehouse_code`, `warehouse_name`, `branch_code` and `branch_name` as null.**
@@ -208,13 +216,22 @@ Two things the batch work leaves behind for whoever picks that up:
   onto document lines but never registers a batch, which is why the receipt path
   that creates them never runs during a seed.
 
-Decisions in the two editors worth knowing before copying them:
+**The batch field is a different control in each editor, and that is the point.**
+A receipt takes free text, because the goods are on the dock and the number is
+on the carton — refusing an unknown one would stop a warehouse. A delivery note
+takes nothing, because the server allocates at dispatch by earliest expiry. A
+return offers a picker over the register, because the number must be one that
+was actually received and the server's refusal lands at completion, after the
+document has been typed and approved. Copying any one of them onto another
+document would be wrong in a way that only shows up in use.
 
-- **They offer only APPROVED source documents.** The backend accepts a receipt
-  against a purchase order in any state, so this is a client-side policy: goods
-  should not be booked in against an order nobody approved. If that turns out to
-  be wrong for a warehouse that receives before the paperwork catches up, the
-  fix is to widen the filter, not to loosen the server.
+Decisions in the editors worth knowing before copying them:
+
+- **They offer only APPROVED or COMPLETED source documents.** The backend accepts
+  a receipt against a purchase order in any state, so this is a client-side
+  policy: goods should not be booked in against an order nobody approved. If that
+  turns out to be wrong for a warehouse that receives before the paperwork
+  catches up, the fix is to widen the filter, not to loosen the server.
 - **The delivery editor's allocation is a preview, not a decision.** It mirrors
   `allocate_for_dispatch` client-side over the stock rows it can see, and the
   server allocates for real at dispatch — stock can move in between, so the
