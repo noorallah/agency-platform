@@ -191,6 +191,19 @@ def stock_by_warehouse(
     )
 
 
+@router.get(
+    "/summary/by-product", response_model=ApiResponse[list[InventoryLocationSummary]]
+)
+def stock_by_product(
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[InventoryLocationSummary]]:
+    """Return stock totals per product, summed across its batches."""
+    return ApiResponse(
+        data=InventoryService(db).stock_by_product(firm_scope=scope.firm_id)
+    )
+
+
 @router.post(
     "",
     response_model=ApiResponse[InventoryResponse],

@@ -308,6 +308,53 @@ class InventoryService:
             for row in rows
         ]
 
+    def stock_by_product(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
+        """Return stock totals per product, across batches and locations.
+
+        A batch-tracked product is several stock rows -- one per batch per
+        place -- so "how much amoxicillin do I have" stopped being a row and
+        became a sum. The list endpoint deliberately still returns the
+        individual rows, because which batch stock is in is the reason the
+        grain changed; this is where the total lives.
+        """
+        rows = self._session.execute(
+            select(
+                Product.id,
+                Product.code,
+                Product.name,
+                func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.reserved_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.blocked_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.damaged_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.quarantine_quantity), 0),
+                func.coalesce(func.sum(InventoryRecord.in_transit_quantity), 0),
+            )
+            .join(InventoryRecord, InventoryRecord.product_id == Product.id)
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                Product.is_deleted.is_(False),
+                InventoryRecord.is_deleted.is_(False),
+            )
+            .group_by(Product.id, Product.code, Product.name)
+            .order_by(Product.code.asc())
+        ).all()
+        return [
+            InventoryLocationSummary(
+                scope_id=row[0],
+                scope_code=row[1],
+                scope_name=row[2],
+                current_quantity=Decimal(row[3] or 0),
+                reserved_quantity=Decimal(row[4] or 0),
+                available_quantity=Decimal(row[5] or 0),
+                blocked_quantity=Decimal(row[6] or 0),
+                damaged_quantity=Decimal(row[7] or 0),
+                quarantine_quantity=Decimal(row[8] or 0),
+                in_transit_quantity=Decimal(row[9] or 0),
+            )
+            for row in rows
+        ]
+
     def stock_by_warehouse(self, *, firm_scope: UUID) -> list[InventoryLocationSummary]:
         """Return stock totals per warehouse."""
         rows = self._session.execute(
