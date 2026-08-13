@@ -158,6 +158,42 @@ so the next reader knows these are known, not missed:
   already shows. Either probe `/health` for real or drop the indicators; do not
   leave a third state where they look live and are not.
 
+## 6. Batch-grained stock — the rest of it
+
+Stages one and two are merged (PRs #14–#17). A stock row is now identified by
+its batch, goods receipts create the batch from the number typed off the
+carton, dispatch allocates across batches by earliest expiry, the ledger
+records which batch moved, `GET /inventory/summary/by-product` totals a product
+across its batches, and a product's `require_batch_on_receipt` /
+`require_batch_on_issue` finally decide something.
+
+`docs/INVENTORY_FRAMEWORK.md` describes the module as it stands. What is left,
+smallest first:
+
+1. **Purchase returns do not name the batch going back.** Goods can arrive in a
+   batch and leave to a customer from one, but the return to the supplier still
+   posts against the product. Mirrors what `delivery_note` already does.
+2. **`batches` still stores its own quantities.** Six columns -- `quantity`,
+   `available_quantity`, `reserved_quantity`, `blocked_quantity`,
+   `damaged_quantity`, `quarantine_quantity` -- maintained by the batch API and
+   reconciled against `inventories` by nothing. They were kept through stage two
+   because `create_batch` takes quantity as input and nothing could derive it
+   yet; `summary/by-product` can now. Removing them touches the model, schemas,
+   `create_batch`, and the desktop's batch grid and detail lines.
+3. **The desktop cannot create a goods receipt or a delivery note.** This is the
+   large one, and it is why none of the batch work is reachable by a user. The
+   pages list and view documents -- `EnterpriseDocumentLines` renders a
+   `DocumentLineSnapshot`, with no line editor -- and `ApiClient` has a
+   `createGoodsReceipt` that nothing calls. A batch field is a small part of
+   building document entry; treat it as its own piece of work with its own
+   review, not as a stage of this one.
+
+Not part of this, but adjacent and unbuilt: warehouse-to-warehouse transfers,
+physical count reconciliation, and dedicated damage/expiry/quarantine
+write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
+also post nothing to the general ledger, so stock value and the inventory
+control account never reconcile.
+
 ## Also open
 
 - **Desktop does not pre-hide feature-gated fields.** The backend refuses them
@@ -165,7 +201,5 @@ so the next reader knows these are known, not missed:
   that has no barcode feature and only fails on save. Decide whether that is
   acceptable or whether the desktop should read `/active-features` and hide
   them. `docs/MANUAL_UI_TEST_PLAN.md` §6.8.
-- **Nothing calls `setBusinessProfileFeatures`.** The client method exists; no
-  screen uses it, so features cannot be switched from the UI at all.
 - **`tests/` still has about 40 ruff findings** — missing docstrings and long
   lines in older test files. `app/` is clean.
