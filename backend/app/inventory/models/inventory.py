@@ -1,14 +1,15 @@
 """Inventory, transaction, ledger, and opening-stock persistence models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.database.clock import statement_now
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UUIDType
+from app.core.database.types import UTCDateTime, UUIDType
 
 
 class InventoryRecord(BaseEntity):
@@ -99,6 +100,17 @@ class InventoryRecord(BaseEntity):
     )
 
 
+#: Movements are read as a chronology, so they need a clock that advances
+#: within a request. ``BaseEntity.created_at`` uses ``func.now()``, which is the
+#: transaction's start time -- identical for every row a request writes -- so
+#: posting a delivery note gave its UNRESERVE and its DISPATCH the same instant
+#: and the ledger could return them either way round. See
+#: ``app/core/database/clock.py``.
+def _movement_created_at() -> Mapped[datetime]:
+    """Return a created_at that advances between statements."""
+    return mapped_column(UTCDateTime, nullable=False, server_default=statement_now())
+
+
 class InventoryTransaction(BaseEntity):
     """Persist one immutable inventory movement event."""
 
@@ -113,6 +125,7 @@ class InventoryTransaction(BaseEntity):
     inventory_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("inventories.id", ondelete="RESTRICT"), nullable=False
     )
+    created_at: Mapped[datetime] = _movement_created_at()
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )
@@ -249,6 +262,7 @@ class StockLedgerEntry(BaseEntity):
     inventory_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("inventories.id", ondelete="RESTRICT"), nullable=False
     )
+    created_at: Mapped[datetime] = _movement_created_at()
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
     )

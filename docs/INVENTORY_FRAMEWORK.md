@@ -204,6 +204,16 @@ sum of its own transactions, and every valuation quantity equals stock on hand.
   not balance — reconcile against delivery notes.
 - **`ADJUSTMENT` is the only way into the damaged, quarantine and in-transit
   buckets.** They are not dead columns, but nothing routine fills them.
+- **Movements are timed by the statement clock, not the transaction clock.**
+  `func.now()` is PostgreSQL's `transaction_timestamp()`, so every row a request
+  writes shares an instant -- a delivery note's UNRESERVE and DISPATCH were
+  indistinguishable and the ledger could return them either way round, showing a
+  balance of 90, then 72, then 90. `inventory_transactions` and
+  `stock_ledger_entries` default `created_at` to `clock_timestamp()`
+  (`app/core/database/clock.py`, `20260813_0069`); every other table keeps one
+  instant per request, which is the honest answer for a business record. The
+  sort still ends with an id tiebreaker, because paging over a tie can hand the
+  same row to two pages.
 
 ## Where the code is
 
