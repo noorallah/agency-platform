@@ -4,7 +4,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.clock import statement_now
@@ -17,15 +26,38 @@ class InventoryRecord(BaseEntity):
 
     __tablename__ = "inventories"
     __table_args__ = (
-        UniqueConstraint(
+        # Stock is held per batch where a product is batch-tracked, and once
+        # per location where it is not. One unique constraint cannot express
+        # that: a NULL batch is distinct from every other NULL in both
+        # PostgreSQL and SQLite, so a single key over a nullable column would
+        # let untracked stock duplicate freely. Two partial indexes say it
+        # exactly -- one row per location for untracked stock, one row per
+        # batch for tracked.
+        Index(
+            "UQ_inventories_location_product_untracked",
             "firm_id",
             "branch_id",
             "warehouse_id",
             "storage_locator",
             "product_id",
-            name="UQ_inventories_location_product",
+            unique=True,
+            postgresql_where=text("batch_id IS NULL"),
+            sqlite_where=text("batch_id IS NULL"),
+        ),
+        Index(
+            "UQ_inventories_location_product_batch",
+            "firm_id",
+            "branch_id",
+            "warehouse_id",
+            "storage_locator",
+            "product_id",
+            "batch_id",
+            unique=True,
+            postgresql_where=text("batch_id IS NOT NULL"),
+            sqlite_where=text("batch_id IS NOT NULL"),
         ),
         Index("IX_inventories_firm_product", "firm_id", "product_id"),
+        Index("IX_inventories_firm_batch", "firm_id", "batch_id"),
         Index("IX_inventories_firm_status", "firm_id", "status"),
         Index("IX_inventories_firm_warehouse", "firm_id", "warehouse_id"),
         Index("IX_inventories_firm_branch", "firm_id", "branch_id"),
@@ -48,6 +80,13 @@ class InventoryRecord(BaseEntity):
     storage_locator: Mapped[str] = mapped_column(String(80), nullable=False)
     product_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The batch this stock belongs to, or NULL where the product is not
+    #: batch-tracked. It is part of the row's identity, not a label: two
+    #: batches of the same medicine in the same bay are different stock, and
+    #: only one of them may be the one being recalled.
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT")
     )
     business_profile_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
@@ -252,6 +291,7 @@ class StockLedgerEntry(BaseEntity):
         Index("IX_stock_ledger_entries_firm_product", "firm_id", "product_id"),
         Index("IX_stock_ledger_entries_firm_warehouse", "firm_id", "warehouse_id"),
         Index("IX_stock_ledger_entries_firm_type", "firm_id", "transaction_type"),
+        Index("IX_stock_ledger_entries_firm_batch", "firm_id", "batch_id"),
     )
 
     transaction_id: Mapped[UUID] = mapped_column(
@@ -261,6 +301,11 @@ class StockLedgerEntry(BaseEntity):
     )
     inventory_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("inventories.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The batch that moved. The ledger is where "what did batch B-2405 cost"
+    #: and "where did it go" are answered, and it could answer neither.
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT")
     )
     created_at: Mapped[datetime] = _movement_created_at()
     firm_id: Mapped[UUID] = mapped_column(

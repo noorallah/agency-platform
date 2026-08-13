@@ -74,6 +74,10 @@ class _Movement:
     conversion_version: int | None = None
     remarks: str | None = None
     unit_cost: Decimal | None = None
+    #: The batch that moved, mirrored onto the transaction and the ledger so
+    #: "where did batch B-2405 go" is answerable from the history rather than
+    #: only from the current balance.
+    batch_id: UUID | None = None
 
 
 class InventoryService:
@@ -362,6 +366,9 @@ class InventoryService:
                 warehouse_id=warehouse.id,
                 storage_locator=locator,
                 product_id=product.id,
+                # Creating a stock row by hand creates the untracked one; a
+                # batch's row is created by the movement that receives it.
+                batch_id=None,
             )
             is not None
         ):
@@ -447,6 +454,9 @@ class InventoryService:
             warehouse_id=data.warehouse_id,
             storage_locator=locator,
             product_id=data.product_id,
+            # Editing a stock row cannot move it between batches, so the clash
+            # to look for is on the row's own batch.
+            batch_id=row.batch_id,
         )
         if existing is not None and existing.id != row.id:
             raise ConflictError("The target inventory location already exists.")
@@ -2189,6 +2199,7 @@ class InventoryService:
         storage_node_id: UUID | None,
         product_id: UUID,
         actor_id: UUID,
+        batch_id: UUID | None = None,
     ) -> InventoryRecord:
         _, _, storage_node, _, profile = self._validate_references(
             firm_id=firm_id,
@@ -2204,6 +2215,7 @@ class InventoryService:
             warehouse_id=warehouse_id,
             storage_locator=locator,
             product_id=product_id,
+            batch_id=batch_id,
         )
         if row is not None:
             return row
@@ -2214,6 +2226,7 @@ class InventoryService:
             storage_node_id=storage_node.id if storage_node else None,
             storage_locator=locator,
             product_id=product_id,
+            batch_id=batch_id,
             business_profile_id=profile.id if profile is not None else None,
             current_quantity=ZERO,
             reserved_quantity=ZERO,
@@ -2288,6 +2301,7 @@ class InventoryService:
             warehouse_id=inventory.warehouse_id,
             storage_node_id=inventory.storage_node_id,
             product_id=inventory.product_id,
+            batch_id=movement.batch_id or inventory.batch_id,
             business_profile_id=inventory.business_profile_id,
             transaction_type=movement.transaction_type,
             reference_number=movement.reference_number,
@@ -2332,6 +2346,7 @@ class InventoryService:
                 warehouse_id=inventory.warehouse_id,
                 storage_node_id=inventory.storage_node_id,
                 product_id=inventory.product_id,
+                batch_id=transaction.batch_id,
                 business_profile_id=inventory.business_profile_id,
                 transaction_type=transaction.transaction_type,
                 reference_number=transaction.reference_number,
@@ -2461,6 +2476,7 @@ class InventoryService:
         warehouse_id: UUID,
         storage_locator: str,
         product_id: UUID,
+        batch_id: UUID | None,
     ) -> InventoryRecord | None:
         return self._session.scalar(
             select(InventoryRecord).where(
@@ -2469,6 +2485,12 @@ class InventoryService:
                 InventoryRecord.warehouse_id == warehouse_id,
                 InventoryRecord.storage_locator == storage_locator,
                 InventoryRecord.product_id == product_id,
+                # `== None` renders IS NULL, which is what selects the single
+                # row an untracked product keeps. Comparing a nullable column
+                # with `==` to a None variable is the intent here, not a
+                # mistake -- batch-tracked stock and untracked stock are
+                # different rows and must not collapse into one.
+                InventoryRecord.batch_id == batch_id,
                 InventoryRecord.is_deleted.is_(False),
             )
         )
