@@ -6,10 +6,13 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/branch_warehouse.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
+import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import 'delivery_note_editor_dialog.dart';
 
 class DeliveryNoteManagementPage extends StatefulWidget {
   const DeliveryNoteManagementPage({
@@ -46,11 +49,18 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   List<_DeliveryNoteRecord> _notes = const [];
   _DeliveryNoteRecord? _selected;
   List<DocumentTimelineSnapshot> _history = const [];
+  // Reference data the editor needs, loaded once with the workspace.
+  List<Json> _deliverableOrders = const [];
+  List<WarehouseRecord> _warehouses = const [];
+  List<Product> _products = const [];
+
+  bool get _canCreate => widget.permissions.hasPermission('SALES_CREATE');
 
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadReferenceData());
   }
 
   @override
@@ -84,6 +94,67 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           widget.permissions.hasPermission('SALES_EXPORT'),
         _ => true,
       };
+
+  /// Load what the editor needs: the orders that can still be delivered
+  /// against, the bays goods leave from, and product names.
+  ///
+  /// Failing here leaves the create action disabled rather than taking the
+  /// workspace down; the list of notes is still readable without it.
+  Future<void> _loadReferenceData() async {
+    if (!widget.hasActiveFirm || !_canCreate) return;
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        widget.api.documentPage(
+          'sales-orders',
+          page: 1,
+          pageSize: 100,
+          sortBy: 'order_date',
+          descending: true,
+          additionalQuery: const {'status': 'APPROVED'},
+        ),
+        widget.api.warehouses(page: 1, pageSize: 100),
+        widget.api.products(page: 1, pageSize: 100),
+      ]);
+      // A paginated body carries a list under `data`, so `_unwrap` returns the
+      // envelope rather than the payload here.
+      final dynamic data = (results[0] as Json)['data'];
+      if (!mounted) return;
+      setState(() {
+        _deliverableOrders = [
+          for (final dynamic order in data is List ? data : const [])
+            if (order is Map) Map<String, dynamic>.from(order),
+        ];
+        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
+        _products = (results[2] as PagedResult<Product>).items;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _deliverableOrders = const []);
+    }
+  }
+
+  /// Open the editor and reload if it saved a note.
+  Future<void> _createNote() async {
+    final Json? saved = await showDialog<Json>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DeliveryNoteEditorDialog(
+        api: widget.api,
+        salesOrders: _deliverableOrders,
+        warehouses: _warehouses,
+        products: _products,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Delivery note ${stringValue(saved['delivery_note_number'])} created as '
+      'a draft. Dispatching it is what moves the stock.',
+      kind: AppNotificationKind.success,
+    );
+  }
 
   Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
@@ -207,13 +278,32 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                         children: [
                           Padding(
                             padding: const EdgeInsets.all(16),
-                            child: TextField(
-                              controller: _search,
-                              decoration: const InputDecoration(
-                                labelText: 'Search delivery notes',
-                                prefixIcon: Icon(Icons.search),
-                              ),
-                              onSubmitted: (_) => _load(requestedPage: 1),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _search,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Search delivery notes',
+                                      prefixIcon: Icon(Icons.search),
+                                    ),
+                                    onSubmitted: (_) => _load(requestedPage: 1),
+                                  ),
+                                ),
+                                if (_canCreate) ...[
+                                  const SizedBox(width: 12),
+                                  FilledButton.icon(
+                                    // A delivery note line requires a sales
+                                    // order line, so with nothing approved to
+                                    // deliver there is nothing to raise.
+                                    onPressed: _deliverableOrders.isEmpty
+                                        ? null
+                                        : _createNote,
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('New Note'),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                           Expanded(

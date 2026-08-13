@@ -247,6 +247,10 @@ each was, at some point, wrong.
 | 8.15 | A part-received order defaults to what is left | Complete a receipt for part of an order, then raise a second receipt against the same order | The second receipt defaults to the outstanding quantity, not the full order. Saving the full order again is refused for over-receipt |
 | 8.16 | The batch on the carton reaches the shelf | Receive a line with a batch number, then complete it | A batch of that number exists under Batches, holding what was received. The stock row is that batch's, not the product's |
 | 8.17 | A batch-tracked product refuses a blank batch | Receive a product whose profile requires a batch on receipt, leaving the batch number empty | Refused **before** the round trip, naming the line. Completing it server-side is refused too |
+| 8.18 | Deliver against an order | Delivery Notes → **New Note**, choose an approved order, save | A draft note. Stock has **not** moved — dispatching it is what moves it |
+| 8.19 | A line defaults to what is reserved | Compare the Delivering box with the line's ordered and reserved figures | It matches **reserved**, not ordered. Delivering more than is reserved is refused at dispatch |
+| 8.20 | The batch preview matches what ships | Note which batches a line says it will ship from, then dispatch it and open the stock ledger | The dispatch came off those batches, earliest expiry first |
+| 8.21 | An unapproved order cannot ship | Open a note for an order with nothing reserved | The line says so and Save is refused. It must not offer to ship stock nobody committed |
 
 ---
 

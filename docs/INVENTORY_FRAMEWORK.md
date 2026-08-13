@@ -116,6 +116,13 @@ Three levels decide whether any of this applies, and all three are enforced:
 `GET /inventory/summary/by-product` totals a product across its batches, which
 is the figure that used to be a single row.
 
+**Every response names the batch.** A stock row carries `batch_id`,
+`batch_number` and `batch_expiry_date`; a movement and its ledger entry carry
+`batch_id` and `batch_number`. The grain changed before the responses did, so
+for a while two rows of one product in one bay were indistinguishable to any
+caller and "which movements touched this batch" could only be asked in SQL —
+which is the question a recall is.
+
 **A batch stores no quantities.** It carries identity — the number, who
 supplied it, when it expires, whether it is blocked — and what it is holding is
 a sum of the stock rows carrying its id, computed by
