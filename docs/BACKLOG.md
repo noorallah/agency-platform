@@ -162,25 +162,23 @@ so the next reader knows these are known, not missed:
 
 Stages one and two are merged (PRs #14–#17). A stock row is now identified by
 its batch, goods receipts create the batch from the number typed off the
-carton, dispatch allocates across batches by earliest expiry, the ledger
-records which batch moved, `GET /inventory/summary/by-product` totals a product
-across its batches, and a product's `require_batch_on_receipt` /
-`require_batch_on_issue` finally decide something.
+carton, dispatch allocates across batches by earliest expiry, purchase returns
+post against the batch they name, the ledger records which batch moved, `GET
+/inventory/summary/by-product` totals a product across its batches, and a
+product's `require_batch_on_receipt` / `require_batch_on_issue` finally decide
+something.
 
-`docs/INVENTORY_FRAMEWORK.md` describes the module as it stands. What is left,
-smallest first:
+`docs/INVENTORY_FRAMEWORK.md` describes the module as it stands, including
+which document does what with a batch. What is left, smallest first:
 
-1. **Purchase returns do not name the batch going back.** Goods can arrive in a
-   batch and leave to a customer from one, but the return to the supplier still
-   posts against the product. Mirrors what `delivery_note` already does.
-2. **`batches` still stores its own quantities.** Six columns -- `quantity`,
+1. **`batches` still stores its own quantities.** Six columns -- `quantity`,
    `available_quantity`, `reserved_quantity`, `blocked_quantity`,
    `damaged_quantity`, `quarantine_quantity` -- maintained by the batch API and
    reconciled against `inventories` by nothing. They were kept through stage two
    because `create_batch` takes quantity as input and nothing could derive it
    yet; `summary/by-product` can now. Removing them touches the model, schemas,
    `create_batch`, and the desktop's batch grid and detail lines.
-3. **The desktop cannot create a goods receipt or a delivery note.** This is the
+2. **The desktop cannot create a goods receipt or a delivery note.** This is the
    large one, and it is why none of the batch work is reachable by a user. The
    pages list and view documents -- `EnterpriseDocumentLines` renders a
    `DocumentLineSnapshot`, with no line editor -- and `ApiClient` has a
