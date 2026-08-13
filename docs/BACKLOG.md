@@ -168,23 +168,33 @@ post against the batch they name, the ledger records which batch moved, `GET
 product's `require_batch_on_receipt` / `require_batch_on_issue` finally decide
 something.
 
-`docs/INVENTORY_FRAMEWORK.md` describes the module as it stands, including
-which document does what with a batch. What is left, smallest first:
+A batch no longer stores its own quantities either: the six columns are gone
+and the API reports what the stock rows hold.
 
-1. **`batches` still stores its own quantities.** Six columns -- `quantity`,
-   `available_quantity`, `reserved_quantity`, `blocked_quantity`,
-   `damaged_quantity`, `quarantine_quantity` -- maintained by the batch API and
-   reconciled against `inventories` by nothing. They were kept through stage two
-   because `create_batch` takes quantity as input and nothing could derive it
-   yet; `summary/by-product` can now. Removing them touches the model, schemas,
-   `create_batch`, and the desktop's batch grid and detail lines.
-2. **The desktop cannot create a goods receipt or a delivery note.** This is the
-   large one, and it is why none of the batch work is reachable by a user. The
-   pages list and view documents -- `EnterpriseDocumentLines` renders a
-   `DocumentLineSnapshot`, with no line editor -- and `ApiClient` has a
-   `createGoodsReceipt` that nothing calls. A batch field is a small part of
-   building document entry; treat it as its own piece of work with its own
-   review, not as a stage of this one.
+`docs/INVENTORY_FRAMEWORK.md` describes the module as it stands, including
+which document does what with a batch. One piece is left, and it is not really
+a stage of this work:
+
+**The desktop cannot create a goods receipt, a delivery note or a purchase
+return.** This is the large one, and it is why none of the batch work is
+reachable by a user. The pages list and view documents --
+`EnterpriseDocumentLines` renders a `DocumentLineSnapshot`, with no line editor
+-- and `ApiClient` has a `createGoodsReceipt` that nothing calls. A batch field
+is a small part of building document entry; treat it as its own piece of work
+with its own review, not as a stage of this one.
+
+Two things the batch work leaves behind for whoever picks that up:
+
+- **`BatchResponse` still returns `product_code`, `product_name`,
+  `warehouse_code`, `warehouse_name`, `branch_code` and `branch_name` as null.**
+  Nothing populates them -- the model has no such attributes and the response is
+  validated straight off the record -- so the desktop's batch grid renders blank
+  columns. Now that responses are built through
+  `BatchSerialService.batch_responses`, that is where the join would go.
+- **The demo data has no batches**, so nothing in the seeded stores exercises
+  batch-grained stock. `scripts/generate_sample_data.py` writes `batch_number`
+  onto document lines but never registers a batch, which is why the receipt path
+  that creates them never runs during a seed.
 
 Not part of this, but adjacent and unbuilt: warehouse-to-warehouse transfers,
 physical count reconciliation, and dedicated damage/expiry/quarantine

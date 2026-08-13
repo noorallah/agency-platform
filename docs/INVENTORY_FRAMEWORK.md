@@ -116,11 +116,19 @@ Three levels decide whether any of this applies, and all three are enforced:
 `GET /inventory/summary/by-product` totals a product across its batches, which
 is the figure that used to be a single row.
 
-**Still stored twice:** `batches` carries its own `quantity`,
-`available_quantity`, `reserved_quantity`, `blocked_quantity`,
-`damaged_quantity` and `quarantine_quantity`, maintained by the batch API and
-reconciled against `inventories` by nothing. `summary/by-product` can now derive
-them; removing them is `docs/BACKLOG.md` §6.
+**A batch stores no quantities.** It carries identity — the number, who
+supplied it, when it expires, whether it is blocked — and what it is holding is
+a sum of the stock rows carrying its id, computed by
+`InventoryService.stock_by_batch` and reported by the batch API. It used to
+store both: six columns written by the batch endpoint and reconciled against
+`inventories` by nothing, so the seeded demo store held one batch claiming ten
+units while no stock row anywhere had any of it (`20260813_0073` dropped them).
+
+The consequence for callers: **a batch cannot be created holding stock.**
+`POST /batch-serial/batches` no longer accepts a quantity and refuses one that
+is sent. Stock arrives through a document — a goods receipt, an opening stock
+batch, an adjustment — because a quantity with no movement behind it is exactly
+what the ledger invariant above exists to refuse.
 
 ## The movement vocabulary
 

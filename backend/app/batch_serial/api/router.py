@@ -95,7 +95,7 @@ def list_batches(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[BatchResponse.model_validate(r) for r in rows],
+        data=service.batch_responses(rows, firm_scope=scope.firm_id),
         pagination=params.metadata(total),
     )
 
@@ -127,10 +127,9 @@ def get_batch(
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
     """Return one batch the firm owns."""
-    record = BatchSerialService(db).get_batch(
-        firm_scope=scope.firm_id, batch_id=batch_id
-    )
-    return ApiResponse(data=BatchResponse.model_validate(record))
+    service = BatchSerialService(db)
+    record = service.get_batch(firm_scope=scope.firm_id, batch_id=batch_id)
+    return ApiResponse(data=service.batch_response(record, firm_scope=scope.firm_id))
 
 
 @router.post(
@@ -145,10 +144,11 @@ def create_batch(
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
     """Record a batch of a product."""
-    record = BatchSerialService(db).create_batch(
+    service = BatchSerialService(db)
+    record = service.create_batch(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, data=data
     )
-    return ApiResponse(data=BatchResponse.model_validate(record))
+    return ApiResponse(data=service.batch_response(record, firm_scope=scope.firm_id))
 
 
 @router.put(
@@ -163,10 +163,11 @@ def update_batch(
     db: Session = Depends(get_db),
 ) -> ApiResponse[BatchResponse]:
     """Change a batch."""
-    record = BatchSerialService(db).update_batch(
+    service = BatchSerialService(db)
+    record = service.update_batch(
         firm_scope=scope.firm_id, actor_id=scope.actor_id, batch_id=batch_id, data=data
     )
-    return ApiResponse(data=BatchResponse.model_validate(record))
+    return ApiResponse(data=service.batch_response(record, firm_scope=scope.firm_id))
 
 
 @router.delete(

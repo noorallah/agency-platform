@@ -68,24 +68,14 @@ class BatchRecord(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="AVAILABLE", server_default="AVAILABLE"
     )
-    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=0)
-    available_quantity: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), nullable=False, default=0
-    )
-    reserved_quantity: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), nullable=False, default=0
-    )
-    blocked_quantity: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), nullable=False, default=0
-    )
-    damaged_quantity: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), nullable=False, default=0
-    )
-    quarantine_quantity: Mapped[Decimal] = mapped_column(
-        Numeric(18, 4), nullable=False, default=0
-    )
     shelf_life_days: Mapped[int | None] = mapped_column()
     remarks: Mapped[str | None] = mapped_column(Text)
+
+    # A batch stores no quantities. It carries identity -- the number, who
+    # supplied it, when it expires, whether it is blocked -- and how much of it
+    # is on the shelf is a consequence of the movements that put it there.
+    # `inventories` is keyed by batch, so the answer is a sum of the stock rows
+    # carrying this id; `InventoryService.stock_by_batch` is where it lives.
 
     serials: Mapped[list["SerialNumber"]] = relationship(
         back_populates="batch", lazy="select"
