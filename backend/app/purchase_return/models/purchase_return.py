@@ -252,6 +252,12 @@ class PurchaseReturnLine(BaseEntity):
         UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
     )
     batch_number: Mapped[str | None] = mapped_column(String(120))
+    #: The batch these goods actually went back from, resolved from the typed
+    #: number. A return never creates the batch: a number nobody received is a
+    #: mistake to correct, not stock history to invent.
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
+    )
     expiry_date: Mapped[date | None] = mapped_column(Date)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(

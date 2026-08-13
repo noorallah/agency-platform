@@ -1438,8 +1438,14 @@ class InventoryService:
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
         remarks: str | None = None,
+        batch_id: UUID | None = None,
     ) -> InventoryTransaction:
-        """Post the stock a purchase return sent back."""
+        """Post the stock a purchase return sent back, from one batch.
+
+        ``batch_id`` takes the goods out of that batch's row rather than the
+        product's untracked one. Without it a batch could be received, sold
+        from, and then returned to the supplier off stock that was never in it.
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1471,12 +1477,14 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
             actor_id=actor_id,
+            batch_id=batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.RETURN.value,
+                batch_id=batch_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="PURCHASE_RETURN",
                 transaction_date=transaction_date,

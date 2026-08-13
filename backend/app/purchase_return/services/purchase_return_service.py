@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.services import BatchSerialService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -513,6 +514,9 @@ class PurchaseReturnService(TransactionalDocumentService):
                 raise ValidationError(
                     "Rejected quantity cannot exceed returned quantity."
                 )
+            batch_id = self._resolve_return_batch(line)
+            if batch_id is not None:
+                line.batch_id = batch_id
             transaction = self._inventory.record_purchase_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
@@ -533,6 +537,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 entered_uom_id=line.return_uom_id or line.purchase_uom_id,
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
+                batch_id=batch_id,
             )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
@@ -560,6 +565,45 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _resolve_return_batch(self, line: PurchaseReturnLine) -> UUID | None:
+        """Return the batch this line is sending back, if it names one.
+
+        The number is typed off the carton being crated up for the supplier.
+        Resolving it is what takes the goods out of that batch's stock row
+        instead of the product's untracked one -- without it a batch could be
+        received, sold from, and then returned against stock that was never in
+        it, leaving the batch holding goods that have left the building.
+
+        ``require_batch_on_issue`` is the product saying its goods cannot leave
+        unidentified, and a return to the supplier is stock leaving. Dispatch
+        already refuses to ship it untracked; a return that did not would be
+        the same hole in the same guarantee, one document along.
+
+        Returns:
+            The batch id, or None where the line names no batch and the product
+            does not require one -- which posts against the product exactly as
+            it did before.
+
+        """
+        number = (line.batch_number or "").strip()
+        if not number:
+            product = self._session.get(Product, line.product_id)
+            if product is not None and product.require_batch_on_issue:
+                raise ValidationError(
+                    f"{product.code} may only be issued from a batch, so the "
+                    "batch number is required to return it."
+                )
+            return None
+        return (
+            BatchSerialService(self._session)
+            .resolve_for_issue(
+                firm_scope=line.firm_id,
+                product_id=line.product_id,
+                batch_number=number,
+            )
+            .id
+        )
 
     def cancel_return(
         self,

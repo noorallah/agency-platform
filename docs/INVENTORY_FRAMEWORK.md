@@ -39,7 +39,7 @@ WHERE i.current_quantity <> (
 
 | Table | Holds | Grain |
 | --- | --- | --- |
-| `inventories` | the projection, six quantity buckets and planning levels | firm + branch + warehouse + storage locator + product |
+| `inventories` | the projection, six quantity buckets and planning levels | firm + branch + warehouse + storage locator + product + batch |
 | `inventory_transactions` | one row per movement, with previous and new values for every bucket | per movement |
 | `stock_ledger_entries` | the same movement plus `unit_cost`, `total_cost`, `average_cost_after` | 1:1 with a transaction |
 | `product_valuations` | `costing_method`, `quantity_on_hand`, `average_cost`, `total_value` | firm + product |
@@ -77,6 +77,50 @@ delivery note posted   UNRESERVE   -reserved
 
 Stock is committed when the order is taken and only leaves the building at
 dispatch, so two salespeople cannot promise the same box.
+
+## The batch is part of the grain
+
+Two batches of one medicine in one bay are not one stock figure. Only one of
+them expires in March and only one of them is the one being recalled, so they
+are two `inventories` rows: `batch_id` is part of the row's identity, not a
+label on it. A product nobody tracks keeps its single row, whose `batch_id` is
+NULL — two partial unique indexes say exactly that, because a single key over a
+nullable column would let untracked stock duplicate freely.
+
+Where each document stands:
+
+| Document | What it does with the batch |
+| --- | --- |
+| `goods_receipt` | resolves the number typed off the carton, **creating** the batch when it is new |
+| `delivery_note` | allocates across batches by earliest expiry, one movement per batch drawn from |
+| `purchase_return` | posts against the batch the line names, and **never creates** one |
+
+The asymmetry between the first and last row is deliberate. Goods that have
+physically arrived have to be receivable, so an unknown number on a receipt is
+registered and a typo is corrected afterwards; an unknown number on a return
+names stock that was never taken in, so inventing the batch would write a
+delivery that did not happen and leave the new batch holding a negative
+quantity. It is refused instead.
+
+Three levels decide whether any of this applies, and all three are enforced:
+
+1. The firm's `BATCH_TRACKING` feature — whether the firm may use batches at
+   all.
+2. `products.require_batch_on_receipt` — a receipt line for this product with no
+   batch number is refused, naming the product.
+3. `products.require_batch_on_issue` — stock of this product cannot leave
+   unidentified. Dispatch drops untracked stock from its candidates and comes up
+   short rather than shipping goods nobody can trace; a purchase return, which
+   is also stock leaving, refuses a line with no batch number.
+
+`GET /inventory/summary/by-product` totals a product across its batches, which
+is the figure that used to be a single row.
+
+**Still stored twice:** `batches` carries its own `quantity`,
+`available_quantity`, `reserved_quantity`, `blocked_quantity`,
+`damaged_quantity` and `quarantine_quantity`, maintained by the batch API and
+reconciled against `inventories` by nothing. `summary/by-product` can now derive
+them; removing them is `docs/BACKLOG.md` §6.
 
 ## The movement vocabulary
 

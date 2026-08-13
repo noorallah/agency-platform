@@ -263,6 +263,48 @@ class BatchSerialService:
         )
         return record
 
+    def resolve_for_issue(
+        self,
+        *,
+        firm_scope: UUID,
+        product_id: UUID,
+        batch_number: str,
+    ) -> BatchRecord:
+        """Return the registered batch a document is taking stock out of.
+
+        The counterpart of ``resolve_for_receipt``, and deliberately the
+        opposite of it in one respect: goods leaving never create a batch.
+
+        Receiving creates an unknown batch because the goods are physically on
+        the dock and refusing would stop a warehouse over paperwork. Issuing is
+        the other way round -- a number nobody ever received names stock that
+        was never taken in, so creating it would write a delivery that did not
+        happen and leave the batch holding a negative quantity. The number is
+        refused instead, which is a typo the storeman can fix.
+
+        Raises:
+            ValidationError: If the number is blank or names no batch of this
+                product.
+
+        """
+        number = batch_number.strip()
+        if not number:
+            raise ValidationError("A batch number is required to issue this stock.")
+        batch = self._session.scalar(
+            select(BatchRecord).where(
+                BatchRecord.firm_id == firm_scope,
+                BatchRecord.product_id == product_id,
+                BatchRecord.batch_number == number,
+                BatchRecord.is_deleted.is_(False),
+            )
+        )
+        if batch is None:
+            raise ValidationError(
+                f"Batch {number} was never received for this product, "
+                "so no stock can be taken out of it."
+            )
+        return batch
+
     def update_batch(
         self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID, data: BatchUpdate
     ) -> BatchRecord:
