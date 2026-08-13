@@ -12,7 +12,9 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
+import 'package:agency_desktop/ui/inventory/inventory_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -200,4 +202,95 @@ void main() {
       expect(find.text('Customer 0'), findsOneWidget);
     });
   });
+
+  group('the inventory workspace', () {
+    testWidgets('one click marks the row, a double click opens the details',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: InventoryManagementPage(
+            api: _InventoryApi(),
+            preferences: DesktopPreferencesService(),
+            permissions: _withPermissions(['INVENTORY_VIEW']),
+            hasActiveFirm: true,
+            section: InventorySection.inventory,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('PROD-0 - Product 0').first);
+      await _settleTap(tester);
+
+      expect(
+        find.byType(DetailsPanel),
+        findsNothing,
+        reason: 'a single click used to open a panel beside the table',
+      );
+
+      await tester.tap(find.text('PROD-0 - Product 0').first);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('PROD-0 - Product 0').first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget,
+          reason: 'opening a row is what double-click is for');
+      // The dialog carries what the panel used to, including the id nobody can
+      // read off a grid column.
+      expect(find.text('inv-0'), findsOneWidget);
+    });
+  });
+}
+
+/// A backend serving two inventory rows and nothing else.
+class _InventoryApi extends ApiClient {
+  _InventoryApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+  }) async {
+    if (path == '/api/v1/inventory') {
+      return <String, dynamic>{
+        'data': [
+          for (int index = 0; index < 2; index++)
+            {
+              'id': 'inv-$index',
+              'product_id': 'prod-$index',
+              'product_code': 'PROD-$index',
+              'product_name': 'Product $index',
+              'branch_id': 'branch-1',
+              'branch_code': 'BR1',
+              'branch_name': 'Main',
+              'warehouse_id': 'wh-1',
+              'warehouse_code': 'WH1',
+              'warehouse_name': 'Central',
+              'current_quantity': '10',
+              'available_quantity': '10',
+              'reserved_quantity': '0',
+              'status': 'ACTIVE',
+            },
+        ],
+        'pagination': {'total_records': 2},
+      };
+    }
+    return <String, dynamic>{
+      'data': const <dynamic>[],
+      'pagination': {'total_records': 0},
+    };
+  }
 }

@@ -366,7 +366,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         ),
         filterPanel: _buildFilterPanel(),
         primaryContent: _buildPrimaryContent(),
-        detailsPanel: _buildDetailsPanel(),
+        // Selecting a row selects it; opening one is what double-click and the
+        // row's eye icon are for. A panel beside the grid re-read a record the
+        // user had only pointed at, and cost ~300px of the table to do it.
+        detailsPanel: null,
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _selectedCount > 0,
@@ -544,8 +547,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
 
   Widget _buildSettingsWorkspace() => WorkspaceLayout(
         title: 'Inventory Settings',
-        description:
-            'Review the current foundation and extension points for future inventory phases.',
+        description: 'Defaults this workspace uses when you save or export.',
         breadcrumbs: const ['Workspace', 'Inventory', 'Settings'],
         content: Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
@@ -585,30 +587,6 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   ),
                 ),
               ),
-              const _InfoTile(
-                icon: Icons.receipt_long_outlined,
-                title: 'Opening stock is first-time load',
-                message:
-                    'Use opening stock for first entry only, then continue stock changes through purchase receipts and adjustments.',
-              ),
-              _InfoTile(
-                icon: Icons.receipt_long_outlined,
-                title: 'Transactions are the source of truth',
-                message:
-                    'All stock changes must be created through immutable inventory transactions.',
-              ),
-              _InfoTile(
-                icon: Icons.history_toggle_off_outlined,
-                title: 'Ledger history is immutable',
-                message:
-                    'Stock ledger entries are append-only and preserved for audit and reconciliation.',
-              ),
-              _InfoTile(
-                icon: Icons.extension_outlined,
-                title: 'Future phases attach here',
-                message:
-                    'Batch, serial, purchase, sales, and manufacturing flows must reuse this inventory layer.',
-              ),
             ],
           ),
         ),
@@ -625,11 +603,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit thresholds'),
             ),
-          if (widget.section == InventorySection.inventory &&
-              _canAdjust &&
-              _selectedInventory != null)
+          // Disabled rather than hidden, like Edit thresholds beside it: a
+          // button that appears on selection moves every button after it, so
+          // the one under the cursor changes as the user clicks a row.
+          if (widget.section == InventorySection.inventory && _canAdjust)
             OutlinedButton.icon(
-              onPressed: _deleteSelectedInventory,
+              onPressed:
+                  _selectedInventory == null ? null : _deleteSelectedInventory,
               icon: const Icon(Icons.delete_outline),
               label: const Text('Delete'),
             ),
@@ -952,6 +932,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ],
       id: (item) => item.id,
       selectedId: _selectedTransaction?.id,
+      onOpen: (item) => _openLinesDialog(() => _selectedTransaction = item),
       cells: (item) => [
         item.transactionDate,
         item.transactionType,
@@ -989,6 +970,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ],
       id: (item) => item.transactionId,
       selectedId: _selectedLedger?.transactionId,
+      onOpen: (item) => _openLinesDialog(() => _selectedLedger = item),
       cells: (item) => [
         item.transactionDate,
         item.transactionType,
@@ -1025,6 +1007,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ],
       id: (item) => item.id,
       selectedId: _selectedOpeningStock?.id,
+      onOpen: (item) => _openLinesDialog(() => _selectedOpeningStock = item),
       cells: (item) => [
         item.referenceNumber,
         item.postingDate,
@@ -1038,10 +1021,20 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     );
   }
 
-  Widget _buildDetailsPanel() => DetailsPanel(
-        title: _detailsTitle,
-        lines: _detailLines,
-      );
+  /// Show a row's details, from the same lines the panel used to render.
+  ///
+  /// The caller supplies how to select the row, because `_detailLines` reads
+  /// the selection and the ledger grid holds the same record type as the
+  /// transaction grid -- there is nothing in the value itself to tell them
+  /// apart.
+  Future<void> _openLinesDialog(VoidCallback select) async {
+    setState(select);
+    await showDetailLinesDialog(
+      context,
+      title: _detailsTitle,
+      lines: _detailLines,
+    );
+  }
 
   Future<void> _openInventoryDetails(InventoryRecord record) =>
       showInventoryDetailsDialog(
@@ -1695,27 +1688,6 @@ num? _nullableNumber(String value) {
     return null;
   }
   return num.parse(text);
-}
-
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) => Card(
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(title),
-          subtitle: Text(message),
-        ),
-      );
 }
 
 class _AdjustmentDraft {

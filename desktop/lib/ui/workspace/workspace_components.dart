@@ -1853,6 +1853,63 @@ class DetailsPanel extends StatelessWidget {
       );
 }
 
+/// Show the same lines a [DetailsPanel] would, on demand.
+///
+/// A read-only record still needs somewhere to show what a grid column cannot
+/// hold. Modules with an editable record open its own dialog in view mode --
+/// products and customers do -- but a stock movement or a ledger entry has no
+/// such form, and it should not need one invented to be readable.
+///
+/// This exists so removing a selection-driven side panel does not remove the
+/// detail with it: the panel's own [DetailLine] list is handed straight to it.
+Future<void> showDetailLinesDialog(
+  BuildContext context, {
+  required String title,
+  required List<DetailLine> lines,
+  IconData icon = Icons.receipt_long_outlined,
+}) =>
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(icon),
+        title: Text(title),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final DetailLine line in lines)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          line.label,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        const SizedBox(height: 2),
+                        // Selectable: the reason people opened the old panel
+                        // was usually to copy an id or a reference number.
+                        SelectableText(line.value),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+
 class WorkspaceStatusBar extends StatelessWidget {
   const WorkspaceStatusBar({
     super.key,
