@@ -213,6 +213,12 @@ class GoodsReceiptLine(BaseEntity):
         UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
     )
     batch_number: Mapped[str | None] = mapped_column(String(120))
+    #: The batch the number above resolved to. The text is what the storeman
+    #: read off the carton; this is what the stock row and the ledger are keyed
+    #: on, so a recall can be traced from the goods back to the delivery.
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
+    )
     expiry_date: Mapped[date | None] = mapped_column(Date)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
     inventory_transaction_id: Mapped[UUID | None] = mapped_column(

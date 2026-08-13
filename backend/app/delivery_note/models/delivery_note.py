@@ -220,6 +220,12 @@ class DeliveryNoteLine(BaseEntity):
         UUIDType(), ForeignKey("warehouse_storage_nodes.id", ondelete="RESTRICT")
     )
     batch_number: Mapped[str | None] = mapped_column(String(120))
+    #: The batch this line actually shipped from, chosen by earliest expiry.
+    #: A line that spans two batches posts one movement per batch and records
+    #: the first here; the movements carry the full split.
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
+    )
     serial_numbers: Mapped[str | None] = mapped_column(Text)
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
     expiry_date: Mapped[date | None] = mapped_column(Date)

@@ -1190,26 +1190,56 @@ class DeliveryNoteService(TransactionalDocumentService):
                     source_line.reserved_quantity - release_qty
                 )
                 line.released_reservation_transaction_id = released.id
-            dispatched = self._inventory.record_delivery_note_dispatch(
+            # A product held in one bay can be several stock rows now, one per
+            # batch, so a line may have to come out of more than one of them --
+            # earliest expiry first. One movement is posted per batch drawn
+            # from; the line records the first, and the movements carry the
+            # whole split.
+            allocation = self._inventory.allocate_for_dispatch(
                 firm_scope=row.firm_id,
-                actor_id=actor_id,
                 branch_id=row.branch_id,
                 warehouse_id=line.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
-                reference_number=row.delivery_note_number,
-                transaction_date=row.delivery_date,
-                dispatch_quantity=line.delivered_quantity,
-                entered_quantity=self._q(
-                    line.current_delivery_quantity + line.free_quantity
-                ),
-                entered_uom_id=line.sales_uom_id,
-                conversion_version=line.conversion_version,
-                remarks=line.remarks or row.remarks,
+                quantity=line.delivered_quantity,
             )
+            entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
+            dispatched = None
+            for batch_id, allocated in allocation:
+                # The entered quantity is what the customer was billed in, so
+                # it is apportioned with the split rather than repeated whole.
+                share = (
+                    entered_total
+                    if len(allocation) == 1
+                    else self._q(
+                        entered_total
+                        * (allocated / Decimal(str(line.delivered_quantity)))
+                    )
+                )
+                posted = self._inventory.record_delivery_note_dispatch(
+                    firm_scope=row.firm_id,
+                    actor_id=actor_id,
+                    branch_id=row.branch_id,
+                    warehouse_id=line.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    reference_number=row.delivery_note_number,
+                    transaction_date=row.delivery_date,
+                    dispatch_quantity=allocated,
+                    entered_quantity=share,
+                    entered_uom_id=line.sales_uom_id,
+                    conversion_version=line.conversion_version,
+                    remarks=line.remarks or row.remarks,
+                    batch_id=batch_id,
+                )
+                issued_cost += self._issue_cost(posted.id)
+                if dispatched is None:
+                    dispatched = posted
+                    line.batch_id = batch_id
+            if dispatched is None:
+                raise ValidationError("Insufficient available stock for dispatch line.")
             line.inventory_transaction_id = dispatched.id
             line.updated_by = actor_id
-            issued_cost += self._issue_cost(dispatched.id)
         self._session.flush()
         # Goods leave stock here, not when the invoice is raised, so this is
         # where cost of goods sold belongs. Posting fails the dispatch for the
