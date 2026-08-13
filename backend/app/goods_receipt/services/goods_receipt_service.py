@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.services import BatchSerialService
 from app.branches.models import Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
@@ -1069,6 +1070,27 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceiptLine.is_deleted.is_(False),
             )
         ).all():
+            # The batch number is typed off the carton. Resolving it to a real
+            # batch is what puts the goods in that batch's stock row instead of
+            # the product's single one; without it the batch register and the
+            # goods on the shelf stay two unrelated records of one delivery.
+            batch_id: UUID | None = None
+            if (line.batch_number or "").strip():
+                batch_id = (
+                    BatchSerialService(self._session)
+                    .resolve_for_receipt(
+                        firm_scope=receipt.firm_id,
+                        actor_id=actor_id,
+                        product_id=line.product_id,
+                        batch_number=line.batch_number or "",
+                        branch_id=receipt.branch_id,
+                        warehouse_id=line.warehouse_id,
+                        vendor_id=receipt.vendor_id,
+                        expiry_date=line.expiry_date,
+                    )
+                    .id
+                )
+                line.batch_id = batch_id
             transaction = self._inventory.record_goods_receipt(
                 firm_scope=receipt.firm_id,
                 actor_id=actor_id,
@@ -1091,6 +1113,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 entered_uom_id=line.purchase_uom_id,
                 conversion_version=line.conversion_version,
                 remarks=line.remarks,
+                batch_id=batch_id,
             )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id

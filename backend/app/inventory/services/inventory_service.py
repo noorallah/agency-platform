@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
+from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
@@ -1154,8 +1155,14 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
         unit_cost: Decimal | None = None,
+        batch_id: UUID | None = None,
     ) -> InventoryTransaction:
-        """Post the stock a goods receipt brought in."""
+        """Post the stock a goods receipt brought in.
+
+        ``batch_id`` puts the goods in that batch's row rather than the
+        product's single row, which is what makes two deliveries of one
+        medicine countable apart.
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1185,12 +1192,14 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
             actor_id=actor_id,
+            batch_id=batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.GOODS_RECEIPT.value,
+                batch_id=batch_id,
                 unit_cost=unit_cost,
                 reference_number=reference_number.strip().upper(),
                 reference_type="GOODS_RECEIPT",
@@ -1567,6 +1576,74 @@ class InventoryService:
         self._session.flush()
         return transaction
 
+    def allocate_for_dispatch(
+        self,
+        *,
+        firm_scope: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        quantity: Decimal,
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Choose which batches a dispatch consumes, earliest expiry first.
+
+        A product held in one bay can now be several stock rows, one per batch,
+        so a single document line may have to come out of more than one of
+        them: sixty strips from the batch expiring in March and forty from
+        June. This returns the split as (batch_id, quantity) pairs, and the
+        caller stages one movement per pair.
+
+        First expiry, first out. Expiry is ranked explicitly rather than left
+        to the backend's NULL ordering -- PostgreSQL sorts NULLs first in ASC
+        and SQLite last, so a batch with no expiry date would be picked first
+        on one and last on the other. A batch without an expiry is not urgent,
+        so it goes last, and ties break on the batch id to keep two runs of the
+        same dispatch identical.
+
+        Untracked stock -- the row whose ``batch_id`` is NULL -- is returned as
+        a single pair, so a product nobody tracks behaves exactly as it did.
+
+        Returns:
+            The batches to draw from, in the order to draw from them. Raises if
+            the available stock across all of them is short.
+
+        """
+        rows = list(
+            self._session.scalars(
+                select(InventoryRecord)
+                .outerjoin(BatchRecord, BatchRecord.id == InventoryRecord.batch_id)
+                .where(
+                    InventoryRecord.firm_id == firm_scope,
+                    InventoryRecord.branch_id == branch_id,
+                    InventoryRecord.warehouse_id == warehouse_id,
+                    InventoryRecord.product_id == product_id,
+                    InventoryRecord.is_deleted.is_(False),
+                    InventoryRecord.available_quantity > ZERO,
+                )
+                .order_by(
+                    case((BatchRecord.expiry_date.is_(None), 1), else_=0).asc(),
+                    BatchRecord.expiry_date.asc(),
+                    InventoryRecord.batch_id.asc(),
+                )
+            ).all()
+        )
+        outstanding = Decimal(str(quantity))
+        allocation: list[tuple[UUID | None, Decimal]] = []
+        for row in rows:
+            if outstanding <= ZERO:
+                break
+            take = min(outstanding, Decimal(str(row.available_quantity)))
+            if take <= ZERO:
+                continue
+            allocation.append((row.batch_id, take))
+            outstanding -= take
+        if outstanding > ZERO:
+            raise ValidationError(
+                "Insufficient available stock to dispatch: short by " f"{outstanding}."
+            )
+        return allocation
+
     def record_delivery_note_dispatch(
         self,
         *,
@@ -1583,8 +1660,13 @@ class InventoryService:
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
         remarks: str | None = None,
+        batch_id: UUID | None = None,
     ) -> InventoryTransaction:
-        """Post the stock a delivery note dispatched."""
+        """Post the stock a delivery note dispatched, from one batch.
+
+        Callers holding a line that spans batches call
+        ``allocate_for_dispatch`` first and then this once per allocated batch.
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1607,12 +1689,14 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
             actor_id=actor_id,
+            batch_id=batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.DISPATCH.value,
+                batch_id=batch_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="DELIVERY_NOTE",
                 transaction_date=transaction_date,

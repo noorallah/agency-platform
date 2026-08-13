@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import date, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -15,6 +15,7 @@ from app.batch_serial.models.batch_serial import BatchRecord, LotRecord, SerialN
 from app.batch_serial.schemas.batch_serial import (
     BatchCreate,
     BatchListFilters,
+    BatchStatus,
     BatchSummary,
     BatchUpdate,
     ExpiryDashboard,
@@ -27,7 +28,11 @@ from app.batch_serial.schemas.batch_serial import (
 )
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 
 
@@ -179,6 +184,83 @@ class BatchSerialService:
             firm_id=firm_scope,
         )
         self._session.commit()
+        return record
+
+    def resolve_for_receipt(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        product_id: UUID,
+        batch_number: str,
+        branch_id: UUID | None = None,
+        warehouse_id: UUID | None = None,
+        vendor_id: UUID | None = None,
+        expiry_date: date | None = None,
+    ) -> BatchRecord:
+        """Return the batch a receipt named, creating it if it is new.
+
+        A goods receipt records a batch number typed off the carton. It was
+        stored as free text and matched nothing, so the batch register and the
+        goods on the shelf were two unrelated records of the same delivery.
+
+        The batch is created rather than refused when the number is unknown.
+        Goods that have physically arrived have to be receivable: refusing
+        would stop a warehouse over a batch nobody had registered yet, while a
+        mistyped number is recoverable afterwards. ``batches`` is unique on
+        (firm, batch_number, product), so the same number on a later delivery
+        of the same product resolves to the batch already there.
+
+        Only the fields the receipt actually knows are set on creation. An
+        expiry date is recorded when the receipt carries one and is left alone
+        on an existing batch, which is the manufacturer's fact and not this
+        delivery's to change.
+        """
+        number = batch_number.strip()
+        if not number:
+            raise ValidationError("A batch number is required to receive stock.")
+        existing = self._session.scalar(
+            select(BatchRecord).where(
+                BatchRecord.firm_id == firm_scope,
+                BatchRecord.product_id == product_id,
+                BatchRecord.batch_number == number,
+                BatchRecord.is_deleted.is_(False),
+            )
+        )
+        if existing is not None:
+            return existing
+        self._assert_batch_features(
+            firm_scope,
+            {"expiry_date": expiry_date, "best_before_date": None},
+        )
+        record = BatchRecord(
+            firm_id=firm_scope,
+            product_id=product_id,
+            warehouse_id=warehouse_id,
+            branch_id=branch_id,
+            vendor_id=vendor_id,
+            batch_number=number,
+            expiry_date=expiry_date,
+            status=BatchStatus.AVAILABLE.value,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(record)
+        try:
+            self._session.flush()
+        except IntegrityError as exc:
+            self._session.rollback()
+            raise ConflictError(
+                "A batch with this batch number already exists for the product."
+            ) from exc
+        record_audit(
+            self._session,
+            action="CREATE",
+            entity_type="batch",
+            entity_id=record.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+        )
         return record
 
     def update_batch(
