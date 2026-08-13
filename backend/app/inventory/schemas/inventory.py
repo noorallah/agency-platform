@@ -17,22 +17,39 @@ class InventoryStatus(StrEnum):
 
 
 class InventoryTransactionType(StrEnum):
-    """Supported immutable inventory movement types."""
+    """The movement types the service writes.
+
+    This is the vocabulary, not a wish list. It previously declared fourteen
+    members of which six were written and three of the written ones were
+    absent: the service recorded RESERVE, UNRESERVE and DISPATCH while the enum
+    offered RESERVATION, RESERVATION_RELEASE, GOODS_ISSUE, TRANSFER_IN,
+    TRANSFER_OUT, PHYSICAL_COUNT, DAMAGE, EXPIRY, QUARANTINE and CORRECTION --
+    none of which anything ever emitted. Filtering the transaction list by
+    RESERVE was rejected as invalid, and filtering by RESERVATION was accepted
+    and matched nothing.
+
+    Transfers between warehouses, physical counts and damage write-offs are not
+    built. Naming them here made the API advertise them, so they are named in
+    ``docs/INVENTORY_FRAMEWORK.md`` as absent instead.
+    """
 
     OPENING_STOCK = "OPENING_STOCK"
     GOODS_RECEIPT = "GOODS_RECEIPT"
-    GOODS_ISSUE = "GOODS_ISSUE"
-    TRANSFER_IN = "TRANSFER_IN"
-    TRANSFER_OUT = "TRANSFER_OUT"
     ADJUSTMENT = "ADJUSTMENT"
-    PHYSICAL_COUNT = "PHYSICAL_COUNT"
-    RESERVATION = "RESERVATION"
-    RESERVATION_RELEASE = "RESERVATION_RELEASE"
-    DAMAGE = "DAMAGE"
-    EXPIRY = "EXPIRY"
-    QUARANTINE = "QUARANTINE"
     RETURN = "RETURN"
-    CORRECTION = "CORRECTION"
+    RESERVE = "RESERVE"
+    UNRESERVE = "UNRESERVE"
+    DISPATCH = "DISPATCH"
+
+
+#: Appended by ``reverse_transaction`` to the type it reverses.
+#:
+#: The stored vocabulary is therefore open-ended: a reversal is
+#: "DISPATCH_REVERSAL", and reversing *that* is legal -- the service only
+#: refuses to reverse the same row twice -- so no closed set can enumerate what
+#: the column holds. Filters and responses both take a plain string for that
+#: reason.
+REVERSAL_SUFFIX = "_REVERSAL"
 
 
 class OpeningStockStatus(StrEnum):
@@ -235,7 +252,11 @@ class InventoryTransactionResponse(InventorySchema):
 class InventoryTransactionListFilters(InventorySchema):
     """Validated filters for inventory transaction listing."""
 
-    transaction_type: InventoryTransactionType | None = None
+    # A stored value, not a closed set -- see REVERSAL_SUFFIX. This was typed
+    # as the enum, which rejected RESERVE, UNRESERVE and DISPATCH outright and
+    # accepted names no row has ever carried. A caller filtering for something
+    # unwritten gets an empty page, which is the truthful answer.
+    transaction_type: str | None = Field(default=None, max_length=40)
     branch_id: UUID | None = None
     warehouse_id: UUID | None = None
     storage_node_id: UUID | None = None
