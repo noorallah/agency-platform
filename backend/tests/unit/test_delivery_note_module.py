@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
+from app.batch_serial.models.batch_serial import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessFeature, BusinessProfile, ProfileFeature
 from app.business.models import framework as _business_models  # noqa: F401
@@ -238,6 +239,127 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
     assert dispatched.current_quantity_delta == Decimal("-4.0000")
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None
+
+
+def test_a_line_larger_than_any_one_batch_still_dispatches() -> None:
+    """Stock spread across batches is still stock.
+
+    The availability gate read one row with ``scalar()``, and a product held in
+    batches is as many rows as it has batches -- so it compared one batch's
+    quantity against the whole line and refused it, while
+    ``allocate_for_dispatch`` on the next line would have split it across both.
+    Seeding batch-tracked history is what surfaced this: the two demo firms
+    that trace their goods lost a third of their deliveries to it.
+    """
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    inventory = InventoryService(session)
+    # A hundred on hand across three deliveries, and no single one of them
+    # covering a line of forty-five.
+    for batch_number, expiry, quantity in (
+        ("MARCH", date(2027, 3, 31), "30"),
+        ("JUNE", date(2027, 6, 30), "30"),
+        ("SEPTEMBER", date(2027, 9, 30), "40"),
+    ):
+        batch = BatchRecord(
+            firm_id=firm.id,
+            product_id=product.id,
+            batch_number=batch_number,
+            expiry_date=expiry,
+            status="AVAILABLE",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(batch)
+        session.flush()
+        inventory.record_goods_receipt(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            storage_node_id=None,
+            product_id=product.id,
+            reference_number=f"GRN-{batch_number}",
+            transaction_date=date(2026, 8, 3),
+            total_quantity=Decimal(quantity),
+            # Costless, so the dispatch does not also need the firm's control
+            # accounts configured; this test is about which rows the stock
+            # comes off, not about what it is worth.
+            unit_cost=Decimal("0"),
+            batch_id=batch.id,
+        )
+    session.commit()
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("45"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved_order = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved_order.id)
+    )
+    assert source_line is not None
+    # The order line reports the stock behind it, and that is a sum too.
+    assert source_line.available_stock == Decimal("100.0000")
+
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=approved_order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("45"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved_note = service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    dispatched = service.dispatch_note(
+        approved_note.id, firm_scope=firm.id, actor_id=actor_id
+    )
+
+    assert dispatched.status == DeliveryNoteStatus.DISPATCHED.value
+    movements = list(
+        session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "DISPATCH",
+                InventoryTransaction.reference_number
+                == dispatched.delivery_note_number,
+            )
+        ).all()
+    )
+    assert len(movements) == 2, "one movement per batch drawn from"
+    assert sum(row.current_quantity_delta for row in movements) == Decimal("-45.0000")
 
 
 def test_delivery_by_route_labels_the_route_without_crashing() -> None:

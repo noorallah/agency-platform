@@ -141,6 +141,12 @@ class ProductSeed:
     purchase_price: Decimal
     selling_price: Decimal
     mrp: Decimal
+    #: Whether these goods cannot be taken in unidentified. Set on the products
+    #: an industry actually traces -- a medicine that has to be recallable, a
+    #: food with a use-by date -- and deliberately left off some of them, so
+    #: the seeded data has untracked stock beside the tracked kind rather than
+    #: making every row look the same.
+    requires_batch: bool = False
 
 
 @dataclass(frozen=True)
@@ -206,6 +212,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 purchase_price=Decimal("58"),
                 selling_price=Decimal("72"),
                 mrp=Decimal("75"),
+                requires_batch=True,
             ),
             ProductSeed(
                 code="PARA650",
@@ -220,6 +227,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 purchase_price=Decimal("24"),
                 selling_price=Decimal("31"),
                 mrp=Decimal("35"),
+                requires_batch=True,
             ),
             ProductSeed(
                 code="VITC1000",
@@ -277,6 +285,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 purchase_price=Decimal("1120"),
                 selling_price=Decimal("1245"),
                 mrp=Decimal("1290"),
+                requires_batch=True,
             ),
             ProductSeed(
                 code="SUN5L",
@@ -291,6 +300,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 purchase_price=Decimal("620"),
                 selling_price=Decimal("675"),
                 mrp=Decimal("699"),
+                requires_batch=True,
             ),
             ProductSeed(
                 code="BISC100",
@@ -1288,9 +1298,26 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
             module.is_active = True
             module.updated_by = actor_id
 
+    # BATCH_TRACKING goes with EXPIRY_TRACKING for the two industries that
+    # trace their goods: a medicine has to be recallable and a food has a
+    # use-by date, and neither is answerable without knowing which delivery a
+    # unit came from. Without it seeded here no demo firm could use batches at
+    # all, so nothing in the demo data exercised batch-grained stock.
     enabled_features = {
-        "PHARMACY": {"BARCODE", "QR_CODE", "ATTACHMENTS", "EXPIRY_TRACKING"},
-        "FOOD": {"BARCODE", "QR_CODE", "ATTACHMENTS", "EXPIRY_TRACKING"},
+        "PHARMACY": {
+            "BARCODE",
+            "QR_CODE",
+            "ATTACHMENTS",
+            "EXPIRY_TRACKING",
+            "BATCH_TRACKING",
+        },
+        "FOOD": {
+            "BARCODE",
+            "QR_CODE",
+            "ATTACHMENTS",
+            "EXPIRY_TRACKING",
+            "BATCH_TRACKING",
+        },
         "WHOLESALE": {"BARCODE", "ATTACHMENTS"},
         "ELECTRONICS": {"BARCODE", "QR_CODE", "ATTACHMENTS"},
     }.get(blueprint.profile_code, {"BARCODE", "ATTACHMENTS"})
@@ -1576,13 +1603,27 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
     tax_profile = _tax_profile_for_firm(session, firm.id, blueprint.profile_code)
     uoms = _uom_map(session)
     for product in blueprint.products:
-        if session.scalar(
-            select(Product.id).where(
+        existing = session.scalar(
+            select(Product).where(
                 Product.firm_id == firm.id,
                 Product.code == product.code,
                 Product.is_deleted.is_(False),
             )
-        ):
+        )
+        if existing is not None:
+            # Masters are left alone on a re-run, which is what lets the demo
+            # be refreshed without rebuilding. The batch flags are the
+            # exception: they are what decides whether history creates any
+            # batches at all, so a store seeded before they existed would take
+            # the new setting and produce nothing, silently.
+            if (
+                existing.track_batch != product.requires_batch
+                or existing.require_batch_on_receipt != product.requires_batch
+            ):
+                existing.track_batch = product.requires_batch
+                existing.require_batch_on_receipt = product.requires_batch
+                existing.updated_by = actor_id
+                session.commit()
             continue
         base_uom = uoms[product.base_uom_code]
         sales_uom = uoms[product.sales_uom_code]
@@ -1625,6 +1666,12 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
                 selling_price=product.selling_price,
                 mrp=product.mrp,
                 status=ProductStatus.ACTIVE,
+                track_batch=product.requires_batch,
+                # Only the receipt side. Opening stock cannot carry a batch --
+                # `post_opening_stock_batch` has no batch to give it -- so a
+                # product that also required one on issue could never ship the
+                # stock it started with.
+                require_batch_on_receipt=product.requires_batch,
                 remarks=f"Seeded for {blueprint.profile_code.lower()} demo flows.",
                 attributes=attributes,
                 media=[],
