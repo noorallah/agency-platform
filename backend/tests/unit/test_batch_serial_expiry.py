@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,6 +24,7 @@ from app.batch_serial.schemas.batch_serial import (
     SerialStatus,
 )
 from app.batch_serial.services import BatchSerialService
+from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
@@ -77,6 +78,38 @@ def _product(session: Session, firm_id: UUID, code: str = "SKU-BS-001") -> Produ
     return p
 
 
+def _branch(session: Session, firm_id: UUID) -> Branch:
+    row = Branch(
+        firm_id=firm_id,
+        code="HO",
+        name="Head Office",
+        display_name="Head Office",
+        working_hours={},
+        status="ACTIVE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def _warehouse(session: Session, firm_id: UUID, branch_id: UUID) -> Warehouse:
+    row = Warehouse(
+        firm_id=firm_id,
+        branch_id=branch_id,
+        code="MAIN",
+        name="Main Warehouse",
+        display_name="Main Warehouse",
+        status="ACTIVE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
 def _batch_create(product_id: UUID, batch_number: str = "BATCH-001") -> BatchCreate:
     return BatchCreate(
         product_id=product_id,
@@ -86,6 +119,124 @@ def _batch_create(product_id: UUID, batch_number: str = "BATCH-001") -> BatchCre
 
 
 # ─── Tests ────────────────────────────────────────────────────────────────────
+
+
+def test_a_batch_names_its_product_warehouse_and_branch() -> None:
+    """The response declared six name fields and nothing ever filled them.
+
+    The desktop's batch grid renders `'{productCode} - {productName}'` and the
+    warehouse name, so every row read " - " and "—": a register of batches that
+    could not say what any of them were without looking up UUIDs by hand.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSNAME")
+    product = _product(session, firm.id)
+    branch = _branch(session, firm.id)
+    warehouse = _warehouse(session, firm.id, branch.id)
+    service = BatchSerialService(session)
+
+    batch = service.create_batch(
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+        data=BatchCreate(
+            product_id=product.id,
+            batch_number="NAMED-001",
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+        ),
+    )
+
+    reported = service.batch_response(batch, firm_scope=firm.id)
+
+    assert reported.product_code == "SKU-BS-001"
+    assert reported.product_name == "Product SKU-BS-001"
+    assert reported.warehouse_code == "MAIN"
+    assert reported.warehouse_name == "Main Warehouse"
+    assert reported.branch_code == "HO"
+    assert reported.branch_name == "Head Office"
+
+
+def test_a_batch_with_no_warehouse_reports_no_warehouse_name() -> None:
+    """Warehouse and branch are optional on a batch, so nulls are normal.
+
+    ``resolve_for_receipt`` sets whichever the receipt knew, which for a
+    receipt with no warehouse on the line is neither. Reporting that as a name
+    lookup failure, or failing the list over it, would be wrong.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSNULL")
+    product = _product(session, firm.id)
+    service = BatchSerialService(session)
+
+    batch = service.create_batch(
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+        data=_batch_create(product.id, "UNPLACED-001"),
+    )
+
+    reported = service.batch_response(batch, firm_scope=firm.id)
+
+    assert reported.product_name == "Product SKU-BS-001"
+    assert reported.warehouse_name is None
+    assert reported.branch_name is None
+
+
+def test_naming_a_page_of_batches_does_not_query_per_row() -> None:
+    """Names are looked up in bulk, not per batch.
+
+    A name per row is what turns a twenty-row page into eighty queries. The
+    page costs one query for the stock and one for each kind of name, whatever
+    its length -- so a longer page must not cost more.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSBULK")
+    branch = _branch(session, firm.id)
+    warehouse = _warehouse(session, firm.id, branch.id)
+    service = BatchSerialService(session)
+    batches = []
+    for index in range(5):
+        product = _product(session, firm.id, code=f"SKU-BULK-{index}")
+        batches.append(
+            service.create_batch(
+                firm_scope=firm.id,
+                actor_id=uuid4(),
+                data=BatchCreate(
+                    product_id=product.id,
+                    batch_number=f"BULK-{index}",
+                    branch_id=branch.id,
+                    warehouse_id=warehouse.id,
+                ),
+            )
+        )
+
+    statements: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        """Collect every statement the render issues."""
+        statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        reported = service.batch_responses(batches, firm_scope=firm.id)
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+    assert len(reported) == 5
+    assert {row.product_code for row in reported} == {
+        f"SKU-BULK-{index}" for index in range(5)
+    }
+    assert len(statements) == 4, (
+        "one query for the stock and one per kind of name, whatever the page "
+        f"length -- got {len(statements)}: {statements}"
+    )
 
 
 def test_a_batch_cannot_be_created_holding_stock() -> None:

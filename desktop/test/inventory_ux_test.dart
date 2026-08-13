@@ -350,6 +350,47 @@ void main() {
     expect(find.text('MED-001 - Pain Relief'), findsAny);
   });
 
+  testWidgets('a batch whose product the server did not name shows a dash', (
+    tester,
+  ) async {
+    // This test passed against a fake API supplying names the real one never
+    // sent: the response declared the fields and nothing filled them, so every
+    // row read " - " in the running app while the grid looked correct here.
+    _setDesktopSurface(tester);
+    final _BatchSerialApi api = _BatchSerialApi(batchItems: [
+      BatchRecord.fromJson({
+        'id': 'batch-unnamed',
+        'batch_number': 'BATCH-002',
+        'status': 'AVAILABLE',
+        'quantity': '5',
+        'available_quantity': '5',
+      }),
+    ]);
+    final Directory temp =
+        Directory.systemTemp.createTempSync('batch-unnamed-test');
+    final DesktopPreferencesService preferences =
+        DesktopPreferencesService(directory: temp);
+    final PermissionService permissions = _permissionsFor(['BATCH_VIEW']);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BatchManagementPage(
+            api: api,
+            preferences: preferences,
+            permissions: permissions,
+            hasActiveFirm: true,
+            section: BatchSerialSection.batches,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('BATCH-002'), findsAny);
+    expect(find.text(' - '), findsNothing);
+  });
+
   testWidgets('serial management page shows empty state for serials section',
       (tester) async {
     _setDesktopSurface(tester);

@@ -203,18 +203,20 @@ reached by hand.
 **All three document types can now be created from the desktop**, which was the
 last thing standing between the batch work and a user.
 
-Two things the batch work leaves behind:
+`BatchResponse` names the product, warehouse and branch a batch belongs to.
+Those six fields had been declared since the response was written and filled by
+nothing, so the batch grid rendered a product column reading " - " for every
+row. They are filled in `batch_responses` in bulk -- one query per kind of name
+for the whole page, guarded by a test that counts the statements, because a
+lookup per row is what turns a twenty-row page into eighty queries.
 
-- **`BatchResponse` still returns `product_code`, `product_name`,
-  `warehouse_code`, `warehouse_name`, `branch_code` and `branch_name` as null.**
-  Nothing populates them -- the model has no such attributes and the response is
-  validated straight off the record -- so the desktop's batch grid renders blank
-  columns. Now that responses are built through
-  `BatchSerialService.batch_responses`, that is where the join would go.
+One thing the batch work leaves behind:
+
 - **The demo data has no batches**, so nothing in the seeded stores exercises
   batch-grained stock. `scripts/generate_sample_data.py` writes `batch_number`
   onto document lines but never registers a batch, which is why the receipt path
-  that creates them never runs during a seed.
+  that creates them never runs during a seed. Everything above was verified by
+  hand against a batch raised through the desktop instead.
 
 **The batch field is a different control in each editor, and that is the point.**
 A receipt takes free text, because the goods are on the dock and the number is
