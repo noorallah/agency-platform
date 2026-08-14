@@ -550,10 +550,23 @@ carried figure is not written `0` in a column of `0.00`s.
   should move. Until then the screen is reachable by `SYSTEM_AUDITOR`,
   `SUPPORT_ADMIN` and platform administrators, which is who the seed intends.
 
-- **Desktop does not pre-hide feature-gated fields.** The backend refuses them
-  (a 403 naming the feature), but the UI lets a user type a barcode into a firm
-  that has no barcode feature and only fails on save. Decide whether that is
-  acceptable or whether the desktop should read `/active-features` and hide
-  them. `docs/MANUAL_UI_TEST_PLAN.md` §6.8.
+- **Desktop pre-hides feature-gated fields** as of 2026-08-14, decided the way
+  the module menu already worked: read `/active-features` and do not offer what
+  cannot be saved. `BusinessFeatures` holds the answer, and **unknown means
+  offered** -- the set is null before the call returns and after it fails, and
+  hiding fields because a request failed would take working screens away from
+  firms entitled to them. It is cosmetic; the server is still the boundary.
+
+  Applied to the goods receipt editor, which is where the concrete case was:
+  WHOLE01 has neither EXPIRY_TRACKING, MANUFACTURING_DATE nor VEHICLE_TRACKING,
+  so all three fields were offered and none could be saved. MEDI01 keeps expiry
+  and manufacturing date, which is the check that the gate is reading the
+  profile rather than hiding everything.
+
+  **Still to sweep:** the same fields appear in the delivery note editor,
+  purchase and batch screens, and DRUG_LICENSE / SHELF_LIFE / WARRANTY are
+  ungated in the client everywhere. The product form has its own gating already
+  (it reads product metadata rather than `/active-features`), which is a second
+  mechanism worth collapsing into this one.
 - **`tests/` still has about 40 ruff findings** — missing docstrings and long
   lines in older test files. `app/` is clean.

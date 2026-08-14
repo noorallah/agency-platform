@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -58,6 +59,10 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   List<PurchaseOrder> _receivableOrders = const [];
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
+  // Unknown until the call returns, and unknown means every field is offered:
+  // taking fields away because a request failed is worse than the refusal on
+  // save that this avoids.
+  BusinessFeatures _features = const BusinessFeatures.unknown();
 
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
@@ -160,12 +165,14 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         ),
         widget.api.warehouses(page: 1, pageSize: 100),
         widget.api.products(page: 1, pageSize: 100),
+        widget.api.activeBusinessFeatureCodes(),
       ]);
       if (!mounted) return;
       setState(() {
         _receivableOrders = (results[0] as PagedResult<PurchaseOrder>).items;
         _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
         _products = (results[2] as PagedResult<Product>).items;
+        _features = BusinessFeatures((results[3] as List<String>).toSet());
       });
     } on ApiException {
       if (!mounted) return;
@@ -185,6 +192,7 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         purchaseOrders: _receivableOrders,
         warehouses: _warehouses,
         products: _products,
+        features: _features,
       ),
     );
     if (saved == null || !mounted) return;
