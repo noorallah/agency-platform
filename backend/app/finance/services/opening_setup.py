@@ -176,6 +176,13 @@ CHART: tuple[SeedAccount, ...] = (
         "EXP",
         ControlAccountPurpose.DISCOUNT_ALLOWED,
     ),
+    SeedAccount(
+        "5500",
+        "Inventory Adjustment",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.INVENTORY_ADJUSTMENT,
+    ),
 )
 
 

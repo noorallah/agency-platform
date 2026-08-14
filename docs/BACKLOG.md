@@ -388,13 +388,14 @@ control account honest for everything the demo exercises.
 **Three movement types do change stock value and post nothing**, and each one
 silently breaks that reconciliation the first time it is used:
 
-1. **`ADJUSTMENT`** -- `InventoryService` writes the movement and revalues the
-   product with no journal. This is the worst of the three: there is no
-   document behind it, so nothing on screen would ever hint that the ledger
-   disagrees. It needs a new control purpose (`INVENTORY_ADJUSTMENT` -> an
-   expense account), a chart entry, and a migration that maps it for every
-   existing firm -- otherwise posting would refuse every adjustment a firm
-   makes until an administrator noticed.
+1. **`ADJUSTMENT` -- built on 2026-08-14.** Stock going up debits inventory and
+   credits `5500 Inventory Adjustment`; going down does the reverse, which is a
+   write-off and a cost. The same account takes both sides so a firm reads its
+   net adjustment in one place, and `20260814_0079` creates and maps it for
+   every firm that already has a chart -- without that, posting would have
+   refused every adjustment a firm made, a working endpoint breaking on
+   upgrade. An adjustment worth nothing writes no journal at all: an empty one
+   claims something happened in the ledger when nothing did.
 2. **Purchase returns -- built on 2026-08-14.** Completing one now posts
    `Dr Accounts Payable` with the whole credit note, `Cr Input Tax` reversing
    what was claimed on the way in, and `Cr Inventory` at **what the stock
@@ -410,8 +411,9 @@ silently breaks that reconciliation the first time it is used:
    balance equity account before it can post, which is also what the balance
    sheet would want.
 
-Adjustments are next, and need the chart decision above. Opening stock needs an
-equity account before it can post at all.
+Opening stock is the last one, and needs an equity account before it can post
+at all -- the same account the balance sheet wants for opening balances, so it
+is worth deciding once for both.
 
 ## 7. Finance has a screen -- and now the full set of reports
 
