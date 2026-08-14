@@ -160,12 +160,17 @@ void main() {
         'Profile Assignment',
       ]),
     );
+    // Nothing is offered that cannot be opened. Every tab greyed out as
+    // "coming soon" has been removed or given the screen it advertised, so a
+    // catalog entry now means a working destination.
     expect(
-        ModuleCatalog.byId(AppModule.administration)
-            .tabs
-            .firstWhere((tab) => tab.id == 'user-audit')
-            .available,
-        isFalse);
+      [
+        for (final ModuleDefinition module in ModuleCatalog.modules)
+          for (final ModuleTabDefinition tab in module.tabs)
+            if (!tab.available) '${module.label} / ${tab.label}',
+      ],
+      isEmpty,
+    );
     expect(
       ModuleCatalog.byId(AppModule.masters).tabs.map((tab) => tab.label),
       containsAll(['Customers', 'Products', 'Vendors']),

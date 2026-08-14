@@ -635,3 +635,46 @@ class FinanceTypeRef {
         name: stringValue(json['name']),
       );
 }
+
+/// One financial year of a firm.
+///
+/// Every posting lands in an accounting period, and every period belongs to a
+/// year, so this is the thing that decides whether a document can be booked at
+/// all. It had a working endpoint and no screen: the refusal "no open
+/// accounting period" arrived with nowhere to go and look.
+class FinancialYear {
+  const FinancialYear({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.startsOn,
+    required this.endsOn,
+    required this.description,
+    required this.isActive,
+    required this.isLocked,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final String startsOn;
+  final String endsOn;
+  final String description;
+  final bool isActive;
+
+  /// A locked year admits no more postings, whatever its periods say.
+  final bool isLocked;
+
+  String get span => '$startsOn to $endsOn';
+
+  factory FinancialYear.fromJson(Json json) => FinancialYear(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        startsOn: stringValue(json['starts_on']),
+        endsOn: stringValue(json['ends_on']),
+        description: stringValue(json['description']),
+        isActive: boolValue(json['is_active']),
+        isLocked: boolValue(json['is_locked']),
+      );
+}

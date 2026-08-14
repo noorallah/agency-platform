@@ -2211,6 +2211,42 @@ class ApiClient {
         .toList();
   }
 
+  // Financial years and their periods. Every posting lands in a period, so a
+  // firm with none open cannot book anything -- which had no screen behind it.
+
+  Future<List<FinancialYear>> financialYears() async => _unwrapList(
+        await request('GET', '/api/v1/finance/financial-years'),
+        FinancialYear.fromJson,
+      );
+
+  /// Open or close one period.
+  Future<AccountingPeriod> setPeriodStatus(String id, String status) async =>
+      AccountingPeriod.fromJson(
+        _unwrapMap(
+          await request(
+            'PATCH',
+            '/api/v1/finance/accounting-periods/$id',
+            body: {'status': status},
+          ),
+        ),
+      );
+
+  // Document numbering. The rule behind every document number in the system.
+
+  Future<List<NumberingRule>> numberingRules() async => _unwrapList(
+        await request('GET', '/api/v1/document-framework/numbering-rules'),
+        NumberingRule.fromJson,
+      );
+
+  /// What the next number would look like, without consuming it.
+  Future<String> previewNumber(String ruleId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/document-framework/numbering-rules/$ruleId/preview',
+    );
+    return stringValue(response['data']);
+  }
+
   // A price offered before anything is sold. The quotation commits nothing,
   // so there is no posting or reservation behind any of these calls -- the
   // only one that changes the world is `convertQuotation`, which creates the

@@ -32,7 +32,6 @@ void main() {
       'warehouses',
       'firm-settings',
       'financial-years',
-      'branches-departments',
     };
 
     test('the settings entries sit under Configuration', () {
@@ -62,7 +61,6 @@ void main() {
       for (final String path in <String>[
         'firm-settings',
         'financial-years',
-        'branches-departments',
       ]) {
         expect(
           _find(nodes, _labelFor(path)),
@@ -73,7 +71,7 @@ void main() {
     });
 
     test('an empty Configuration group is not drawn at all', () {
-      // A user with none of the three sees no empty heading.
+      // A user with none of them sees no empty heading.
       final List<WorkspaceNavigationNode> nodes = _masters({'customers'});
       expect(_find(nodes, 'Configuration'), isNull);
     });
@@ -100,6 +98,5 @@ void main() {
 String _labelFor(String path) => switch (path) {
       'firm-settings' => 'Firm Settings',
       'financial-years' => 'Financial Years',
-      'branches-departments' => 'Branches / Departments',
       _ => path,
     };

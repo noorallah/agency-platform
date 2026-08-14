@@ -9,6 +9,8 @@ import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/finance/finance_workspace.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
 import 'package:agency_desktop/ui/quotations/quotation_management_page.dart';
+import 'package:agency_desktop/ui/settings/financial_years_page.dart';
+import 'package:agency_desktop/ui/settings/numbering_series_page.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
 import 'package:agency_desktop/ui/settings/settings_workspace.dart';
@@ -144,6 +146,18 @@ final Map<String, _PageBuilder> _screens = {
   // A master/detail split whose right pane stacks three cards, the widest
   // being a line that names its source document and what is still returnable.
   'sales returns': (d) => SalesReturnManagementPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  'financial years': (d) => FinancialYearsPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
+  // A list whose trailing edge carries two badges and a button, which is what
+  // runs out of width first.
+  'numbering series': (d) => NumberingSeriesPage(
         api: d.api,
         permissions: d.permissions,
         hasActiveFirm: false,

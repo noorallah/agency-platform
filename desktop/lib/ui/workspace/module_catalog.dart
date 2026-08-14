@@ -121,9 +121,9 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['USER_VIEW', 'USER_UPDATE', 'FIRM_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'user-audit',
-          label: 'User Audit',
-          available: false,
+          id: 'numbering-series',
+          label: 'Numbering Series',
+          requiredPermissions: ['SETTINGS_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'business-profiles',
@@ -266,20 +266,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['BRANCH_VIEW', 'WAREHOUSE_VIEW'],
           requiresAnyPermission: true,
         ),
-        ModuleTabDefinition(
-          id: 'financial-years',
-          label: 'Financial Years',
-          available: false,
-        ),
+        ModuleTabDefinition(id: 'financial-years', label: 'Financial Years'),
         ModuleTabDefinition(
           id: 'firm-settings',
           label: 'Firm Settings',
           requiredPermissions: ['FIRM_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'branches-departments',
-          label: 'Branches / Departments',
-          available: false,
         ),
       ],
     ),
@@ -297,12 +288,6 @@ abstract final class ModuleCatalog {
           label: 'Geography',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
-        ModuleTabDefinition(
-            id: 'sales-orders', label: 'Sales Orders', available: false),
-        ModuleTabDefinition(
-            id: 'delivery-notes', label: 'Delivery Notes', available: false),
-        ModuleTabDefinition(
-            id: 'sales-invoices', label: 'Sales Invoices', available: false),
       ],
     ),
     ModuleDefinition(
@@ -749,11 +734,8 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.report,
       requiredPermissions: ['REPORT_VIEW'],
       tabs: [
-        ModuleTabDefinition(
-            id: 'dashboard', label: 'Dashboard', available: false),
         ModuleTabDefinition(id: 'operational', label: 'Operational Reports'),
         ModuleTabDefinition(id: 'financial', label: 'Financial Reports'),
-        ModuleTabDefinition(id: 'gst', label: 'GST Reports', available: false),
       ],
     ),
     ModuleDefinition(
@@ -764,14 +746,6 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.configuration,
       requiredPermissions: ['LICENSE_MANAGE'],
       tabs: [
-        ModuleTabDefinition(
-            id: 'licenses', label: 'Licenses', available: false),
-        ModuleTabDefinition(
-            id: 'activations', label: 'Activations', available: false),
-        ModuleTabDefinition(
-            id: 'machines', label: 'Machine Registrations', available: false),
-        ModuleTabDefinition(
-            id: 'history', label: 'License History', available: false),
       ],
     ),
     ModuleDefinition(
@@ -783,12 +757,6 @@ abstract final class ModuleCatalog {
       requiredPermissions: ['SETTINGS_VIEW'],
       tabs: [
         ModuleTabDefinition(id: 'audit-logs', label: 'Audit Logs'),
-        ModuleTabDefinition(
-            id: 'background-jobs', label: 'Background Jobs', available: false),
-        ModuleTabDefinition(
-            id: 'system-settings', label: 'System Settings', available: false),
-        ModuleTabDefinition(
-            id: 'api-monitoring', label: 'API Monitoring', available: false),
       ],
     ),
   ];
@@ -994,25 +962,6 @@ abstract final class ModuleCatalog {
             label: 'Numbering Series',
             path: 'numbering-series',
             icon: Icons.confirmation_number_outlined,
-            available: false,
-          ),
-          const WorkspaceNavigationNode(
-            label: 'Approval Workflows',
-            path: 'approval-workflows',
-            icon: Icons.schema_outlined,
-            available: false,
-          ),
-          const WorkspaceNavigationNode(
-            label: 'Document Templates',
-            path: 'document-templates',
-            icon: Icons.description_outlined,
-            available: false,
-          ),
-          const WorkspaceNavigationNode(
-            label: 'Notification Templates',
-            path: 'notification-templates',
-            icon: Icons.notifications_outlined,
-            available: false,
           ),
         ],
       ),
@@ -1100,7 +1049,7 @@ abstract final class ModuleCatalog {
       //
       // Grouping only. Every path is unchanged, so a stored workspace still
       // resolves and no permission moved.
-      if (hasAny(['financial-years', 'firm-settings', 'branches-departments']))
+      if (hasAny(['financial-years', 'firm-settings']))
         WorkspaceNavigationNode(
           label: 'Configuration',
           icon: Icons.tune_outlined,
@@ -1116,14 +1065,6 @@ abstract final class ModuleCatalog {
                 label: 'Financial Years',
                 path: 'financial-years',
                 icon: Icons.event_note_outlined,
-                available: false,
-              ),
-            if (visibleTabIds.contains('branches-departments'))
-              const WorkspaceNavigationNode(
-                label: 'Branches / Departments',
-                path: 'branches-departments',
-                icon: Icons.account_tree_outlined,
-                available: false,
               ),
           ],
         ),
