@@ -39,6 +39,7 @@ import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
 import 'firms/firm_settings_page.dart';
 import 'dashboard_page.dart';
+import 'finance/finance_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
@@ -1209,7 +1210,19 @@ class _DesktopShellState extends State<DesktopShell> {
             router: _router,
             onOpenGlobalSearch: _openGlobalSearch,
           ),
-        AppModule.accounting ||
+        // Finance is not "coming soon": thirty endpoints have been live since
+        // `20260809_0042`, and every goods receipt, dispatch and invoice posts
+        // to the ledger through them. The chart of accounts and the trial
+        // balance are what make those postings legible; journal entries,
+        // receipts and payments are still placeholders and the catalog says so.
+        AppModule.accounting => FinanceWorkspace(
+            key: ValueKey('finance-${widget.session.firmContextVersion}'),
+            api: api,
+            preferences: widget.preferences,
+            permissions: widget.permissions,
+            hasActiveFirm: widget.session.currentFirm != null,
+            tabId: _router.current.tab ?? 'chart-of-accounts',
+          ),
         AppModule.reports ||
         AppModule.licensing ||
         AppModule.settings =>

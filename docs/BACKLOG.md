@@ -375,6 +375,35 @@ write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
 also post nothing to the general ledger, so stock value and the inventory
 control account never reconcile.
 
+## 7. Finance has a screen -- the first two tabs
+
+`app/finance` is thirty live endpoints and has been since `20260809_0042`.
+Every goods receipt, dispatch, sales invoice and purchase invoice posts to the
+general ledger through `DocumentPostingService`, and the desktop rendered
+**"Coming Soon"** -- so a firm could trade for a year with the ledger filling up
+and no way to look at it.
+
+Built on 2026-08-14:
+
+- **Chart of Accounts**, as a `ResourceDefinition` over `/finance/ledger-accounts`.
+  No delete: an account with postings against it cannot go without taking its
+  history, so deactivating is the way and the form says so.
+- **Trial Balance** over `/finance/trial-balance`, per accounting period,
+  opening on the most recent one. Whether it balances is the server's answer
+  carried through, not recomputed here -- two places deciding that is two places
+  that can disagree.
+
+Verified against the seeded WHOLE01 firm: August 2026 reports six lines with
+debit and credit both 604,976.70.
+
+**Still placeholders, and the catalogue still says so:** journal entries
+(`/finance/journal-entries` exists -- a multi-line editor that has to balance
+before it posts, which is its own piece of work), ledgers, profit and loss.
+**Receipts and payments have no endpoint at all** and are a feature rather than
+a gap.
+
+---
+
 ## Also open
 
 - **Desktop does not pre-hide feature-gated fields.** The backend refuses them
