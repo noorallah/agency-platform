@@ -554,3 +554,64 @@ class InventoryAdjustmentCreate(InventorySchema):
         if self.quantity == 0:
             raise ValueError("Adjustment quantity cannot be zero.")
         return self
+
+
+class PhysicalCountLineWrite(InventorySchema):
+    """Carry one counted line into a request."""
+
+    product_id: UUID
+    batch_id: UUID | None = None
+    #: What was on the shelf. Left out for a line nobody has walked yet, which
+    #: is how a half-finished sheet is told apart from one that found nothing.
+    counted_quantity: Decimal | None = Field(default=None, ge=0, max_digits=18)
+    remarks: str | None = None
+
+
+class PhysicalCountCreate(InventorySchema):
+    """Open a count sheet for one warehouse."""
+
+    branch_id: UUID
+    warehouse_id: UUID
+    count_date: date
+    reference_number: str | None = Field(default=None, max_length=60)
+    remarks: str | None = None
+    #: Left empty to draw the sheet up from what the warehouse currently holds,
+    #: which is what a counter walks out with. Naming lines explicitly is for
+    #: counting part of a warehouse.
+    lines: list[PhysicalCountLineWrite] = Field(default_factory=list)
+
+
+class PhysicalCountUpdate(InventorySchema):
+    """Replace the counted quantities on a draft sheet."""
+
+    lines: list[PhysicalCountLineWrite] = Field(min_length=1, max_length=2000)
+    remarks: str | None = None
+
+
+class PhysicalCountLineResponse(InventorySchema):
+    """Return one line of a count sheet."""
+
+    id: UUID
+    line_number: int
+    product_id: UUID
+    batch_id: UUID | None
+    expected_quantity: Decimal
+    counted_quantity: Decimal | None
+    variance_quantity: Decimal | None
+    transaction_id: UUID | None
+    remarks: str | None
+
+
+class PhysicalCountResponse(InventorySchema):
+    """Return one count sheet."""
+
+    id: UUID
+    branch_id: UUID
+    warehouse_id: UUID
+    count_number: str
+    count_date: date
+    status: str
+    remarks: str | None
+    posted_at: datetime | None
+    lines: list[PhysicalCountLineResponse]
+    version: int

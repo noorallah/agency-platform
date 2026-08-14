@@ -24,6 +24,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
+from app.inventory.models import PhysicalCount
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -33,6 +34,10 @@ from app.inventory.schemas import (
     OpeningStockBatchListFilters,
     OpeningStockImportRequest,
     OpeningStockUpdate,
+    PhysicalCountCreate,
+    PhysicalCountLineResponse,
+    PhysicalCountResponse,
+    PhysicalCountUpdate,
     StockLedgerListFilters,
     StockQuarantineCreate,
     StockTransferCreate,
@@ -47,7 +52,7 @@ from app.inventory.schemas.inventory import (
     OpeningStockBatchResponse,
     StockLedgerResponse,
 )
-from app.inventory.services import InventoryService
+from app.inventory.services import InventoryService, PhysicalCountService
 
 router = APIRouter(
     prefix="/api/v1/inventory",
@@ -618,6 +623,132 @@ def quarantine_stock(
         data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.transaction_response(row))
+
+
+def _count_response(
+    service: PhysicalCountService, row: PhysicalCount
+) -> PhysicalCountResponse:
+    """Build the response for one count sheet, with its lines."""
+    return PhysicalCountResponse(
+        id=row.id,
+        branch_id=row.branch_id,
+        warehouse_id=row.warehouse_id,
+        count_number=row.count_number,
+        count_date=row.count_date,
+        status=row.status,
+        remarks=row.remarks,
+        posted_at=row.posted_at,
+        lines=[
+            PhysicalCountLineResponse.model_validate(line)
+            for line in service.lines_for(row.id)
+        ],
+        version=row.version,
+    )
+
+
+@router.post(
+    "/counts",
+    response_model=ApiResponse[PhysicalCountResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def open_physical_count(
+    data: PhysicalCountCreate,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Open a count sheet, drawn up from what the warehouse currently holds."""
+    service = PhysicalCountService(db)
+    row = service.create(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_count_response(service, row))
+
+
+@router.get("/counts", response_model=PaginatedResponse[PhysicalCountResponse])
+def list_physical_counts(
+    scope: InventoryViewScope,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str = Query(default=""),
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[PhysicalCountResponse]:
+    """List count sheets, newest first."""
+    service = PhysicalCountService(db)
+    rows, total = service.list_counts(
+        firm_id=scope.firm_id, page=page, page_size=page_size, search=search
+    )
+    return PaginatedResponse(
+        data=[_count_response(service, row) for row in rows],
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.get("/counts/{count_id}", response_model=ApiResponse[PhysicalCountResponse])
+def get_physical_count(
+    count_id: UUID,
+    scope: InventoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Return one count sheet."""
+    service = PhysicalCountService(db)
+    return ApiResponse(
+        data=_count_response(service, service.get(count_id, firm_id=scope.firm_id))
+    )
+
+
+@router.put("/counts/{count_id}", response_model=ApiResponse[PhysicalCountResponse])
+def record_physical_count(
+    count_id: UUID,
+    data: PhysicalCountUpdate,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Record what was found, on a sheet nobody has posted yet."""
+    service = PhysicalCountService(db)
+    row = service.update(count_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_count_response(service, row))
+
+
+@router.post(
+    "/counts/{count_id}/post", response_model=ApiResponse[PhysicalCountResponse]
+)
+def post_physical_count(
+    count_id: UUID,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Turn every difference into a stock adjustment.
+
+    The variance is measured against what the system holds now, not against the
+    snapshot the sheet was drawn up from: stock moves while a warehouse is
+    counted, and posting a stale figure would undo the movements made in
+    between.
+    """
+    service = PhysicalCountService(db)
+    row = service.post(count_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=_count_response(service, row), message="Physical count posted."
+    )
+
+
+@router.post(
+    "/counts/{count_id}/cancel", response_model=ApiResponse[PhysicalCountResponse]
+)
+def cancel_physical_count(
+    count_id: UUID,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PhysicalCountResponse]:
+    """Abandon a sheet that will not be posted."""
+    service = PhysicalCountService(db)
+    row = service.cancel(count_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_count_response(service, row))
 
 
 @router.get("/export")

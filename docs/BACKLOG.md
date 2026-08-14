@@ -444,9 +444,28 @@ about to grow a third arm. The direction now owns its path, its party
 parameter, its permissions and its nouns, so a fourth direction would touch one
 file. The dialog shows no invoice table for a refund and says why.
 
-**Still unbuilt: physical count reconciliation.** A count sheet needs its own
-table to be useful -- counts are entered over hours and posted once -- so it is
-a document, not an endpoint.
+**Physical count reconciliation was built on 2026-08-14**, which closes the
+inventory gaps. It is a document rather than an action: the sheet is drawn up
+from what the warehouse currently holds, walked over hours by people with a
+clipboard, and posted once at the end -- an endpoint taking counted quantities
+would lose everything the moment somebody closed a laptop.
+
+Two rules carry the weight, and both are about the gap between drawing the
+sheet up and posting it:
+
+- **The variance is measured against what the system holds when the sheet is
+  posted**, not against the snapshot it was drawn up from. Stock moves while a
+  warehouse is being counted, and posting a stale figure would put back every
+  dispatch made in between. The snapshot is kept on the line as
+  `expected_quantity`, for the person reading it afterwards.
+- **A line nobody walked is not a line that found nothing.** `counted_quantity`
+  is null until somebody counts it, and posting skips those: treating them as
+  zero would write off the stock that was simply not reached.
+
+Each difference becomes a stock adjustment, and adjustments have reached the
+general ledger since `20260814_0079`, so a count that finds twelve missing
+cartons puts their value in the profit and loss without anybody keying a
+journal.
 
 **"Stock movements post nothing to the general ledger" was wrong**, and the
 correction matters because it changes what needs building. Measured on
