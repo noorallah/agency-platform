@@ -631,8 +631,16 @@ def _seed_baseline_data() -> None:
                 "name": code.replace("_", " ").title(),
                 "description": f"{code.replace('_', ' ').title()} attribute.",
                 "data_type": "TEXT",
-                "mandatory": code
-                in {"EXPIRY_DATE", "BATCH_NUMBER", "MANUFACTURER", "IMEI"},
+                # No attribute is mandatory for every firm. An unscoped
+                # mandatory flag applies to every product everywhere, which
+                # asked a pharmacy for an IMEI and an electronics distributor
+                # for an expiry date -- and `AttributeService` refuses the
+                # write, so it blocked product creation outright. Where an
+                # attribute really is required, `category_attribute_rules`
+                # says so per business profile and category, which is what the
+                # rows below do. `20260815_0087` clears the flag on databases
+                # that already ran this.
+                "mandatory": False,
                 "is_active": True,
                 "validation_rule": {},
                 "version": 1,
