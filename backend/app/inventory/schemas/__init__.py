@@ -22,12 +22,14 @@ from app.inventory.schemas.inventory import (
     OpeningStockUpdate,
     StockLedgerListFilters,
     StockLedgerResponse,
+    StockTransferCreate,
 )
 
 __all__ = [
     "REVERSAL_SUFFIX",
     "BatchStockTotals",
     "InventoryAdjustmentCreate",
+    "StockTransferCreate",
     "InventoryCreate",
     "InventoryListFilters",
     "InventoryLocationSummary",

@@ -28,9 +28,10 @@ class InventoryTransactionType(StrEnum):
     RESERVE was rejected as invalid, and filtering by RESERVATION was accepted
     and matched nothing.
 
-    Transfers between warehouses, physical counts and damage write-offs are not
-    built. Naming them here made the API advertise them, so they are named in
-    ``docs/INVENTORY_FRAMEWORK.md`` as absent instead.
+    Physical counts and damage write-offs are still not built, and are named in
+    ``docs/INVENTORY_FRAMEWORK.md`` as absent rather than here, where naming
+    them would make the API advertise them. `TRANSFER_OUT` and `TRANSFER_IN`
+    were in that category until warehouse transfers were built.
     """
 
     OPENING_STOCK = "OPENING_STOCK"
@@ -40,6 +41,8 @@ class InventoryTransactionType(StrEnum):
     RESERVE = "RESERVE"
     UNRESERVE = "UNRESERVE"
     DISPATCH = "DISPATCH"
+    TRANSFER_OUT = "TRANSFER_OUT"
+    TRANSFER_IN = "TRANSFER_IN"
 
 
 #: Appended by ``reverse_transaction`` to the type it reverses.
@@ -429,6 +432,43 @@ class OpeningStockImportRequest(InventorySchema):
     remarks: str | None = None
     auto_post: bool = True
     lines: list[OpeningStockLineCreate] = Field(min_length=1, max_length=5000)
+
+
+class StockTransferCreate(InventorySchema):
+    """Move stock from one warehouse to another.
+
+    The firm still owns the same goods at the same value afterwards, so a
+    transfer writes two stock movements and **no journal**: there is one
+    inventory control account, and debiting and crediting it for the same
+    amount would be noise in the ledger rather than information.
+    """
+
+    branch_id: UUID
+    from_warehouse_id: UUID
+    to_warehouse_id: UUID
+    from_storage_node_id: UUID | None = None
+    to_storage_node_id: UUID | None = None
+    product_id: UUID
+    #: Carried across so a batch stays traceable through the move, which is the
+    #: whole point of batch tracking for anyone who has to answer a recall.
+    batch_id: UUID | None = None
+    quantity: Decimal = Field(gt=0, max_digits=18)
+    entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
+    entered_uom_id: UUID | None = None
+    reference_number: str = Field(min_length=2, max_length=80)
+    transaction_date: date
+    remarks: str | None = None
+
+    @model_validator(mode="after")
+    def _somewhere_else(self) -> "StockTransferCreate":
+        """Refuse a transfer that goes nowhere."""
+        same_warehouse = self.from_warehouse_id == self.to_warehouse_id
+        same_node = self.from_storage_node_id == self.to_storage_node_id
+        if same_warehouse and same_node:
+            raise ValueError(
+                "A transfer must move stock somewhere else than where it is."
+            )
+        return self
 
 
 class InventoryAdjustmentCreate(InventorySchema):

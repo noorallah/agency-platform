@@ -41,6 +41,7 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.schemas import (
+    StockTransferCreate,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
@@ -1253,3 +1254,142 @@ def test_opening_stock_with_no_cost_writes_no_journal() -> None:
         .where(JournalEntry.reference_number == "OS-NIL-1")
     )
     assert written == 0
+
+
+def test_a_transfer_moves_stock_and_leaves_the_value_alone() -> None:
+    """The firm still owns the same goods at the same value afterwards.
+
+    There is one inventory control account, so a transfer writes no journal:
+    debiting and crediting the same account for the same amount would be noise
+    in the ledger rather than information. What it must not do is quietly
+    revalue the product, which is what would happen if the inbound leg were
+    left to value itself at nothing.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "XFER")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    far = Warehouse(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        code="WH-FAR",
+        name="Far Warehouse",
+        display_name="Far Warehouse",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(far)
+    session.commit()
+    actor_id = uuid4()
+    service = InventoryService(session)
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-XFER",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("15.00"),
+    )
+    before = service.valuation_for(firm_scope=firm.id, product_id=product.id)
+    held_value = before.total_value
+    held_average = before.average_cost
+
+    outbound, inbound = service.transfer_stock(
+        StockTransferCreate(
+            branch_id=branch.id,
+            from_warehouse_id=warehouse.id,
+            to_warehouse_id=far.id,
+            product_id=product.id,
+            quantity=Decimal("4"),
+            reference_number="TRF-001",
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert outbound.transaction_type == "TRANSFER_OUT"
+    assert inbound.transaction_type == "TRANSFER_IN"
+
+    rows = {
+        row.warehouse_id: row.current_quantity
+        for row in service.list_inventory(
+            firm_scope=firm.id,
+            filters=InventoryListFilters(),
+            page=1,
+            page_size=50,
+            search=None,
+            sort_by="created_at",
+            descending=True,
+        )[0]
+    }
+    assert rows[warehouse.id] == Decimal("6.0000"), "six stay behind"
+    assert rows[far.id] == Decimal("4.0000"), "four arrive"
+
+    after = service.valuation_for(firm_scope=firm.id, product_id=product.id)
+    assert after.total_value == held_value, "a transfer is not a revaluation"
+    assert after.average_cost == held_average
+    assert after.quantity_on_hand == Decimal("10.0000")
+
+    written = session.scalar(
+        select(func.count())
+        .select_from(JournalEntry)
+        .where(JournalEntry.reference_number == "TRF-001")
+    )
+    assert written == 0, "the same account on both sides is not information"
+
+
+def test_a_transfer_of_stock_that_is_not_there_is_refused() -> None:
+    """Nothing left the building, so this is a keying error.
+
+    A dispatch may run stock negative because the goods have physically gone.
+    A transfer of stock the source does not hold has not happened at all.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "XFERNEG")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    far = Warehouse(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        code="WH-FAR2",
+        name="Far Warehouse",
+        display_name="Far Warehouse",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(far)
+    session.commit()
+
+    with pytest.raises(ValidationError, match="cannot be transferred"):
+        InventoryService(session).transfer_stock(
+            StockTransferCreate(
+                branch_id=branch.id,
+                from_warehouse_id=warehouse.id,
+                to_warehouse_id=far.id,
+                product_id=product.id,
+                quantity=Decimal("5"),
+                reference_number="TRF-NONE",
+                transaction_date=date(2026, 8, 2),
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_a_transfer_to_where_the_stock_already_is_makes_no_sense() -> None:
+    """Refused in the request rather than as two cancelling movements."""
+    with pytest.raises(ValueError, match="somewhere else"):
+        StockTransferCreate(
+            branch_id=uuid4(),
+            from_warehouse_id=(same := uuid4()),
+            to_warehouse_id=same,
+            product_id=uuid4(),
+            quantity=Decimal("1"),
+            reference_number="TRF-SAME",
+            transaction_date=date(2026, 8, 2),
+        )

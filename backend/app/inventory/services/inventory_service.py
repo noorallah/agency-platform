@@ -53,6 +53,7 @@ from app.inventory.schemas import (
     OpeningStockUpdate,
     StockLedgerListFilters,
     StockLedgerResponse,
+    StockTransferCreate,
 )
 from app.products.models import Product
 from app.uom.models import ConversionRule
@@ -1265,6 +1266,142 @@ class InventoryService:
             firm_scope=firm_scope,
             actor_id=actor_id,
         )
+
+    def transfer_stock(
+        self,
+        data: StockTransferCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> tuple[InventoryTransaction, InventoryTransaction]:
+        """Move stock from one warehouse to another.
+
+        Two movements, one out and one in, and **no journal**. The firm still
+        owns the same goods at the same value afterwards; there is a single
+        inventory control account, so debiting and crediting it for the same
+        amount would put noise in the ledger rather than information. A firm
+        that wanted stock by warehouse in the accounts would need an account
+        per warehouse, which is a different feature and a much larger one.
+
+        The value is held still deliberately. Stock leaves at the moving
+        average and arrives at the same figure, so a transfer cannot quietly
+        revalue a product -- which it would if the inbound leg were left to
+        value itself at nothing.
+
+        Args:
+            data: What is moving, from where, to where.
+            firm_scope: The owning firm.
+            actor_id: The user moving it.
+
+        Returns:
+            The outbound and inbound movements, in that order.
+
+        Raises:
+            ValidationError: If the source does not hold enough to send.
+
+        """
+        (
+            base_quantity,
+            entered_quantity,
+            entered_uom_id,
+            conversion_version,
+        ) = self._resolve_base_quantity(
+            firm_scope=firm_scope,
+            product_id=data.product_id,
+            quantity=(
+                data.entered_quantity
+                if data.entered_quantity is not None
+                else data.quantity
+            ),
+            entered_uom_id=data.entered_uom_id,
+            conversion_version=None,
+            on_date=data.transaction_date,
+        )
+        source = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=data.branch_id,
+            warehouse_id=data.from_warehouse_id,
+            storage_node_id=data.from_storage_node_id,
+            product_id=data.product_id,
+            actor_id=actor_id,
+            batch_id=data.batch_id,
+        )
+        # Unlike a dispatch, which may run stock negative because the goods
+        # have physically gone, a transfer of stock the source does not hold is
+        # a keying error: nothing left the building.
+        available = source.current_quantity - source.reserved_quantity
+        if base_quantity > available:
+            raise ValidationError(
+                f"The source holds {available} available, so {base_quantity} "
+                "cannot be transferred out of it."
+            )
+        held_average = self.valuation_for(
+            firm_scope=firm_scope, product_id=data.product_id
+        ).average_cost
+        reference = data.reference_number.strip().upper()
+        outbound = self._stage_movement(
+            source,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.TRANSFER_OUT.value,
+                batch_id=data.batch_id,
+                reference_number=reference,
+                reference_type="TRANSFER",
+                transaction_date=data.transaction_date,
+                quantity=base_quantity,
+                current_delta=-base_quantity,
+                entered_quantity=entered_quantity,
+                entered_uom_id=entered_uom_id,
+                conversion_version=conversion_version,
+                remarks=data.remarks,
+            ),
+        )
+        destination = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=data.branch_id,
+            warehouse_id=data.to_warehouse_id,
+            storage_node_id=data.to_storage_node_id,
+            product_id=data.product_id,
+            actor_id=actor_id,
+            batch_id=data.batch_id,
+        )
+        inbound = self._stage_movement(
+            destination,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.TRANSFER_IN.value,
+                batch_id=data.batch_id,
+                reference_number=reference,
+                reference_type="TRANSFER",
+                transaction_date=data.transaction_date,
+                quantity=base_quantity,
+                current_delta=base_quantity,
+                # Arrives at what it left at, so the move is value-neutral.
+                unit_cost=held_average,
+                entered_quantity=entered_quantity,
+                entered_uom_id=entered_uom_id,
+                conversion_version=conversion_version,
+                remarks=data.remarks,
+            ),
+        )
+        record_audit(
+            self._session,
+            action="inventory.stock_transferred",
+            entity_type="inventory_transaction",
+            entity_id=outbound.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "reference_number": reference,
+                "quantity": str(base_quantity),
+                "from_warehouse_id": str(data.from_warehouse_id),
+                "to_warehouse_id": str(data.to_warehouse_id),
+            },
+        )
+        self._commit()
+        self._session.refresh(outbound)
+        self._session.refresh(inbound)
+        return outbound, inbound
 
     def create_adjustment(
         self,
