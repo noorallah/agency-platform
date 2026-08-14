@@ -43,6 +43,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply goods receipt note foundation."""
     op.create_table(
         "goods_receipts",
         *_base_columns(),
@@ -328,6 +329,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse goods receipt note foundation."""
     op.drop_index("IX_goods_receipt_notes_receipt", table_name="goods_receipt_notes")
     op.drop_index(
         "IX_goods_receipt_notes_goods_receipt_id", table_name="goods_receipt_notes"

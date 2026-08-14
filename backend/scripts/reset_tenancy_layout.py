@@ -8,11 +8,11 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine, make_url
 
+from alembic import command
 from app.api.dependencies.settings import get_settings
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy.lifecycle import (
@@ -26,6 +26,7 @@ _LEGACY_SCHEMAS = ("PF_SHARED", "platform_shared", "platform", "firm_shared", "p
 
 
 def main() -> int:
+    """Rebuild the platform and firm_shared schemas from scratch."""
     parser = argparse.ArgumentParser(
         description=(
             "Drop the current Agency Platform schemas/tables and rebuild the final "
@@ -157,11 +158,7 @@ def _read_schema_mappings(engine: Engine, schema_name: str) -> set[str]:
                 "WHERE is_deleted IS FALSE"
             )
         )
-        return {
-            row[0]
-            for row in rows
-            if row[0] is not None and str(row[0]).strip()
-        }
+        return {row[0] for row in rows if row[0] is not None and str(row[0]).strip()}
 
 
 def _read_database_mappings(engine: Engine, schema_name: str) -> set[str]:
@@ -173,11 +170,7 @@ def _read_database_mappings(engine: Engine, schema_name: str) -> set[str]:
                 "WHERE is_deleted IS FALSE"
             )
         )
-        return {
-            row[0]
-            for row in rows
-            if row[0] is not None and str(row[0]).strip()
-        }
+        return {row[0] for row in rows if row[0] is not None and str(row[0]).strip()}
 
 
 def _schema_exists(engine: Engine, schema_name: str) -> bool:
@@ -218,9 +211,7 @@ def _drop_public_tables(engine: Engine, table_names: set[str]) -> None:
             if not table_name or not table_name.strip():
                 continue
             table = _safe_identifier(table_name, "table name")
-            connection.execute(
-                text(f'DROP TABLE IF EXISTS "public"."{table}" CASCADE')
-            )
+            connection.execute(text(f'DROP TABLE IF EXISTS "public"."{table}" CASCADE'))
         connection.execute(
             text('DROP FUNCTION IF EXISTS "public".reject_audit_log_mutation() CASCADE')
         )
@@ -258,9 +249,7 @@ def _drop_postgresql_database(platform_url: URL, database_name: str) -> None:
 def _run_migrations(platform_url: URL, schema_name: str) -> None:
     with _temporary_environment(
         {
-            "AGENCY_DATABASE_URL": platform_url.render_as_string(
-                hide_password=False
-            ),
+            "AGENCY_DATABASE_URL": platform_url.render_as_string(hide_password=False),
             "AGENCY_DATABASE_SCHEMA": schema_name,
         }
     ):
@@ -291,9 +280,7 @@ def _prune_non_platform_tables(platform_url: URL, schema_name: str) -> None:
                 {"schema_name": schema},
             )
             drop_tables = sorted(
-                table_name
-                for (table_name,) in rows
-                if table_name not in keep_tables
+                table_name for (table_name,) in rows if table_name not in keep_tables
             )
             for table_name in drop_tables:
                 table = _safe_identifier(table_name, "table name")

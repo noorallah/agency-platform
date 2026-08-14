@@ -5,8 +5,9 @@ Revises: 20260808_0040
 Create Date: 2026-08-08 09:45:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260808_0041"
 down_revision = "20260808_0040"
@@ -15,6 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Apply store product category attributes in the product row."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if not inspector.has_table("products"):
@@ -32,12 +34,14 @@ def upgrade() -> None:
         )
         op.execute(
             sa.text(
-                "UPDATE products SET category_attribute_values = '[]'::json WHERE category_attribute_values IS NULL"
+                "UPDATE products SET category_attribute_values = '[]'::json "
+                "WHERE category_attribute_values IS NULL"
             )
         )
 
 
 def downgrade() -> None:
+    """Reverse store product category attributes in the product row."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if not inspector.has_table("products"):

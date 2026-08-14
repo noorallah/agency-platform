@@ -2,8 +2,9 @@
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "20260801_0019"
 down_revision: str | Sequence[str] | None = "20260801_0018"
@@ -42,6 +43,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply phase 16A enterprise inventory foundation."""
     op.create_table(
         "inventories",
         *_base_columns(),
@@ -426,6 +428,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse phase 16A enterprise inventory foundation."""
     op.drop_index("IX_opening_stock_lines_batch_id", table_name="opening_stock_lines")
     op.drop_table("opening_stock_lines")
 

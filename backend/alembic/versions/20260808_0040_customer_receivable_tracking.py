@@ -5,9 +5,9 @@ Revises: 20260807_0039
 Create Date: 2026-08-08 01:35:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 from app.core.database.types import UUIDType
 
 revision = "20260808_0040"
@@ -17,6 +17,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Apply the customer receivable tracking balances and transaction ledger."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if not inspector.has_table("customers"):
@@ -53,8 +54,12 @@ def upgrade() -> None:
         sa.text(
             """
             UPDATE customers
-            SET current_outstanding = CASE WHEN opening_balance > 0 THEN opening_balance ELSE 0 END,
-                unapplied_advance_balance = CASE WHEN opening_balance < 0 THEN ABS(opening_balance) ELSE 0 END
+            SET current_outstanding =
+                    CASE WHEN opening_balance > 0
+                         THEN opening_balance ELSE 0 END,
+                unapplied_advance_balance =
+                    CASE WHEN opening_balance < 0
+                         THEN ABS(opening_balance) ELSE 0 END
             WHERE current_outstanding = 0
               AND unapplied_advance_balance = 0
               AND opening_balance <> 0
@@ -114,6 +119,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the customer receivable tracking balances and transaction ledger."""
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     if not inspector.has_table("customers"):

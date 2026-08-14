@@ -48,6 +48,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply the enterprise vendor management schema."""
     op.create_table(
         "vendor_categories",
         *_base_columns(),
@@ -282,6 +283,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the enterprise vendor management schema."""
     op.drop_index("IX_vendor_notes_vendor_id", table_name="vendor_notes")
     op.drop_table("vendor_notes")
     op.drop_index("IX_vendor_attachments_vendor_id", table_name="vendor_attachments")

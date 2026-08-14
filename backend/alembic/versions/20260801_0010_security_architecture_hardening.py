@@ -92,7 +92,8 @@ def upgrade() -> None:
     if connection.dialect.name == "postgresql":
         connection.execute(
             sa.text(
-                "CREATE OR REPLACE FUNCTION reject_audit_log_mutation() RETURNS trigger "
+                "CREATE OR REPLACE FUNCTION reject_audit_log_mutation() "
+                "RETURNS trigger "
                 "LANGUAGE plpgsql AS $$ BEGIN "
                 "RAISE EXCEPTION 'audit_logs is append-only'; END; $$"
             )

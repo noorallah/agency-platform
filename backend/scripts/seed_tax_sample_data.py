@@ -9,9 +9,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.dependencies.settings import get_settings
+from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions import ResourceNotFoundError
 from app.core.tenancy import (
@@ -47,16 +48,20 @@ from app.tax.services.tax_rule_service import TaxRuleService
 
 @dataclass(frozen=True)
 class TaxSeedContext:
+    """Who the seeded tax rows are attributed to."""
+
     actor_id: UUID
 
 
 def main() -> int:
+    """Seed sample GST tax data for the requested firms."""
     parser = argparse.ArgumentParser(description="Seed sample GST tax data.")
     parser.add_argument(
         "--firm-code",
         action="append",
         dest="firm_codes",
-        help="Seed one specific firm code. Repeat for multiple firms. Defaults to all firms.",
+        help="Seed one specific firm code. Repeat for multiple firms. Defaults to all "
+        "firms.",
     )
     args = parser.parse_args()
 
@@ -68,7 +73,9 @@ def main() -> int:
         FirmSchemaResolver(),
     )
     try:
-        with platform.sessions(schema=platform.config.default_schema).session() as session:
+        with platform.sessions(
+            schema=platform.config.default_schema
+        ).session() as session:
             context = _resolve_seed_context(session)
             firms = _resolve_firms(session, args.firm_codes)
             for firm in firms:
@@ -99,7 +106,7 @@ def main() -> int:
     return 0
 
 
-def _resolve_seed_context(session) -> TaxSeedContext:
+def _resolve_seed_context(session: Session) -> TaxSeedContext:
     actor = session.scalar(
         select(User).where(User.email == "platform-admin@agency.local")
     ) or session.scalar(select(User).order_by(User.email.asc()))
@@ -108,7 +115,7 @@ def _resolve_seed_context(session) -> TaxSeedContext:
     return TaxSeedContext(actor_id=actor.id)
 
 
-def _resolve_firms(session, requested_codes: list[str] | None) -> list[Firm]:
+def _resolve_firms(session: Session, requested_codes: list[str] | None) -> list[Firm]:
     statement = select(Firm).options(selectinload(Firm.storage_mappings))
     if not requested_codes:
         return list(session.scalars(statement.order_by(Firm.code.asc())).all())
@@ -125,7 +132,7 @@ def _resolve_firms(session, requested_codes: list[str] | None) -> list[Firm]:
     return firms
 
 
-def _tenant_context_for_firm(settings, firm: Firm) -> TenantContext:
+def _tenant_context_for_firm(settings: Settings, firm: Firm) -> TenantContext:
     mapping = next(
         (
             item
@@ -160,7 +167,7 @@ def _tenant_context_for_firm(settings, firm: Firm) -> TenantContext:
     )
 
 
-def _seed_firm_tax_data(session, firm: Firm, context: TaxSeedContext) -> None:
+def _seed_firm_tax_data(session: Session, firm: Firm, context: TaxSeedContext) -> None:
     country = session.scalar(select(GeoCountry).where(GeoCountry.code == "IN"))
     if country is None:
         country = session.scalar(select(GeoCountry).where(GeoCountry.name == "India"))
@@ -302,16 +309,30 @@ def _create_profiles(
 ) -> dict[str, object]:
     profile_definitions = (
         ("GST_0", "GST 0%", [("IGST", Decimal("0"))]),
-        ("GST_5_LOCAL", "GST 5% Local", [("CGST", Decimal("2.5")), ("SGST", Decimal("2.5"))]),
+        (
+            "GST_5_LOCAL",
+            "GST 5% Local",
+            [("CGST", Decimal("2.5")), ("SGST", Decimal("2.5"))],
+        ),
         ("GST_5_INTERSTATE", "GST 5% Interstate", [("IGST", Decimal("5"))]),
-        ("GST_12_LOCAL", "GST 12% Local", [("CGST", Decimal("6")), ("SGST", Decimal("6"))]),
+        (
+            "GST_12_LOCAL",
+            "GST 12% Local",
+            [("CGST", Decimal("6")), ("SGST", Decimal("6"))],
+        ),
         ("GST_12_INTERSTATE", "GST 12% Interstate", [("IGST", Decimal("12"))]),
-        ("GST_18_LOCAL", "GST 18% Local", [("CGST", Decimal("9")), ("SGST", Decimal("9"))]),
+        (
+            "GST_18_LOCAL",
+            "GST 18% Local",
+            [("CGST", Decimal("9")), ("SGST", Decimal("9"))],
+        ),
         ("GST_18_INTERSTATE", "GST 18% Interstate", [("IGST", Decimal("18"))]),
         ("EXEMPT", "Exempt", []),
     )
     created: dict[str, object] = {}
-    for display_order, (code, name, component_rows) in enumerate(profile_definitions, start=1):
+    for display_order, (code, name, component_rows) in enumerate(
+        profile_definitions, start=1
+    ):
         created[code] = framework.create_profile(
             TaxProfileWrite(
                 tax_system_id=tax_system_id,
@@ -335,7 +356,9 @@ def _create_profiles(
                         included_in_price=False,
                         recoverable=True,
                     )
-                    for index, (component_code, percentage) in enumerate(component_rows, start=1)
+                    for index, (component_code, percentage) in enumerate(
+                        component_rows, start=1
+                    )
                 ],
             ),
             firm_id=firm_id,
@@ -363,7 +386,9 @@ def _create_rules(
                     action_type=TaxRuleActionType.APPLY_TAX_PROFILE,
                     target_tax_profile_id=profiles["GST_0"].id,
                 ),
-                TaxRuleActionWrite(sequence=2, action_type=TaxRuleActionType.ZERO_RATED),
+                TaxRuleActionWrite(
+                    sequence=2, action_type=TaxRuleActionType.ZERO_RATED
+                ),
             ],
         ),
         (
@@ -371,8 +396,18 @@ def _create_rules(
             "Interstate sale switches 5 percent GST to IGST",
             10,
             [
-                ("transaction_type", TaxRuleConditionOperator.EQUALS, "SALES_INTERSTATE", None),
-                ("tax_profile_id", TaxRuleConditionOperator.EQUALS, str(profiles["GST_5_LOCAL"].id), None),
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.EQUALS,
+                    "SALES_INTERSTATE",
+                    None,
+                ),
+                (
+                    "tax_profile_id",
+                    TaxRuleConditionOperator.EQUALS,
+                    str(profiles["GST_5_LOCAL"].id),
+                    None,
+                ),
             ],
             [
                 TaxRuleActionWrite(
@@ -387,8 +422,18 @@ def _create_rules(
             "Interstate sale switches 12 percent GST to IGST",
             11,
             [
-                ("transaction_type", TaxRuleConditionOperator.EQUALS, "SALES_INTERSTATE", None),
-                ("tax_profile_id", TaxRuleConditionOperator.EQUALS, str(profiles["GST_12_LOCAL"].id), None),
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.EQUALS,
+                    "SALES_INTERSTATE",
+                    None,
+                ),
+                (
+                    "tax_profile_id",
+                    TaxRuleConditionOperator.EQUALS,
+                    str(profiles["GST_12_LOCAL"].id),
+                    None,
+                ),
             ],
             [
                 TaxRuleActionWrite(
@@ -403,8 +448,18 @@ def _create_rules(
             "Interstate sale switches 18 percent GST to IGST",
             12,
             [
-                ("transaction_type", TaxRuleConditionOperator.EQUALS, "SALES_INTERSTATE", None),
-                ("tax_profile_id", TaxRuleConditionOperator.EQUALS, str(profiles["GST_18_LOCAL"].id), None),
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.EQUALS,
+                    "SALES_INTERSTATE",
+                    None,
+                ),
+                (
+                    "tax_profile_id",
+                    TaxRuleConditionOperator.EQUALS,
+                    str(profiles["GST_18_LOCAL"].id),
+                    None,
+                ),
             ],
             [
                 TaxRuleActionWrite(
@@ -418,7 +473,14 @@ def _create_rules(
             "EXEMPT_PROFILE",
             "Exempt products remain exempt",
             20,
-            [("tax_profile_id", TaxRuleConditionOperator.EQUALS, str(profiles["EXEMPT"].id), None)],
+            [
+                (
+                    "tax_profile_id",
+                    TaxRuleConditionOperator.EQUALS,
+                    str(profiles["EXEMPT"].id),
+                    None,
+                )
+            ],
             [TaxRuleActionWrite(sequence=1, action_type=TaxRuleActionType.EXEMPT_TAX)],
         ),
         (
@@ -426,7 +488,11 @@ def _create_rules(
             "Purchase transactions allow input credit",
             30,
             [("transaction_type", TaxRuleConditionOperator.EQUALS, "PURCHASE", None)],
-            [TaxRuleActionWrite(sequence=1, action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED)],
+            [
+                TaxRuleActionWrite(
+                    sequence=1, action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED
+                )
+            ],
         ),
     )
     for code, name, priority, conditions, actions in rule_definitions:
@@ -453,9 +519,12 @@ def _create_rules(
                         value_boolean=None,
                         value_json=None,
                     )
-                    for index, (field_key, operator, value_text, value_number) in enumerate(
-                        conditions, start=1
-                    )
+                    for index, (
+                        field_key,
+                        operator,
+                        value_text,
+                        value_number,
+                    ) in enumerate(conditions, start=1)
                 ],
                 actions=actions,
             ),

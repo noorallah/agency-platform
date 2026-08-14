@@ -40,6 +40,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply purchase invoice module foundation."""
     op.create_table(
         "purchase_invoices",
         *_base_columns(),
@@ -378,6 +379,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse purchase invoice module foundation."""
     op.drop_index(
         "IX_purchase_invoice_accounting_events_type",
         table_name="purchase_invoice_accounting_events",

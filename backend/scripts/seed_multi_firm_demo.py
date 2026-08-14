@@ -17,18 +17,25 @@ alone, so the demo can be refreshed without rebuilding everything.
 from __future__ import annotations
 
 import argparse
-
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any
 from uuid import UUID
 
+from generate_transaction_history import generate_history, reset_history
+from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_settings
 from app.batch_serial import models as batch_serial_models
-from app.branches.models import Branch, BranchType, Warehouse, WarehouseStorageNode, WarehouseType
+from app.branches.models import (
+    Branch,
+    BranchType,
+    Warehouse,
+    WarehouseStorageNode,
+    WarehouseType,
+)
 from app.branches.schemas import (
     BranchCreate,
     BranchStatus,
@@ -50,6 +57,7 @@ from app.business.models import (
     ProfileFeature,
     ProfileModule,
 )
+from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy import (
     DeploymentMode,
@@ -71,7 +79,7 @@ from app.customers.schemas import (
 from app.customers.schemas.customer import AddressType as CustomerAddressType
 from app.customers.schemas.customer import CustomerStatus, CustomerType
 from app.customers.services.customer_service import CustomerService
-from app.firms.models import Firm, FirmStorageMapping
+from app.firms.models import Firm
 from app.firms.schemas import FirmCreate
 from app.firms.services.firm_service import FirmService
 from app.identity.models import PlatformAdmin, Role, User, UserFirm
@@ -81,12 +89,14 @@ from app.inventory.models import OpeningStockBatch
 from app.inventory.schemas import OpeningStockBatchCreate, OpeningStockLineCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product, ProductCategory
-from app.products.schemas import ProductAttributeInput, ProductCategoryCreate, ProductCreate
+from app.products.schemas import (
+    ProductAttributeInput,
+    ProductCategoryCreate,
+    ProductCreate,
+)
 from app.products.schemas.product import ProductStatus, ProductType
 from app.products.services.product_service import ProductService
 from app.tax.models import TaxProfile, TaxSystem
-from sqlalchemy.orm import Session
-
 from app.uom.models import ConversionRule, Uom
 from app.uom.schemas import ConversionRuleCreate
 from app.uom.services import UomService
@@ -104,14 +114,14 @@ from app.vendors.schemas import (
 )
 from app.vendors.schemas.vendor import AddressType as VendorAddressType
 from app.vendors.services.vendor_service import VendorService
-from generate_transaction_history import generate_history, reset_history
-from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
 
 DEMO_PASSWORD = "DemoAdmin@12345"
 
 
 @dataclass(frozen=True)
 class FirmSeedTarget:
+    """A firm to seed, and the store its rows belong in."""
+
     blueprint: FirmBlueprint
     firm_id: UUID
     tenant: TenantContext
@@ -119,6 +129,8 @@ class FirmSeedTarget:
 
 @dataclass(frozen=True)
 class FirmRef:
+    """A firm reduced to what the seeder needs after it exists."""
+
     id: UUID
     code: str
     name: str
@@ -126,6 +138,8 @@ class FirmRef:
 
 @dataclass(frozen=True)
 class ProductSeed:
+    """One product to create, before it has an id."""
+
     code: str
     name: str
     short_name: str
@@ -151,6 +165,8 @@ class ProductSeed:
 
 @dataclass(frozen=True)
 class FirmBlueprint:
+    """A demo firm as written down, before anything is created."""
+
     name: str
     code: str
     business_style: str
@@ -175,7 +191,8 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
     FirmBlueprint(
         name="Medisphere Pharma Distribution Private Limited",
         code="MEDI01",
-        business_style="Pharma distributor supplying pharmacies, hospitals, and clinics.",
+        business_style="Pharma distributor supplying pharmacies, hospitals, and "
+        "clinics.",
         profile_code="PHARMACY",
         city="Hyderabad",
         state="Telangana",
@@ -248,7 +265,8 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
     FirmBlueprint(
         name="FreshRoute Food Supply Private Limited",
         code="FOOD01",
-        business_style="Food and grocery wholesaler serving kirana stores and restaurants.",
+        business_style="Food and grocery wholesaler serving kirana stores and "
+        "restaurants.",
         profile_code="FOOD",
         city="Bengaluru",
         state="Karnataka",
@@ -321,7 +339,8 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
     FirmBlueprint(
         name="MarketBridge Wholesale Traders Private Limited",
         code="WHOLE01",
-        business_style="General trade and FMCG wholesaler with a dedicated schema in the main database.",
+        business_style="General trade and FMCG wholesaler with a dedicated schema in "
+        "the main database.",
         profile_code="WHOLESALE",
         city="Chennai",
         state="Tamil Nadu",
@@ -392,7 +411,8 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
     FirmBlueprint(
         name="ElectroLink Appliances Distribution Private Limited",
         code="ELEC01",
-        business_style="Electronics and appliances distributor with its own database and schema.",
+        business_style="Electronics and appliances distributor with its own database "
+        "and schema.",
         profile_code="ELECTRONICS",
         city="Pune",
         state="Maharashtra",
@@ -464,6 +484,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
 
 
 def main() -> int:
+    """Seed the demo firms and, unless asked not to, their trading history."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--history-years",
@@ -492,7 +513,9 @@ def main() -> int:
         FirmSchemaResolver(),
     )
     try:
-        with platform.sessions(schema=platform.config.default_schema).session() as session:
+        with platform.sessions(
+            schema=platform.config.default_schema
+        ).session() as session:
             identity = IdentityService(session, settings)
             firm_service = FirmService(
                 session,
@@ -541,7 +564,10 @@ def main() -> int:
             schema_name = provider.schema_for(tenant)
             with manager.sessions(schema=schema_name).session() as tenant_session:
                 _seed_business_profile_assignment(
-                    tenant_session, target.firm_id, blueprint.profile_code, actor_id=actor_id
+                    tenant_session,
+                    target.firm_id,
+                    blueprint.profile_code,
+                    actor_id=actor_id,
                 )
                 _seed_tax_data(tenant_session, firm, actor_id)
                 _seed_branching(tenant_session, firm, blueprint, actor_id)
@@ -574,14 +600,18 @@ def main() -> int:
     return 0
 
 
-def _platform_admin(session) -> User:
-    user = session.scalar(select(User).where(User.email == "platform-admin@agency.local"))
+def _platform_admin(session: Session) -> User:
+    user = session.scalar(
+        select(User).where(User.email == "platform-admin@agency.local")
+    )
     if user is None:
-        raise RuntimeError("platform-admin@agency.local is required before seeding demo firms.")
+        raise RuntimeError(
+            "platform-admin@agency.local is required before seeding demo firms."
+        )
     return user
 
 
-def _role_by_code(session, code: str) -> Role:
+def _role_by_code(session: Session, code: str) -> Role:
     role = session.scalar(
         select(Role).where(Role.code == code, Role.is_deleted.is_(False))
     )
@@ -591,7 +621,7 @@ def _role_by_code(session, code: str) -> Role:
 
 
 def _ensure_firm(
-    session,
+    session: Session,
     firm_service: FirmService,
     blueprint: FirmBlueprint,
     actor_id: UUID,
@@ -627,7 +657,7 @@ def _ensure_firm(
 
 def _ensure_firm_admins(
     *,
-    session,
+    session: Session,
     identity: IdentityService,
     firm_admin_role: Role,
     actor_id: UUID,
@@ -658,7 +688,7 @@ def _ensure_firm_admins(
 
 def _ensure_master_user(
     *,
-    session,
+    session: Session,
     identity: IdentityService,
     firm_admin_role: Role,
     actor_id: UUID,
@@ -707,7 +737,7 @@ def _ensure_master_user(
 
 
 def _ensure_user(
-    session,
+    session: Session,
     identity: IdentityService,
     actor_id: UUID,
     *,
@@ -715,7 +745,9 @@ def _ensure_user(
     full_name: str,
     firm_scope: UUID | None,
 ) -> User:
-    existing = session.scalar(select(User).where(User.email == email, User.is_deleted.is_(False)))
+    existing = session.scalar(
+        select(User).where(User.email == email, User.is_deleted.is_(False))
+    )
     if existing is not None:
         return existing
     return identity.create_user(
@@ -731,13 +763,9 @@ def _ensure_user(
     )
 
 
-def _tenant_context_for_firm(settings, firm: Firm) -> TenantContext:
+def _tenant_context_for_firm(settings: Settings, firm: Firm) -> TenantContext:
     mapping = next(
-        (
-            row
-            for row in firm.storage_mappings
-            if row.is_active and not row.is_deleted
-        ),
+        (row for row in firm.storage_mappings if row.is_active and not row.is_deleted),
         None,
     )
     if mapping is None or mapping.deployment_mode == DeploymentMode.SHARED.value:
@@ -758,7 +786,7 @@ def _tenant_context_for_firm(settings, firm: Firm) -> TenantContext:
 
 
 def _seed_business_profile_assignment(
-    session,
+    session: Session,
     firm_id: UUID,
     profile_code: str,
     *,
@@ -772,7 +800,9 @@ def _seed_business_profile_assignment(
         )
     )
     if profile is None:
-        raise RuntimeError(f"Business profile '{profile_code}' is missing in tenant storage.")
+        raise RuntimeError(
+            f"Business profile '{profile_code}' is missing in tenant storage."
+        )
     assignment = session.scalar(
         select(FirmBusinessProfile).where(
             FirmBusinessProfile.firm_id == firm_id,
@@ -799,7 +829,7 @@ def _seed_business_profile_assignment(
     session.commit()
 
 
-def _seed_tax_data(session, firm: Firm, actor_id: UUID) -> None:
+def _seed_tax_data(session: Session, firm: Firm, actor_id: UUID) -> None:
     existing = session.scalar(
         select(TaxSystem.id).where(
             TaxSystem.firm_id == firm.id,
@@ -811,7 +841,9 @@ def _seed_tax_data(session, firm: Firm, actor_id: UUID) -> None:
     _seed_firm_tax_data(session, firm, TaxSeedContext(actor_id=actor_id))
 
 
-def _seed_branching(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID) -> None:
+def _seed_branching(
+    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
     service = BranchWarehouseService(session)
     branch_type = session.scalar(
         select(BranchType).where(
@@ -943,7 +975,7 @@ def _seed_branching(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUI
 
 
 def _ensure_storage_node(
-    session,
+    session: Session,
     service: BranchWarehouseService,
     *,
     warehouse_id: UUID,
@@ -978,7 +1010,9 @@ def _ensure_storage_node(
     )
 
 
-def _seed_vendors(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID) -> None:
+def _seed_vendors(
+    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
     service = VendorService(session)
     category = session.scalar(
         select(VendorCategory).where(
@@ -1098,7 +1132,9 @@ def _seed_vendors(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID)
         )
 
 
-def _seed_customers(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID) -> None:
+def _seed_customers(
+    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
     service = CustomerService(session)
     for index, customer_name in enumerate(blueprint.customer_names, start=1):
         if session.scalar(
@@ -1226,14 +1262,28 @@ def _seed_customers(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUI
             )
 
 
-def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) -> dict[str, AttributeDefinition]:
+def _seed_business_framework(
+    session: Session, blueprint: FirmBlueprint, actor_id: UUID
+) -> dict[str, AttributeDefinition]:
     profile = _business_profile(session, blueprint.profile_code)
     feature_definitions = {
         "BARCODE": {"name": "Barcode", "category": "PRODUCT", "default_enabled": True},
         "QR_CODE": {"name": "QR Code", "category": "PRODUCT", "default_enabled": True},
-        "ATTACHMENTS": {"name": "Product Attachments", "category": "PRODUCT", "default_enabled": True},
-        "EXPIRY_TRACKING": {"name": "Expiry Tracking", "category": "INVENTORY", "default_enabled": True},
-        "SERIAL_TRACKING": {"name": "Serial Tracking", "category": "INVENTORY", "default_enabled": False},
+        "ATTACHMENTS": {
+            "name": "Product Attachments",
+            "category": "PRODUCT",
+            "default_enabled": True,
+        },
+        "EXPIRY_TRACKING": {
+            "name": "Expiry Tracking",
+            "category": "INVENTORY",
+            "default_enabled": True,
+        },
+        "SERIAL_TRACKING": {
+            "name": "Serial Tracking",
+            "category": "INVENTORY",
+            "default_enabled": False,
+        },
     }
     for code, payload in feature_definitions.items():
         feature = session.scalar(
@@ -1246,7 +1296,8 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
             feature = BusinessFeature(
                 code=code,
                 name=payload["name"],
-                description=f"Seeded feature for {blueprint.profile_code.lower()} demo flows.",
+                description=f"Seeded feature for {blueprint.profile_code.lower()} "
+                f"demo flows.",
                 category=payload["category"],
                 default_enabled=payload["default_enabled"],
                 is_active=True,
@@ -1290,7 +1341,8 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
             module = BusinessModule(
                 code=code,
                 name=payload["name"],
-                description=f"Seeded module for {blueprint.profile_code.lower()} demo flows.",
+                description=f"Seeded module for {blueprint.profile_code.lower()} demo "
+                f"flows.",
                 ui_route=payload["route"],
                 default_enabled=payload["default_enabled"],
                 is_active=True,
@@ -1333,7 +1385,8 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
         relationship = session.scalar(
             select(ProfileFeature).where(
                 ProfileFeature.business_profile_id == profile.id,
-                ProfileFeature.feature_id == session.scalar(
+                ProfileFeature.feature_id
+                == session.scalar(
                     select(BusinessFeature.id).where(
                         BusinessFeature.code == code,
                         BusinessFeature.is_deleted.is_(False),
@@ -1367,12 +1420,16 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
         "FOOD": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
         "WHOLESALE": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
         "ELECTRONICS": {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
-    }.get(blueprint.profile_code, {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"})
+    }.get(
+        blueprint.profile_code,
+        {"PRODUCT_MASTER", "INVENTORY_CONTROL", "CUSTOMER_RECEIVABLES"},
+    )
     for code in module_definitions:
         relationship = session.scalar(
             select(ProfileModule).where(
                 ProfileModule.business_profile_id == profile.id,
-                ProfileModule.module_id == session.scalar(
+                ProfileModule.module_id
+                == session.scalar(
                     select(BusinessModule.id).where(
                         BusinessModule.code == code,
                         BusinessModule.is_deleted.is_(False),
@@ -1498,7 +1555,8 @@ def _seed_business_framework(session, blueprint: FirmBlueprint, actor_id: UUID) 
             select(CategoryAttributeRule).where(
                 CategoryAttributeRule.business_profile_id == profile.id,
                 CategoryAttributeRule.category_code == "CORE_PRODUCTS",
-                CategoryAttributeRule.attribute_definition_id == attribute_definition.id,
+                CategoryAttributeRule.attribute_definition_id
+                == attribute_definition.id,
                 CategoryAttributeRule.is_deleted.is_(False),
             )
         )
@@ -1587,7 +1645,9 @@ def _product_attributes_for_profile(
     ]
 
 
-def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID) -> None:
+def _seed_products(
+    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
     service = ProductService(session)
     attribute_definitions = _seed_business_framework(session, blueprint, actor_id)
     category = session.scalar(
@@ -1649,7 +1709,8 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
                 qr_code=None,
                 name=product.name,
                 short_name=product.short_name,
-                description=f"Seeded demo product for {blueprint.business_style.lower()}",
+                description=f"Seeded demo product for "
+                f"{blueprint.business_style.lower()}",
                 product_type=ProductType.STOCK_ITEM,
                 category_id=category.id,
                 sub_category_id=None,
@@ -1754,8 +1815,7 @@ def _seed_sales_conversion_rule(
             effective_from=date(2024, 4, 1),
             version=1,
             reason=(
-                f"One {from_uom.code} is {factor} {to_uom.code} "
-                f"for {product_code}."
+                f"One {from_uom.code} is {factor} {to_uom.code} " f"for {product_code}."
             ),
         ),
         firm_scope=firm.id,
@@ -1764,7 +1824,7 @@ def _seed_sales_conversion_rule(
 
 
 def _seed_inventory_opening_stock(
-    session,
+    session: Session,
     firm: FirmRef,
     blueprint: FirmBlueprint,
     actor_id: UUID,
@@ -1803,7 +1863,8 @@ def _seed_inventory_opening_stock(
     )
     if branch is None or warehouse is None:
         raise RuntimeError(
-            f"Branch/warehouse not found for firm '{firm.code}' while seeding inventory."
+            f"Branch/warehouse not found for firm '{firm.code}' while seeding "
+            f"inventory."
         )
 
     product_codes = [item.code for item in blueprint.products]
@@ -1819,7 +1880,8 @@ def _seed_inventory_opening_stock(
     missing_codes = [code for code in product_codes if code not in product_by_code]
     if missing_codes:
         raise RuntimeError(
-            f"Products missing for firm '{firm.code}' while seeding inventory: {missing_codes}"
+            f"Products missing for firm '{firm.code}' while seeding inventory: "
+            f"{missing_codes}"
         )
 
     lines = [
@@ -1855,7 +1917,7 @@ def _seed_inventory_opening_stock(
     service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
 
 
-def _business_profile(session, profile_code: str) -> BusinessProfile:
+def _business_profile(session: Session, profile_code: str) -> BusinessProfile:
     profile = session.scalar(
         select(BusinessProfile).where(
             BusinessProfile.code == profile_code,
@@ -1867,7 +1929,9 @@ def _business_profile(session, profile_code: str) -> BusinessProfile:
     return profile
 
 
-def _tax_profile_for_firm(session, firm_id: UUID, profile_code: str) -> TaxProfile:
+def _tax_profile_for_firm(
+    session: Session, firm_id: UUID, profile_code: str
+) -> TaxProfile:
     tax_code = "GST_18_LOCAL"
     if profile_code == "PHARMACY":
         tax_code = "GST_12_LOCAL"
@@ -1885,17 +1949,43 @@ def _tax_profile_for_firm(session, firm_id: UUID, profile_code: str) -> TaxProfi
     return row
 
 
-def _uom_map(session) -> dict[str, Uom]:
+def _uom_map(session: Session) -> dict[str, Uom]:
     rows = session.scalars(
         select(Uom).where(
             Uom.code.in_(
-                ["TABLET", "STRIP", "BOX", "KG", "BAG", "L", "BOTTLE", "GRAM", "PACK", "ML", "TUBE", "PIECE"]
+                [
+                    "TABLET",
+                    "STRIP",
+                    "BOX",
+                    "KG",
+                    "BAG",
+                    "L",
+                    "BOTTLE",
+                    "GRAM",
+                    "PACK",
+                    "ML",
+                    "TUBE",
+                    "PIECE",
+                ]
             ),
             Uom.is_deleted.is_(False),
         )
     ).all()
     result = {row.code: row for row in rows}
-    required = {"TABLET", "STRIP", "BOX", "KG", "BAG", "L", "BOTTLE", "GRAM", "PACK", "ML", "TUBE", "PIECE"}
+    required = {
+        "TABLET",
+        "STRIP",
+        "BOX",
+        "KG",
+        "BAG",
+        "L",
+        "BOTTLE",
+        "GRAM",
+        "PACK",
+        "ML",
+        "TUBE",
+        "PIECE",
+    }
     missing = required - set(result)
     if missing:
         raise RuntimeError(f"Required UOM codes are missing: {sorted(missing)}")
@@ -1911,16 +2001,22 @@ def _pan(seed: int) -> str:
 
 
 def _gstin(prefix: str, seed: int) -> str:
-    normalized = "".join(character for character in prefix.upper() if character.isalnum())
+    normalized = "".join(
+        character for character in prefix.upper() if character.isalnum()
+    )
     body = f"{normalized}{seed:02d}".ljust(10, "0")[:10]
     return f"29{body}{seed % 9 + 1}Z5"
 
 
-def _print_summary(platform: DatabaseManager, settings: Any) -> None:
+def _print_summary(platform: DatabaseManager, settings: Settings) -> None:
     with platform.sessions(schema=platform.config.default_schema).session() as session:
-        firms = session.scalars(select(Firm).where(Firm.is_deleted.is_(False)).order_by(Firm.code.asc())).all()
+        firms = session.scalars(
+            select(Firm).where(Firm.is_deleted.is_(False)).order_by(Firm.code.asc())
+        ).all()
         users = session.scalars(
-            select(User).where(User.is_deleted.is_(False), User.email.like("%@agency.local")).order_by(User.email.asc())
+            select(User)
+            .where(User.is_deleted.is_(False), User.email.like("%@agency.local"))
+            .order_by(User.email.asc())
         ).all()
         print("Seeded firms:")
         for firm in firms:
@@ -1932,7 +2028,11 @@ def _print_summary(platform: DatabaseManager, settings: Any) -> None:
                 ),
                 None,
             )
-            mode = mapping.deployment_mode if mapping is not None else DeploymentMode.SHARED.value
+            mode = (
+                mapping.deployment_mode
+                if mapping is not None
+                else DeploymentMode.SHARED.value
+            )
             database_name = (
                 settings.tenancy.shared_database_name
                 if mapping is None or mapping.database_name is None
@@ -1944,7 +2044,8 @@ def _print_summary(platform: DatabaseManager, settings: Any) -> None:
                 else mapping.schema_name
             )
             print(
-                f"- {firm.code}: mode={mode} database={database_name} schema={schema_name}"
+                f"- {firm.code}: mode={mode} database={database_name} "
+                f"schema={schema_name}"
             )
         print("Demo users:")
         for user in users:
@@ -1956,9 +2057,7 @@ def _print_summary(platform: DatabaseManager, settings: Any) -> None:
             ).all()
             if not memberships:
                 continue
-            print(
-                f"- {user.email}: firms={len(memberships)} password={DEMO_PASSWORD}"
-            )
+            print(f"- {user.email}: firms={len(memberships)} password={DEMO_PASSWORD}")
 
 
 if __name__ == "__main__":

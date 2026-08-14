@@ -30,6 +30,7 @@ def _firm_schemas(bind: sa.engine.Connection) -> list[str]:
 
 
 def upgrade() -> None:
+    """Apply enforce per-firm active barcode uniqueness on product masters."""
     bind = op.get_bind()
     for schema in _firm_schemas(bind):
         bind.execute(
@@ -42,6 +43,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse enforce per-firm active barcode uniqueness on product masters."""
     bind = op.get_bind()
     for schema in _firm_schemas(bind):
         bind.execute(
