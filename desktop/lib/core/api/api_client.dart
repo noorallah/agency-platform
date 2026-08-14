@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/entities.dart';
+import '../../models/finance.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -2373,6 +2374,73 @@ class ApiClient {
       total: total,
     );
   }
+
+  // ── Finance ────────────────────────────────────────────────────────────
+  // The finance API has been live since `20260809_0042` and every goods
+  // receipt, dispatch and invoice posts to it, so the ledger has been filling
+  // up with entries no screen could show. These are what the accounting
+  // workspace reads.
+  //
+  // The list endpoints return a plain list rather than a page, so they are
+  // wrapped into a `PagedResult` here instead of pretending the server paginates.
+
+  Future<PagedResult<LedgerAccount>> ledgerAccounts({
+    String? accountGroupId,
+    bool? isActive,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/finance/ledger-accounts',
+      query: {
+        if (accountGroupId != null) 'account_group_id': accountGroupId,
+        if (isActive != null) 'is_active': '$isActive',
+      },
+    );
+    final List<LedgerAccount> items = _unwrapList(response, LedgerAccount.fromJson);
+    return PagedResult<LedgerAccount>(items: items, total: items.length);
+  }
+
+  Future<LedgerAccount> createLedgerAccount(Json data) async =>
+      LedgerAccount.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/finance/ledger-accounts', body: data)),
+      );
+
+  Future<LedgerAccount> updateLedgerAccount(String id, Json data) async =>
+      LedgerAccount.fromJson(
+        _unwrapMap(
+          await request('PATCH', '/api/v1/finance/ledger-accounts/$id', body: data),
+        ),
+      );
+
+  Future<List<AccountGroup>> accountGroups() async => _unwrapList(
+        await request('GET', '/api/v1/finance/account-groups'),
+        AccountGroup.fromJson,
+      );
+
+  Future<List<AccountingPeriod>> accountingPeriods({String? financialYearId}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/finance/accounting-periods',
+          query: {
+            if (financialYearId != null) 'financial_year_id': financialYearId,
+          },
+        ),
+        AccountingPeriod.fromJson,
+      );
+
+  /// The trial balance for one accounting period.
+  ///
+  /// Whether it balances is the server's answer, carried through rather than
+  /// recomputed: two places deciding that is two places that can disagree.
+  Future<TrialBalanceReport> trialBalance(String accountingPeriodId) async =>
+      TrialBalanceReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/trial-balance',
+          query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
 
   /// Whether the backend answers at all.
   ///

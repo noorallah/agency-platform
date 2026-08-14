@@ -696,9 +696,7 @@ abstract final class ModuleCatalog {
       requiredPermissions: ['ACCOUNT_VIEW'],
       tabs: [
         ModuleTabDefinition(
-            id: 'chart-of-accounts',
-            label: 'Chart of Accounts',
-            available: false),
+            id: 'chart-of-accounts', label: 'Chart of Accounts'),
         ModuleTabDefinition(
             id: 'journal-entries', label: 'Journal Entries', available: false),
         ModuleTabDefinition(
@@ -706,8 +704,7 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
             id: 'payments', label: 'Payments', available: false),
         ModuleTabDefinition(id: 'ledgers', label: 'Ledgers', available: false),
-        ModuleTabDefinition(
-            id: 'trial-balance', label: 'Trial Balance', available: false),
+        ModuleTabDefinition(id: 'trial-balance', label: 'Trial Balance'),
         ModuleTabDefinition(
             id: 'profit-loss', label: 'Profit & Loss', available: false),
         ModuleTabDefinition(

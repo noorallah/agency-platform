@@ -6,6 +6,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:agency_desktop/ui/dashboard_page.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
+import 'package:agency_desktop/ui/finance/finance_workspace.dart';
 import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.dart';
 import 'package:agency_desktop/ui/goods_receipts/goods_receipt_management_page.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
@@ -86,6 +87,22 @@ final Map<String, _PageBuilder> _screens = {
         preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
+      ),
+  // The accounting screens, added with them. A trial balance is seven numeric
+  // columns wide, which is exactly the shape that overflows first.
+  'finance': (d) => FinanceWorkspace(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'chart-of-accounts',
+      ),
+  'trial balance': (d) => FinanceWorkspace(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'trial-balance',
       ),
   'customers': (d) => CustomerManagementPage(
         api: d.api,
