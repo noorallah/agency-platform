@@ -395,20 +395,23 @@ silently breaks that reconciliation the first time it is used:
    expense account), a chart entry, and a migration that maps it for every
    existing firm -- otherwise posting would refuse every adjustment a firm
    makes until an administrator noticed.
-2. **Purchase returns** -- `record_purchase_return` moves stock out;
-   `PurchaseReturnService` imports no posting service at all. Inventory
-   overstates by the value returned. This one needs **no new accounts**:
-   `INVENTORY`, `PURCHASE_RETURNS` and `ACCOUNTS_PAYABLE` are all mapped
-   already, and the value of the movement is on the stock ledger entry as
-   `total_cost`.
+2. **Purchase returns -- built on 2026-08-14.** Completing one now posts
+   `Dr Accounts Payable` with the whole credit note, `Cr Input Tax` reversing
+   what was claimed on the way in, and `Cr Inventory` at **what the stock
+   actually cost** rather than what the return is priced at. The gap between
+   those two is a purchase price variance, the same account an invoice uses
+   when it disagrees with the receipt it clears -- crediting inventory at the
+   return price would leave stock valued at something no movement ever paid.
+   Verified on the seeded firm: a return of 316.24 moved payables -316.24,
+   input tax -48.24, inventory -203.16 and variance -64.84, and stock still
+   reconciles to the control account.
 3. **Opening stock** -- lays stock down with no counterpart. The chart has **no
    equity account at all**, so there is nothing to credit; it needs an opening
    balance equity account before it can post, which is also what the balance
    sheet would want.
 
-Purchase returns are the piece to take first: no new accounts, no migration,
-and the value is already recorded. Adjustments are second and need the chart
-decision above.
+Adjustments are next, and need the chart decision above. Opening stock needs an
+equity account before it can post at all.
 
 ## 7. Finance has a screen -- and now the full set of reports
 

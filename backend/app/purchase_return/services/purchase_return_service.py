@@ -29,7 +29,9 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -107,6 +109,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         self._tax = TaxRuleService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
+        self._posting = DocumentPostingService(session)
 
     def list_returns(
         self,
@@ -502,6 +505,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         if not lines:
             raise ValidationError("Purchase return must contain at least one line.")
+        movement_ids: list[UUID] = []
         for line in lines:
             if line.warehouse_id is None:
                 raise ValidationError(
@@ -541,6 +545,33 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
+            movement_ids.append(transaction.id)
+        # What the goods actually cost, taken from the stock ledger rows the
+        # movements above wrote. The return is priced at what the supplier will
+        # credit; stock leaves at the moving average it was carried at, and the
+        # two are routinely different.
+        stock_value = self._q(
+            self._session.scalar(
+                select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                    StockLedgerEntry.transaction_id.in_(movement_ids),
+                    StockLedgerEntry.is_deleted.is_(False),
+                )
+            )
+            or ZERO
+        )
+        # Posting runs before the commit and may fail the completion, matching
+        # every other document: goods that left stock with no journal behind
+        # them are how the inventory control account stops reconciling.
+        self._posting.post_purchase_return(
+            firm_id=firm_scope,
+            return_id=row.id,
+            return_number=row.return_number,
+            return_date=row.return_date,
+            stock_value=stock_value,
+            tax_amount=row.tax_total,
+            total_amount=row.grand_total,
+            actor_id=actor_id,
+        )
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
         row.updated_by = actor_id
