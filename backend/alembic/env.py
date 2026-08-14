@@ -23,6 +23,7 @@ from app.firms.models import firm  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.identity.models import identity  # noqa: F401
 from app.inventory.models import inventory  # noqa: F401
+from app.inventory.models import physical_count  # noqa: F401
 from app.products.models import product  # noqa: F401
 from app.purchase.models import purchase  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
