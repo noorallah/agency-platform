@@ -40,6 +40,7 @@ import 'branches/branch_warehouse_management_page.dart';
 import 'firms/firm_settings_page.dart';
 import 'dashboard_page.dart';
 import 'finance/finance_workspace.dart';
+import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
@@ -1223,10 +1224,13 @@ class _DesktopShellState extends State<DesktopShell> {
             hasActiveFirm: widget.session.currentFirm != null,
             tabId: _router.current.tab ?? 'chart-of-accounts',
           ),
-        AppModule.reports ||
-        AppModule.licensing ||
-        AppModule.settings =>
-          _ComingSoonModule(
+        AppModule.settings => SystemSettingsWorkspace(
+            api: api,
+            permissions: widget.permissions,
+            tabId: _router.current.tab ?? 'audit-logs',
+            firmLabel: widget.session.currentFirm?.name,
+          ),
+        AppModule.reports || AppModule.licensing => _ComingSoonModule(
             module: ModuleCatalog.byId(section),
             permissions: widget.permissions,
           ),
