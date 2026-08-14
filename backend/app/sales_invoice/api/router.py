@@ -18,7 +18,7 @@ from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
-from app.core.responses.models import PaginatedResponse
+from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
@@ -258,88 +258,88 @@ def get_sales_invoice_timeline(
 
 @router.get(
     "/reports/pending",
-    response_model=list[SalesInvoiceResponse],
+    response_model=ApiResponse[list[SalesInvoiceResponse]],
     status_code=status.HTTP_200_OK,
 )
 def get_pending_invoices(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> list[SalesInvoiceResponse]:
+) -> ApiResponse[list[SalesInvoiceResponse]]:
     """Get pending (draft) sales invoices."""
     service = SalesInvoiceService(db)
     rows = service.pending_invoices(firm_scope=scope.firm_id)
-    return [service.invoice_response(row) for row in rows]
+    return ApiResponse(data=[service.invoice_response(row) for row in rows])
 
 
 @router.get(
     "/reports/overdue",
-    response_model=list[SalesInvoiceResponse],
+    response_model=ApiResponse[list[SalesInvoiceResponse]],
     status_code=status.HTTP_200_OK,
 )
 def get_overdue_invoices(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> list[SalesInvoiceResponse]:
+) -> ApiResponse[list[SalesInvoiceResponse]]:
     """Get overdue sales invoices."""
     service = SalesInvoiceService(db)
     rows = service.overdue_invoices(firm_scope=scope.firm_id)
-    return [service.invoice_response(row) for row in rows]
+    return ApiResponse(data=[service.invoice_response(row) for row in rows])
 
 
 @router.get(
     "/reports/summary",
-    response_model=SalesInvoiceSummary,
+    response_model=ApiResponse[SalesInvoiceSummary],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_summary(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> SalesInvoiceSummary:
+) -> ApiResponse[SalesInvoiceSummary]:
     """Get sales invoice summary."""
     service = SalesInvoiceService(db)
-    return service.summary(firm_scope=scope.firm_id)
+    return ApiResponse(data=service.summary(firm_scope=scope.firm_id))
 
 
 @router.get(
     "/reports/register",
-    response_model=list[SalesInvoiceRegisterRecord],
+    response_model=ApiResponse[list[SalesInvoiceRegisterRecord]],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_register(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> list[SalesInvoiceRegisterRecord]:
+) -> ApiResponse[list[SalesInvoiceRegisterRecord]]:
     """Get sales invoice register report."""
     service = SalesInvoiceService(db)
-    return service.register_report(firm_scope=scope.firm_id)
+    return ApiResponse(data=service.register_report(firm_scope=scope.firm_id))
 
 
 @router.get(
     "/reports/customer-outstanding",
-    response_model=list[SalesInvoiceCustomerOutstandingRecord],
+    response_model=ApiResponse[list[SalesInvoiceCustomerOutstandingRecord]],
     status_code=status.HTTP_200_OK,
 )
 def get_customer_outstanding(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> list[SalesInvoiceCustomerOutstandingRecord]:
+) -> ApiResponse[list[SalesInvoiceCustomerOutstandingRecord]]:
     """Get customer outstanding amounts report."""
     service = SalesInvoiceService(db)
-    return service.outstanding_report(firm_scope=scope.firm_id)
+    return ApiResponse(data=service.outstanding_report(firm_scope=scope.firm_id))
 
 
 @router.get(
     "/reports/reconciliation",
-    response_model=list[SalesInvoiceReconciliationRecord],
+    response_model=ApiResponse[list[SalesInvoiceReconciliationRecord]],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_reconciliation(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
-) -> list[SalesInvoiceReconciliationRecord]:
+) -> ApiResponse[list[SalesInvoiceReconciliationRecord]]:
     """Get sales invoice vs delivery note reconciliation report."""
     service = SalesInvoiceService(db)
-    return service.reconciliation_report(firm_scope=scope.firm_id)
+    return ApiResponse(data=service.reconciliation_report(firm_scope=scope.firm_id))
 
 
 @router.post(
