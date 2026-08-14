@@ -133,6 +133,7 @@ void main() {
         'Sales Orders',
         'Delivery Notes',
         'Sales Invoices',
+        'Sales Returns',
         'Purchases',
         'Purchase Invoices',
         'Purchase Returns',

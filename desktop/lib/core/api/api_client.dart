@@ -13,6 +13,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/document_framework.dart';
 import '../../models/product.dart';
+import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
 import '../../models/sales_territory.dart';
@@ -2207,6 +2208,94 @@ class ApiClient {
         .whereType<Map>()
         .map((item) => PurchaseOrder.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+  }
+
+  // Goods coming back from a customer. The document is its own resource
+  // rather than a generic one because completing it moves three books at once
+  // -- stock, the customer's account and the ledger -- and the screen has to
+  // say which of them have moved.
+
+  Future<PagedResult<SalesReturn>> salesReturns({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? status,
+  }) =>
+      _list(
+        '/api/v1/sales-returns',
+        SalesReturn.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: 'return_date',
+        additionalQuery: {if (status != null) 'status': status},
+      );
+
+  Future<SalesReturn> salesReturn(String id) async => SalesReturn.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/sales-returns/$id')),
+      );
+
+  Future<SalesReturn> createSalesReturn(Json data) async =>
+      SalesReturn.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/sales-returns', body: data)),
+      );
+
+  /// Run a lifecycle action: approve, complete, cancel or close.
+  ///
+  /// `cancel` and `close` carry a reason; the other two take no body, and the
+  /// server ignores one either way.
+  Future<SalesReturn> salesReturnAction(
+    String id,
+    String action, {
+    String? reason,
+  }) async =>
+      SalesReturn.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/sales-returns/$id/$action',
+            body: reason == null ? const <String, dynamic>{} : {'reason': reason},
+          ),
+        ),
+      );
+
+  /// The documents a return can be raised against.
+  ///
+  /// Delivery notes and sales invoices are read together and flattened, so the
+  /// editor offers one list rather than making somebody decide which kind of
+  /// paperwork they are holding before they can find it. A failure on either
+  /// side yields that side's documents only -- half a picker still lets a
+  /// return be raised.
+  Future<List<ReturnableDocument>> returnableDocuments({int limit = 50}) async {
+    final List<List<ReturnableDocument>> both = await Future.wait([
+      _returnable('/api/v1/delivery-notes', ReturnableDocument.fromDeliveryNote,
+          limit),
+      _returnable('/api/v1/sales-invoices', ReturnableDocument.fromSalesInvoice,
+          limit),
+    ]);
+    return [...both[0], ...both[1]];
+  }
+
+  Future<List<ReturnableDocument>> _returnable(
+    String path,
+    ReturnableDocument Function(Json) parser,
+    int limit,
+  ) async {
+    try {
+      final Json response = await request('GET', path, query: {
+        'page': '1',
+        'page_size': '$limit',
+        'sort_by': 'created_at',
+        'sort_direction': 'desc',
+      });
+      final dynamic data = response['data'];
+      return [
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) parser(Map<String, dynamic>.from(row)),
+      ];
+    } on ApiException {
+      return const [];
+    }
   }
 
   // ── Transactional documents ────────────────────────────────────────────

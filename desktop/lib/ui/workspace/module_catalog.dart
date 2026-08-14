@@ -10,6 +10,7 @@ enum AppModule {
   salesOrders,
   deliveryNotes,
   salesInvoices,
+  salesReturns,
   purchases,
   purchaseInvoices,
   purchaseReturns,
@@ -303,7 +304,6 @@ abstract final class ModuleCatalog {
             id: 'delivery-notes', label: 'Delivery Notes', available: false),
         ModuleTabDefinition(
             id: 'sales-invoices', label: 'Sales Invoices', available: false),
-        ModuleTabDefinition(id: 'returns', label: 'Returns', available: false),
       ],
     ),
     ModuleDefinition(
@@ -430,6 +430,21 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_VIEW'],
         ),
       ],
+    ),
+    ModuleDefinition(
+      id: AppModule.salesReturns,
+      label: 'Sales Returns',
+      icon: Icons.keyboard_return_outlined,
+      description: 'Goods coming back from a customer.',
+      workspaceTemplate: WorkspaceTemplateType.transaction,
+      requiredPermissions: [
+        'SALES_VIEW',
+        'SALES_RETURN',
+        'SALES_UPDATE',
+        'SALES_APPROVE',
+        'SALES_CANCEL',
+      ],
+      requiresAnyPermission: true,
     ),
     ModuleDefinition(
       id: AppModule.purchases,
