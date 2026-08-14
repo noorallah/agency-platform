@@ -641,6 +641,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['INVENTORY_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'physical-counts',
+          label: 'Physical Count',
+          requiredPermissions: ['INVENTORY_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'stock-summary',
           label: 'Stock Summary',
           requiredPermissions: ['INVENTORY_VIEW'],

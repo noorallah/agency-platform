@@ -40,6 +40,7 @@ import 'branches/branch_warehouse_management_page.dart';
 import 'firms/firm_settings_page.dart';
 import 'dashboard_page.dart';
 import 'finance/finance_workspace.dart';
+import 'inventory/physical_count_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
@@ -2220,6 +2221,11 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
           hasActiveFirm: hasActiveFirm,
           section: InventorySection.inventory,
           onNavigateToSection: navigateTo,
+        ),
+      'physical-counts' => PhysicalCountPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
         ),
       'opening-stock' => InventoryManagementPage(
           api: widget.api,
