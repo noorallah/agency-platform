@@ -22,6 +22,7 @@ from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.money import quantize_money
+from app.finance.services.document_posting import DocumentPostingService
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
@@ -1293,6 +1294,32 @@ class InventoryService:
                 conversion_version=conversion_version,
                 remarks=data.remarks,
             ),
+        )
+        # An adjustment is the movement with no paperwork behind it, so nothing
+        # on screen would ever hint that the ledger had stopped agreeing with
+        # the stock it controls. The value is taken from the stock ledger row
+        # the movement just wrote, signed by the direction stock went.
+        #
+        # The flush is required, not defensive: request sessions are built with
+        # `autoflush=False`, so the row staged above is invisible to a query
+        # until it is written. Without it the value read as nothing and the
+        # adjustment posted no journal at all -- which unit tests could not
+        # catch, because their session factory autoflushes by default.
+        self._session.flush()
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction.id
+            )
+        )
+        movement_value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
+        DocumentPostingService(self._session).post_stock_adjustment(
+            firm_id=firm_scope,
+            transaction_id=transaction.id,
+            reference_number=data.reference_number.strip().upper(),
+            transaction_date=data.transaction_date,
+            value_delta=movement_value if delta >= ZERO else -movement_value,
+            actor_id=actor_id,
+            remarks=data.remarks,
         )
         self._commit()
         self._session.refresh(transaction)

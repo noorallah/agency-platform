@@ -67,6 +67,11 @@ PURCHASE_RETURN_PURPOSES = (
     ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
 )
 
+STOCK_ADJUSTMENT_PURPOSES = (
+    ControlAccountPurpose.INVENTORY,
+    ControlAccountPurpose.INVENTORY_ADJUSTMENT,
+)
+
 RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
@@ -355,6 +360,87 @@ class DocumentPostingService:
             lines=lines,
             source_module="purchase_return",
             source_id=return_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_stock_adjustment(
+        self,
+        *,
+        firm_id: UUID,
+        transaction_id: UUID,
+        reference_number: str,
+        transaction_date: date,
+        value_delta: Decimal,
+        actor_id: UUID,
+        remarks: str | None = None,
+    ) -> JournalEntry | None:
+        """Post a stock adjustment, which is the movement with no document.
+
+        Every other movement has paperwork behind it -- a receipt, a dispatch, a
+        return -- and an adjustment has none. That is what made it the worst of
+        the three unposted movements: stock was written up or down and the
+        ledger never heard, with nothing on any screen to hint the control
+        account had stopped agreeing with the stock it controls.
+
+        Stock going up debits inventory and credits the adjustment account;
+        stock going down does the reverse, which is a write-off and a cost. The
+        same account takes both sides so a firm can read its net adjustment in
+        one place.
+
+        Returns None when the adjustment moved no value at all -- a correction
+        to a quantity the books valued at nothing has nothing to post, and an
+        empty journal is worse than no journal.
+
+        Args:
+            firm_id: The owning firm.
+            transaction_id: The inventory movement this posts.
+            reference_number: What the adjustment was recorded against.
+            transaction_date: The date stock moved.
+            value_delta: The change in stock value, positive when stock rose.
+            actor_id: The user who made the adjustment.
+            remarks: Why, carried onto the journal line.
+
+        Returns:
+            The posted journal entry, or None when there was no value to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        delta = quantize_ledger(quantize_money(value_delta))
+        if delta == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, STOCK_ADJUSTMENT_PURPOSES)
+        context = self.context_for(firm_id, transaction_date)
+        rising = delta > ZERO
+        amount = delta if rising else -delta
+        narration = remarks or f"Stock adjustment {reference_number}"
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                debit_amount=amount if rising else ZERO,
+                credit_amount=ZERO if rising else amount,
+                description=narration,
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY_ADJUSTMENT],
+                debit_amount=ZERO if rising else amount,
+                credit_amount=amount if rising else ZERO,
+                description=narration,
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=transaction_date,
+            reference_number=reference_number,
+            description=f"Stock adjustment {reference_number}",
+            lines=lines,
+            source_module="inventory",
+            source_id=transaction_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

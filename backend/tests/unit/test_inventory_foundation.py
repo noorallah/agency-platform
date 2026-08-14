@@ -25,6 +25,8 @@ from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
+from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 from app.inventory.api.router import (
@@ -1044,3 +1046,125 @@ def test_a_product_that_must_be_issued_from_a_batch_is_not_shipped_untracked() -
             product_id=product_id,
             quantity=Decimal("10"),
         )
+
+
+def test_an_adjustment_that_moves_value_reaches_the_ledger() -> None:
+    """The movement with no paperwork is the one that had to reach the ledger.
+
+    Every other movement has a document behind it -- a receipt, a dispatch, a
+    return -- and an adjustment has none, so stock was written up or down and
+    nothing on any screen would hint that the control account had stopped
+    agreeing with the stock it controls.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "ADJGL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+    service = InventoryService(session)
+
+    # Costed stock, so the adjustment has a value to post.
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-ADJ",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("20.00"),
+    )
+
+    def postings(reference: str) -> dict[str, tuple[Decimal, Decimal]]:
+        rows = session.execute(
+            select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+            .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .where(JournalEntry.reference_number == reference)
+        ).all()
+        return {code: (debit, credit) for code, debit, credit in rows}
+
+    # Stock written down: a write-off, and a cost.
+    service.create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("-2"),
+            reference_number="ADJ-DOWN",
+            transaction_date=date(2026, 8, 2),
+            remarks="Two broken in the bay",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    down = postings("ADJ-DOWN")
+    assert down["1200"] == (Decimal("0.00"), Decimal("40.00")), "stock leaves"
+    assert down["5500"] == (Decimal("40.00"), Decimal("0.00")), "and it is a cost"
+
+    # Stock written up: the same account takes the other side, so a firm reads
+    # its net adjustment in one place.
+    service.create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("1"),
+            reference_number="ADJ-UP",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    up = postings("ADJ-UP")
+    assert up["1200"] == (Decimal("20.00"), Decimal("0.00"))
+    assert up["5500"] == (Decimal("0.00"), Decimal("20.00"))
+
+
+def test_an_adjustment_worth_nothing_writes_no_journal() -> None:
+    """A quantity the books valued at nothing has nothing to post.
+
+    An empty journal is worse than no journal: it claims something happened in
+    the ledger when the ledger is exactly as it was.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "ADJNIL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("3"),
+            reference_number="ADJ-NIL",
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    written = session.scalar(
+        select(func.count())
+        .select_from(JournalEntry)
+        .where(JournalEntry.reference_number == "ADJ-NIL")
+    )
+    assert written == 0
