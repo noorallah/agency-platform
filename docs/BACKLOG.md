@@ -802,6 +802,43 @@ been in that state.
 
 **Not built, deliberately:** import/export.
 
+## 10. Quotations -- a price offered before anything is sold
+
+**Built on 2026-08-14** as `app/quotation` plus `desktop/lib/ui/quotations/`.
+
+The Sales module had advertised a Quotations tab since it was written with
+nothing behind it: no table, no endpoint, and a `SALES_QUOTATION_CREATE`
+permission code seeded, granted to `SALES_MANAGER` and `SALES_EXECUTIVE`, and
+enforced nowhere.
+
+**The defining property is what a quotation does not do.** It reserves no
+stock, moves no customer balance and writes no journal -- and a test asserts
+exactly that, because a document that looks like an order is one somebody will
+assume has committed the goods. Everything the firm actually promises happens
+at conversion, through `SalesOrderService.create_order`, so credit control, tax
+resolution and unit conversion are applied when the order exists rather than
+months earlier when somebody quoted a price.
+
+The one thing a quotation owns that an order does not is `valid_until`. Expiry
+is **derived from the date rather than stored**: nothing sweeps the table at
+midnight, so a stored flag would be stale for as long as nobody had run the
+sweep, and a lapsed quote would convert at last year's prices. An expired
+quotation cannot be sent, accepted or converted; `is_expired` and `can_convert`
+are answered by the server on every response so the client cannot disagree with
+it. The desktop badges EXPIRED separately from the status, because `SENT` reads
+identically the day before and the day after the prices lapse.
+
+`decline_reason` is kept because "why are we losing quotes" is a question no
+total answers, and `/reports/conversion` is the only report that joins what was
+offered to what was sold -- a quotation register says one half and an order
+register the other.
+
+**Not built, deliberately:** multi-line editing in the desktop dialog (the
+backend takes up to 1,000 lines; the form writes one), PDF rendering, and
+emailing a quotation to the customer. `RESET_ORDER` in
+`scripts/generate_transaction_history.py` gained the four new tables, the same
+step sales returns needed.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every

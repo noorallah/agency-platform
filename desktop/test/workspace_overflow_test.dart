@@ -8,6 +8,7 @@ import 'package:agency_desktop/ui/dashboard_page.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/finance/finance_workspace.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
+import 'package:agency_desktop/ui/quotations/quotation_management_page.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
 import 'package:agency_desktop/ui/settings/settings_workspace.dart';
@@ -132,6 +133,13 @@ final Map<String, _PageBuilder> _screens = {
         permissions: d.permissions,
         hasActiveFirm: false,
         tabId: 'operational',
+      ),
+  // A master/detail split whose right pane wraps a row of five lifecycle
+  // buttons, which is what runs out of width first.
+  'quotations': (d) => QuotationManagementPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
       ),
   // A master/detail split whose right pane stacks three cards, the widest
   // being a line that names its source document and what is still returnable.

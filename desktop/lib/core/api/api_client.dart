@@ -13,6 +13,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/document_framework.dart';
 import '../../models/product.dart';
+import '../../models/quotation.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
@@ -2209,6 +2210,69 @@ class ApiClient {
         .map((item) => PurchaseOrder.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
+
+  // A price offered before anything is sold. The quotation commits nothing,
+  // so there is no posting or reservation behind any of these calls -- the
+  // only one that changes the world is `convertQuotation`, which creates the
+  // order.
+
+  Future<PagedResult<Quotation>> quotations({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? status,
+  }) =>
+      _list(
+        '/api/v1/quotations',
+        Quotation.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: 'quotation_date',
+        additionalQuery: {if (status != null) 'status': status},
+      );
+
+  Future<Quotation> quotation(String id) async => Quotation.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/quotations/$id')),
+      );
+
+  Future<Quotation> createQuotation(Json data) async => Quotation.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/quotations', body: data)),
+      );
+
+  Future<Quotation> updateQuotation(String id, Json data) async =>
+      Quotation.fromJson(
+        _unwrapMap(await request('PUT', '/api/v1/quotations/$id', body: data)),
+      );
+
+  /// Run a lifecycle action: send, accept, decline or cancel.
+  Future<Quotation> quotationAction(
+    String id,
+    String action, {
+    String? reason,
+  }) async =>
+      Quotation.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/quotations/$id/$action',
+            body: reason == null ? const <String, dynamic>{} : {'reason': reason},
+          ),
+        ),
+      );
+
+  /// Turn an accepted quotation into a sales order.
+  ///
+  /// Answers with both documents, so the caller can name the order it created
+  /// without a second round trip to find it.
+  Future<QuotationConversion> convertQuotation(String id, {Json? data}) async =>
+      QuotationConversion.fromJson(
+        await request(
+          'POST',
+          '/api/v1/quotations/$id/convert',
+          body: data ?? const <String, dynamic>{},
+        ),
+      );
 
   // Goods coming back from a customer. The document is its own resource
   // rather than a generic one because completing it moves three books at once
