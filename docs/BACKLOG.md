@@ -211,13 +211,24 @@ so the next reader knows these are known, not missed:
   has it), and the module title up to three times — header label, selected
   sidebar item, and the page's own `PageHeader`. Back and forward are genuinely
   useful and unusual in an ERP; keep them whatever else changes.
-- The footer (`_applicationStatusBar`) passes `backend: checking` and
-  `database: unknown` as literals, and nothing ever probes them — so the bar
-  reports "checking" permanently. A health light that never changes is worse
-  than none, because it will be believed once. `stateText: 'Online'` is likewise
-  constant, and the bar repeats the user's email address, which the profile menu
-  already shows. Either probe `/health` for real or drop the indicators; do not
-  leave a third state where they look live and are not.
+- The footer's health lights were **decided and fixed on 2026-08-14**: they
+  probe for real. `/health` and `/health/database` both already existed and
+  neither was ever called, so the bar reported "checking" for the life of the
+  application. The shell asks both every thirty seconds now, and `stateText`
+  follows the answer instead of reading `Online` always.
+
+  Two things worth keeping if it is touched again. The database is asked about
+  only when the server answered, because a database that has gone does not
+  return 503 — it stops answering, and `/health/database` hangs until the
+  30-second request timeout, so asking both of a dead server doubles how long a
+  client takes to notice. And an unreachable server leaves the database
+  **unknown** rather than offline: this client cannot tell a database that has
+  gone from one it cannot see past, and claiming otherwise would be the same
+  kind of wrong as the literal it replaced. `resolveHealth` in
+  `ui/workspace/health_probe.dart` holds that decision, tested without a server.
+
+  Still open in the footer, and cosmetic: it repeats the user's email address,
+  which the profile menu already shows.
 
 ## 6. Batch-grained stock — the rest of it
 

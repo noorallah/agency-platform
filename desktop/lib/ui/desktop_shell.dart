@@ -148,6 +148,22 @@ class _DesktopShellState extends State<DesktopShell> {
   Set<String>? _activeBusinessModuleCodes;
   int _lastFirmContextVersion = 0;
 
+  /// How often the status bar asks whether the server is still there.
+  ///
+  /// Half a minute is often enough that a client left open overnight notices a
+  /// server that went away, and rare enough to be invisible: two requests that
+  /// touch no business data, one of which runs `SELECT 1`.
+  static const Duration _healthInterval = Duration(seconds: 30);
+
+  Timer? _healthTimer;
+  HealthSnapshot _health = HealthSnapshot.checking;
+  // A probe can outlive its own interval. The request timeout is 30 seconds and
+  // a database that has gone does not answer 503 -- it stops answering at all,
+  // so `/health/database` hangs until that timeout. Without this guard the
+  // ticks would stack up, and an outage would be the moment the client starts
+  // making more requests rather than fewer.
+  bool _healthProbeInFlight = false;
+
   @override
   void initState() {
     super.initState();
@@ -159,15 +175,37 @@ class _DesktopShellState extends State<DesktopShell> {
       onPersist: widget.session.saveLastWorkspace,
     )..addListener(_routeChanged);
     _refreshBusinessModules();
+    unawaited(_probeHealth());
+    _healthTimer = Timer.periodic(_healthInterval, (_) => _probeHealth());
   }
 
   @override
   void dispose() {
+    _healthTimer?.cancel();
     widget.session.removeListener(_sessionChanged);
     _router
       ..removeListener(_routeChanged)
       ..dispose();
     super.dispose();
+  }
+
+  /// Ask the server whether it, and its database, are answering.
+  ///
+  /// The status bar used to be passed `checking` and `unknown` as literals and
+  /// nothing ever probed them, so it reported "checking" for the life of the
+  /// application. A light that never changes is worse than no light, because it
+  /// gets believed once. The decision itself lives in `health_probe.dart`,
+  /// where it can be tested without a server.
+  Future<void> _probeHealth() async {
+    if (_healthProbeInFlight) return;
+    _healthProbeInFlight = true;
+    try {
+      final HealthSnapshot snapshot = await probeHealth(widget.session.api);
+      if (!mounted) return;
+      setState(() => _health = snapshot);
+    } finally {
+      _healthProbeInFlight = false;
+    }
   }
 
   void _routeChanged() {
@@ -939,11 +977,15 @@ class _DesktopShellState extends State<DesktopShell> {
       ).hasMatch(value.trim());
 
   Widget _applicationStatusBar() => ApplicationStatusBar(
-        stateText: 'Online',
+        stateText: switch (_health.backend) {
+          ConnectionStateIndicator.online => 'Online',
+          ConnectionStateIndicator.offline => 'Offline',
+          _ => 'Connecting',
+        },
         currentUser: widget.session.attemptedUsername,
         currentFirm: widget.session.currentFirm?.name ?? 'No active firm',
-        backend: ConnectionStateIndicator.checking,
-        database: ConnectionStateIndicator.unknown,
+        backend: _health.backend,
+        database: _health.database,
         environment: Uri.tryParse(widget.session.baseUrl)?.host == 'localhost'
             ? 'Development'
             : 'Configured',
