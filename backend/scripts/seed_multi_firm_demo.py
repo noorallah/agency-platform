@@ -104,7 +104,7 @@ from app.vendors.schemas import (
 )
 from app.vendors.schemas.vendor import AddressType as VendorAddressType
 from app.vendors.services.vendor_service import VendorService
-from generate_transaction_history import generate_history
+from generate_transaction_history import generate_history, reset_history
 from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
 
 DEMO_PASSWORD = "DemoAdmin@12345"
@@ -548,6 +548,14 @@ def main() -> int:
                 _seed_vendors(tenant_session, firm, blueprint, actor_id)
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
                 _seed_products(tenant_session, firm, blueprint, actor_id)
+                # Clear the old trading history *before* laying down opening
+                # stock, not after. `reset_history` counts opening stock as
+                # history and deletes it, so seeding it first and resetting
+                # second wiped the day-one shelf every single run: every store
+                # had opening stock documents with no movements behind them,
+                # and the trading below started from nothing.
+                if not args.no_history:
+                    reset_history(tenant_session, target.firm_id)
                 _seed_inventory_opening_stock(tenant_session, firm, blueprint, actor_id)
                 if not args.no_history:
                     tally = generate_history(
@@ -555,7 +563,7 @@ def main() -> int:
                         firm_id=target.firm_id,
                         firm_code=blueprint.code,
                         years=args.history_years,
-                        reset=True,
+                        reset=False,
                     )
                     print(f"{blueprint.code} history: {tally.line()}")
 
@@ -1619,9 +1627,11 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
             if (
                 existing.track_batch != product.requires_batch
                 or existing.require_batch_on_receipt != product.requires_batch
+                or existing.require_batch_on_issue != product.requires_batch
             ):
                 existing.track_batch = product.requires_batch
                 existing.require_batch_on_receipt = product.requires_batch
+                existing.require_batch_on_issue = product.requires_batch
                 existing.updated_by = actor_id
                 session.commit()
             continue
@@ -1667,11 +1677,11 @@ def _seed_products(session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
                 mrp=product.mrp,
                 status=ProductStatus.ACTIVE,
                 track_batch=product.requires_batch,
-                # Only the receipt side. Opening stock cannot carry a batch --
-                # `post_opening_stock_batch` has no batch to give it -- so a
-                # product that also required one on issue could never ship the
-                # stock it started with.
+                # Both sides. Opening stock carries a batch now, so a traced
+                # product has no untracked stock to strand: everything it holds
+                # arrived in a batch and can therefore leave from one.
                 require_batch_on_receipt=product.requires_batch,
+                require_batch_on_issue=product.requires_batch,
                 remarks=f"Seeded for {blueprint.profile_code.lower()} demo flows.",
                 attributes=attributes,
                 media=[],
@@ -1817,6 +1827,12 @@ def _seed_inventory_opening_stock(
             product_id=product_by_code[product.code].id,
             quantity=Decimal("100") + Decimal(index * 25),
             entered_quantity=Decimal("100") + Decimal(index * 25),
+            # Day-one stock of a traced product arrived in a batch like any
+            # other delivery, and the flag now says so on the way out as well
+            # as in: without a batch here, the opening shelf could never ship.
+            batch_number=(
+                f"{product.code}-OPENING" if product.requires_batch else None
+            ),
             minimum_level=Decimal("20"),
             reorder_level=Decimal("30"),
             safety_stock=Decimal("10"),

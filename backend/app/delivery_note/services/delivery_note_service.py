@@ -1169,27 +1169,49 @@ class DeliveryNoteService(TransactionalDocumentService):
                     "Reservation is insufficient for dispatch quantity."
                 )
             if release_qty > ZERO:
-                released = self._inventory.release_sales_order_reservation(
+                # Let the batches go in the order the goods will ship in, so
+                # the batch freed here is the one the allocation below draws
+                # from -- both rank by earliest expiry.
+                release_split = self._inventory.allocate_for_release(
                     firm_scope=row.firm_id,
-                    actor_id=actor_id,
                     branch_id=row.branch_id,
                     warehouse_id=line.warehouse_id,
                     storage_node_id=line.storage_node_id,
                     product_id=line.product_id,
-                    reference_number=row.sales_order_reference,
-                    transaction_date=row.delivery_date,
-                    release_quantity=release_qty,
-                    entered_quantity=self._q(
-                        line.current_delivery_quantity + line.free_quantity
-                    ),
-                    entered_uom_id=line.sales_uom_id,
-                    conversion_version=line.conversion_version,
-                    remarks=f"delivery_note release line {line.line_number}",
+                    quantity=release_qty,
                 )
+                entered_release = self._q(
+                    line.current_delivery_quantity + line.free_quantity
+                )
+                released = None
+                for batch_id, freed in release_split:
+                    posted = self._inventory.release_sales_order_reservation(
+                        firm_scope=row.firm_id,
+                        actor_id=actor_id,
+                        branch_id=row.branch_id,
+                        warehouse_id=line.warehouse_id,
+                        storage_node_id=line.storage_node_id,
+                        product_id=line.product_id,
+                        reference_number=row.sales_order_reference,
+                        transaction_date=row.delivery_date,
+                        release_quantity=freed,
+                        entered_quantity=(
+                            entered_release
+                            if len(release_split) == 1
+                            else self._q(entered_release * (freed / release_qty))
+                        ),
+                        entered_uom_id=line.sales_uom_id,
+                        conversion_version=line.conversion_version,
+                        remarks=f"delivery_note release line {line.line_number}",
+                        batch_id=batch_id,
+                    )
+                    if released is None:
+                        released = posted
                 source_line.reserved_quantity = self._q(
                     source_line.reserved_quantity - release_qty
                 )
-                line.released_reservation_transaction_id = released.id
+                if released is not None:
+                    line.released_reservation_transaction_id = released.id
             # A product held in one bay can be several stock rows now, one per
             # batch, so a line may have to come out of more than one of them --
             # earliest expiry first. One movement is posted per batch drawn

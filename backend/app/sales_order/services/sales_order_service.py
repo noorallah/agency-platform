@@ -1041,24 +1041,59 @@ class SalesOrderService(TransactionalDocumentService):
         for line in lines:
             if line.reservable_quantity <= ZERO:
                 continue
-            self._inventory.record_sales_order_reservation(
+            # Stock is held per batch, so a reservation is held per batch too:
+            # committing the product put the movement on the untracked row
+            # whatever the goods were actually in, which drove that row's
+            # available negative while the batch rows sat apparently free.
+            allocation = self._inventory.allocate_for_reservation(
                 firm_scope=row.firm_id,
-                actor_id=actor_id,
                 branch_id=row.branch_id,
                 warehouse_id=line.warehouse_id or row.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
-                reference_number=row.order_number,
-                transaction_date=row.order_date,
-                reserve_quantity=line.reservable_quantity,
-                entered_quantity=self._q(line.quantity + line.free_quantity),
-                entered_uom_id=line.sales_uom_id,
-                conversion_version=line.conversion_version,
-                remarks=f"sales_order reserve line {line.line_number}",
+                quantity=line.reservable_quantity,
             )
+            entered_total = self._q(line.quantity + line.free_quantity)
+            for batch_id, held in allocation:
+                self._inventory.record_sales_order_reservation(
+                    firm_scope=row.firm_id,
+                    actor_id=actor_id,
+                    branch_id=row.branch_id,
+                    warehouse_id=line.warehouse_id or row.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    reference_number=row.order_number,
+                    transaction_date=row.order_date,
+                    reserve_quantity=held,
+                    entered_quantity=self._share(
+                        entered_total, held, line.reservable_quantity, allocation
+                    ),
+                    entered_uom_id=line.sales_uom_id,
+                    conversion_version=line.conversion_version,
+                    remarks=f"sales_order reserve line {line.line_number}",
+                    batch_id=batch_id,
+                )
             line.reserved_quantity = line.reservable_quantity
             line.updated_by = actor_id
         self._session.flush()
+
+    def _share(
+        self,
+        entered_total: Decimal,
+        part: Decimal,
+        whole: Decimal,
+        allocation: list[tuple[UUID | None, Decimal]],
+    ) -> Decimal:
+        """Apportion the quantity the customer was quoted across a split.
+
+        The entered quantity is what the order was taken in -- cases, strips --
+        so it belongs to the line and not to any one batch. A line held in one
+        batch keeps it whole; a line split across two carries its share, so the
+        movements still add up to what was ordered.
+        """
+        if len(allocation) == 1 or whole <= ZERO:
+            return entered_total
+        return self._q(entered_total * (part / whole))
 
     def _release_inventory(self, row: SalesOrder, *, actor_id: UUID) -> None:
         lines = list(
@@ -1071,21 +1106,37 @@ class SalesOrderService(TransactionalDocumentService):
         for line in lines:
             if line.reserved_quantity <= ZERO:
                 continue
-            self._inventory.release_sales_order_reservation(
+            # Release the batches that actually hold the reservation, not the
+            # ones holding stock: letting go of a batch nobody held would drive
+            # its reserved quantity negative.
+            allocation = self._inventory.allocate_for_release(
                 firm_scope=row.firm_id,
-                actor_id=actor_id,
                 branch_id=row.branch_id,
                 warehouse_id=line.warehouse_id or row.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
-                reference_number=row.order_number,
-                transaction_date=utc_now().date(),
-                release_quantity=line.reserved_quantity,
-                entered_quantity=self._q(line.quantity + line.free_quantity),
-                entered_uom_id=line.sales_uom_id,
-                conversion_version=line.conversion_version,
-                remarks=f"sales_order release line {line.line_number}",
+                quantity=line.reserved_quantity,
             )
+            entered_total = self._q(line.quantity + line.free_quantity)
+            for batch_id, released in allocation:
+                self._inventory.release_sales_order_reservation(
+                    firm_scope=row.firm_id,
+                    actor_id=actor_id,
+                    branch_id=row.branch_id,
+                    warehouse_id=line.warehouse_id or row.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    reference_number=row.order_number,
+                    transaction_date=utc_now().date(),
+                    release_quantity=released,
+                    entered_quantity=self._share(
+                        entered_total, released, line.reserved_quantity, allocation
+                    ),
+                    entered_uom_id=line.sales_uom_id,
+                    conversion_version=line.conversion_version,
+                    remarks=f"sales_order release line {line.line_number}",
+                    batch_id=batch_id,
+                )
             line.reserved_quantity = ZERO
             line.updated_by = actor_id
         self._session.flush()

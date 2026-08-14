@@ -255,6 +255,10 @@ each was, at some point, wrong.
 | 8.23 | The batch is chosen, not typed | Open a return line for a batch-tracked product | A dropdown of that product's registered batches showing what each holds, defaulting to the batch the receipt brought in. There must be **no** free-text batch box |
 | 8.24 | The return comes off the named batch | Complete a return for a batch, then open Batches | That batch holds less by exactly the returned quantity. The stock ledger names it on the RETURN row |
 | 8.25 | The whole loop balances | Receive 20 on a batch, deliver 5, return 5 | The batch holds 10, and the ledger shows GOODS_RECEIPT +20, DISPATCH −5, RETURN −5 all naming it |
+| 8.26 | Approving an order holds a batch | Approve a sales order for a batch-tracked product, then open the stock ledger | A RESERVE naming the batch nearest expiry. It must **not** land on a row holding nothing |
+| 8.27 | Nothing goes negative from a reservation | After 8.26, check the product's stock rows | No row has a negative available quantity. That was the symptom of reserving the product instead of the batch |
+| 8.28 | Opening stock can name its batch | Post an opening stock document with a batch number on a line | The batch appears under Batches holding that quantity, and the stock row is that batch's |
+| 8.29 | Day-one stock obeys the receipt rule | Post opening stock for a product that requires a batch on receipt, leaving the number blank | Refused, naming the product. The rule is not only for goods receipts |
 
 ---
 

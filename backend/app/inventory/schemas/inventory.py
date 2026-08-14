@@ -319,6 +319,11 @@ class OpeningStockLineWrite(InventorySchema):
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None
     conversion_version: int | None = Field(default=None, ge=1)
+    #: The batch this day-one stock is in, read off the carton the same way a
+    #: goods receipt reads it. Opening stock is stock arriving, so an unknown
+    #: number registers the batch rather than being refused.
+    batch_number: str | None = Field(default=None, max_length=120)
+    expiry_date: date | None = None
     minimum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
     maximum_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
     reorder_level: Decimal | None = Field(default=None, ge=0, max_digits=18)
@@ -346,6 +351,9 @@ class OpeningStockLineResponse(InventorySchema):
     entered_quantity: Decimal | None = None
     entered_uom_id: UUID | None = None
     conversion_version: int | None = None
+    batch_number: str | None = None
+    batch_id: UUID | None = None
+    expiry_date: date | None = None
     minimum_level: Decimal | None
     maximum_level: Decimal | None
     reorder_level: Decimal | None

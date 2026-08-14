@@ -503,10 +503,14 @@ class OpeningStockLine(BaseEntity):
             "line_number",
             name="UQ_opening_stock_lines_batch_line",
         ),
+        # The batch is part of the key. Day-one stock of one product in one
+        # bay is routinely two deliveries expiring months apart, and keying
+        # without the batch made that impossible to record on one document.
         UniqueConstraint(
             "opening_stock_batch_id",
             "product_id",
             "storage_locator",
+            "batch_number",
             name="UQ_opening_stock_lines_batch_product_location",
         ),
     )
@@ -535,6 +539,14 @@ class OpeningStockLine(BaseEntity):
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
     )
     conversion_version: Mapped[int | None] = mapped_column()
+    #: What was written on the day-one paperwork, and what it resolved to.
+    #: Opening stock is stock arriving, so it registers an unknown batch the
+    #: way a goods receipt does rather than refusing it.
+    batch_number: Mapped[str | None] = mapped_column(String(120))
+    batch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("batches.id", ondelete="RESTRICT"), index=True
+    )
+    expiry_date: Mapped[date | None] = mapped_column(Date)
     minimum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     maximum_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     reorder_level: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))

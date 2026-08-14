@@ -218,18 +218,23 @@ rows, dispatches that name the batch they came off, lines that span two batches,
 and untracked stock beside all of it -- the vitamin box and the biscuits are
 deliberately left untraced, so both paths are exercised.
 
-Only the **receipt** flag is seeded. Opening stock cannot carry a batch --
-`post_opening_stock_batch` has nothing to give it -- so a product that also
-required one on issue could never ship the stock it started with. That is the
-next thing to fix if `require_batch_on_issue` needs seeded coverage.
+Both flags are seeded, because **opening stock arrives in a batch** too
+(`20260814_0074`). It was the last way stock could enter untraced, and until it
+carried one, a product requiring a batch on issue could never ship what it
+started with -- there was no batch for the allocator to draw from. Day-one stock
+behaves like a receipt: an unknown number registers the batch, and a product
+requiring one on receipt is refused without it.
 
-**Reservations are not batch-grained**, and it shows in the arithmetic.
-`record_sales_order_reservation` posts to the untracked row, so a reservation
-against batch-held stock drives that row's `available_quantity` negative while
-the batch rows stay positive. Summing across the rows nets it out, which is
-right, but it means "available" for a batch-tracked product is only correct as a
-sum and never as a row. Worth deciding whether a reservation should name the
-batch it holds; nothing depends on it today.
+**A reservation names the batch it holds.** Approving a sales order used to
+commit the *product*: the movement went to the untracked row whatever the goods
+were in, driving its available negative while the batch rows sat apparently free
+and promisable to somebody else. Reservations are now held by earliest expiry,
+released the same way, and what no batch can cover is held with no batch --
+which is what a back order is.
+
+What that was worth, on the same seeding command: **MEDI01 and FOOD01 went from
+44 and 23 delivery notes to 57 of 57**, the same as the firms that trace
+nothing.
 
 **The batch field is a different control in each editor, and that is the point.**
 A receipt takes free text, because the goods are on the dock and the number is

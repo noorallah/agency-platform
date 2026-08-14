@@ -33,7 +33,11 @@ from app.inventory.api.router import (
     list_ledger,
     list_transactions,
 )
-from app.inventory.models import InventoryTransaction, StockLedgerEntry
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    StockLedgerEntry,
+)
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -780,6 +784,101 @@ def test_a_batch_holds_what_its_movements_gave_it_and_nothing_else() -> None:
     )
     assert reported.quantity == Decimal("40")
     assert reported.available_quantity == Decimal("40")
+
+
+def test_opening_stock_arrives_in_a_batch() -> None:
+    """Day-one stock was the last way stock could enter untraced.
+
+    A pharmacy's opening shelf was one heap while every later delivery was
+    traced, and a product requiring a batch on issue could never ship what it
+    started with -- there was no batch for the allocator to draw from.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "OPENBAT")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    service = InventoryService(session)
+    actor_id = uuid4()
+
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            reference_number="OS-BATCHED",
+            posting_date=date(2026, 8, 1),
+            lines=[
+                # One count of one shelf, two deliveries expiring apart.
+                {
+                    "product_id": product.id,
+                    "quantity": "40",
+                    "batch_number": "MARCH",
+                },
+                {
+                    "product_id": product.id,
+                    "quantity": "60",
+                    "batch_number": "JUNE",
+                },
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
+
+    registered = list(
+        session.scalars(
+            select(BatchRecord).where(BatchRecord.product_id == product.id)
+        ).all()
+    )
+    assert {row.batch_number for row in registered} == {
+        "MARCH",
+        "JUNE",
+    }, "posting opening stock registers the batches it names"
+    rows = list(
+        session.scalars(
+            select(InventoryRecord).where(InventoryRecord.product_id == product.id)
+        ).all()
+    )
+    assert len(rows) == 2, "two batches on one shelf are two stock rows"
+    assert {row.current_quantity for row in rows} == {
+        Decimal("40.0000"),
+        Decimal("60.0000"),
+    }
+    assert all(row.batch_id is not None for row in rows)
+
+
+def test_opening_stock_refuses_a_batch_tracked_product_with_no_batch() -> None:
+    """The receipt rule applies to day-one stock too.
+
+    Enforcing ``require_batch_on_receipt`` only on goods receipts would let a
+    firm take in untraceable stock on day one and never be able to say where
+    it came from -- which is the whole thing the flag exists to prevent.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "OPENREQ")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    product.require_batch_on_receipt = True
+    session.commit()
+    service = InventoryService(session)
+    actor_id = uuid4()
+
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            reference_number="OS-UNTRACED",
+            posting_date=date(2026, 8, 1),
+            lines=[{"product_id": product.id, "quantity": "10"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="must be taken in with a batch number"):
+        service.post_opening_stock_batch(
+            batch.id, firm_scope=firm.id, actor_id=actor_id
+        )
 
 
 def test_a_stock_row_says_which_batch_it_holds() -> None:
