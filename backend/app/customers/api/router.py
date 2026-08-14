@@ -28,6 +28,7 @@ from app.customers.schemas import (
     CustomerReceivableSummary,
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionResponse,
+    CustomerReceivableTransactionType,
     CustomerResponse,
     CustomerSummary,
     CustomerUpdate,
@@ -394,6 +395,21 @@ def customer_credit_status(
     return ApiResponse(data=status_report)
 
 
+#: Receivable types that move money, and therefore belong to a document that
+#: posts. `post_receivable_transaction` moves the customer's balance and writes
+#: no journal, so recording a receipt through it puts the subsidiary ledger and
+#: the general ledger further apart with every use -- silently, and
+#: permanently. `/api/v1/receipts` does the same thing and posts.
+#:
+#: The service method stays general: the sales invoice and settlement services
+#: call it as part of a larger unit of work that does post. It is this
+#: endpoint, reachable by hand, that had no counterpart in the ledger.
+POSTED_ELSEWHERE = {
+    CustomerReceivableTransactionType.RECEIPT: "receipts",
+    CustomerReceivableTransactionType.ADVANCE_RECEIPT: "receipts",
+}
+
+
 @router.get(
     "/{customer_id}/receivables/summary",
     response_model=ApiResponse[CustomerReceivableSummary],
@@ -448,7 +464,20 @@ def post_customer_receivable_transaction(
     scope: CustomerReceiptScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerReceivableTransactionResponse]:
-    """Post one receivable transaction for a visible customer."""
+    """Post one receivable transaction that does not move money.
+
+    Money arriving is recorded as a receipt, which posts to the ledger as well
+    as to the customer. This endpoint only moves the customer's balance, so
+    accepting a receipt here would leave the two disagreeing by the amount
+    collected.
+    """
+    destination = POSTED_ELSEWHERE.get(data.transaction_type)
+    if destination is not None:
+        raise ValidationError(
+            f"A {data.transaction_type.value.lower().replace('_', ' ')} moves "
+            f"money, so it is recorded at /api/v1/{destination} where it also "
+            "reaches the ledger. This endpoint only moves the customer balance."
+        )
     row = CustomerService(db).post_receivable_transaction(
         customer_id,
         data,

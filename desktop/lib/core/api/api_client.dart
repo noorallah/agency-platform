@@ -1583,6 +1583,29 @@ class ApiClient {
             await request('POST', '/api/v1/inventory/opening-stock/$id/post')),
       );
 
+  /// Move stock between warehouses. Returns both movements, out and in.
+  ///
+  /// Nothing posts: the firm owns the same goods at the same value afterwards.
+  Future<List<InventoryTransactionRecord>> transferStock(Json data) async {
+    final Json response =
+        await request('POST', '/api/v1/inventory/transfers', body: data);
+    return _unwrapList(response, InventoryTransactionRecord.fromJson);
+  }
+
+  /// Take stock off the books under a reason, which reaches the ledger.
+  Future<InventoryTransactionRecord> writeOffStock(Json data) async =>
+      InventoryTransactionRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/inventory/write-offs', body: data)),
+      );
+
+  /// Hold stock back from sale, or release it. Nothing posts.
+  Future<InventoryTransactionRecord> quarantineStock(Json data) async =>
+      InventoryTransactionRecord.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/inventory/quarantine', body: data)),
+      );
+
   Future<InventoryTransactionRecord> createInventoryAdjustment(
           Json data) async =>
       InventoryTransactionRecord.fromJson(

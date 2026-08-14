@@ -12,6 +12,7 @@ mostly about the two staying together.
 """
 
 from datetime import date
+from types import SimpleNamespace
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -657,3 +658,61 @@ def test_a_payment_reverses_without_touching_a_party_balance() -> None:
     assert settlement.status == "REVERSED"
     owed = service.outstanding_invoices(firm_id=books.firm.id, party_id=books.vendor.id)
     assert [row.outstanding_amount for row in owed] == [Decimal("700.00")]
+
+
+def test_recording_a_receipt_the_old_way_is_refused() -> None:
+    """The endpoint that moved a balance without a journal now says so.
+
+    `post_receivable_transaction` is still used by the sales invoice and
+    settlement services as part of a larger unit of work that does post. What
+    was left open was the endpoint, reachable by hand: every receipt recorded
+    through it put the subsidiary ledger and the general ledger further apart,
+    silently and permanently.
+    """
+    from app.customers.api.router import post_customer_receivable_transaction
+
+    books = _Books(_session_factory()())
+    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
+
+    with pytest.raises(ValidationError) as error:
+        post_customer_receivable_transaction(
+            books.customer.id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                amount=Decimal("100.00"),
+                transaction_date=WHEN,
+            ),
+            scope,  # type: ignore[arg-type]
+            db=books.session,
+        )
+
+    assert "/api/v1/receipts" in str(error.value)
+    assert "only moves the customer balance" in str(error.value)
+
+
+def test_a_credit_note_still_goes_through_the_receivable_endpoint() -> None:
+    """It moves no money, so it has no journal to be missing.
+
+    Refusing everything would take away the ways a balance is legitimately
+    adjusted without cash changing hands.
+    """
+    from app.customers.api.router import post_customer_receivable_transaction
+
+    books = _Books(_session_factory()())
+    books.owe_us("500.00")
+    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
+
+    response = post_customer_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
+            amount=Decimal("100.00"),
+            transaction_date=WHEN,
+        ),
+        scope,  # type: ignore[arg-type]
+        db=books.session,
+    )
+
+    assert response.data.transaction_type == "CREDIT_NOTE"
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("400.00")
