@@ -729,6 +729,64 @@ fields including `lines` and `attachments`. The client names their columns
 explicitly rather than deriving them. Narrowing them server-side to a record
 would be the better fix and would let the catalogue drop the override.
 
+## 9. Sales returns -- goods coming back from a customer
+
+**Built on 2026-08-14** as `app/sales_return`, the mirror of `app/purchase_return`
+on the sales side.
+
+A customer could always be credit-noted for goods they sent back, which moved
+the money. **Nothing put the units back on the shelf**: inventory went on
+counting them as sold, so stock understated what the firm held from that moment
+on, and the only correction was a manual adjustment nobody knew to make.
+`SALES_RETURNS` appeared in exactly one place in the whole backend -- the credit
+note posting -- and `SALES_RETURN` had been a seeded permission code, held by
+`SALES_MANAGER` and enforced nowhere, since the identity seed was written.
+
+Completing a return moves three books together, and any of them failing fails
+the whole document:
+
+- **Stock** comes back through `InventoryService.record_sales_return`, at the
+  moving average the product is carried at rather than what it sold for. Only
+  the restockable part returns to the sellable bucket; goods that came back
+  broken land in the damaged one, still owned and still worth what they cost.
+- **The customer's account** falls by the credit, through the same receivable
+  path a sales invoice uses.
+- **The ledger** takes two entries, because they answer two questions:
+  `Dr Sales Returns + Dr Output Tax / Cr Accounts Receivable` at the selling
+  price, and `Dr Inventory / Cr Cost of Goods Sold` at cost. One entry at either
+  number would leave inventory or receivables wrong by the margin.
+
+Cancelling a completed return undoes all three. A return can be raised from a
+**delivery note or a sales invoice** -- a customer who sends goods back before
+being billed has only the first.
+
+**Two defects found by driving the running backend**, neither visible to the
+unit suite:
+
+- A return worth nothing failed at completion with "A journal entry must carry
+  a non-zero amount", stock already counted back in. Free samples and warranty
+  replacements go out at no charge, and every delivery note the demo seeder
+  writes is priced at zero. The credit posting returns None there now, the way
+  the cost posting always did. The line's `unit_price` also became optional
+  rather than defaulting to zero, so "take the source document's price" and
+  "this one is free" stopped being the same request.
+- **`scripts/verify_sample_data.py` caught a valuation leak**: cancelling a
+  return of damaged goods left stock worth 203.16 more than the inventory
+  control account. `reverse_transaction` mirrors the six bucket deltas and
+  nothing else, and this was the first movement whose ownership change differed
+  from its sellable one. `inventory_transactions.owned_quantity_delta`
+  (`20260814_0085`) persists it so a reversal can undo what was applied; NULL
+  keeps its old meaning, so nothing is backfilled. The same hole was latent in
+  the quarantine write-off.
+
+`RESET_ORDER` in `scripts/generate_transaction_history.py` gained the five new
+tables. Leaving them behind while the numbering counters were cleared made a
+freshly regenerated firm answer 409 to the first return raised against it --
+the same staleness its header already records for settlements.
+
+**Not built, deliberately:** import/export, and the desktop workspace. The
+backend is complete and driven end to end; the client is the next piece.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
