@@ -406,14 +406,22 @@ silently breaks that reconciliation the first time it is used:
    Verified on the seeded firm: a return of 316.24 moved payables -316.24,
    input tax -48.24, inventory -203.16 and variance -64.84, and stock still
    reconciles to the control account.
-3. **Opening stock** -- lays stock down with no counterpart. The chart has **no
-   equity account at all**, so there is nothing to credit; it needs an opening
-   balance equity account before it can post, which is also what the balance
-   sheet would want.
+3. **Opening stock -- built on 2026-08-14.** Day-one stock arrived from nowhere
+   the ledger can see, so it debits inventory and credits `3000 Opening Balance
+   Equity` under a new `EQ` group (`20260814_0080`). It is the first equity
+   account the chart has ever had, and the balance sheet now shows a real one
+   rather than computing the whole equity side.
 
-Opening stock is the last one, and needs an equity account before it can post
-at all -- the same account the balance sheet wants for opening balances, so it
-is worth deciding once for both.
+   Building it found the reason posting was pointless: **`opening_stock_lines`
+   had no cost column at all**, so day-one stock entered the valuation at zero
+   -- a firm's entire starting inventory worth nothing in the stock valuation
+   and nothing in the ledger, agreeing with each other and with nothing real.
+   `20260814_0081` adds `unit_cost`, nullable, because a firm that does not
+   know is better served recording the quantity than nothing; such stock still
+   posts no journal.
+
+All four movement types that change stock value now post, and the seeded firm
+reconciles after each of them.
 
 ## 7. Finance has a screen -- and now the full set of reports
 

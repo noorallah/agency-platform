@@ -534,6 +534,11 @@ class OpeningStockLine(BaseEntity):
         UUIDType(), ForeignKey("business_profiles.id", ondelete="RESTRICT")
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
+    #: What the day-one stock was worth per unit. Without it opening stock
+    #: entered at zero value: the firm's whole starting inventory was worth
+    #: nothing in the valuation and nothing in the ledger, which agreed with
+    #: each other and with nothing real.
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     entered_quantity: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     entered_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("uoms.id", ondelete="RESTRICT"), index=True
