@@ -14,6 +14,7 @@ import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
 import '../workspace/desktop_framework.dart';
+import 'stock_action_dialog.dart';
 
 enum InventorySection {
   inventory,
@@ -612,6 +613,33 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   _selectedInventory == null ? null : _deleteSelectedInventory,
               icon: const Icon(Icons.delete_outline),
               label: const Text('Delete'),
+            ),
+          // The three stock actions, on the row that is selected: each needs a
+          // branch, a warehouse and a product, which a selected row is.
+          // Disabled rather than hidden, like the buttons beside them.
+          if (widget.section == InventorySection.inventory && _canAdjust)
+            OutlinedButton.icon(
+              onPressed: _selectedInventory == null
+                  ? null
+                  : () => _openStockAction(StockAction.transfer),
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('Transfer'),
+            ),
+          if (widget.section == InventorySection.inventory && _canAdjust)
+            OutlinedButton.icon(
+              onPressed: _selectedInventory == null
+                  ? null
+                  : () => _openStockAction(StockAction.writeOff),
+              icon: const Icon(Icons.remove_circle_outline),
+              label: const Text('Write off'),
+            ),
+          if (widget.section == InventorySection.inventory && _canAdjust)
+            OutlinedButton.icon(
+              onPressed: _selectedInventory == null
+                  ? null
+                  : () => _openStockAction(StockAction.quarantine),
+              icon: const Icon(Icons.pan_tool_outlined),
+              label: const Text('Quarantine'),
             ),
           if (widget.section == InventorySection.transactions && _canAdjust)
             FilledButton.icon(
@@ -1303,6 +1331,64 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       NotificationService.show(
         context,
         'Inventory projection deleted.',
+        kind: AppNotificationKind.success,
+      );
+      await _load(requestedPage: 1);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// Move, condemn or hold back the stock on the selected row.
+  Future<void> _openStockAction(StockAction action) async {
+    final InventoryRecord? row = _selectedInventory;
+    if (row == null) return;
+    final Json? draft = await showDialog<Json>(
+      context: context,
+      builder: (context) => StockActionDialog(
+        action: action,
+        productLabel: row.productName.isEmpty ? row.productCode : row.productName,
+        warehouseLabel: row.warehouseName,
+        sourceWarehouseId: row.warehouseId,
+        available: double.tryParse(row.availableQuantity) ?? 0,
+        quarantined: double.tryParse(row.quarantineQuantity) ?? 0,
+        warehouses: [
+          for (final WarehouseRecord warehouse in _warehouses)
+            WarehouseOption(id: warehouse.id, name: warehouse.name),
+        ],
+      ),
+    );
+    if (draft == null) return;
+    final Json body = stockActionBody(
+      action: action,
+      draft: draft,
+      branchId: row.branchId,
+      warehouseId: row.warehouseId,
+      productId: row.productId,
+      batchId: row.batchId,
+    );
+    try {
+      switch (action) {
+        case StockAction.transfer:
+          await widget.api.transferStock(body);
+        case StockAction.writeOff:
+          await widget.api.writeOffStock(body);
+        case StockAction.quarantine:
+          await widget.api.quarantineStock(body);
+      }
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        switch (action) {
+          StockAction.transfer => 'Stock transferred.',
+          StockAction.writeOff => 'Stock written off.',
+          StockAction.quarantine => 'Quarantine updated.',
+        },
         kind: AppNotificationKind.success,
       );
       await _load(requestedPage: 1);

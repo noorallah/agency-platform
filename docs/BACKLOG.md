@@ -406,6 +406,28 @@ which the hold had already emptied: the goods went in the skip and the value
 stayed on the balance sheet. `_Movement.owned_delta` says how much the firm
 stopped owning, separately from which bucket it left.
 
+**The three stock actions have screens** as of 2026-08-14: transfer, write off
+and quarantine are buttons on a selected inventory row, opening one dialog that
+asks the same three questions -- how much, when, under what reference -- and
+differs in one field each. Three dialogs would be three places for the same
+quantity check to drift. Each says on screen what it does to the books, since
+"this posts nothing" is exactly the thing a storeman cannot infer.
+
+**The receivable endpoint no longer takes money.**
+`POST /customers/{id}/receivables/transactions` refuses `RECEIPT` and
+`ADVANCE_RECEIPT` and names `/api/v1/receipts` instead: it moves the customer
+balance and writes no journal, so every use of it for money in put the
+subsidiary ledger and the general ledger further apart. The service method
+stays general -- the sales invoice and settlement services call it inside a
+larger unit of work that does post. Credit notes and advance applications still
+go through it, because they move no money.
+
+**`REFUND` is the hole this leaves.** It reduces a customer's advance and posts
+nothing, and there is no customer-refund path: settlements pay vendors, not
+customers. Refusing it would remove capability with nothing to replace it, so
+it is still accepted and still wrong. A refund is money out and belongs in
+settlements as a direction, or as a customer-side payment.
+
 **Still unbuilt: physical count reconciliation.** A count sheet needs its own
 table to be useful -- counts are entered over hours and posted once -- so it is
 a document, not an endpoint.
