@@ -24,6 +24,7 @@ class WorkspaceDialog extends StatelessWidget {
     this.loading = false,
     this.onClose,
     this.onSave,
+    this.saveLabel = 'Save',
   });
 
   final String title;
@@ -38,11 +39,33 @@ class WorkspaceDialog extends StatelessWidget {
   final VoidCallback? onClose;
   final VoidCallback? onSave;
 
+  /// What the default save button is called. A dialog that records something
+  /// rather than editing it reads better as "Record receipt" than "Save".
+  final String saveLabel;
+
   @override
   Widget build(BuildContext context) {
     final Size window = MediaQuery.sizeOf(context);
     final int safeSelectedTab =
         tabs.isEmpty ? 0 : selectedTab.clamp(0, tabs.length - 1);
+    final Widget? effectiveFooter = footer ??
+        (onSave == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Row(children: [
+                  const Spacer(),
+                  TextButton(
+                    onPressed: loading ? null : onClose,
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  FilledButton(
+                    onPressed: loading ? null : onSave,
+                    child: Text(saveLabel),
+                  ),
+                ]),
+              ));
     return Dialog(
       insetPadding: const EdgeInsets.all(AppDimensions.dialogInset),
       clipBehavior: Clip.antiAlias,
@@ -144,10 +167,14 @@ class WorkspaceDialog extends StatelessWidget {
                     ),
                 ]),
               ),
-              if (footer != null)
+              // A dialog that can be saved gets a visible way to save it. The
+              // callback was wired only to a keyboard shortcut, so a dialog
+              // passing `onSave` and no footer offered no button at all --
+              // which shipped in two of them before anybody noticed.
+              if (effectiveFooter != null)
                 Material(
                   color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  child: footer!,
+                  child: effectiveFooter,
                 ),
             ]),
           ),
