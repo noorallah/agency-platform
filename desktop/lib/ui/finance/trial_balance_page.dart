@@ -176,9 +176,10 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                         type: EmptyStateType.noRecords,
                         title: 'Nothing posted in this period',
                         message:
-                            'No ledger entries fall in it yet. Completing a goods '
-                            'receipt, dispatching a delivery note or approving an '
-                            'invoice posts to the ledger.',
+                            'No ledger entries fall in it, and no account carries '
+                            'a balance into it. Completing a goods receipt, '
+                            'dispatching a delivery note or approving an invoice '
+                            'posts to the ledger.',
                       )
                     : _table(context),
           ),
@@ -189,12 +190,10 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
 
   /// Whether the books balance, as the server reported it.
   ///
-  /// The report lists the accounts that were **posted to** in this period, and
-  /// totals those. An account carrying a balance that saw no movement is not
-  /// in it, so a quiet period can report out of balance while the ledger
-  /// itself is sound. That is a property of the report rather than of the
-  /// books, and the caption below says so rather than leaving somebody to
-  /// discover it against a red badge.
+  /// The report lists every account holding a balance as at this period, not
+  /// only the ones posted to in it, so this badge is about the books rather
+  /// than about the report. Never recomputed here: two answers to the same
+  /// question is one too many.
   Widget _balanceBadge(BuildContext context) => Chip(
         avatar: Icon(
           _report.isBalanced ? Icons.check_circle_outline : Icons.error_outline,
@@ -225,10 +224,9 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
               Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.md),
                 child: Text(
-                  'These totals cover the accounts posted to in this period. '
-                  'An account holding a balance that saw no movement is not '
-                  'listed, so a quiet period can read as out of balance while '
-                  'the ledger itself is sound.',
+                  'Every account carrying a balance is listed, including those '
+                  'that saw no movement in this period. A difference here is in '
+                  'the ledger itself and is worth looking into.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),

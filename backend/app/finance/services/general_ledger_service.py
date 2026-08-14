@@ -15,6 +15,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
+    AccountingPeriod,
     GLPosting,
     JournalEntry,
     JournalLine,
@@ -47,6 +48,14 @@ class GeneralLedgerService:
         rows = self._balances(
             firm_id=firm_id, accounting_period_id=accounting_period_id
         )
+        rows.extend(
+            self._carried_balances(
+                firm_id=firm_id,
+                accounting_period_id=accounting_period_id,
+                already_listed={account.id for _, account in rows},
+            )
+        )
+        rows.sort(key=lambda row: row[1].code)
         lines: list[TrialBalanceLine] = []
         total_debit = ZERO
         total_credit = ZERO
@@ -202,6 +211,79 @@ class GeneralLedgerService:
             .order_by(LedgerAccount.code.asc())
         ).all()
         return [(balance, account) for balance, account in rows]
+
+    def _carried_balances(
+        self,
+        *,
+        firm_id: UUID,
+        accounting_period_id: UUID,
+        already_listed: set[UUID],
+    ) -> list[tuple[LedgerBalance, LedgerAccount]]:
+        """Return accounts holding a balance that saw no movement this period.
+
+        A `ledger_balances` row is written when an account is posted to, so the
+        stored rows for a period are only the accounts that moved in it. Totting
+        those up and calling the result a trial balance reported a firm out of
+        balance whenever a quiet period touched one side and not the other --
+        March 2027 in the seeded demo firm read `dr 0.00 cr 211217.50` with the
+        ledger perfectly sound, because two accounts moved and the ones holding
+        the other side did not.
+
+        A trial balance lists every account with a balance. These are the rest:
+        their opening is the closing balance they were left with, nothing moved,
+        and the closing is the same figure. The row is built in memory and never
+        added to the session -- writing a balance for a period nothing happened
+        in would be inventing history to make a report look right.
+
+        An account whose carried balance is zero is left out. It has nothing to
+        say and a trial balance listing every account ever created is a worse
+        report than one that does not.
+        """
+        period = self._session.get(AccountingPeriod, accounting_period_id)
+        if period is None:
+            return []
+        # Every balance the firm holds from an earlier period, newest last, so
+        # the final one seen per account is the one to carry. One query rather
+        # than one per account: a firm has an account for every period it has
+        # traded, and asking per account is how a report becomes a page load.
+        history = self._session.execute(
+            select(LedgerBalance, LedgerAccount)
+            .join(LedgerAccount, LedgerAccount.id == LedgerBalance.ledger_account_id)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerAccount.is_deleted.is_(False),
+                AccountingPeriod.ends_on < period.starts_on,
+            )
+            .order_by(AccountingPeriod.ends_on.asc())
+        ).all()
+        latest: dict[UUID, tuple[LedgerBalance, LedgerAccount]] = {}
+        for balance, account in history:
+            if account.id in already_listed:
+                continue
+            latest[account.id] = (balance, account)
+        carried: list[tuple[LedgerBalance, LedgerAccount]] = []
+        for balance, account in latest.values():
+            if balance.closing_balance == ZERO:
+                continue
+            carried.append(
+                (
+                    LedgerBalance(
+                        firm_id=firm_id,
+                        ledger_account_id=account.id,
+                        accounting_period_id=accounting_period_id,
+                        opening_balance=balance.closing_balance,
+                        period_debit=ZERO,
+                        period_credit=ZERO,
+                        closing_balance=balance.closing_balance,
+                    ),
+                    account,
+                )
+            )
+        return carried
 
     def _present_balance(
         self, account_type: str, closing_balance: Decimal

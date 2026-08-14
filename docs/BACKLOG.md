@@ -406,15 +406,15 @@ its id. `GET /finance/journal-entries` was added with it.
 loss. **Receipts and payments have no endpoint at all** and are a feature
 rather than a gap.
 
-**A trial balance can report out of balance while the ledger is sound**, and
-this is worth fixing in the backend. `GeneralLedgerService.trial_balance` sums
-the closing balances of the `ledger_balances` rows for the period, and a row
-exists only for an account that was *posted to* in it. An account carrying a
-balance that saw no movement is therefore absent, and its side of the total
-with it: March 2027 in the seeded firm reports `dr 0.00 cr 211217.50` because
-only two accounts moved. A real trial balance lists every account with a
-balance. The screen explains what its totals cover rather than implying the
-books are broken, but the report is the thing to change.
+**The trial balance lists every account with a balance** as of 2026-08-14, not
+only the accounts that moved. A `ledger_balances` row is written when an account
+is posted to, so the stored rows for a period are its movers -- and totting
+those up reported a firm out of balance whenever a quiet period touched one side
+and not the other. March 2027 in the seeded firm read `dr 0.00 cr 211217.50`
+with the ledger perfectly sound. Accounts holding a balance that saw no movement
+are now carried in with a zero-movement line, built in memory and never written:
+a stored balance for a period nothing happened in would be invented history. All
+36 seeded periods balance, including the earliest, which has nothing to carry.
 
 ---
 
