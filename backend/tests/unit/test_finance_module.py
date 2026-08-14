@@ -585,6 +585,91 @@ def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:
     assert stored == []
 
 
+def test_a_statement_opens_at_the_balance_the_account_carries() -> None:
+    """An account statement for a quiet period is not a statement of nothing.
+
+    A `ledger_balances` row exists only for an account posted to in the period,
+    and the statement read its opening from that row or reported zero. So an
+    account that saw no movement opened at zero and closed at zero, which says
+    the account is empty rather than that it was quiet -- Trade Receivables read
+    `opening 0, closing 0` for March 2027 in the seeded firm while the firm was
+    owed 249,236.70.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-APR",
+        description="Cash sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    report = GeneralLedgerService(session).general_ledger(
+        firm_id=firm.id,
+        ledger_account_id=book.cash.id,
+        accounting_period_id=may.id,
+    )
+
+    assert report.opening_balance == Decimal("100.00"), "the balance is carried in"
+    assert report.closing_balance == Decimal("100.00"), "and nothing moved it"
+    assert report.lines == [], "a quiet period has no movements to show"
+    assert report.total_debit == Decimal("0.00")
+    assert report.total_credit == Decimal("0.00")
+
+    # Reading a statement writes nothing, for the same reason the trial balance
+    # carries its rows in memory.
+    stored = session.scalars(
+        select(LedgerBalance).where(LedgerBalance.accounting_period_id == may.id)
+    ).all()
+    assert stored == []
+
+
+def test_a_statement_for_the_first_period_opens_at_nothing() -> None:
+    """With no earlier period there is nothing to carry, and zero is the truth."""
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+
+    report = GeneralLedgerService(session).general_ledger(
+        firm_id=firm.id,
+        ledger_account_id=book.cash.id,
+        accounting_period_id=book.period.id,
+    )
+
+    assert report.opening_balance == Decimal("0.00")
+    assert report.closing_balance == Decimal("0.00")
+    assert report.lines == []
+
+
 def test_an_account_with_nothing_to_carry_is_left_out() -> None:
     """A trial balance is not a list of every account ever created."""
     factory = _session_factory()

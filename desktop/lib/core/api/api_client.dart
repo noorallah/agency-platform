@@ -2442,6 +2442,23 @@ class ApiClient {
         ),
       );
 
+  /// One account's statement for one period.
+  ///
+  /// The running balance comes down with the lines. It starts from the opening
+  /// balance and moves in whichever direction the account type increases in,
+  /// so adding the column up here would be a second opinion about the ledger.
+  Future<GeneralLedgerReport> generalLedger({
+    required String ledgerAccountId,
+    required String accountingPeriodId,
+  }) async =>
+      GeneralLedgerReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/general-ledger/$ledgerAccountId',
+          query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
+
   Future<PagedResult<JournalEntry>> journalEntries({
     int page = 1,
     int pageSize = 20,
