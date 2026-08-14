@@ -19,6 +19,7 @@ class SettlementDirectionEnum(StrEnum):
 
     RECEIPT = "RECEIPT"
     PAYMENT = "PAYMENT"
+    REFUND = "REFUND"
 
 
 class SettlementMethodEnum(StrEnum):

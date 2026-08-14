@@ -37,6 +37,11 @@ class SettlementDirection(StrEnum):
 
     RECEIPT = "RECEIPT"
     PAYMENT = "PAYMENT"
+    #: Money back to a customer. It is money out like a payment and
+    #: about a customer like a receipt, which is why it is neither of
+    #: them: refunding a customer reduces what they have paid in
+    #: advance rather than settling anything the firm owes a supplier.
+    REFUND = "REFUND"
 
 
 class SettlementMethod(StrEnum):
@@ -71,8 +76,8 @@ class Settlement(BaseEntity):
         # Exactly one party, and it is the one the direction implies. A receipt
         # from a vendor is not a thing this document records.
         CheckConstraint(
-            "(direction = 'RECEIPT' AND customer_id IS NOT NULL "
-            "AND vendor_id IS NULL) OR (direction = 'PAYMENT' "
+            "(direction IN ('RECEIPT', 'REFUND') AND customer_id IS "
+            "NOT NULL AND vendor_id IS NULL) OR (direction = 'PAYMENT' "
             "AND vendor_id IS NOT NULL AND customer_id IS NULL)",
             name="CK_settlements_party_matches_direction",
         ),

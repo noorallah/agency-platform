@@ -23,11 +23,21 @@ from app.settlements.schemas import (
     SettlementResponse,
     SettlementReverseRequest,
 )
-from app.settlements.services import PaymentService, ReceiptService, SettlementService
+from app.settlements.services import (
+    PaymentService,
+    ReceiptService,
+    RefundService,
+    SettlementService,
+)
 
 receipts_router = APIRouter(
     prefix="/api/v1/receipts",
     tags=["Receipts"],
+    responses=STANDARD_ERROR_RESPONSES,
+)
+refunds_router = APIRouter(
+    prefix="/api/v1/refunds",
+    tags=["Refunds"],
     responses=STANDARD_ERROR_RESPONSES,
 )
 payments_router = APIRouter(
@@ -39,6 +49,13 @@ payments_router = APIRouter(
 ReceiptViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("RECEIPT_VIEW")]
 ReceiptCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("RECEIPT_CREATE")
+]
+# A refund is money leaving the firm, so it takes the money-out grants rather
+# than the receipt ones: the person trusted to collect is not automatically the
+# person trusted to hand money back.
+RefundViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PAYMENT_VIEW")]
+RefundCreateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PAYMENT_CREATE")
 ]
 PaymentViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PAYMENT_VIEW")]
 PaymentCreateScope = Annotated[
@@ -204,6 +221,46 @@ def reverse_receipt(
     db.commit()
     db.refresh(row)
     return ApiResponse(data=_to_response(service, row), message="Receipt reversed.")
+
+
+@refunds_router.get("", response_model=PaginatedResponse[SettlementResponse])
+def list_refunds(
+    scope: RefundViewScope,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    search: str = Query(default=""),
+    customer_id: Annotated[UUID | None, Query()] = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[SettlementResponse]:
+    """List money handed back to customers."""
+    return _list(
+        RefundService(db),
+        firm_id=scope.firm_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+        party_id=customer_id,
+    )
+
+
+@refunds_router.post(
+    "",
+    response_model=ApiResponse[SettlementResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def record_refund(
+    payload: SettlementCreate,
+    scope: RefundCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Hand money back to a customer and post it to the ledger."""
+    service = RefundService(db)
+    row = service.create(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(
+        data=_to_response(service, row), message="Refund recorded and posted."
+    )
 
 
 @payments_router.get("", response_model=PaginatedResponse[SettlementResponse])

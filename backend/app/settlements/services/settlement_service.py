@@ -232,6 +232,15 @@ class SettlementService(TransactionalDocumentService):
     ) -> Settlement:
         """Record one settlement, allocate it, and post it to the ledger."""
         is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
+        is_refund = self.DIRECTION == SettlementDirection.REFUND
+        if is_refund and data.allocations:
+            # A refund hands back what was never applied to a
+            # document. Allocating it to one would claim it settled
+            # something, when it did the opposite.
+            raise ValidationError(
+                "A refund returns money held on account, so it is not "
+                "applied to an invoice."
+            )
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -264,22 +273,34 @@ class SettlementService(TransactionalDocumentService):
         # placeholder would leave a row referencing nothing if the posting
         # failed, which is the state this module exists to make impossible.
         settlement_id = uuid4()
-        entry = self._posting.post_settlement(
-            firm_id=firm_id,
-            settlement_id=settlement_id,
-            settlement_number=number,
-            settlement_date=data.settlement_date,
-            amount=amount,
-            is_receipt=is_receipt,
-            money_account_id=money_account_id,
-            actor_id=actor_id,
+        entry = (
+            self._posting.post_customer_refund(
+                firm_id=firm_id,
+                settlement_id=settlement_id,
+                settlement_number=number,
+                settlement_date=data.settlement_date,
+                amount=amount,
+                money_account_id=money_account_id,
+                actor_id=actor_id,
+            )
+            if is_refund
+            else self._posting.post_settlement(
+                firm_id=firm_id,
+                settlement_id=settlement_id,
+                settlement_number=number,
+                settlement_date=data.settlement_date,
+                amount=amount,
+                is_receipt=is_receipt,
+                money_account_id=money_account_id,
+                actor_id=actor_id,
+            )
         )
         row = Settlement(
             id=settlement_id,
             firm_id=firm_id,
             direction=self.DIRECTION.value,
-            customer_id=data.party_id if is_receipt else None,
-            vendor_id=None if is_receipt else data.party_id,
+            customer_id=data.party_id if is_receipt or is_refund else None,
+            vendor_id=None if is_receipt or is_refund else data.party_id,
             settlement_number=number,
             settlement_date=data.settlement_date,
             amount=amount,
@@ -312,6 +333,25 @@ class SettlementService(TransactionalDocumentService):
                 )
             )
 
+        if is_refund:
+            # The receivable service holds the rule that a refund cannot
+            # exceed the advance the customer is actually holding, and
+            # refuses it by name.
+            self._customers.post_receivable_transaction(
+                data.party_id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=(CustomerReceivableTransactionType.REFUND),
+                    amount=amount,
+                    transaction_date=data.settlement_date,
+                    reference_type="settlement",
+                    reference_id=row.id,
+                    reference_number=number,
+                    remarks=data.narration,
+                ),
+                firm_scope=firm_id,
+                actor_id=actor_id,
+                commit=False,
+            )
         if is_receipt:
             # Keep the customer's outstanding and advance balances in step, so
             # credit control keeps answering with the money already collected.
@@ -448,7 +488,10 @@ class SettlementService(TransactionalDocumentService):
 
     def _require_party(self, *, firm_id: UUID, party_id: UUID) -> Customer | Vendor:
         """Return the customer or vendor this settlement is with."""
-        if self.DIRECTION == SettlementDirection.RECEIPT:
+        if self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        ):
             customer = self._session.scalar(
                 select(Customer).where(
                     Customer.id == party_id,
@@ -534,7 +577,8 @@ class SettlementService(TransactionalDocumentService):
         """Return the party of one settlement, for the response."""
         party_id = (
             row.customer_id
-            if self.DIRECTION == SettlementDirection.RECEIPT
+            if self.DIRECTION
+            in (SettlementDirection.RECEIPT, SettlementDirection.REFUND)
             else row.vendor_id
         )
         if party_id is None:  # pragma: no cover - the check constraint forbids it
@@ -567,6 +611,27 @@ class SettlementService(TransactionalDocumentService):
             ).where(invoice.id.in_(wanted))
         ).all()
         return {row[0]: (row[1], row[2], quantize_ledger(row[3])) for row in rows}
+
+
+class RefundService(SettlementService):
+    """Money handed back to a customer.
+
+    Money out, like a payment, and about a customer, like a receipt -- which is
+    why it is neither. It returns what a customer paid in advance rather than
+    settling anything owed to a supplier, so it touches receivables and not
+    payables, and it is not applied to an invoice.
+    """
+
+    DIRECTION = SettlementDirection.REFUND
+    DOCUMENT = DocumentTypeSpec(
+        code="CUSTOMER_REFUND",
+        name="Customer Refund",
+        description="Money returned to a customer",
+        category="FINANCE",
+        module="settlements",
+        prefix="RF",
+        states=(DocumentStateSpec("POSTED", "Posted", 1, is_terminal=True),),
+    )
 
 
 class ReceiptService(SettlementService):
