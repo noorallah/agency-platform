@@ -363,10 +363,13 @@ def test_sales_invoice_timeline_and_outstanding_endpoints_resolve() -> None:
     assert timeline.pagination.total_records >= 1
     assert timeline.data[0].source_document_id == invoice_id
 
+    # Wrapped in the standard envelope like every other endpoint: these six
+    # returned bare payloads, which is the exception CLAUDE.md says does not
+    # exist.
     outstanding = get_customer_outstanding(scope=scope, db=session)
-    assert len(outstanding) == 1
-    assert outstanding[0].invoice_count == 1
-    assert outstanding[0].outstanding_amount > Decimal("0")
+    assert len(outstanding.data) == 1
+    assert outstanding.data[0].invoice_count == 1
+    assert outstanding.data[0].outstanding_amount > Decimal("0")
 
 
 def test_sales_invoice_cancel_endpoint_passes_the_reason_through() -> None:

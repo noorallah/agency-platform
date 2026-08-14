@@ -677,6 +677,25 @@ carried figure is not written `0` in a column of `0.00`s.
 
 ---
 
+## 8. Reports -- the module that has none
+
+`REPORT_VIEW`, `REPORT_EXPORT` and `REPORT_PRINT` are seeded and granted, the
+Reports module renders "Coming Soon", and **34 report endpoints exist across
+seven modules that no screen calls**: registers, pending and overdue lists,
+reconciliations, outstanding, and breakdowns by customer, salesman, territory,
+route, warehouse, vendor and product.
+
+Nothing needs building on the server. What is missing is a workspace that
+presents them -- and, because the records are flat rows, a declarative
+catalogue of report definitions rendering into one grid, the way
+`ResourceDefinition<T>` does for CRUD, rather than 34 hand-written screens.
+
+**Six of them broke the response convention** and were fixed first (2026-08-14):
+every report in `sales_invoice` returned a bare list or object while every other
+module wrapped in `ApiResponse`, which `CLAUDE.md` says is universal. Nothing
+consumed them yet, so it cost nothing to correct; a client written against the
+exception would have made it permanent.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
