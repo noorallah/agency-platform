@@ -523,6 +523,33 @@ carried figure is not written `0` in a column of `0.00`s.
 
 ## Also open
 
+- **The audit trail has a screen** as of 2026-08-14, under Settings. Every
+  mutation has written a row since the platform started and a trigger makes the
+  table append-only in every store, with nothing in the client able to read one.
+  The screen shows **only the fields that changed** -- an audit row carries whole
+  snapshots on both sides and showing all of them buries the one that moved --
+  and it names which trail is on screen, because the trail is per store and a
+  reader who takes it for everything will conclude that something they cannot
+  see never happened.
+
+  **Open question it surfaced, deliberately not decided here:**
+  `AUDIT_LOG_VIEW` is granted only to `PLATFORM_ADMIN`, `SUPPORT_ADMIN` and
+  `SYSTEM_AUDITOR`, so a firm administrator cannot read their own firm's
+  history while the platform operator can. On a product that runs on the
+  customer's own machine that looks backwards -- but it is a **stated
+  boundary**, not an oversight:
+  `test_firm_admin_has_no_platform_permissions_or_platform_access` names
+  `AUDIT_LOG_VIEW` in the set a firm role must never hold, and the endpoint
+  already gates the *platform* trail separately on the `platform_admin` role,
+  so the code is doing two jobs.
+
+  Granting it to `FIRM_ADMIN` was tried and reverted rather than editing the
+  test to match: a test that names the exact code is a decision. Deciding it
+  properly means either splitting the code (a firm-scoped
+  `FIRM_AUDIT_LOG_VIEW` alongside the platform one) or agreeing the boundary
+  should move. Until then the screen is reachable by `SYSTEM_AUDITOR`,
+  `SUPPORT_ADMIN` and platform administrators, which is who the seed intends.
+
 - **Desktop does not pre-hide feature-gated fields.** The backend refuses them
   (a 403 naming the feature), but the UI lets a user type a barcode into a firm
   that has no barcode feature and only fails on save. Decide whether that is

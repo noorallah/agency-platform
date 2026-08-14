@@ -752,8 +752,7 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.settings,
       requiredPermissions: ['SETTINGS_VIEW'],
       tabs: [
-        ModuleTabDefinition(
-            id: 'audit-logs', label: 'Audit Logs', available: false),
+        ModuleTabDefinition(id: 'audit-logs', label: 'Audit Logs'),
         ModuleTabDefinition(
             id: 'background-jobs', label: 'Background Jobs', available: false),
         ModuleTabDefinition(

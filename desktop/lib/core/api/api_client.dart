@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../models/entities.dart';
+import '../../models/audit.dart';
 import '../../models/finance.dart';
 import '../../models/settlement.dart';
 import '../../models/batch_serial.dart';
@@ -2509,6 +2510,34 @@ class ApiClient {
             body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
           ),
         ),
+      );
+
+  /// One page of the audit trail.
+  ///
+  /// Which trail depends on the firm header the client already sends: with a
+  /// firm it is that firm's own, and there is no cross-firm view because there
+  /// is no cross-firm table -- each store holds its own history.
+  Future<PagedResult<AuditLogEntry>> auditLogs({
+    int page = 1,
+    int pageSize = 20,
+    String? action,
+    String? entityType,
+    String? dateFrom,
+    String? dateTo,
+  }) =>
+      _list(
+        '/api/v1/audit-logs',
+        AuditLogEntry.fromJson,
+        page,
+        '',
+        pageSize: pageSize,
+        additionalQuery: {
+          if (action != null && action.isNotEmpty) 'action': action,
+          if (entityType != null && entityType.isNotEmpty)
+            'entity_type': entityType,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+        },
       );
 
   /// The balance sheet as at one period end.
