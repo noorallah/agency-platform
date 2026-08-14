@@ -19,6 +19,7 @@ from app.finance.schemas import (
     AccountingPeriodResponse,
     AccountingPeriodUpdate,
     AccountSummary,
+    BalanceSheetReport,
     CostCenterCreate,
     CostCenterResponse,
     CostCenterUpdate,
@@ -87,6 +88,9 @@ TrialBalanceScope = Annotated[
 ]
 ProfitLossScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PROFIT_LOSS_VIEW")
+]
+BalanceSheetScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("BALANCE_SHEET_VIEW")
 ]
 
 
@@ -626,6 +630,19 @@ def profit_and_loss(
 ) -> ApiResponse[ProfitLossReport]:
     """Return the profit and loss for one period, with the year to date."""
     report = GeneralLedgerService(db).profit_and_loss(
+        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
+    )
+    return ApiResponse(data=report)
+
+
+@router.get("/balance-sheet", response_model=ApiResponse[BalanceSheetReport])
+def balance_sheet(
+    accounting_period_id: UUID,
+    scope: BalanceSheetScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BalanceSheetReport]:
+    """Return the balance sheet as at one accounting period end."""
+    report = GeneralLedgerService(db).balance_sheet(
         firm_id=scope.firm_id, accounting_period_id=accounting_period_id
     )
     return ApiResponse(data=report)

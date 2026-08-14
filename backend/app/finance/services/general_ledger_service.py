@@ -17,6 +17,7 @@ from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
     PROFIT_LOSS_ACCOUNT_TYPES,
     AccountingPeriod,
+    AccountType,
     GLPosting,
     JournalEntry,
     JournalLine,
@@ -26,6 +27,8 @@ from app.finance.models import (
 from app.finance.schemas import (
     AccountSummary,
     AccountTypeEnum,
+    BalanceSheetLine,
+    BalanceSheetReport,
     GeneralLedgerLine,
     GeneralLedgerReport,
     ProfitLossLine,
@@ -191,6 +194,97 @@ class GeneralLedgerService:
             total_credit=balance.period_credit if balance is not None else ZERO,
             closing_balance=balance.closing_balance if balance is not None else running,
             lines=lines,
+        )
+
+    def balance_sheet(
+        self, *, firm_id: UUID, accounting_period_id: UUID
+    ) -> BalanceSheetReport:
+        """Return the balance sheet as at one period end.
+
+        As at, not for: every account holding a balance appears, whether or not
+        it moved in this period, which is the same pair of queries the trial
+        balance uses.
+
+        Earnings are computed rather than read. Nothing in this ledger posts a
+        year-end closing entry, so income and expense accounts accumulate
+        indefinitely and their net *is* the firm's earnings -- carrying it into
+        equity is what makes the sheet balance, and it does so to the rupee on
+        the seeded firm. Without it the sheet is short by everything the firm
+        has ever made, and no chart of accounts can fix that because the entry
+        that would do it is never written.
+        """
+        period = self._session.get(AccountingPeriod, accounting_period_id)
+        if period is None:
+            raise ResourceNotFoundError("Accounting period not found.")
+
+        rows = self._balances(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
+        rows.extend(
+            self._carried_balances(
+                firm_id=firm_id,
+                accounting_period_id=accounting_period_id,
+                already_listed={account.id for _, account in rows},
+            )
+        )
+        rows.sort(key=lambda row: row[1].code)
+
+        sections: dict[str, list[BalanceSheetLine]] = {
+            AccountType.ASSET: [],
+            AccountType.LIABILITY: [],
+            AccountType.EQUITY: [],
+        }
+        earnings = ZERO
+        for balance, account in rows:
+            if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES:
+                # Income carries a credit balance and expense a debit, both
+                # stored positive in their own direction, so income less
+                # expense is the accumulated result.
+                earnings += (
+                    -balance.closing_balance
+                    if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
+                    else balance.closing_balance
+                )
+                continue
+            section = sections.get(account.account_type)
+            if section is None:
+                # MEMO is off the statement by definition and CONTROL is not a
+                # section of a balance sheet. Neither is quietly absorbed
+                # somewhere: if one holds a balance the sheet stops balancing
+                # and says so.
+                continue
+            section.append(
+                BalanceSheetLine(
+                    ledger_account_id=account.id,
+                    account_code=account.code,
+                    account_name=account.name,
+                    account_type=AccountTypeEnum(account.account_type),
+                    amount=balance.closing_balance,
+                )
+            )
+
+        this_year = self.profit_and_loss(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        ).year_to_date_net_profit
+        assets = sections[AccountType.ASSET]
+        liabilities = sections[AccountType.LIABILITY]
+        equity = sections[AccountType.EQUITY]
+        total_assets = sum((line.amount for line in assets), ZERO)
+        total_liabilities = sum((line.amount for line in liabilities), ZERO)
+        total_equity = sum((line.amount for line in equity), ZERO) + earnings
+        return BalanceSheetReport(
+            accounting_period_id=accounting_period_id,
+            financial_year_id=period.financial_year_id,
+            generated_at=utc_now(),
+            assets=assets,
+            liabilities=liabilities,
+            equity=equity,
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            total_equity=total_equity,
+            retained_earnings_brought_forward=earnings - this_year,
+            result_for_the_year=this_year,
+            is_balanced=total_assets == total_liabilities + total_equity,
         )
 
     def profit_and_loss(

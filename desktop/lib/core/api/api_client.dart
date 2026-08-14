@@ -2442,6 +2442,16 @@ class ApiClient {
         ),
       );
 
+  /// The balance sheet as at one period end.
+  Future<BalanceSheetReport> balanceSheet(String accountingPeriodId) async =>
+      BalanceSheetReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/balance-sheet',
+          query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
+
   /// The profit and loss for one period, with the year it belongs to.
   Future<ProfitLossReport> profitAndLoss(String accountingPeriodId) async =>
       ProfitLossReport.fromJson(

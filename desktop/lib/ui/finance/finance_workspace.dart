@@ -7,6 +7,7 @@ import '../../models/finance.dart';
 import '../resource_management_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
+import 'balance_sheet_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'profit_loss_page.dart';
@@ -150,6 +151,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'ledgers' => LedgerStatementPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'balance-sheet' => BalanceSheetPage(
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,

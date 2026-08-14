@@ -375,7 +375,7 @@ write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
 also post nothing to the general ledger, so stock value and the inventory
 control account never reconcile.
 
-## 7. Finance has a screen -- accounts, journal, ledgers, trial balance, P&L
+## 7. Finance has a screen -- and now the full set of reports
 
 `app/finance` is thirty live endpoints and has been since `20260809_0042`.
 Every goods receipt, dispatch, sales invoice and purchase invoice posts to the
@@ -429,9 +429,26 @@ the type on create unless the caller overrules it, and `20260814_0075` brings
 existing rows into line, touching only rows still at both defaults so a
 deliberate choice is never overwritten.
 
-**Still a placeholder, and the catalogue still says so:** balance sheet.
+**Balance sheet** followed on 2026-08-14, and closes the module's reporting:
+`GET /finance/balance-sheet`, as at a period end rather than for a period, so
+it uses the same carried-balance pair as the trial balance.
+
+The decision it needed was retained earnings, and the data answered it.
+**Nothing in this ledger posts a year-end closing entry**, so income and
+expense accounts accumulate indefinitely and their net *is* the firm's
+earnings; carrying it into equity balances the sheet to the rupee on every one
+of the 36 seeded periods. Without it the sheet is short by everything the firm
+has ever made, and no chart of accounts fixes that, because the entry that
+would is never written. It is split into what was built up before this year and
+this year's result, which are the two questions people actually ask.
+
+Only `ASSET`, `LIABILITY` and `EQUITY` accounts appear. `MEMO` is off the
+statement by definition and `CONTROL` is not a section of a balance sheet; if
+either ever holds a balance the sheet stops balancing and the screen names that
+as the likely cause rather than absorbing it silently.
+
 **Receipts and payments have no endpoint at all** and are a feature rather than
-a gap.
+a gap -- the last thing in the module that is a gap rather than a decision.
 
 **The trial balance lists every account with a balance** as of 2026-08-14, not
 only the accounts that moved. A `ledger_balances` row is written when an account

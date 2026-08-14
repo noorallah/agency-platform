@@ -578,6 +578,56 @@ class ProfitLossReport(FinanceSchema):
     year_to_date_net_profit: Decimal
 
 
+class BalanceSheetLine(FinanceSchema):
+    """Return one account's balance as at a period end.
+
+    The amount is the account's own balance in its natural direction, so an
+    asset and a liability are both positive when they hold what they normally
+    hold. A negative is a real thing worth seeing -- an overdrawn bank account,
+    a supplier in debit -- and reads as one.
+    """
+
+    ledger_account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: AccountTypeEnum
+    amount: Decimal
+
+
+class BalanceSheetReport(FinanceSchema):
+    """Return the balance sheet as at one period end.
+
+    `retained_earnings_brought_forward` and `result_for_the_year` are computed,
+    not accounts. Nothing in this ledger posts a year-end closing entry, so
+    income and expense accounts accumulate indefinitely and their net is the
+    firm's earnings: without carrying it into equity the sheet is short by
+    every rupee the firm has ever made, and no chart of accounts can fix that
+    because the entry that would do it is never written.
+
+    Split in two because they answer different questions -- what the firm built
+    up before this year, and how this year is going. Their sum is the whole
+    accumulated result, and both are included in `total_equity`.
+
+    Only `ASSET`, `LIABILITY` and `EQUITY` accounts appear. `MEMO` is off the
+    statement by definition and `CONTROL` is not a section of a balance sheet;
+    if one of those ever carries a balance, `is_balanced` goes false and says
+    so rather than the report quietly absorbing it somewhere.
+    """
+
+    accounting_period_id: UUID
+    financial_year_id: UUID
+    generated_at: datetime
+    assets: list[BalanceSheetLine]
+    liabilities: list[BalanceSheetLine]
+    equity: list[BalanceSheetLine]
+    total_assets: Decimal
+    total_liabilities: Decimal
+    total_equity: Decimal
+    retained_earnings_brought_forward: Decimal
+    result_for_the_year: Decimal
+    is_balanced: bool
+
+
 class AccountSummary(FinanceSchema):
     """Return one aggregated account balance row."""
 
@@ -628,6 +678,8 @@ __all__ = [
     "ProfitCenterCreate",
     "ProfitCenterResponse",
     "ProfitCenterUpdate",
+    "BalanceSheetLine",
+    "BalanceSheetReport",
     "ProfitLossLine",
     "ProfitLossReport",
     "TrialBalanceLine",
