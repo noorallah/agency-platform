@@ -83,7 +83,8 @@ from the backend. **Read 3.3 before planning that deployment.**
 | --- | --- | --- | --- |
 | 3.1 | Same machine, default | Launch the client with the backend on the same box | Connects; login screen loads |
 | 3.2 | Change the server address in the UI | Open application settings, set the server URL, save | Accepted, persisted, and used after restart |
-| 3.3 | **Remote backend over plain HTTP** | Set the URL to `http://<server-lan-ip>:8000` | **Refused** with "Use an HTTPS server URL. HTTP is allowed only for localhost." — see the note below |
+| 3.3 | **Remote backend over plain HTTP on the LAN** | Start the backend with `-BindHost 0.0.0.0`, set the URL to `http://<server-lan-ip>:8000` | **Accepted.** This is the supported LAN deployment — see the note below for what it costs |
+| 3.3b | Plain HTTP to a public address | Set the URL to `http://erp.example.com` | **Refused**, and the message says passwords would cross in clear text |
 | 3.4 | Remote backend over HTTPS | Set the URL to `https://<server-host>` with a certificate the client trusts | Connects and works exactly as local |
 | 3.5 | Remote backend, untrusted certificate | Point at an HTTPS server with a self-signed certificate the machine does not trust | Fails with a certificate error, not a blank screen or a hang |
 | 3.6 | Server unreachable | Point at a host that is down | A clear "cannot reach the server" message; the app stays usable enough to correct the address |
@@ -91,25 +92,32 @@ from the backend. **Read 3.3 before planning that deployment.**
 | 3.8 | Two UIs, one backend | Run the client on two machines against the same server, log in as different users | Both work; neither sees the other's session |
 | 3.9 | Two UIs, same user | Log in as the same user on two machines | Both work. Note what happens when one changes a record the other is viewing — see §9 |
 
-> ### The HTTPS constraint is a deployment decision, not a bug
+> ### Both transports are supported, and the firm chooses
 >
-> `normalizeServerUrl` in `desktop/lib/core/preferences/desktop_preferences_service.dart`
-> permits `https://` anywhere, and `http://` **only** to `localhost`, `127.0.0.1`
-> or `::1`. A UI on another machine therefore cannot talk to `http://192.168.x.x:8000`.
+> Decided on 2026-08-14. `normalizeServerUrl` in
+> `desktop/lib/core/preferences/desktop_preferences_service.dart` accepts
+> `https://` anywhere and `http://` to an address on the client's own network —
+> loopback, `10.x`, `172.16-31.x`, `192.168.x`, `169.254.x`, the IPv6 local
+> ranges, a hostname with no dots, or a `.local` / `.lan` / `.internal` suffix.
+> Plain HTTP to a public address is refused.
 >
-> That is deliberate — it stops credentials and business data crossing a network
-> in clear text. But it means the "UI on other machines" requirement needs one of:
+> **What plain HTTP costs.** On that network the login password and every record
+> are readable by anything else on the wire. A firm running its own switch can
+> reasonably accept that. On a network it does not control — a shared office
+> building, anything with guest wifi — serve TLS instead:
 >
-> 1. **HTTPS on the backend** with a certificate every client machine trusts —
->    an internal CA, or a self-signed certificate installed into the Windows
->    trust store by the installer;
-> 2. **a reverse proxy** on the server machine terminating TLS;
-> 3. **relaxing the rule** for private-network addresses — a code change, and one
->    that weakens the guarantee above. If you want this, it should be a
->    deliberate decision with its own test cases, not a quiet edit.
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File scripts\start_backend.ps1 `
+>   -BindHost 0.0.0.0 -CertFile C:\certs\erp.crt -KeyFile C:\certs\erp.key -NoReload
+> ```
 >
-> Whichever you choose, the installer has to do it, or every client machine
-> becomes a manual certificate job. Decide this before writing the installer.
+> Every client machine has to trust that certificate. A self-signed one means
+> installing it in each Windows trust store, which is the installer's job.
+> **3.5 is still expected to fail** — an untrusted certificate must produce a
+> certificate error, and turning verification off is not the fix.
+>
+> The boundaries are covered by `desktop/test/server_url_rule_test.dart`, so
+> changing what counts as "your own network" changes a test that says why.
 
 ---
 

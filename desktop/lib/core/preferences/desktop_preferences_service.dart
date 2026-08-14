@@ -1,17 +1,80 @@
 import 'dart:convert';
 import 'dart:io';
 
+/// Whether an address is one the traffic to it cannot leave the local network.
+///
+/// Loopback, the private IPv4 ranges, IPv4 link-local, and the IPv6 equivalents
+/// -- unique-local `fc00::/7` and link-local `fe80::/10`. A name is treated as
+/// local when it cannot resolve on the public internet: a single label with no
+/// dots (`server01`), or one of the suffixes reserved for local naming.
+///
+/// This decides where plain HTTP is allowed, so it errs towards saying no. An
+/// address it cannot classify is not local.
+bool isPrivateNetworkHost(String host) {
+  final String name = host.toLowerCase().replaceAll(RegExp(r'^\[|\]$'), '');
+  if (name.isEmpty) return false;
+  if (name == 'localhost' || name == '::1') return true;
+
+  final List<String> octets = name.split('.');
+  if (octets.length == 4 && octets.every((part) => int.tryParse(part) != null)) {
+    final List<int> parts = octets.map(int.parse).toList();
+    if (parts.any((part) => part < 0 || part > 255)) return false;
+    if (parts[0] == 127) return true; // loopback
+    if (parts[0] == 10) return true; // 10/8
+    if (parts[0] == 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] == 192 && parts[1] == 168) return true;
+    if (parts[0] == 169 && parts[1] == 254) return true; // link-local
+    return false; // any other literal address is public
+  }
+
+  if (name.contains(':')) {
+    // IPv6 literal. fc00::/7 is unique-local, fe80::/10 link-local.
+    final String head = name.split(':').first;
+    if (head.length >= 2) {
+      final int? leading = int.tryParse(head.substring(0, 2), radix: 16);
+      if (leading != null && leading >= 0xfc && leading <= 0xfd) return true;
+      if (leading != null && leading >= 0xfe && leading <= 0xfe) {
+        return head.length >= 3 &&
+            (head[2] == '8' || head[2] == '9' || head[2] == 'a' || head[2] == 'b');
+      }
+    }
+    return false;
+  }
+
+  if (!name.contains('.')) return true; // a bare hostname is a LAN name
+  return const ['.local', '.lan', '.internal', '.home.arpa']
+      .any((suffix) => name.endsWith(suffix));
+}
+
+/// Validate and tidy a server address the user typed.
+///
+/// **HTTPS is accepted anywhere. Plain HTTP is accepted on the local network
+/// only** -- loopback, the private ranges, and names that cannot resolve
+/// publicly.
+///
+/// The product is deployed as a client on one machine and a backend on another
+/// in the same building, and requiring HTTPS everywhere made that deployment
+/// impossible without an installer that puts a certificate in every client's
+/// trust store. So plain HTTP over the LAN is a supported choice, made
+/// deliberately: on that network the credentials and business data are readable
+/// by anything else on the wire, which is a trade a firm running its own switch
+/// can reasonably make and a firm on a shared network should not.
+///
+/// What stays refused is HTTP to a public address, because that is the same
+/// data crossing the internet in clear text, and no deployment of this product
+/// needs it. Use HTTPS there.
 String normalizeServerUrl(String value) {
   final Uri uri = Uri.parse(value.trim());
-  final bool loopback =
-      uri.host == 'localhost' || uri.host == '127.0.0.1' || uri.host == '::1';
+  final bool localNetwork = isPrivateNetworkHost(uri.host);
   if (!uri.hasAuthority ||
-      (uri.scheme != 'https' && !(uri.scheme == 'http' && loopback)) ||
+      (uri.scheme != 'https' && !(uri.scheme == 'http' && localNetwork)) ||
       uri.userInfo.isNotEmpty ||
       uri.query.isNotEmpty ||
       uri.fragment.isNotEmpty) {
     throw const FormatException(
-      'Use an HTTPS server URL. HTTP is allowed only for localhost.',
+      'Use https://, or http:// with an address on your own network '
+      '(localhost, 10.x, 172.16-31.x, 192.168.x, or a name with no dots). '
+      'Plain HTTP to a public address would send passwords in clear text.',
     );
   }
   return uri.toString().replaceFirst(RegExp(r'/$'), '');

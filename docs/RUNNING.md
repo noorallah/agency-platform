@@ -175,9 +175,31 @@ The client is REST-only, so it can run anywhere that can reach the backend:
 flutter run -d windows --dart-define=API_BASE_URL=http://192.168.1.20:8000
 ```
 
-The client enforces HTTPS for everything except loopback, so a remote backend
-over plain HTTP will be refused. That decision is still open — see
-`docs/BACKLOG.md`.
+The backend has to be listening on something other than loopback for that to
+reach it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -BindHost 0.0.0.0 -NoReload
+```
+
+**Plain HTTP is accepted to an address on your own network** — loopback, the
+private ranges (`10.x`, `172.16-31.x`, `192.168.x`), and names with no dots or a
+`.local`/`.lan`/`.internal` suffix. It is refused to a public address, because
+that is the same passwords crossing the internet in clear text.
+
+On a network the firm does not control, serve TLS instead. The client accepts
+`https://` anywhere:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_backend.ps1 `
+  -BindHost 0.0.0.0 -CertFile C:\certs\erp.crt -KeyFile C:\certs\erp.key -NoReload
+```
+
+Every client machine has to trust that certificate. A self-signed one means
+installing it in each machine's Windows trust store — which is the job the
+installer will have to do. An untrusted certificate fails with a certificate
+error, which is the intended behaviour and not a bug to work around by turning
+verification off.
 
 ---
 

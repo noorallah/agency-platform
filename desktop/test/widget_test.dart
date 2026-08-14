@@ -43,12 +43,16 @@ void main() {
     expect(preferences.cachedPalette, 'green');
   });
 
-  test('remote server URLs require HTTPS while loopback permits HTTP', () {
+  test('public server URLs require HTTPS while the local network permits HTTP', () {
     expect(
       normalizeServerUrl('https://api.example.test/'),
       'https://api.example.test',
     );
     expect(normalizeServerUrl('http://localhost:8000'), contains('localhost'));
+    // The client and the backend are routinely on two machines in one
+    // building, which is what plain HTTP over the LAN is for. The full rule
+    // and its boundaries live in `server_url_rule_test.dart`.
+    expect(normalizeServerUrl('http://192.168.1.20:8000'), contains('192.168'));
     expect(
       () => normalizeServerUrl('http://api.example.test'),
       throwsFormatException,

@@ -9,30 +9,58 @@ tasks, so they stay there.
 
 ---
 
-## 1. Make the remote UI work over the network
+## 1. Make the remote UI work over the network — decided
 
-**Blocks: the installer.** Decide this first; whatever we choose, the installer
-is what has to carry it.
+**Decided on 2026-08-14: support both, and let the firm choose.** The client
+accepts `https://` anywhere and `http://` to an address on its own network.
+Plain HTTP to a public address stays refused.
 
-The desktop client refuses plain HTTP to anything but `localhost` — see
-`normalizeServerUrl` in
-`desktop/lib/core/preferences/desktop_preferences_service.dart`. A client on
-another machine therefore cannot reach `http://<lan-ip>:8000`, which is exactly
-the deployment the product calls for.
+That is option 3 below, bounded. The product puts a client on one machine and
+the backend on another in the same building, and requiring HTTPS everywhere made
+that deployment impossible without an installer that first puts a certificate in
+every client's trust store. A firm running its own switch can reasonably decide
+its LAN traffic does not need TLS; the same traffic crossing the internet is a
+different thing, and no deployment of this product needs it.
 
-Three ways out, in the order I would consider them:
+What "its own network" means is written down and tested, not inferred:
+loopback, `10/8`, `172.16-31/12`, `192.168/16`, `169.254/16`, IPv6 `fc00::/7`
+and `fe80::/10`, single-label hostnames, and the `.local` / `.lan` /
+`.internal` / `.home.arpa` suffixes. Anything it cannot classify is not local.
+`desktop/test/server_url_rule_test.dart` is the decision written down —
+including the boundary cases, because reading `172.16/12` as "all of 172" would
+open the public internet.
+
+**The trade, stated plainly:** on a network where plain HTTP is used, the login
+password and every record cross the wire readable by anything else on it. The
+firm chooses that by typing an `http://` address; it is not the default and not
+silent — the field says which schemes it takes, and the refusal message says why.
+
+The server side supports both as well. `scripts/start_backend.ps1` takes
+`-BindHost` (127.0.0.1 by default, so a developer is reachable by nothing) and
+`-CertFile` / `-KeyFile` to serve TLS. Giving one of the two without the other
+is refused rather than starting on plain HTTP while the operator believes
+otherwise, and binding to a network interface without TLS prints a warning.
+
+**What this leaves for the installer (§3).** Nothing is now blocking it. If a
+firm wants TLS, the installer has to place the certificate in each client's
+Windows trust store; if it wants LAN HTTP, the installer has to open the port
+and bind to `0.0.0.0`. It can support both because both work.
+
+The three options this replaced, kept because the reasoning still applies if the
+decision is revisited:
 
 1. **HTTPS on the backend with a self-signed certificate**, installed into the
    Windows trust store on every client by the installer. Keeps the guarantee,
-   costs installer complexity.
+   costs installer complexity. Still available, and still the right answer on a
+   network the firm does not control.
 2. **A reverse proxy** on the server machine terminating TLS. Same guarantee,
    another moving part to install and supervise on a low-specification box.
-3. **Relax the rule for private-network addresses.** Cheapest, and it weakens
-   the protection that stops credentials crossing the LAN in clear text. If we
-   do this it should be a deliberate decision with its own tests, not a quiet
-   edit.
+3. **Relax the rule for private-network addresses.** What was chosen, with the
+   tests it was said to need.
 
-Test cases are already written: `docs/MANUAL_UI_TEST_PLAN.md` §3.
+Test cases: `docs/MANUAL_UI_TEST_PLAN.md` §3.
+
+---
 
 ## 2. Licence feature
 
