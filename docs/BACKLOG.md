@@ -698,25 +698,31 @@ exception would have made it permanent.
 
 **Built on 2026-08-14** as `desktop/lib/ui/reports/` -- a `ReportDefinition`
 catalogue rendering into one grid, so a report is an entry rather than a screen.
-Twenty-nine of the 34 are catalogued, and all 29 were driven against the running
-backend. The five left out are left out for a reason:
+**Thirty-three of the 34 are catalogued** and every one was driven against the
+running backend. The only one left out is `sales-invoices/reports/summary`, which
+answers one object rather than rows; it belongs on a dashboard.
 
-- `sales-invoices/reports/summary` answers one object, not rows. It belongs on a
-  dashboard, not in a grid.
-- **`purchase-returns/reports/{by-vendor,by-product,damaged,expired}` do not do
-  what their names say.** `by-vendor` and `supplier-analysis` are the same call
-  (`outstanding_report`) under two paths. `damaged` filters
-  `current_return_quantity > 0` and `expired` filters `pending_quantity >= 0` --
-  neither looks at `return_reason`, which is where the reason is recorded, so
-  they answer "anything returned" and "nearly everything" respectively.
-  `by-product` returns `reconciliation_report`, which is per source-document
-  line and carries no product at all. Fixing them needs product and reason on
-  `PurchaseReturnReconciliationRecord`, a real grouping for `by-product`, and a
-  decision about whether `return_reason` -- free text, `String(80)`, written as
-  `"DAMAGED"` by the sample data -- should become a constrained set. Catalogue
-  entries are cheap once the endpoints answer the question their name asks.
+**Five purchase-return reports did not do what their names said**, and were
+corrected the same day rather than catalogued as they were:
 
-Nine of the 29 answer with **whole documents** rather than report rows
+- `damaged` filtered `current_return_quantity > 0` and `expired` filtered
+  `pending_quantity >= 0`, so they answered "anything returned" and "nearly
+  everything". The line has carried `is_damaged` and `is_expired` since it was
+  written; both reports now read them.
+- `by-product` answered the per-line reconciliation, which carries no product at
+  all. It is now grouped per product, with code, name, quantity, value and count.
+- `by-vendor` and `supplier-analysis` were the same call under two paths.
+  `supplier-analysis` is gone, and `/reports/reconciliation` -- a report the
+  service always computed and nothing exposed -- takes its place, leaving the
+  module with six.
+- The line-level reports counted **cancelled** returns, which the by-vendor
+  totals had always excluded. A cancelled return did not happen; it now counts
+  nowhere.
+
+`PurchaseReturnVendorOutstandingRecord` was renamed `PurchaseReturnByVendorRecord`:
+purchase returns have no balance still owing, and the record held returned value.
+
+Nine of the 33 answer with **whole documents** rather than report rows
 (`goods-receipts/{pending,completed,rejected,damaged}`, `sales-invoices` and
 `purchase-invoices` `{pending,overdue}`, `delivery-notes/pending`): forty-odd
 fields including `lines` and `attachments`. The client names their columns

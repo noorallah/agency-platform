@@ -26,6 +26,8 @@ from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.purchase_return.schemas import (
+    PurchaseReturnByProductRecord,
+    PurchaseReturnByVendorRecord,
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnListFilters,
@@ -34,7 +36,6 @@ from app.purchase_return.schemas import (
     PurchaseReturnResponse,
     PurchaseReturnStatus,
     PurchaseReturnSummary,
-    PurchaseReturnVendorOutstandingRecord,
 )
 from app.purchase_return.services import PurchaseReturnService
 
@@ -304,27 +305,41 @@ def purchase_return_register(
 
 @router.get(
     "/reports/by-vendor",
-    response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]],
+    response_model=ApiResponse[list[PurchaseReturnByVendorRecord]],
 )
 def returns_by_vendor(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
+) -> ApiResponse[list[PurchaseReturnByVendorRecord]]:
     """Total returned value and count per vendor."""
     return ApiResponse(
-        data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
+        data=PurchaseReturnService(db).by_vendor_report(firm_scope=scope.firm_id)
     )
 
 
 @router.get(
     "/reports/by-product",
-    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+    response_model=ApiResponse[list[PurchaseReturnByProductRecord]],
 )
 def returns_by_product(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+) -> ApiResponse[list[PurchaseReturnByProductRecord]]:
     """Total returned quantity and value per product."""
+    return ApiResponse(
+        data=PurchaseReturnService(db).by_product_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/reconciliation",
+    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+)
+def purchase_return_reconciliation(
+    scope: PurchaseReturnViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+    """Return lines set against the receipts they came from."""
     return ApiResponse(
         data=PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
     )
@@ -338,15 +353,12 @@ def damaged_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
-    """Return the damaged goods report for the visible firm scope."""
-    rows = [
-        item
-        for item in PurchaseReturnService(db).reconciliation_report(
-            firm_scope=scope.firm_id
+    """Lines returned because the goods were damaged."""
+    return ApiResponse(
+        data=PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, damaged_only=True
         )
-        if item.current_return_quantity > 0
-    ]
-    return ApiResponse(data=rows)
+    )
 
 
 @router.get(
@@ -357,28 +369,11 @@ def expired_goods_report(
     scope: PurchaseReturnViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
-    """Return the expired goods report for the visible firm scope."""
-    rows = [
-        item
-        for item in PurchaseReturnService(db).reconciliation_report(
-            firm_scope=scope.firm_id
-        )
-        if item.pending_quantity >= 0
-    ]
-    return ApiResponse(data=rows)
-
-
-@router.get(
-    "/reports/supplier-analysis",
-    response_model=ApiResponse[list[PurchaseReturnVendorOutstandingRecord]],
-)
-def supplier_return_analysis(
-    scope: PurchaseReturnViewScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnVendorOutstandingRecord]]:
-    """Report the balance still owing per vendor."""
+    """Lines returned because the stock was past its date."""
     return ApiResponse(
-        data=PurchaseReturnService(db).outstanding_report(firm_scope=scope.firm_id)
+        data=PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, expired_only=True
+        )
     )
 
 

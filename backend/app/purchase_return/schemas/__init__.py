@@ -5,6 +5,8 @@ from app.purchase_return.schemas.purchase_return import (
     PurchaseReturnAccountingEventType,
     PurchaseReturnAttachmentResponse,
     PurchaseReturnAttachmentWrite,
+    PurchaseReturnByProductRecord,
+    PurchaseReturnByVendorRecord,
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnLineResponse,
@@ -21,7 +23,6 @@ from app.purchase_return.schemas.purchase_return import (
     PurchaseReturnStatus,
     PurchaseReturnSummary,
     PurchaseReturnUpdate,
-    PurchaseReturnVendorOutstandingRecord,
 )
 
 __all__ = [
@@ -45,5 +46,6 @@ __all__ = [
     "PurchaseReturnStatus",
     "PurchaseReturnSummary",
     "PurchaseReturnUpdate",
-    "PurchaseReturnVendorOutstandingRecord",
+    "PurchaseReturnByProductRecord",
+    "PurchaseReturnByVendorRecord",
 ]
