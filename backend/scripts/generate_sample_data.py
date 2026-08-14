@@ -14,7 +14,8 @@ from random import Random
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Table, delete, func, inspect, select, text
+from sqlalchemy import Table, create_engine, delete, func, inspect, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 import app.core.database.all_models  # noqa: F401
@@ -51,6 +52,11 @@ from app.core.database.base import Base
 from app.core.database.engine import DatabaseManager
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ValidationError
+from app.core.tenancy import DeploymentMode
+from app.core.tenancy.connections import (
+    build_tenant_database_config,
+    resolve_connection_profile,
+)
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerAddressInput,
@@ -796,12 +802,82 @@ def _generated_tables() -> list[Table]:
     ]
 
 
+def _dedicated_stores(settings: Settings) -> list[tuple[str, str, str]]:
+    """Return every dedicated firm store, as (label, url, schema).
+
+    Read before the platform is cleared, because `firm_storage_mappings` is
+    what says where these stores are and it is about to be deleted with
+    everything else. SHARED firms live in the schema the main pass already
+    covers and are skipped here.
+    """
+    manager = DatabaseManager.from_settings(settings)
+    base = manager.config
+    try:
+        stores: dict[tuple[str, str], tuple[str, str, str]] = {}
+        with manager.sessions(schema=base.default_schema or "platform").session() as s:
+            rows = s.execute(
+                select(Firm, FirmStorageMapping)
+                .join(FirmStorageMapping, FirmStorageMapping.firm_id == Firm.id)
+                .where(FirmStorageMapping.is_deleted.is_(False))
+            ).all()
+            for firm, mapping in rows:
+                if DeploymentMode(mapping.deployment_mode) is DeploymentMode.SHARED:
+                    continue
+                if mapping.database_name is None or mapping.schema_name is None:
+                    continue
+                config = build_tenant_database_config(
+                    base,
+                    database_name=mapping.database_name,
+                    schema_name=mapping.schema_name,
+                    database_type=mapping.database_type,
+                    profile=resolve_connection_profile(
+                        settings.tenancy.connection_profiles,
+                        mapping.connection_profile,
+                    ),
+                )
+                url = make_url(config.url)
+                stores.setdefault(
+                    (f"{url.host}:{url.port}/{url.database}", mapping.schema_name),
+                    (firm.code, config.url, mapping.schema_name),
+                )
+        return list(stores.values())
+    finally:
+        manager.dispose()
+
+
+def _reset_dedicated_store(url: str, schema: str) -> None:
+    """Clear one firm's own store, in the same derived order."""
+    engine = create_engine(url)
+    try:
+        with Session(engine) as session:
+            session.execute(text(f'SET search_path TO "{schema}", public'))
+            for table in _generated_tables():
+                _safe_delete_table(session, table, schema)
+            # Reference data lives per store, so a cleared firm store has no
+            # units until it is re-seeded -- and a store with no units cannot
+            # hold a product. The platform pass does the same for its own
+            # schema after the delete.
+            seed_uom_reference_data(session)
+            session.commit()
+    finally:
+        engine.dispose()
+
+
 def _reset_development_data(session: Session, settings: Settings) -> None:
     preserved_platform_admin_ids = set(
         session.scalars(
             select(PlatformAdmin.user_id).where(PlatformAdmin.is_deleted.is_(False))
         ).all()
     )
+
+    # A firm with its own schema or database keeps its rows there, and the
+    # firms they belong to are about to be deleted. Clearing those stores
+    # first is what stops a re-seed finding orphans: WHOLE01 ended up with
+    # eighteen customers belonging to firms that no longer existed, and a
+    # receivable account 234,000 short of what they said they were owed.
+    for label, url, schema in _dedicated_stores(settings):
+        print(f"  clearing {label} ({schema})")
+        _reset_dedicated_store(url, schema)
 
     # Derived from the schema, not listed here: see PRESERVED_TABLES. Each
     # schema is cleared in full before the next, children before parents.

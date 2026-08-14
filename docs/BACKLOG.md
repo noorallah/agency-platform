@@ -933,27 +933,50 @@ except the fourteen preserved tables and the six that
 `tests/unit/test_schema_registry.py` fails the build if a module under
 `app/*/models/` is missing from it.
 
-## Two things this uncovered, both left open
+## Two things this uncovered, both now fixed
 
-**`seed_multi_firm_demo.py` cannot seed a genuinely clean database.** Nobody
-had one before, because the reset never worked. Two problems: it asked for UOM
-codes `GRAM` and `TABLET` that the baseline catalogue never had -- fixed here,
-`TABLET` joins the catalogue below `STRIP` and `GRAM` becomes `G`, the code the
-catalogue uses -- and then its own products fail the mandatory-attribute check
-against the `CategoryAttributeRule` rows it has just written. The second is
-unfixed and needs someone to work out which attribute the rule requires that
-the product does not supply.
+**No attribute is mandatory for every firm.** `20260801_0011` seeded four
+product attributes with `mandatory = True` and no category or profile scope --
+EXPIRY_DATE, BATCH_NUMBER, MANUFACTURER and IMEI. An unscoped mandatory
+attribute applies to **every product of every firm**, so a pharmacy could not
+save a product without an IMEI and an electronics distributor could not save
+one without an expiry date; `AttributeService` refuses the write. It blocked
+product creation outright on any database built from migrations, and had gone
+unseen because the demo seeder overwrote three of the four flags on the way
+past and nobody could get to a freshly-migrated catalogue.
 
-**The generated dataset does not balance.** `verify_sample_data.py` reports
-customers owing 885,000.00 against a receivable control account of zero: the
-generator sets `customers.opening_balance` directly and nothing posts a
-journal. It is the same defect class as
-`CustomerService.post_receivable_transaction`, and fixing it needs a decision
-about the counterpart -- opening balance equity, the way opening stock got one
-in `20260814_0080`.
+IMEI is one of the seven features `20260810_0059` marks
+`is_implemented = false`, so a roadmap attribute was compulsory for every
+product in the platform. `20260815_0087` clears the flag; the seed no longer
+sets it. Where an attribute really is required, `category_attribute_rules` says
+so per business profile and category -- which is what the demo seeder does, and
+what the rows in the same migration already did.
 
-`scripts/seed_multi_firm_demo.py` and `generate_transaction_history.py` are
-unaffected and remain the working way to build demo data.
+**The reset now reaches every firm store.** It cleared `platform` and
+`firm_shared` and left the dedicated ones alone, while deleting the `firms`
+rows those stores' data belonged to. WHOLE01 ended up with eighteen customers
+belonging to firms that no longer existed and a receivable control account
+234,000 short of what they said they were owed. The stores are read from the
+registry first -- it is the thing that says where they are, and it is about to
+be deleted -- then cleared in the same derived order, and their UOM reference
+data is re-seeded because a store with no units cannot hold a product.
+
+**`seed_multi_firm_demo.py` seeds a clean database now.** Its UOM codes are
+corrected too: it asked for `GRAM` and `TABLET`, and the catalogue has `G` and
+had no tablet at all. `TABLET` joins the catalogue below `STRIP`, which is what
+a strip is ten of.
+
+Proven end to end: `generate_sample_data.py reset --yes`, then
+`seed_multi_firm_demo.py`, then `verify_sample_data.py` -- **all three stores
+hold together**, from a full reset, for the first time.
+
+**Still open:** the generated dataset from `generate_sample_data.py --yes`
+itself does not balance -- customers owe 885,000.00 against a receivable
+control account of zero, because the generator sets
+`customers.opening_balance` directly and nothing posts a journal. Same defect
+class as `CustomerService.post_receivable_transaction`. Fixing it needs a
+decision about the counterpart: opening balance equity, the way opening stock
+got one in `20260814_0080`. The demo seeder does not have this problem.
 
 ## Also open
 
