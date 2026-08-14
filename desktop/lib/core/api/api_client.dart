@@ -2278,6 +2278,24 @@ class ApiClient {
         .toList();
   }
 
+  /// The feature codes the firm's business profile has switched on.
+  ///
+  /// Read the same way the active module list is: a failure leaves the caller
+  /// with nothing, and every gate treats "nothing" as "show it".
+  Future<List<String>> activeBusinessFeatureCodes() async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/business-framework/active-features',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((value) => stringValue(value['code']).toUpperCase())
+        .where((code) => code.isNotEmpty)
+        .toList();
+  }
+
   Future<Json> userAssignmentValues(String userId) async {
     final List<Json> responses = await Future.wait([
       request('GET', '/api/v1/users/$userId/roles'),

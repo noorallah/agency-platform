@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
@@ -111,6 +112,7 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     required this.purchaseOrders,
     required this.warehouses,
     required this.products,
+    this.features = const BusinessFeatures.unknown(),
   });
 
   final ApiClient api;
@@ -119,6 +121,10 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
   final List<PurchaseOrder> purchaseOrders;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
+
+  /// Which optional fields this firm's profile turns on. Unknown means shown:
+  /// a configuration gap is not a decision.
+  final BusinessFeatures features;
 
   @override
   State<GoodsReceiptEditorDialog> createState() =>
@@ -412,8 +418,9 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
               (value) => _invoiceReference = value, null),
           _text('Transport Details', _transportDetails,
               (value) => _transportDetails = value, null),
-          _text('Vehicle Number', _vehicleNumber,
-              (value) => _vehicleNumber = value, null),
+          if (widget.features.isEnabled('VEHICLE_TRACKING'))
+            _text('Vehicle Number', _vehicleNumber,
+                (value) => _vehicleNumber = value, null),
           _text('Remarks', _remarks, (value) => _remarks = value, null),
         ],
       );
@@ -520,19 +527,25 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
                         (value) => line.batchNumber = value,
                         width: 200,
                       ),
-                      _lineField(
-                        line.expiryRequired ? 'Expiry Date *' : 'Expiry Date',
-                        line.expiryDate,
-                        (value) => line.expiryDate = value,
-                        width: 180,
-                        hint: 'YYYY-MM-DD',
-                      ),
-                      _lineField(
-                        'Manufacturing Date',
-                        line.manufacturingDate,
-                        (value) => line.manufacturingDate = value,
-                        width: 180,
-                        hint: 'YYYY-MM-DD',
+                      // Only offered where the firm's profile enables them.
+                      // The server refuses a receipt carrying one otherwise --
+                      // a 403 naming the feature, on save, after the whole
+                      // document has been keyed.
+                      if (widget.features.isEnabled('EXPIRY_TRACKING'))
+                        _lineField(
+                          line.expiryRequired ? 'Expiry Date *' : 'Expiry Date',
+                          line.expiryDate,
+                          (value) => line.expiryDate = value,
+                          width: 180,
+                          hint: 'YYYY-MM-DD',
+                        ),
+                      if (widget.features.isEnabled('MANUFACTURING_DATE'))
+                        _lineField(
+                          'Manufacturing Date',
+                          line.manufacturingDate,
+                          (value) => line.manufacturingDate = value,
+                          width: 180,
+                          hint: 'YYYY-MM-DD',
                       ),
                       _lineField(
                         'Remarks',
