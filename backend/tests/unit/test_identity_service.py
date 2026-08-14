@@ -401,9 +401,7 @@ def test_firm_admin_identity_scope_blocks_cross_firm_and_platform_roles() -> Non
     session.commit()
     service = IdentityService(session, _settings())
 
-    users, total = service.list_users(
-        1, 20, None, "email", False, firm_scope=firm_a.id
-    )
+    users, total = service.list_users(1, 20, None, "email", False, firm_scope=firm_a.id)
 
     assert total == 1
     assert [user.id for user in users] == [user_a.id]
@@ -415,9 +413,7 @@ def test_firm_admin_identity_scope_blocks_cross_firm_and_platform_roles() -> Non
             firm_scope=firm_a.id,
         )
 
-    platform_role = session.scalar(
-        select(Role).where(Role.code == "PLATFORM_ADMIN")
-    )
+    platform_role = session.scalar(select(Role).where(Role.code == "PLATFORM_ADMIN"))
     firm_role = session.scalar(select(Role).where(Role.code == "FIRM_ADMIN"))
     assert platform_role is not None
     assert firm_role is not None
@@ -425,9 +421,7 @@ def test_firm_admin_identity_scope_blocks_cross_firm_and_platform_roles() -> Non
         service.set_user_roles(
             user_a.id, [platform_role.id], user_a.id, firm_scope=firm_a.id
         )
-    service.set_user_roles(
-        user_a.id, [firm_role.id], user_a.id, firm_scope=firm_a.id
-    )
+    service.set_user_roles(user_a.id, [firm_role.id], user_a.id, firm_scope=firm_a.id)
     assignment = session.scalar(
         select(UserRole).where(
             UserRole.user_id == user_a.id,

@@ -46,15 +46,15 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.schemas import (
-    QuarantineAction,
-    StockQuarantineCreate,
-    StockWriteOffCreate,
-    WriteOffReason,
-    StockTransferCreate,
     InventoryAdjustmentCreate,
     InventoryCreate,
     InventoryListFilters,
     OpeningStockBatchCreate,
+    QuarantineAction,
+    StockQuarantineCreate,
+    StockTransferCreate,
+    StockWriteOffCreate,
+    WriteOffReason,
 )
 from app.inventory.services import InventoryService
 from app.inventory.services.inventory_service import _Movement
@@ -1404,7 +1404,14 @@ def test_a_transfer_to_where_the_stock_already_is_makes_no_sense() -> None:
         )
 
 
-def _costed_stock(session, firm, branch, warehouse, product, actor_id):
+def _costed_stock(
+    session: Session,
+    firm: Firm,
+    branch: Branch,
+    warehouse: Warehouse,
+    product: Product,
+    actor_id: UUID,
+) -> InventoryService:
     """Put costed stock in, so a write-off has a value to remove."""
     seed_finance_setup(
         session,

@@ -482,4 +482,3 @@ def test_zero_counts_as_a_value_somebody_typed() -> None:
             feature="EXPIRY_TRACKING",
             values={"shelf_life_days": 0},
         )
-

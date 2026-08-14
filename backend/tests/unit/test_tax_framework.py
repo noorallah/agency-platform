@@ -92,6 +92,7 @@ def _profile(session: Session, actor_id: UUID) -> BusinessProfile:
 
 
 def test_tax_framework_profile_drives_product_assignment() -> None:
+    """A product takes its tax profile from the firm's tax system."""
     factory = _session_factory()
     session = factory()
     actor_id = uuid4()
@@ -170,6 +171,10 @@ def test_tax_framework_profile_drives_product_assignment() -> None:
 
 
 def test_tax_framework_validates_component_system_alignment() -> None:
+    """A component cannot belong to a system its profile does not use.
+
+    Mixing them silently would compute a tax nobody has legislated.
+    """
     factory = _session_factory()
     session = factory()
     actor_id = uuid4()
@@ -215,6 +220,11 @@ def test_tax_framework_validates_component_system_alignment() -> None:
 
 
 def test_tax_rule_engine_applies_highest_priority_matching_rule() -> None:
+    """The first rule that matches decides, and evaluation stops there.
+
+    Ordered by priority, then code, then version. Two rules both applying
+    would tax the same line twice.
+    """
     factory = _session_factory()
     session = factory()
     actor_id = uuid4()
@@ -320,6 +330,11 @@ def test_tax_rule_engine_applies_highest_priority_matching_rule() -> None:
 
 
 def test_tax_rule_updates_create_new_version_after_activation() -> None:
+    """An active rule is versioned rather than edited.
+
+    Documents already taxed under it must keep computing the same way,
+    which editing in place would silently change.
+    """
     factory = _session_factory()
     session = factory()
     actor_id = uuid4()
@@ -370,6 +385,7 @@ def test_tax_rule_updates_create_new_version_after_activation() -> None:
 
 
 def test_tax_framework_settings_can_be_created_on_first_update() -> None:
+    """A firm with no tax settings row gets one on its first change."""
     factory = _session_factory()
     session = factory()
     actor_id = uuid4()

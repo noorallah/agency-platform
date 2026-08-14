@@ -36,7 +36,9 @@ As of 2026-08-10 `pytest` is **green (248 unit + 24 integration)** and every tes
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
-`ruff check .` still reports ~3,232 pre-existing findings across older modules (mostly `E501` and missing docstrings), so it is **not** a usable pass/fail gate repo-wide. Lint the files you touched instead, e.g. `uv run ruff check app/<module> tests/unit/test_<module>.py`. `mypy app` likewise has pre-existing failures outside `app/finance`. New and rewritten code is expected to be clean under all four tools.
+**`app/` and `tests/` are clean under all four tools, and expected to stay that way.** `ruff check app`, `ruff check tests`, `black --check` and `mypy app` (320 files) all pass, so any finding in them is one you introduced. That was not true for most of this project's life -- this file claimed ~3,232 pre-existing findings and `mypy` failures outside `app/finance`, both of which stopped being true without the claim being updated, which is how a stale number talks people out of running the tools at all.
+
+`ruff check .` still reports 181 findings, now confined to `scripts/` (130) and `alembic/` (51) -- mostly `E501` and missing docstrings in older migrations. Those two directories are the remaining debt; lint what you touch there rather than the whole tree.
 
 Single test / single case:
 

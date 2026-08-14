@@ -483,6 +483,7 @@ async def _read_stream(response: object) -> bytes:
 
 
 def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
+    """An order totals correctly, moves through its states, and is audited."""
     session = _session_factory()()
     actor_id = uuid4()
     firm = _firm(session, "PO-SVC")
@@ -707,6 +708,11 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
 
 
 def test_purchase_service_validations_multi_firm_search_and_import_duplicates() -> None:
+    """Orders stay inside their firm, and an import refuses its duplicates.
+
+    An import that accepts the same order twice is how a firm ends up
+    paying a supplier twice.
+    """
     session = _session_factory()()
     actor_id = uuid4()
     first_firm = _firm(session, "PO-A")
@@ -978,6 +984,7 @@ def test_purchase_service_validations_multi_firm_search_and_import_duplicates() 
 
 
 def test_purchase_api_routes_import_export_summary_history_and_permissions() -> None:
+    """Every purchase route enforces its permission and returns its shape."""
     pytest.importorskip("openpyxl")
     factory = _session_factory()
     setup = factory()
@@ -1110,7 +1117,8 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
                         "PoNumber,BranchId,WarehouseId,VendorId,ProductId,PurchaseDate,"
                         "OrderedQty,UnitPrice,PurchaseUomId,InventoryUomId,TaxProfileId,Remarks\n"
                         f"PO-API-CSV-001,{branch.id},{warehouse.id},{vendor.id},{product.id},2026-08-02,"
-                        f"3,9,{purchase_uom_id},{inventory_uom_id},{tax_profile_id},CSV import\n"
+                        f"3,9,{purchase_uom_id},{inventory_uom_id},"
+                        f"{tax_profile_id},CSV import\n"
                     ).encode()
                 ),
             ),
@@ -1199,8 +1207,8 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     csv_bytes = asyncio.run(_read_stream(csv_export))
     csv_text = csv_bytes.decode("utf-8")
     assert (
-        "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,Tax Total,Grand Total"
-        in csv_text
+        "PO Number,Date,Vendor ID,Branch ID,Warehouse ID,Status,Subtotal,"
+        "Tax Total,Grand Total" in csv_text
     )
     assert "PO-API-001" in csv_text
 

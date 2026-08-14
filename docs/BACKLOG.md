@@ -774,5 +774,9 @@ carried figure is not written `0` in a column of `0.00`s.
   control account, every settlement carrying its journal, and every approved
   invoice having posted.
 
-- **`tests/` still has about 40 ruff findings** — missing docstrings and long
-  lines in older test files. `app/` is clean.
+- **`tests/` is clean under ruff and black** as of 2026-08-14, and `mypy app`
+  passes across all 320 files. The 24 missing docstrings were the useful part:
+  a test that does not say what it protects is a test nobody dares delete and
+  nobody trusts. What remains repo-wide is 181 findings in `scripts/` (130) and
+  `alembic/` (51), mostly long lines and missing docstrings in older
+  migrations.

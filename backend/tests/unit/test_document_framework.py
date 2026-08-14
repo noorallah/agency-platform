@@ -194,7 +194,11 @@ def test_back_dating_a_document_does_not_renumber_the_current_year() -> None:
 
     # Three invoices in the current year.
     current = [reserve("2026-2027", date(2026, 8, day)) for day in (1, 2, 3)]
-    assert current == ["INV-2026-2027-000001", "INV-2026-2027-000002", "INV-2026-2027-000003"]
+    assert current == [
+        "INV-2026-2027-000001",
+        "INV-2026-2027-000002",
+        "INV-2026-2027-000003",
+    ]
 
     # A missed invoice from last year. It starts its own series at one.
     assert reserve("2025-2026", date(2026, 3, 30)) == "INV-2025-2026-000001"
@@ -214,7 +218,9 @@ def test_every_number_a_rule_issues_is_unique() -> None:
     actor_id = uuid4()
     service = DocumentFrameworkService(session)
     document_type = service.create_type(
-        firm.id, DocumentTypeCreate(code="DELIVERY_NOTE", name="Delivery Note"), actor_id
+        firm.id,
+        DocumentTypeCreate(code="DELIVERY_NOTE", name="Delivery Note"),
+        actor_id,
     )
     rule = service.create_numbering_rule(
         firm.id,

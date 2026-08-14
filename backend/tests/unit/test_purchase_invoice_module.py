@@ -8,12 +8,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.branches.models import Branch, Warehouse
-from app.common.audit.models import AuditLog
-from app.business.models import framework as _business_models  # noqa: F401
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
-from app.customers.models import customer as _customer_models  # noqa: F401
+from app.branches.models import Branch, Warehouse
+from app.business.models import framework as _business_models  # noqa: F401
+from app.common.audit.models import AuditLog
 from app.core.database.base import Base
+from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -30,8 +30,8 @@ from app.purchase_invoice.schemas import (
 from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
-from app.vendors.models import Vendor
 from app.uom.models import uom as _uom_models  # noqa: F401
+from app.vendors.models import Vendor
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -153,6 +153,11 @@ def _purchase_order(
 
 
 def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
+    """Invoicing a purchase order directly still builds the document type.
+
+    The type, its states and its numbering are created on first use, so
+    the path that skips a goods receipt has to build them too.
+    """
     session_factory = _session_factory()
     session = session_factory()
     firm = _firm(session)
@@ -167,7 +172,9 @@ def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
         warehouse_id=warehouse.id,
     )
     po_line = session.scalar(
-        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == purchase_order.id)
+        select(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == purchase_order.id
+        )
     )
     assert po_line is not None
 
@@ -206,13 +213,26 @@ def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
     assert response.invoice_number.startswith("PI")
     assert response.grand_total == Decimal("400.0000")
     assert response.duplicate_warning is None
-    assert session.scalar(
-        select(DocumentTypeDefinition).where(
-            DocumentTypeDefinition.firm_id == firm.id,
-            DocumentTypeDefinition.code == "PURCHASE_INVOICE",
+    assert (
+        session.scalar(
+            select(DocumentTypeDefinition).where(
+                DocumentTypeDefinition.firm_id == firm.id,
+                DocumentTypeDefinition.code == "PURCHASE_INVOICE",
+            )
         )
-    ) is not None
-    assert session.scalar(select(PurchaseInvoice).where(PurchaseInvoice.id == row.id)) is not None
-    assert session.scalar(select(PurchaseInvoiceLine).where(PurchaseInvoiceLine.purchase_invoice_id == row.id)) is not None
+        is not None
+    )
+    assert (
+        session.scalar(select(PurchaseInvoice).where(PurchaseInvoice.id == row.id))
+        is not None
+    )
+    assert (
+        session.scalar(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.purchase_invoice_id == row.id
+            )
+        )
+        is not None
+    )
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None
