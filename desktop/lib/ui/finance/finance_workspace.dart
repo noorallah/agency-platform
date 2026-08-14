@@ -7,6 +7,7 @@ import '../../models/finance.dart';
 import '../resource_management_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
+import 'journal_entries_page.dart';
 import 'trial_balance_page.dart';
 
 /// The chart of accounts, as a plain REST resource.
@@ -111,8 +112,8 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
 /// The module rendered "Coming Soon" while thirty endpoints ran behind it and
 /// every goods receipt, dispatch and invoice posted to the ledger. These two
 /// tabs are the ones that make the rest legible -- the accounts postings land
-/// in, and whether the result balances. Journal entries, receipts and payments
-/// are still placeholders, and the catalog still says so.
+/// in, the postings themselves, and whether the result balances. Receipts and
+/// payments have no endpoint at all and are still placeholders.
 class FinanceWorkspace extends StatefulWidget {
   const FinanceWorkspace({
     super.key,
@@ -140,6 +141,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
         description: 'Accounts, and whether the books balance.',
         breadcrumbs: const ['Workspace', 'Finance'],
         child: switch (widget.tabId) {
+          'journal-entries' => JournalEntriesPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
           'trial-balance' => TrialBalancePage(
               api: widget.api,
               permissions: widget.permissions,

@@ -193,3 +193,117 @@ class TrialBalanceReport {
     isBalanced: true,
   );
 }
+
+/// One line of a journal entry: an amount on one side of one account.
+class JournalLine {
+  const JournalLine({
+    required this.ledgerAccountId,
+    required this.lineNumber,
+    required this.debitAmount,
+    required this.creditAmount,
+    required this.description,
+  });
+
+  final String ledgerAccountId;
+  final int lineNumber;
+  final String debitAmount;
+  final String creditAmount;
+  final String description;
+
+  factory JournalLine.fromJson(Json json) => JournalLine(
+        ledgerAccountId: stringValue(json['ledger_account_id']),
+        lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
+        debitAmount: stringValue(json['debit_amount']),
+        creditAmount: stringValue(json['credit_amount']),
+        description: stringValue(json['description']),
+      );
+}
+
+/// A journal entry, drafted or posted.
+class JournalEntry {
+  const JournalEntry({
+    required this.id,
+    required this.journalTypeId,
+    required this.voucherTypeId,
+    required this.accountingPeriodId,
+    required this.journalDate,
+    required this.referenceNumber,
+    required this.description,
+    required this.status,
+    required this.postedAt,
+    required this.totalDebit,
+    required this.totalCredit,
+    required this.isBalanced,
+    required this.sourceModule,
+    required this.reversalOfId,
+    required this.lines,
+  });
+
+  final String id;
+  final String journalTypeId;
+  final String voucherTypeId;
+  final String accountingPeriodId;
+  final String journalDate;
+  final String referenceNumber;
+  final String description;
+  final String status;
+  final String postedAt;
+  final String totalDebit;
+  final String totalCredit;
+  final bool isBalanced;
+
+  /// Which module raised it, when a document did rather than a person.
+  final String sourceModule;
+  final String reversalOfId;
+  final List<JournalLine> lines;
+
+  bool get isDraft => status == 'DRAFT';
+  bool get isPosted => status == 'POSTED';
+
+  /// Whether a person wrote it. Entries a document posted are not editable
+  /// here, and saying which raised it is more use than hiding the fact.
+  bool get isManual => sourceModule.isEmpty;
+
+  factory JournalEntry.fromJson(Json json) {
+    final Json d =
+        json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
+    final dynamic lines = d['lines'];
+    return JournalEntry(
+      id: stringValue(d['id']),
+      journalTypeId: stringValue(d['journal_type_id']),
+      voucherTypeId: stringValue(d['voucher_type_id']),
+      accountingPeriodId: stringValue(d['accounting_period_id']),
+      journalDate: stringValue(d['journal_date']),
+      referenceNumber: stringValue(d['reference_number']),
+      description: stringValue(d['description']),
+      status: stringValue(d['status']),
+      postedAt: stringValue(d['posted_at']),
+      totalDebit: stringValue(d['total_debit']),
+      totalCredit: stringValue(d['total_credit']),
+      isBalanced: boolValue(d['is_balanced']),
+      sourceModule: stringValue(d['source_module']),
+      reversalOfId: stringValue(d['reversal_of_id']),
+      lines: [
+        for (final dynamic line in lines is List ? lines : const [])
+          if (line is Map) JournalLine.fromJson(Map<String, dynamic>.from(line)),
+      ],
+    );
+  }
+}
+
+/// A journal or voucher type, which every entry has to name.
+class FinanceTypeRef {
+  const FinanceTypeRef({required this.id, required this.code, required this.name});
+
+  final String id;
+  final String code;
+  final String name;
+
+  String get label => code.isEmpty ? name : '$code — $name';
+
+  factory FinanceTypeRef.fromJson(Json json) => FinanceTypeRef(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+      );
+}

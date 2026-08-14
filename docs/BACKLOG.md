@@ -396,11 +396,25 @@ Built on 2026-08-14:
 Verified against the seeded WHOLE01 firm: August 2026 reports six lines with
 debit and credit both 604,976.70.
 
-**Still placeholders, and the catalogue still says so:** journal entries
-(`/finance/journal-entries` exists -- a multi-line editor that has to balance
-before it posts, which is its own piece of work), ledgers, profit and loss.
-**Receipts and payments have no endpoint at all** and are a feature rather than
-a gap.
+**Journal entries** followed on 2026-08-14: a list, a hand-written entry that
+has to balance before it is sent, and post and reverse. The backend had no way
+to *find* an entry -- create, read-one-by-id, post and reverse, and no list --
+so everything the documents posted was unfindable unless somebody already knew
+its id. `GET /finance/journal-entries` was added with it.
+
+**Still placeholders, and the catalogue still says so:** ledgers, profit and
+loss. **Receipts and payments have no endpoint at all** and are a feature
+rather than a gap.
+
+**A trial balance can report out of balance while the ledger is sound**, and
+this is worth fixing in the backend. `GeneralLedgerService.trial_balance` sums
+the closing balances of the `ledger_balances` rows for the period, and a row
+exists only for an account that was *posted to* in it. An account carrying a
+balance that saw no movement is therefore absent, and its side of the total
+with it: March 2027 in the seeded firm reports `dr 0.00 cr 211217.50` because
+only two accounts moved. A real trial balance lists every account with a
+balance. The screen explains what its totals cover rather than implying the
+books are broken, but the report is the thing to change.
 
 ---
 

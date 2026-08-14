@@ -2442,6 +2442,66 @@ class ApiClient {
         ),
       );
 
+  Future<PagedResult<JournalEntry>> journalEntries({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    bool descending = true,
+    String? accountingPeriodId,
+    String? status,
+  }) =>
+      _list(
+        '/api/v1/finance/journal-entries',
+        JournalEntry.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        descending: descending,
+        additionalQuery: {
+          if (accountingPeriodId != null) 'accounting_period_id': accountingPeriodId,
+          if (status != null) 'status': status,
+        },
+      );
+
+  Future<JournalEntry> journalEntry(String id) async => JournalEntry.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/finance/journal-entries/$id')),
+      );
+
+  Future<JournalEntry> createJournalEntry(Json data) async => JournalEntry.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/journal-entries', body: data),
+        ),
+      );
+
+  /// Post a draft to the general ledger. There is no unposting: a posted entry
+  /// is reversed by another entry, which is what `reverseJournalEntry` raises.
+  Future<JournalEntry> postJournalEntry(String id) async => JournalEntry.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/finance/journal-entries/$id/post'),
+        ),
+      );
+
+  Future<JournalEntry> reverseJournalEntry(String id, Json data) async =>
+      JournalEntry.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/finance/journal-entries/$id/reverse',
+            body: data,
+          ),
+        ),
+      );
+
+  Future<List<FinanceTypeRef>> journalTypes() async => _unwrapList(
+        await request('GET', '/api/v1/finance/journal-types'),
+        FinanceTypeRef.fromJson,
+      );
+
+  Future<List<FinanceTypeRef>> voucherTypes() async => _unwrapList(
+        await request('GET', '/api/v1/finance/voucher-types'),
+        FinanceTypeRef.fromJson,
+      );
+
   /// Whether the backend answers at all.
   ///
   /// `/health` is deliberately cheap on the server -- it touches no database --

@@ -188,6 +188,13 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
   }
 
   /// Whether the books balance, as the server reported it.
+  ///
+  /// The report lists the accounts that were **posted to** in this period, and
+  /// totals those. An account carrying a balance that saw no movement is not
+  /// in it, so a quiet period can report out of balance while the ledger
+  /// itself is sound. That is a property of the report rather than of the
+  /// books, and the caption below says so rather than leaving somebody to
+  /// discover it against a red badge.
   Widget _balanceBadge(BuildContext context) => Chip(
         avatar: Icon(
           _report.isBalanced ? Icons.check_circle_outline : Icons.error_outline,
@@ -211,9 +218,23 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
 
   Widget _table(BuildContext context) => SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!_report.isBalanced)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: Text(
+                  'These totals cover the accounts posted to in this period. '
+                  'An account holding a balance that saw no movement is not '
+                  'listed, so a quiet period can read as out of balance while '
+                  'the ledger itself is sound.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
             columns: const [
               DataColumn(label: Text('Code')),
               DataColumn(label: Text('Account')),
@@ -234,22 +255,24 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                   DataCell(Text(line.periodCredit)),
                   DataCell(Text(line.closingBalance)),
                 ]),
-              DataRow(
-                color: WidgetStatePropertyAll(
-                  Theme.of(context).colorScheme.surfaceContainerHighest,
-                ),
-                cells: [
-                  const DataCell(Text('')),
-                  const DataCell(Text('Total')),
-                  const DataCell(Text('')),
-                  const DataCell(Text('')),
-                  DataCell(Text(_report.totalDebit)),
-                  DataCell(Text(_report.totalCredit)),
-                  const DataCell(Text('')),
+                  DataRow(
+                    color: WidgetStatePropertyAll(
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                    ),
+                    cells: [
+                      const DataCell(Text('')),
+                      const DataCell(Text('Total')),
+                      const DataCell(Text('')),
+                      const DataCell(Text('')),
+                      DataCell(Text(_report.totalDebit)),
+                      DataCell(Text(_report.totalCredit)),
+                      const DataCell(Text('')),
+                    ],
+                  ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
 }

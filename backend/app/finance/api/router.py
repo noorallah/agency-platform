@@ -1,15 +1,16 @@
 """Firm-scoped REST endpoints for finance masters, journals, and reports."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.responses.models import ApiResponse
+from app.core.pagination import PaginationParams
+from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.finance.schemas import (
     AccountGroupCreate,
     AccountGroupResponse,
@@ -28,6 +29,7 @@ from app.finance.schemas import (
     JournalEntryCreate,
     JournalEntryResponse,
     JournalEntryReverse,
+    JournalStatusEnum,
     JournalTypeCreate,
     JournalTypeResponse,
     LedgerAccountCreate,
@@ -485,6 +487,44 @@ def create_journal_entry(
     )
     db.commit()
     return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.get(
+    "/journal-entries",
+    response_model=PaginatedResponse[JournalEntryResponse],
+)
+def list_journal_entries(
+    scope: JournalViewScope,
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+    sort_direction: Literal["asc", "desc"] = "desc",
+    accounting_period_id: UUID | None = None,
+    status_value: Annotated[JournalStatusEnum | None, Query(alias="status")] = None,
+    journal_type_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[JournalEntryResponse]:
+    """Return a page of journal entries for the firm in scope.
+
+    The module could create an entry and read one back by id, and had no way to
+    find one -- so everything the documents posted was unfindable unless
+    somebody already knew its id.
+    """
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = JournalEntryEngine(db).list_entries(
+        firm_id=scope.firm_id,
+        page=params.page,
+        page_size=params.page_size,
+        search=search,
+        accounting_period_id=accounting_period_id,
+        status=status_value.value if status_value else None,
+        journal_type_id=journal_type_id,
+        descending=sort_direction == "desc",
+    )
+    return PaginatedResponse(
+        data=[JournalEntryResponse.model_validate(row) for row in rows],
+        pagination=params.metadata(total),
+    )
 
 
 @router.get(

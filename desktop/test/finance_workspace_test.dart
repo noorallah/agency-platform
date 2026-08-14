@@ -195,6 +195,13 @@ void main() {
       await _pump(tester, api);
 
       expect(find.textContaining('Out of balance by 59.50'), findsOneWidget);
+      // And it says what the totals cover, because the report lists only the
+      // accounts posted to in the period: a quiet period can read as out of
+      // balance while the ledger itself is sound.
+      expect(
+        find.textContaining('accounts posted to in this period'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a period with no postings says so, and why', (tester) async {

@@ -351,6 +351,65 @@ def test_journal_entry_requires_balance_and_open_period() -> None:
         )
 
 
+def test_journal_entries_can_be_found_and_not_only_created() -> None:
+    """The module could create an entry and read one back by id, and no more.
+
+    Everything the documents posted was unfindable unless somebody already knew
+    its id, which is the same as not being there. The list is ordered by
+    journal date and then reference number, so two entries on one date keep a
+    stable order across pages instead of shuffling.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    other = _firm(session, code="OTHER")
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    engine = JournalEntryEngine(session)
+
+    for day, reference in ((10, "JV-002"), (10, "JV-001"), (12, "JV-003")):
+        engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, day),
+            reference_number=reference,
+            description=f"Seeded {reference}",
+            lines=_sale_lines(book, "100"),
+            actor_id=actor_id,
+        )
+    session.commit()
+
+    rows, total = engine.list_entries(firm_id=firm.id, page=1, page_size=10)
+    assert total == 3
+    assert [row.reference_number for row in rows] == ["JV-003", "JV-002", "JV-001"], (
+        "newest date first, and the reference breaks a same-day tie"
+    )
+
+    # Paging is a window on that order, not a second one.
+    first, _ = engine.list_entries(firm_id=firm.id, page=1, page_size=2)
+    second, _ = engine.list_entries(firm_id=firm.id, page=2, page_size=2)
+    assert [row.reference_number for row in first] == ["JV-003", "JV-002"]
+    assert [row.reference_number for row in second] == ["JV-001"]
+
+    searched, found = engine.list_entries(
+        firm_id=firm.id, page=1, page_size=10, search="JV-002"
+    )
+    assert found == 1
+    assert searched[0].reference_number == "JV-002"
+
+    drafts, draft_total = engine.list_entries(
+        firm_id=firm.id, page=1, page_size=10, status="POSTED"
+    )
+    assert draft_total == 0, "nothing has been posted yet"
+    assert drafts == []
+
+    # Another firm's entries are not this firm's, however the list is asked.
+    _, foreign = engine.list_entries(firm_id=other.id, page=1, page_size=10)
+    assert foreign == 0
+
+
 def test_posting_updates_balances_by_normal_side_and_is_auditable() -> None:
     """Posting writes balances that respect each account's normal side."""
     factory = _session_factory()
