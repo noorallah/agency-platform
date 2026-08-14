@@ -39,6 +39,7 @@ from app.customers.schemas.customer import (
     CustomerType,
 )
 from app.customers.services import CreditControlService, CustomerService
+from app.finance.services.document_posting import DocumentPostingService
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -464,13 +465,19 @@ def post_customer_receivable_transaction(
     scope: CustomerReceiptScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerReceivableTransactionResponse]:
-    """Post one receivable transaction that does not move money.
+    """Post one receivable transaction that is not money arriving.
 
-    Money arriving is recorded as a receipt, which posts to the ledger as well
-    as to the customer. This endpoint only moves the customer's balance, so
-    accepting a receipt here would leave the two disagreeing by the amount
-    collected.
+    Money in is recorded as a receipt, which posts to the ledger as well as to
+    the customer, so accepting one here would leave the two disagreeing by the
+    amount collected.
+
+    What is left does not all sit outside the ledger. A credit note reduces
+    what the customer owes, so it reduces the receivable control account and
+    posts; an advance application moves nothing the ledger has not already
+    recorded, because the advance was credited to receivables when the receipt
+    posted.
     """
+    service = CustomerService(db)
     destination = POSTED_ELSEWHERE.get(data.transaction_type)
     if destination is not None:
         raise ValidationError(
@@ -478,10 +485,29 @@ def post_customer_receivable_transaction(
             f"money, so it is recorded at /api/v1/{destination} where it also "
             "reaches the ledger. This endpoint only moves the customer balance."
         )
-    row = CustomerService(db).post_receivable_transaction(
+    row = service.post_receivable_transaction(
         customer_id,
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        commit=False,
     )
+    # A credit note reduces what the customer owes, so it reduces the
+    # receivable control account. Leaving it unposted drove the two apart by
+    # its value -- the reasoning that it "moves no money" was the wrong test.
+    #
+    # Cancelling an invoice does not come through here: that reverses the
+    # invoice's own journal, which mirrors the revenue and tax it raised.
+    if data.transaction_type == CustomerReceivableTransactionType.CREDIT_NOTE:
+        DocumentPostingService(db).post_credit_note(
+            firm_id=scope.firm_id,
+            customer_id=customer_id,
+            reference_number=(data.reference_number or f"CN-{str(row.id)[:8].upper()}"),
+            note_date=data.transaction_date,
+            amount=data.amount,
+            actor_id=scope.actor_id,
+            narration=data.remarks,
+        )
+    db.commit()
+    db.refresh(row)
     return ApiResponse(data=CustomerReceivableTransactionResponse.model_validate(row))

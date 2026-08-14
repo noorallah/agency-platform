@@ -742,21 +742,28 @@ carried figure is not written `0` in a column of `0.00`s.
   no footer of its own, with `saveLabel` naming the action, so the gap cannot
   recur silently.
 
-- **A credit note moves a receivable and writes no journal.** Found by the new
-  verifier within minutes of it existing, in data this session had produced.
-  `POST /customers/{id}/receivables/transactions` refuses RECEIPT and
-  ADVANCE_RECEIPT since 2026-08-14, and the reasoning given for leaving
-  CREDIT_NOTE was that it "moves no money" -- which is the wrong test. What
-  matters is whether the **receivable balance** moves, and a credit note
-  reduces it: WHOLE01 drifted by exactly the 10.00 credit note posted while
-  verifying that change, customers owing 155,644.98 against a receivable
-  account of 155,654.98.
+- **A credit note reaches the ledger** as of 2026-08-14, and so does cancelling
+  an invoice. The verifier found the first within minutes of existing, and
+  chasing it found the second, which is much larger.
 
-  It wants `Dr Sales Returns / Cr Accounts Receivable`, and both accounts are
-  already mapped (`SALES_RETURNS`, `ACCOUNTS_RECEIVABLE`). `ADVANCE_APPLY` is
-  genuinely fine by contrast: the advance was credited to receivables when the
-  receipt posted, so applying it to an invoice moves nothing the ledger has not
-  already recorded.
+  `POST /customers/{id}/receivables/transactions` refuses RECEIPT and
+  ADVANCE_RECEIPT, and the reasoning for leaving CREDIT_NOTE was that it "moves
+  no money" -- the wrong test. What matters is whether the **receivable balance**
+  moves, and a credit note reduces it: WHOLE01 drifted by exactly the 10.00
+  credit note posted while verifying that change. A standalone credit note now
+  posts `Dr Sales Returns / Cr Accounts Receivable`.
+
+  **Cancelling an approved sales invoice was worse.** It posted a credit note to
+  the customer's balance and left the invoice's journal untouched, so revenue,
+  tax and the receivable all stayed in the ledger while the customer stopped
+  owing them -- the control account overstated by the whole invoice, every time.
+  It reverses the invoice's own entry now, which mirrors what the invoice
+  raised; booking it as a sales return instead would have put the revenue in the
+  wrong place.
+
+  `ADVANCE_APPLY` is genuinely fine by contrast: the advance was credited to
+  receivables when the receipt posted, so applying it to an invoice moves
+  nothing the ledger has not already recorded.
 
 - **`scripts/verify_sample_data.py` works again** (2026-08-14), rewritten
   rather than repaired. The old one counted rows in one schema for one firm and

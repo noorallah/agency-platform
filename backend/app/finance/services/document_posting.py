@@ -83,6 +83,11 @@ RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 #: in against: what the customer paid in advance is being handed back.
 REFUND_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
+CREDIT_NOTE_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.SALES_RETURNS,
+)
+
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
 GOODS_RECEIPT_PURPOSES = (
@@ -529,6 +534,77 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_credit_note(
+        self,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        reference_number: str,
+        note_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+        narration: str | None = None,
+    ) -> JournalEntry:
+        """Post a credit note raised against a customer.
+
+        A credit note reduces what a customer owes, so it reduces the
+        receivable control account: the balance and the ledger disagree by its
+        value otherwise. It was left unposted on the reasoning that it moves no
+        money, which is the wrong test -- what matters is whether the receivable
+        moves, and this does.
+
+        Cancelling an invoice does **not** come through here. That reverses the
+        invoice's own journal instead, which mirrors the revenue and tax it
+        raised; sending it here would credit the receivable a second time and
+        book the whole invoice as a sales return.
+
+        Args:
+            firm_id: The owning firm.
+            customer_id: Who is being credited.
+            reference_number: What the note is called.
+            note_date: The date it was raised.
+            amount: How much the customer no longer owes.
+            actor_id: The user raising it.
+            narration: Why, carried onto the journal lines.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, CREDIT_NOTE_PURPOSES)
+        context = self.context_for(firm_id, note_date)
+        total = quantize_ledger(quantize_money(amount))
+        description = narration or f"Credit note {reference_number}"
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.SALES_RETURNS],
+                debit_amount=total,
+                description=description,
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
+                credit_amount=total,
+                description=description,
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=note_date,
+            reference_number=reference_number,
+            description=f"Credit note {reference_number}",
+            lines=lines,
+            source_module="customers",
+            source_id=customer_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_customer_refund(
         self,
         *,
@@ -573,9 +649,7 @@ class DocumentPostingService:
         total = quantize_ledger(quantize_money(amount))
         lines = [
             JournalLineData(
-                ledger_account_id=accounts[
-                    ControlAccountPurpose.ACCOUNTS_RECEIVABLE
-                ],
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
                 debit_amount=total,
                 description=f"Refund {settlement_number}",
             ),
