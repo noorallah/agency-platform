@@ -49,6 +49,8 @@ from app.purchase_return.schemas import (
     PurchaseReturnAccountingEventType,
     PurchaseReturnAttachmentResponse,
     PurchaseReturnAttachmentWrite,
+    PurchaseReturnByProductRecord,
+    PurchaseReturnByVendorRecord,
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnLineResponse,
@@ -62,7 +64,6 @@ from app.purchase_return.schemas import (
     PurchaseReturnSourceType,
     PurchaseReturnStatus,
     PurchaseReturnSummary,
-    PurchaseReturnVendorOutstandingRecord,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -957,10 +958,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             for row in rows
         ]
 
-    def outstanding_report(
+    def by_vendor_report(
         self, *, firm_scope: UUID
-    ) -> list[PurchaseReturnVendorOutstandingRecord]:
-        """Return the outstanding report for the visible firm scope."""
+    ) -> list[PurchaseReturnByVendorRecord]:
+        """Total returned value and count per vendor."""
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn).where(
@@ -972,19 +973,17 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
         totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
-        vendor_names: dict[UUID, str] = {}
         for row in rows:
             totals[row.vendor_id] += row.grand_total
             counts[row.vendor_id] += 1
-        vendors = list(
-            self._session.scalars(
+        vendor_names = {
+            vendor.id: vendor.display_name
+            for vendor in self._session.scalars(
                 select(Vendor).where(Vendor.id.in_(list(totals.keys())))
             ).all()
-        )
-        for vendor in vendors:
-            vendor_names[vendor.id] = vendor.display_name
+        }
         return [
-            PurchaseReturnVendorOutstandingRecord(
+            PurchaseReturnByVendorRecord(
                 vendor_id=vendor_id,
                 vendor_name=vendor_names.get(vendor_id, str(vendor_id)),
                 return_amount=self._q(amount),
@@ -993,13 +992,62 @@ class PurchaseReturnService(TransactionalDocumentService):
             for vendor_id, amount in totals.items()
         ]
 
-    def reconciliation_report(
+    def by_product_report(
         self, *, firm_scope: UUID
-    ) -> list[PurchaseReturnReconciliationRecord]:
-        """Return the reconciliation report for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseReturnLine)
+    ) -> list[PurchaseReturnByProductRecord]:
+        """Total returned quantity and value per product.
+
+        The report is per product, which is what its name says; it used to
+        answer with the per-line reconciliation, which carries no product at
+        all.
+        """
+        lines = self._report_lines(firm_scope=firm_scope)
+        quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        counts: dict[UUID, int] = defaultdict(int)
+        for line, _ in lines:
+            quantities[line.product_id] += line.current_return_quantity
+            amounts[line.product_id] += line.net_amount
+            counts[line.product_id] += 1
+        products = {
+            product.id: product
+            for product in self._session.scalars(
+                select(Product).where(Product.id.in_(list(quantities.keys())))
+            ).all()
+        }
+        return [
+            PurchaseReturnByProductRecord(
+                product_id=product_id,
+                product_code=(
+                    products[product_id].code
+                    if product_id in products
+                    else str(product_id)
+                ),
+                product_name=(
+                    products[product_id].name
+                    if product_id in products
+                    else str(product_id)
+                ),
+                return_quantity=self._q(quantity),
+                return_amount=self._q(amounts[product_id]),
+                return_count=counts[product_id],
+            )
+            for product_id, quantity in quantities.items()
+        ]
+
+    def _report_lines(
+        self, *, firm_scope: UUID
+    ) -> list[tuple[PurchaseReturnLine, PurchaseReturn]]:
+        """Every live return line in scope, with the return it belongs to.
+
+        Cancelled returns are left out, the way the by-vendor totals always
+        left them out. A cancelled return did not happen, and counting its
+        lines overstated every line-level report against the header ones.
+        """
+        return [
+            (line, header)
+            for line, header in self._session.execute(
+                select(PurchaseReturnLine, PurchaseReturn)
                 .join(
                     PurchaseReturn,
                     PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
@@ -1007,12 +1055,41 @@ class PurchaseReturnService(TransactionalDocumentService):
                 .where(
                     PurchaseReturn.firm_id == firm_scope,
                     PurchaseReturn.is_deleted.is_(False),
+                    PurchaseReturn.status != PurchaseReturnStatus.CANCELLED.value,
                     PurchaseReturnLine.is_deleted.is_(False),
                 )
             ).all()
-        )
+        ]
+
+    def reconciliation_report(
+        self,
+        *,
+        firm_scope: UUID,
+        damaged_only: bool = False,
+        expired_only: bool = False,
+    ) -> list[PurchaseReturnReconciliationRecord]:
+        """Return lines set against the receipts they came from.
+
+        ``damaged_only`` and ``expired_only`` are what the damaged and expired
+        reports are: the line records the condition on ``is_damaged`` and
+        ``is_expired``, and both reports used to filter on a quantity instead,
+        so they answered "anything returned" and "nearly everything".
+        """
+        lines = self._report_lines(firm_scope=firm_scope)
+        product_names = {
+            product.id: product.name
+            for product in self._session.scalars(
+                select(Product).where(
+                    Product.id.in_([line.product_id for line, _ in lines])
+                )
+            ).all()
+        }
         result: list[PurchaseReturnReconciliationRecord] = []
-        for row in rows:
+        for row, header in lines:
+            if damaged_only and not row.is_damaged:
+                continue
+            if expired_only and not row.is_expired:
+                continue
             pending = self._q(
                 row.received_quantity
                 - row.already_returned_quantity
@@ -1020,6 +1097,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             result.append(
                 PurchaseReturnReconciliationRecord(
+                    return_id=header.id,
+                    return_number=header.return_number,
+                    return_date=header.return_date,
                     source_document_type=PurchaseReturnSourceType(
                         row.source_document_type
                     ),
@@ -1027,10 +1107,15 @@ class PurchaseReturnService(TransactionalDocumentService):
                     source_document_number=row.source_document_number,
                     source_document_line_id=row.source_document_line_id,
                     source_document_line_number=row.source_document_line_number,
+                    product_id=row.product_id,
+                    product_name=product_names.get(row.product_id, str(row.product_id)),
                     received_quantity=row.received_quantity,
                     already_returned_quantity=row.already_returned_quantity,
                     current_return_quantity=row.current_return_quantity,
                     pending_quantity=pending if pending >= ZERO else ZERO,
+                    reason_code=row.reason_code,
+                    is_damaged=row.is_damaged,
+                    is_expired=row.is_expired,
                 )
             )
         return result

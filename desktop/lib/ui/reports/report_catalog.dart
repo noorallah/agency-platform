@@ -191,6 +191,34 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/purchase-returns/reports/register',
     area: ReportArea.operational,
   ),
+  ReportDefinition(
+    id: 'purchase-return-reconciliation',
+    label: 'Purchase return reconciliation',
+    description: 'Return lines against the receipts they came from.',
+    path: '/api/v1/purchase-returns/reports/reconciliation',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-return-damaged',
+    label: 'Damaged goods returned',
+    description: 'Lines returned because the goods were damaged.',
+    path: '/api/v1/purchase-returns/reports/damaged',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-return-expired',
+    label: 'Expired stock returned',
+    description: 'Lines returned because the stock was past its date.',
+    path: '/api/v1/purchase-returns/reports/expired',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-return-by-product',
+    label: 'Returns by product',
+    description: 'Quantity and value returned per product.',
+    path: '/api/v1/purchase-returns/reports/by-product',
+    area: ReportArea.operational,
+  ),
 
   // ---- Financial -----------------------------------------------------
   ReportDefinition(
@@ -302,10 +330,10 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
-    id: 'purchase-return-supplier-analysis',
-    label: 'Return credit by supplier',
-    description: 'What each supplier still owes for goods sent back.',
-    path: '/api/v1/purchase-returns/reports/supplier-analysis',
+    id: 'purchase-return-by-vendor',
+    label: 'Returns by vendor',
+    description: 'Returned value and count per supplier.',
+    path: '/api/v1/purchase-returns/reports/by-vendor',
     area: ReportArea.financial,
   ),
 ];

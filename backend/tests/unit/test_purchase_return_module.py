@@ -564,3 +564,185 @@ def test_a_return_priced_above_cost_books_the_difference_as_a_variance() -> None
     )
     # Inventory plus the variance is what the supplier is crediting for goods.
     assert Decimal(stock_credit) - Decimal(variance) == goods_value
+
+
+def _return_against(
+    session: Session,
+    service: PurchaseReturnService,
+    row: PurchaseReturn,
+    *,
+    firm_id: UUID,
+    supplier_return_number: str,
+    is_damaged: bool = False,
+    is_expired: bool = False,
+    reason_code: str | None = None,
+) -> PurchaseReturn:
+    """Raise and approve a second return against the same source line.
+
+    The reports read every live line in the firm, so the interesting case is
+    two returns that differ only in the condition recorded against them.
+    """
+    line = session.scalar(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    )
+    assert line is not None
+    second = service.create_return(
+        PurchaseReturnCreate(
+            supplier_return_number=supplier_return_number,
+            supplier_return_date=date(2026, 8, 3),
+            return_date=date(2026, 8, 3),
+            warehouse_id=row.warehouse_id,
+            allow_direct_purchase_order=True,
+            source_documents=[
+                {
+                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
+                    "source_document_id": line.source_document_id,
+                }
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
+                    source_document_id=line.source_document_id,
+                    source_document_line_id=line.source_document_line_id,
+                    line_number=1,
+                    current_return_quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                    discount_amount=Decimal("0"),
+                    charges_amount=Decimal("0"),
+                    warehouse_id=row.warehouse_id,
+                    is_damaged=is_damaged,
+                    is_expired=is_expired,
+                    reason_code=reason_code,
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    service.approve_return(second.id, firm_scope=firm_id, actor_id=uuid4())
+    return second
+
+
+def test_the_damaged_report_shows_only_the_lines_recorded_as_damaged() -> None:
+    """It used to filter on quantity, so it answered "anything returned"."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    damaged = _return_against(
+        session,
+        service,
+        row,
+        firm_id=firm.id,
+        supplier_return_number="SUP-2002",
+        is_damaged=True,
+        reason_code="DAMAGED",
+    )
+
+    rows = service.reconciliation_report(firm_scope=firm.id, damaged_only=True)
+
+    # Two returns exist and only one of them says the goods were damaged.
+    assert len(service.reconciliation_report(firm_scope=firm.id)) == 2
+    assert [record.return_id for record in rows] == [damaged.id]
+    assert rows[0].reason_code == "DAMAGED"
+    assert rows[0].is_damaged is True
+
+
+def test_the_expired_report_shows_only_the_lines_recorded_as_expired() -> None:
+    """It used to filter ``pending_quantity >= 0``, which is nearly every row."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    expired = _return_against(
+        session,
+        service,
+        row,
+        firm_id=firm.id,
+        supplier_return_number="SUP-2003",
+        is_expired=True,
+    )
+
+    rows = service.reconciliation_report(firm_scope=firm.id, expired_only=True)
+
+    assert [record.return_id for record in rows] == [expired.id]
+    assert rows[0].is_expired is True
+
+
+def test_a_damaged_line_is_not_an_expired_one() -> None:
+    """The two conditions are recorded separately and must not bleed."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    _return_against(
+        session,
+        service,
+        row,
+        firm_id=firm.id,
+        supplier_return_number="SUP-2004",
+        is_damaged=True,
+    )
+
+    assert service.reconciliation_report(firm_scope=firm.id, expired_only=True) == []
+
+
+def test_the_by_product_report_is_grouped_by_product() -> None:
+    """It used to answer the per-line reconciliation, which carries no product."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, product_id = _approved_return(session, firm_id=firm.id)
+    _return_against(
+        session, service, row, firm_id=firm.id, supplier_return_number="SUP-2005"
+    )
+
+    rows = service.by_product_report(firm_scope=firm.id)
+
+    assert len(rows) == 1
+    assert rows[0].product_id == product_id
+    assert rows[0].product_code == "SKU-001"
+    # Four on the first return and two on the second, across two lines.
+    assert rows[0].return_quantity == Decimal("6.00")
+    assert rows[0].return_count == 2
+
+
+def test_a_reconciliation_row_names_the_product_that_was_returned() -> None:
+    """A row carrying only source-line ids cannot be read by anyone."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+
+    record = service.reconciliation_report(firm_scope=firm.id)[0]
+
+    assert record.product_name == "Product SKU-001"
+    assert record.return_number == row.return_number
+    assert record.return_date == date(2026, 8, 2)
+
+
+def test_the_by_vendor_report_totals_what_was_returned() -> None:
+    """Named for what it holds: returned value, not a balance still owing."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    _return_against(
+        session, service, row, firm_id=firm.id, supplier_return_number="SUP-2006"
+    )
+
+    rows = service.by_vendor_report(firm_scope=firm.id)
+
+    assert len(rows) == 1
+    assert rows[0].vendor_name == "Vendor VEN-001"
+    assert rows[0].return_count == 2
+
+
+def test_a_cancelled_return_is_left_out_of_the_line_reports() -> None:
+    """It never counted towards the vendor totals; now it counts nowhere."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    service.cancel_return(
+        row.id, firm_scope=firm.id, actor_id=uuid4(), reason="raised in error"
+    )
+
+    assert service.reconciliation_report(firm_scope=firm.id) == []
+    assert service.by_product_report(firm_scope=firm.id) == []
+    assert service.by_vendor_report(firm_scope=firm.id) == []

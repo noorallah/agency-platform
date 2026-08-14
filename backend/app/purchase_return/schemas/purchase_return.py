@@ -359,23 +359,52 @@ class PurchaseReturnRegisterRecord(PurchaseReturnSchema):
 
 
 class PurchaseReturnReconciliationRecord(PurchaseReturnSchema):
-    """One row of the purchase return reconciliation report."""
+    """One line of a return set against the receipt it came from.
 
+    Carries the product and the condition flags because the damaged and expired
+    reports are this record filtered, and a row that does not say which product
+    was sent back or why cannot answer either question.
+    """
+
+    return_id: UUID
+    return_number: str
+    return_date: date
     source_document_type: PurchaseReturnSourceType
     source_document_id: UUID
     source_document_number: str
     source_document_line_id: UUID
     source_document_line_number: int
+    product_id: UUID
+    product_name: str
     received_quantity: Decimal
     already_returned_quantity: Decimal
     current_return_quantity: Decimal
     pending_quantity: Decimal
+    reason_code: str | None
+    is_damaged: bool
+    is_expired: bool
 
 
-class PurchaseReturnVendorOutstandingRecord(PurchaseReturnSchema):
-    """One row of the purchase return vendor outstanding report."""
+class PurchaseReturnByVendorRecord(PurchaseReturnSchema):
+    """Returned value and count per vendor.
+
+    Named for what it holds. It was ``PurchaseReturnVendorOutstandingRecord``,
+    which described a balance still owing -- a thing purchase returns do not
+    have -- while carrying the value returned.
+    """
 
     vendor_id: UUID
     vendor_name: str
+    return_amount: Decimal
+    return_count: int
+
+
+class PurchaseReturnByProductRecord(PurchaseReturnSchema):
+    """Returned quantity and value per product."""
+
+    product_id: UUID
+    product_code: str
+    product_name: str
+    return_quantity: Decimal
     return_amount: Decimal
     return_count: int
