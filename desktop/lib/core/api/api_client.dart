@@ -2374,6 +2374,34 @@ class ApiClient {
     );
   }
 
+  /// Whether the backend answers at all.
+  ///
+  /// `/health` is deliberately cheap on the server -- it touches no database --
+  /// so this says only that the process is up and reachable. Neither health
+  /// call needs a token: they are what a client asks before it has one.
+  Future<bool> backendReachable() async {
+    try {
+      await request('GET', '/health');
+      return true;
+    } on ApiException {
+      return false;
+    }
+  }
+
+  /// Whether the backend's database answers a trivial query.
+  ///
+  /// Separate from [backendReachable] because the two fail apart: a server
+  /// whose database has gone gives a healthy `/health` and a 503 here, and
+  /// showing one light for both would hide exactly the case worth seeing.
+  Future<bool> databaseReachable() async {
+    try {
+      await request('GET', '/health/database');
+      return true;
+    } on ApiException {
+      return false;
+    }
+  }
+
   Future<Json> request(
     String method,
     String path, {

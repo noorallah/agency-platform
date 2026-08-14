@@ -60,15 +60,45 @@ if (-not [string]::IsNullOrWhiteSpace($logDirectory)) {
 
 Write-Host "Log file: $LogPath"
 
+# Native programs write progress to stderr -- alembic logs every migration step
+# there, and uvicorn logs everything there. In Windows PowerShell 5.1, `2>&1`
+# on a native command wraps each of those lines in an ErrorRecord, and with
+# $ErrorActionPreference = 'Stop' the first one aborts the script. That is why
+# this used to stop dead after "Applying migrations..." with nothing in the log
+# to explain it. Exit codes are what say whether a step failed, and they are
+# checked after each call.
+function Invoke-Logged {
+  param([Parameter(Mandatory)][string]$File, [string[]]$Arguments = @())
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $File @Arguments 2>&1 | Tee-Object -FilePath $LogPath -Append
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 if (-not $SkipSync) {
-  & uv sync --group dev 2>&1 | Tee-Object -FilePath $LogPath -Append
+  Invoke-Logged -File 'uv' -Arguments @('sync', '--group', 'dev')
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
   }
 }
 
+# Run through the virtual environment's interpreter when it exists rather than
+# `uv run`. `uv run` fails on some Windows machines with "uv trampoline failed
+# to canonicalize script path", and when it does, this script hangs at the
+# migration step with nothing in the log to say why -- which is exactly how it
+# was found. The venv is what the installer builds, so prefer it.
+$python = Join-Path $backendRoot '.venv\Scripts\python.exe'
+$useVenv = Test-Path $python
+
 "[$(Get-Date -Format o)] Applying migrations..." | Tee-Object -FilePath $LogPath -Append
-& uv run --no-sync python -m alembic upgrade head 2>&1 | Tee-Object -FilePath $LogPath -Append
+if ($useVenv) {
+  Invoke-Logged -File $python -Arguments @('-m', 'alembic', 'upgrade', 'head')
+} else {
+  Invoke-Logged -File 'uv' -Arguments @('run', '--no-sync', 'python', '-m', 'alembic', 'upgrade', 'head')
+}
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
@@ -88,8 +118,7 @@ foreach ($file in @($CertFile, $KeyFile)) {
 }
 
 $uvicornArgs = @(
-  'run',
-  '--no-sync',
+  '-m',
   'uvicorn',
   'app.main:app',
   '--host',
@@ -97,6 +126,9 @@ $uvicornArgs = @(
   '--port',
   "$Port"
 )
+if (-not $useVenv) {
+  $uvicornArgs = @('run', '--no-sync', 'uvicorn', 'app.main:app', '--host', $BindHost, '--port', "$Port")
+}
 if ($CertFile) {
   $uvicornArgs += @('--ssl-certfile', $CertFile, '--ssl-keyfile', $KeyFile)
 }
@@ -111,5 +143,9 @@ if (-not $CertFile -and $BindHost -ne '127.0.0.1') {
 }
 
 "[$(Get-Date -Format o)] Starting backend API..." | Tee-Object -FilePath $LogPath -Append
-& uv @uvicornArgs 2>&1 | Tee-Object -FilePath $LogPath -Append
+if ($useVenv) {
+  Invoke-Logged -File $python -Arguments $uvicornArgs
+} else {
+  Invoke-Logged -File 'uv' -Arguments $uvicornArgs
+}
 exit $LASTEXITCODE

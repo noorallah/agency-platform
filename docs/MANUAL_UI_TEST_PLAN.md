@@ -55,16 +55,21 @@ round trip.
 
 ## 2. Installation and first run
 
-> **Status: the single self-installing batch file does not exist yet.**
-> Cases 2.1–2.4 are drafted for when it does. Today, installation is the manual
-> sequence in `CLAUDE.md`. Do not report 2.1–2.4 as failures; report them as
-> not-yet-testable.
+> **The installer is `install\install.bat` (or `install\install.ps1`).**
+> Run `install.bat -DryRun` first: it reports every step and changes nothing.
+>
+> 2.2 and 2.5 were verified on a developer machine on 2026-08-14. **2.1, 2.3 and
+> 2.4 can only be answered on a machine that has never had the toolchain**, and
+> that has not been done — a developer box passes 2.1 because of what is already
+> on it.
 
 | ID | Case | Steps | Expected |
 | --- | --- | --- | --- |
-| 2.1 | Clean install on a machine with nothing installed | Run the installer on a Windows box with no Python, no PostgreSQL, no Flutter | Everything needed is fetched and installed; the UI opens at the login screen without any further prompt |
-| 2.2 | Re-run on an already-installed machine | Run the installer a second time | It detects what is present, does not reinstall or duplicate, and still ends at a working UI |
+| 2.1 | Clean install on a machine with nothing installed | Run `install.bat -InstallPrerequisites -WithDemoData` on a Windows box with no Python, no PostgreSQL, no Flutter | Everything needed is fetched and installed; the UI opens at the login screen without any further prompt |
+| 2.1b | Clean install, prerequisites refused | Run `install.bat` (no `-InstallPrerequisites`) on the same box | Stops before changing anything, naming what is missing and the exact `winget install` command for it |
+| 2.2 | Re-run on an already-installed machine | Run the installer a second time | It detects what is present, does not reinstall or duplicate, and still ends at a working UI. **`config\.env` must be untouched** — check the JWT key is the same |
 | 2.3 | Install with no internet | Disconnect, run the installer | It fails with one clear message naming what it could not fetch — not a stack trace, and not a half-installed state |
+| 2.3b | Half a TLS configuration | Run with `-CertFile` and no `-KeyFile` | Refused before anything is changed. It must not fall back to plain HTTP |
 | 2.4 | Install on the minimum supported machine | Use the lowest specification you intend to support | Install completes; note wall-clock time and peak RAM. Record them: they are the number that decides whether the requirement is met |
 | 2.5 | Manual install per `CLAUDE.md` | Follow the backend and desktop commands | Backend serves `/health`; `flutter run -d windows` opens the login screen |
 
