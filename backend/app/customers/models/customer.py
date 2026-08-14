@@ -173,6 +173,16 @@ class CustomerReceivableTransaction(BaseEntity):
     advance_after: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     reference_type: Mapped[str | None] = mapped_column(String(40))
     reference_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The journal this movement posted, where it posted one.
+    #:
+    #: An opening balance is the case that needs it: changing one has to
+    #: mirror the entry the old figure wrote, and searching the ledger by
+    #: source module would not tell an opening balance apart from the credit
+    #: notes and refunds the same customer raises. Nullable because the older
+    #: paths through this table still write no journal at all.
+    journal_entry_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
 

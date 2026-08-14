@@ -67,6 +67,15 @@ PURCHASE_RETURN_PURPOSES = (
     ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
 )
 
+#: What a day-one customer balance moves. `post_opening_stock` already put
+#: opening balance equity in the chart for exactly this: "a firm that later
+#: records opening receivables or opening cash has somewhere consistent to put
+#: them."
+OPENING_BALANCE_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY,
+)
+
 OPENING_STOCK_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.OPENING_BALANCE_EQUITY,
@@ -540,6 +549,90 @@ class DocumentPostingService:
             lines=lines,
             source_module="inventory",
             source_id=batch_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_opening_balance(
+        self,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        reference_number: str,
+        posting_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post what a customer already owed on the day the firm started here.
+
+        A day-one receivable arrived from nowhere the ledger can see: no
+        invoice was raised for it and no goods left. What it represents is what
+        the owners brought into the business, so the receivable is debited and
+        **opening balance equity** credited -- the same counterpart day-one
+        stock takes, which is what makes a balance sheet built from these
+        add up.
+
+        A negative opening balance is a customer in credit: the firm owes them,
+        so the two legs swap. Nothing about that is a receipt -- no money moved
+        -- which is why it is not booked as one.
+
+        Until now nothing posted at all. `CustomerService` wrote the balance
+        and a receivable transaction and stopped there, so a firm's customers
+        could owe it 885,000 against a receivable control account of zero, and
+        `verify_sample_data.py` reported the gap without anything explaining
+        it.
+
+        Args:
+            firm_id: The owning firm.
+            customer_id: Whose balance this is.
+            reference_number: The customer's code, used as the reference.
+            posting_date: The date the firm says the balance stood at.
+            amount: Positive when the customer owes, negative when they are in
+                credit.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted entry, or None when the balance is nil at the ledger's
+            scale -- an empty journal claims something happened when nothing
+            did.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing. A
+                balance nobody can book is one the firm should not be told it
+                has recorded.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, OPENING_BALANCE_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        receivable = accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE]
+        equity = accounts[ControlAccountPurpose.OPENING_BALANCE_EQUITY]
+        owed = total > ZERO
+        description = f"Opening balance {reference_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=posting_date,
+            reference_number=reference_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=receivable if owed else equity,
+                    debit_amount=abs(total),
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=equity if owed else receivable,
+                    credit_amount=abs(total),
+                    description=description,
+                ),
+            ],
+            source_module="customers",
+            source_id=customer_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

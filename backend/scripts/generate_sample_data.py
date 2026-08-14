@@ -57,6 +57,7 @@ from app.core.tenancy.connections import (
     build_tenant_database_config,
     resolve_connection_profile,
 )
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerAddressInput,
@@ -81,6 +82,7 @@ from app.document_framework.models import (
     DocumentTotal,
     DocumentTypeDefinition,
 )
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
 from app.firms.services.firm_service import FirmService
@@ -1360,6 +1362,21 @@ def _create_firms(
                 notes=f"Seeded for {profile.code} development flows.",
             ),
             SYSTEM_ACTOR_ID,
+        )
+        # A firm needs its chart of accounts before anything it owns can be
+        # booked, and this dataset opens customers with balances and approves
+        # invoices. Without it the generated books never balanced: customers
+        # owed 885,000.00 against a receivable control account of zero.
+        # The year that contains today, not the firm's first: an opening
+        # balance posts on the day it is recorded, and a period that closed in
+        # March cannot take it.
+        today = utc_now().date()
+        year_start = date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+        seed_finance_setup(
+            firm_service._session,  # noqa: SLF001
+            firm_id=firm.id,
+            year_starts_on=year_start,
+            actor_id=SYSTEM_ACTOR_ID,
         )
         result[blueprint["key"]] = firm
     return result

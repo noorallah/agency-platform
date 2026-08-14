@@ -315,6 +315,9 @@ class CustomerReceivableTransactionResponse(CustomerSchema):
     reference_type: str | None
     reference_id: UUID | None
     reference_number: str | None
+    #: The journal this movement posted, where it posted one. Null on the
+    #: older paths through this table, which write no journal at all.
+    journal_entry_id: UUID | None
     remarks: str | None
     created_by: UUID | None
     created_at: datetime
