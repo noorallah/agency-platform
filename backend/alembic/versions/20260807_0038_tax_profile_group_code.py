@@ -41,6 +41,7 @@ def _firm_schemas(bind: sa.engine.Connection) -> list[str]:
 
 
 def upgrade() -> None:
+    """Apply tax profile group_code for version-safe product mapping."""
     bind = op.get_bind()
     for schema in _firm_schemas(bind):
         s = schema  # alias for f-strings
@@ -87,7 +88,8 @@ def upgrade() -> None:
         )
         bind.execute(
             sa.text(
-                f'UPDATE "{s}".tax_profiles SET group_code = code WHERE group_code IS NULL'
+                f'UPDATE "{s}".tax_profiles SET group_code = code '
+                "WHERE group_code IS NULL"
             )
         )
         bind.execute(
@@ -151,6 +153,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse tax profile group_code for version-safe product mapping."""
     bind = op.get_bind()
     for schema in _firm_schemas(bind):
         s = schema

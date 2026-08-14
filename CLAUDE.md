@@ -38,7 +38,7 @@ As of 2026-08-10 `pytest` is **green (248 unit + 24 integration)** and every tes
 
 **`app/` and `tests/` are clean under all four tools, and expected to stay that way.** `ruff check app`, `ruff check tests`, `black --check` and `mypy app` (320 files) all pass, so any finding in them is one you introduced. That was not true for most of this project's life -- this file claimed ~3,232 pre-existing findings and `mypy` failures outside `app/finance`, both of which stopped being true without the claim being updated, which is how a stale number talks people out of running the tools at all.
 
-`ruff check .` still reports 181 findings, now confined to `scripts/` (130) and `alembic/` (51) -- mostly `E501` and missing docstrings in older migrations. Those two directories are the remaining debt; lint what you touch there rather than the whole tree.
+**`ruff check .` and `black --check .` are clean across the whole tree** as of 2026-08-14 -- `app/`, `tests/`, `scripts/` and `alembic/`. The 181 findings this file used to call permanent debt were 81 long lines, 49 missing docstrings and 32 missing annotations. Nothing about behaviour moved, and that was checked rather than assumed: every string literal and f-string in the seed scripts was compared by AST before and after, and every SQL statement in the six re-wrapped migrations is byte-identical once whitespace is normalised. A finding anywhere is now one you introduced.
 
 Single test / single case:
 
@@ -54,12 +54,14 @@ Migrations and data:
 ```powershell
 uv run python -m alembic current            # applied revision
 uv run python -m alembic heads              # authoritative head (docs go stale — trust this)
-uv run python scripts/generate_sample_data.py --yes
+uv run python scripts/generate_sample_data.py --yes   # see the warning below
 uv run python scripts/verify_sample_data.py
 uv run python scripts/seed_multi_firm_demo.py            # 4 firms + 2 years of trading
 uv run python scripts/generate_transaction_history.py --firm WHOLE01 --years 2 --reset --yes
 uv run python scripts/reset_tenancy_layout.py --yes   # destructive local rebuild of platform + firm_shared
 ```
+
+**`generate_sample_data.py` does not currently finish.** Its `delete_order` is a hand-maintained tuple that has gone stale by 61 mapped models, so `--reset` stops on a foreign key (`product_valuations` at the time of writing). The `ImportError` that stopped it before it did anything -- it imported `ProductUomConfig`, deleted on 2026-08-12 -- was fixed on 2026-08-14. Finishing it needs a decision about which of the 61 the reset is meant to preserve; `docs/BACKLOG.md` §12 has the list. Use `scripts/seed_multi_firm_demo.py` and `scripts/generate_transaction_history.py`, which work.
 
 `alembic upgrade head --sql` intentionally fails at `20260728_0004`, which inspects a live schema. Use `upgrade 20260728_0003 --sql` for offline bootstrap DDL.
 

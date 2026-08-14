@@ -18,6 +18,7 @@ from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_settings
+from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
 from app.branches.models import (
     Branch,
     BranchType,
@@ -36,7 +37,6 @@ from app.branches.schemas import (
     WarehouseTypeWrite,
 )
 from app.branches.services.branch_warehouse_service import BranchWarehouseService
-from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
 from app.business.models import (
     AttributeDefinition,
     BusinessProfile,
@@ -44,11 +44,12 @@ from app.business.models import (
     FirmBusinessProfile,
 )
 from app.business.schemas import FirmBusinessProfileAssign
-from app.business.system_seed import seed_business_profiles
 from app.business.services.framework_service import BusinessProfileFrameworkService
+from app.business.system_seed import seed_business_profiles
 from app.common.audit.models.audit_log import AuditLog
 from app.core.config.settings import Environment, Settings
 from app.core.database.engine import DatabaseManager
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ValidationError
 from app.customers.models import Customer, CustomerAddress, CustomerContact
 from app.customers.schemas import (
@@ -99,7 +100,6 @@ from app.identity.models import (
 from app.identity.schemas.api import UserCreate, UserFirmAssignment
 from app.identity.services.identity_service import IdentityService
 from app.identity.system_seed import seed_system_rbac
-from app.uom.system_seed import seed_uom_reference_data
 from app.inventory.models import (
     InventoryRecord,
     InventoryTransaction,
@@ -235,11 +235,11 @@ from app.uom.models import (
     ConversionRule,
     PackagingType,
     ProductPackagingLevel,
-    ProductUomConfig,
     Uom,
     UomGroup,
     UomGroupUnit,
 )
+from app.uom.system_seed import seed_uom_reference_data
 from app.vendors.models import (
     Vendor,
     VendorAddress,
@@ -283,7 +283,8 @@ FIRM_BLUEPRINTS = (
         "state": "Maharashtra",
         "postal_code": "400001",
         "profile_codes": ("GENERIC",),
-        "notes": "Coherent single-company enterprise ERP dataset for all completed modules.",
+        "notes": "Coherent single-company enterprise ERP dataset for all completed "
+        "modules.",
         "branches": (
             ("NVK_HO", "Mumbai Head Office", "Mumbai", "Maharashtra"),
             ("NVK_PUN", "Pune Sales Branch", "Pune", "Maharashtra"),
@@ -579,6 +580,8 @@ LAST_NAMES = (
 
 @dataclass
 class LoginRecord:
+    """One account the generated data can be signed in with."""
+
     username: str
     role: str
     firm: str
@@ -588,6 +591,8 @@ class LoginRecord:
 
 @dataclass
 class GenerationArtifacts:
+    """What a run produced, for the summary printed at the end."""
+
     counts: Counter[str]
     logins: list[LoginRecord]
     notes: list[str]
@@ -595,6 +600,8 @@ class GenerationArtifacts:
 
 @dataclass
 class FirmContext:
+    """One firm mid-generation, with the masters already made for it."""
+
     key: str
     firm: Firm
     profile: BusinessProfile
@@ -611,6 +618,7 @@ class FirmContext:
 
 
 def main() -> None:
+    """Generate the development sample dataset and report what it made."""
     parser = argparse.ArgumentParser(
         description="Reset and reseed the development ERP dataset."
     )
@@ -619,7 +627,8 @@ def main() -> None:
         nargs="?",
         choices=("reseed", "reset", "products"),
         default="reseed",
-        help="Use 'reset' to delete generated data only, or 'products' for product-focused seed data.",
+        help="Use 'reset' to delete generated data only, or 'products' for "
+        "product-focused seed data.",
     )
     parser.add_argument(
         "--yes",
@@ -644,11 +653,15 @@ def main() -> None:
             session.commit()
             if args.mode == "reset":
                 USERS_DOC_PATH.write_text(
-                    "# Development Users\n\nDevelopment data has been reset. No seeded users are present.\n",
+                    "# Development Users\n\n"
+                    "Development data has been reset. "
+                    "No seeded users are present.\n",
                     encoding="utf-8",
                 )
                 SUMMARY_DOC_PATH.write_text(
-                    "# Development Data Summary\n\nDevelopment data has been reset. No seeded business dataset is present.\n",
+                    "# Development Data Summary\n\n"
+                    "Development data has been reset. "
+                    "No seeded business dataset is present.\n",
                     encoding="utf-8",
                 )
                 print("Development data reset completed.")
@@ -680,16 +693,15 @@ def _configure_seed_search_path(session: Session, settings: Settings) -> None:
         session.execute(text(f'SET search_path TO "{platform_schema}", public'))
         return
     session.execute(
-        text(
-            f'SET search_path TO "{platform_schema}", "{shared_schema}", public'
-        )
+        text(f'SET search_path TO "{platform_schema}", "{shared_schema}", public')
     )
 
 
 def _assert_allowed_environment(settings: Settings) -> None:
     if settings.environment not in {Environment.DEVELOPMENT, Environment.TESTING}:
         raise RuntimeError(
-            "Development data generator is blocked outside development/testing environments."
+            "Development data generator is blocked outside development/testing "
+            "environments."
         )
 
 
@@ -704,7 +716,7 @@ def _confirm_or_exit(mode: str) -> None:
         raise SystemExit("Operation cancelled.")
 
 
-def _safe_delete(session: Session, model: Any) -> None:
+def _safe_delete(session: Session, model: type[BaseEntity]) -> None:
     bind = session.get_bind()
     if bind is None:
         return
@@ -777,14 +789,16 @@ def _reset_development_data(session: Session) -> None:
         OpeningStockBatch,
         SerialNumber,
         LotRecord,
-        BatchRecord,
+        # Movements before batches: `inventory_transactions.batch_id` and the
+        # stock ledger both point at a batch since stock became batch-grained,
+        # so deleting batches first violates the foreign key.
         StockLedgerEntry,
         InventoryTransaction,
         InventoryRecord,
+        BatchRecord,
         ProductAttributeValue,
         ProductMedia,
         ProductPackagingLevel,
-        ProductUomConfig,
         ConversionRule,
         Product,
         ProductCategory,
@@ -911,7 +925,8 @@ def _seed_enterprise_dataset(
                 role="PLATFORM_ADMIN",
                 firm="All Firms",
                 branch="All Branches",
-                description="Primary development super administrator with full platform access.",
+                description="Primary development super administrator with full "
+                "platform access.",
             )
         )
 
@@ -1025,7 +1040,8 @@ def _seed_enterprise_dataset(
             counts["tax_systems"] = _count_active(session, TaxSystem)
             counts["tax_components"] = _count_active(session, TaxComponent)
             notes.append(
-                "Product-only mode seeded firms, users, tax, vendors, categories, and products."
+                "Product-only mode seeded firms, users, tax, vendors, categories, and "
+                "products."
             )
             return GenerationArtifacts(counts=counts, logins=logins, notes=notes)
 
@@ -1071,7 +1087,9 @@ def _seed_enterprise_dataset(
         counts["tax_components"] = _count_active(session, TaxComponent)
 
         notes.append(
-            "Preferred vendor and default warehouse are recorded in product remarks because the current product schema does not yet expose first-class relationship tables for those assignments."
+            "Preferred vendor and default warehouse are recorded in product remarks "
+            "because the current product schema does not yet expose first-class "
+            "relationship tables for those assignments."
         )
         return GenerationArtifacts(counts=counts, logins=logins, notes=notes)
     finally:
@@ -1135,7 +1153,7 @@ def _seed_geography(service: SalesTerritoryService) -> dict[str, Any]:
     }
 
 
-def _ensure_country(service: SalesTerritoryService) -> Any:
+def _ensure_country(service: SalesTerritoryService) -> GeoCountry:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoCountry).where(
@@ -1160,7 +1178,7 @@ def _ensure_country(service: SalesTerritoryService) -> Any:
 
 def _ensure_state(
     service: SalesTerritoryService, country_id: UUID, code: str, name: str
-) -> Any:
+) -> GeoState:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoState).where(
@@ -1184,7 +1202,7 @@ def _ensure_state(
 
 def _ensure_district(
     service: SalesTerritoryService, state_id: UUID, code: str, name: str
-) -> Any:
+) -> GeoDistrict:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoDistrict).where(
@@ -1208,7 +1226,7 @@ def _ensure_district(
 
 def _ensure_city(
     service: SalesTerritoryService, district_id: UUID, code: str, name: str
-) -> Any:
+) -> GeoCity:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoCity).where(
@@ -1232,7 +1250,7 @@ def _ensure_city(
 
 def _ensure_postal_code(
     service: SalesTerritoryService, city_id: UUID, postal_code: str
-) -> Any:
+) -> GeoPostalCode:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoPostalCode).where(
@@ -1255,7 +1273,7 @@ def _ensure_postal_code(
 
 def _ensure_locality(
     service: SalesTerritoryService, postal_code_id: UUID, name: str
-) -> Any:
+) -> GeoLocality:
     session = service._session  # noqa: SLF001
     existing = session.scalar(
         select(GeoLocality).where(
@@ -1402,7 +1420,9 @@ def _seed_branches_and_warehouses(
                 city_id=geo["city"].id,
                 postal_code_id=geo["postal"].id,
                 locality_id=geo["locality"].id,
-                address_line1=f"{branch_index * 18} {geo['locality'].name} Industrial Estate",
+                address_line1=(
+                    f"{branch_index * 18} {geo['locality'].name} " "Industrial Estate"
+                ),
                 address_line2="Enterprise Block",
                 timezone="Asia/Kolkata",
                 currency_code="INR",
@@ -1600,7 +1620,7 @@ def _seed_territories(
     )
     level_ids = {level.level_code: level.id for level in hierarchy.levels}
     route_types: dict[str, Any] = {}
-    for index, route_type_name in enumerate(
+    for _index, route_type_name in enumerate(
         ("Sales", "Delivery", "Collection", "Service", "Survey"), start=1
     ):
         row = territory_service.create_route_type(
@@ -1618,7 +1638,7 @@ def _seed_territories(
     leaf_ids: list[UUID] = []
     state_counter = 1
     for state_name in blueprint["territory_states"]:
-        state_geo = geography["states"][state_name]
+        geography["states"][state_name]
         state_node = territory_service.create_territory(
             TerritoryCreate(
                 code=f"{firm.code[:4]}ST{state_counter}",
@@ -1635,7 +1655,7 @@ def _seed_territories(
         )
         cities_for_state = [
             city_name
-            for key_state, city_name in geography["cities"].keys()
+            for key_state, city_name in geography["cities"]
             if key_state == state_name
         ][:2]
         for city_counter, city_name in enumerate(cities_for_state, start=1):
@@ -1692,10 +1712,12 @@ def _seed_territories(
                     route = territory_service.create_territory(
                         TerritoryCreate(
                             code=f"{circle_node.code}T{route_counter}",
-                            name=f"{city_name} Route {route_counter + (circle_counter - 1) * 2}",
+                            name=f"{city_name} Route "
+                            f"{route_counter + (circle_counter - 1) * 2}",
                             hierarchy_level_id=level_ids["ROUTE"],
                             parent_id=circle_node.id,
-                            description=f"{route_type_code.title()} route for {city_name}.",
+                            description=f"{route_type_code.title()} route for "
+                            f"{city_name}.",
                             status=TerritoryStatus.ACTIVE,
                             sort_order=route_counter,
                             route_profile=RouteProfileInput(
@@ -1759,7 +1781,8 @@ def _seed_tax_framework(
             code="LEGACY",
             name="Legacy Tax",
             display_name="Legacy Tax",
-            description="Historical tax configuration retained for migration scenarios.",
+            description="Historical tax configuration retained for migration "
+            "scenarios.",
             status=TaxStatus.ACTIVE,
             display_order=20,
         ),
@@ -2402,7 +2425,8 @@ def _seed_users(
             email=f"sales.manager@{_slug(firm.name)}.local",
             full_name=f"{firm.name} Sales Manager",
             firm_id=firm.id,
-            description="Sales leadership user for route coverage and customer planning.",
+            description="Sales leadership user for route coverage and customer "
+            "planning.",
             branch="All Branches",
             firm_name=firm.name,
             logins=logins,
@@ -2451,7 +2475,7 @@ def _seed_users(
         )
         created_users["viewers"].append(viewer)
 
-        for branch_index, branch in enumerate(context.branches, start=1):
+        for _branch_index, branch in enumerate(context.branches, start=1):
             manager = _create_user_with_role(
                 identity=identity,
                 actor_id=admin_user.id,
@@ -2475,7 +2499,8 @@ def _seed_users(
                 email=f"{_slug(warehouse.code)}.manager@{_slug(firm.name)}.local",
                 full_name=f"{warehouse.name} Manager",
                 firm_id=firm.id,
-                description="Warehouse manager for storage and inventory relationships.",
+                description="Warehouse manager for storage and inventory "
+                "relationships.",
                 branch=_branch_name_for_warehouse(
                     context.branches, warehouse.branch_id
                 ),
@@ -2508,9 +2533,24 @@ def _seed_users(
 
     if len(contexts) >= 3:
         multifirm_assignments = (
-            ("regional.ops1@agency.local", "Regional Operations 1", "FIRM_MANAGER", [0, 1]),
-            ("regional.ops2@agency.local", "Regional Operations 2", "FIRM_MANAGER", [1, 2]),
-            ("regional.ops3@agency.local", "Regional Operations 3", "FIRM_MANAGER", [0, 2]),
+            (
+                "regional.ops1@agency.local",
+                "Regional Operations 1",
+                "FIRM_MANAGER",
+                [0, 1],
+            ),
+            (
+                "regional.ops2@agency.local",
+                "Regional Operations 2",
+                "FIRM_MANAGER",
+                [1, 2],
+            ),
+            (
+                "regional.ops3@agency.local",
+                "Regional Operations 3",
+                "FIRM_MANAGER",
+                [0, 2],
+            ),
             ("auditor.multi1@agency.local", "Regional Auditor 1", "VIEWER", [0, 1, 2]),
             ("auditor.multi2@agency.local", "Regional Auditor 2", "VIEWER", [0, 1, 2]),
         )
@@ -2615,9 +2655,7 @@ def _seed_vendors(
                 if state_name in GEO_BLUEPRINT
             )[(context_index * 4 + index) % len(geography["cities"])]
             state_name = next(
-                state
-                for (state, city) in geography["cities"].keys()
-                if city == city_name
+                state for (state, city) in geography["cities"] if city == city_name
             )
             geo = _geo_for_city(geography, state_name, city_name)
             vendor_name = (
@@ -2643,7 +2681,8 @@ def _seed_vendors(
                     email=f"contact@{_slug(vendor_name)}.local",
                     phone=_phone(context_index * 100 + index + 1),
                     mobile=_phone(context_index * 100 + index + 401),
-                    remarks=f"Preferred for {context.profile.code.lower()} development scenarios.",
+                    remarks=f"Preferred for {context.profile.code.lower()} "
+                    f"development scenarios.",
                     business_attributes={
                         "segment": category_code,
                         "credit_days": 30 + (index % 4) * 15,
@@ -2663,7 +2702,9 @@ def _seed_vendors(
                     addresses=[
                         VendorAddressInput(
                             address_type=VendorAddressType.HEAD_OFFICE,
-                            address_line1=f"{10 + index} {geo['locality'].name} Trade Centre",
+                            address_line1=(
+                                f"{10 + index} {geo['locality'].name} " "Trade Centre"
+                            ),
                             address_line2="Supplier Zone",
                             country_id=geography["country"].id,
                             state_id=geo["state"].id,
@@ -2862,7 +2903,8 @@ def _seed_products(
                             qr_code=None,
                             name=product_name,
                             short_name=template_name[:80],
-                            description=f"{product_name} seeded for {context.profile.code} development flows.",
+                            description=f"{product_name} seeded for "
+                            f"{context.profile.code} development flows.",
                             product_type=ProductType.STOCK_ITEM,
                             category_id=category.id,
                             sub_category_id=None,
@@ -2894,11 +2936,13 @@ def _seed_products(
         products_by_firm[context.firm.id] = created
     if rules:
         notes.append(
-            "Product dynamic attributes were populated from existing category attribute rules."
+            "Product dynamic attributes were populated from existing category "
+            "attribute rules."
         )
     else:
         notes.append(
-            "No category attribute rules were present, so seeded products use only core fields."
+            "No category attribute rules were present, so seeded products use only "
+            "core fields."
         )
     return products_by_firm
 
@@ -2946,7 +2990,9 @@ def _seed_customers(
                     addresses=[
                         CustomerAddressInput(
                             address_type=CustomerAddressType.BILLING,
-                            address_line1=f"{100 + index} {geo['locality'].name} Main Road",
+                            address_line1=(
+                                f"{100 + index} {geo['locality'].name} " "Main Road"
+                            ),
                             address_line2="Commercial Zone",
                             area=geo["locality"].name,
                             city=city_name,
@@ -2959,7 +3005,9 @@ def _seed_customers(
                         ),
                         CustomerAddressInput(
                             address_type=CustomerAddressType.SHIPPING,
-                            address_line1=f"{200 + index} {geo['locality'].name} Service Lane",
+                            address_line1=(
+                                f"{200 + index} {geo['locality'].name} " "Service Lane"
+                            ),
                             address_line2="Delivery Dock",
                             area=geo["locality"].name,
                             city=city_name,
@@ -3523,28 +3571,24 @@ def _seed_uom_inventory_and_documents(
                 updated_by=actor_id,
             )
         )
-        session.add(
-            ProductUomConfig(
-                firm_id=firm_id,
-                product_id=product.id,
-                base_uom_id=uom_unit.id,
-                inventory_uom_id=uom_unit.id,
-                purchase_uom_id=uom_box.id,
-                sales_uom_id=uom_unit.id,
-                default_receiving_uom_id=uom_box.id,
-                default_dispatch_uom_id=uom_unit.id,
-                minimum_sales_uom_id=uom_unit.id,
-                allow_fraction=False,
-                allow_decimal=True,
-                weight=Decimal("0.2500"),
-                volume=Decimal("0.0010"),
-                length=Decimal("0.1000"),
-                width=Decimal("0.0500"),
-                height=Decimal("0.0400"),
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
-        )
+        # The unit slots live on the product itself. `product_uom_configs`
+        # held a second copy of these fourteen columns and was removed in
+        # `20260812_0068`; every module reads `product.purchase_uom_id`.
+        product.base_uom_id = uom_unit.id
+        product.inventory_uom_id = uom_unit.id
+        product.purchase_uom_id = uom_box.id
+        product.sales_uom_id = uom_unit.id
+        product.default_receiving_uom_id = uom_box.id
+        product.default_dispatch_uom_id = uom_unit.id
+        product.minimum_sales_uom_id = uom_unit.id
+        product.allow_fraction = False
+        product.allow_decimal = True
+        product.weight = Decimal("0.2500")
+        product.volume = Decimal("0.0010")
+        product.length = Decimal("0.1000")
+        product.width = Decimal("0.0500")
+        product.height = Decimal("0.0400")
+        product.updated_by = actor_id
         unit_level = ProductPackagingLevel(
             firm_id=firm_id,
             product_id=product.id,
@@ -5395,7 +5439,6 @@ def _seed_uom_inventory_and_documents(
     counts["uoms"] = _count_active(session, Uom)
     counts["packaging_types"] = _count_active(session, PackagingType)
     counts["uom_conversion_rules"] = _count_active(session, ConversionRule)
-    counts["product_uom_configs"] = _count_active(session, ProductUomConfig)
     counts["product_packaging_levels"] = _count_active(session, ProductPackagingLevel)
     counts["opening_stock_batches"] = _count_active(session, OpeningStockBatch)
     counts["inventories"] = _count_active(session, InventoryRecord)
@@ -5750,7 +5793,8 @@ def _render_users_doc(logins: list[LoginRecord]) -> str:
         logins, key=lambda item: (item.role, item.firm, item.username)
     ):
         lines.append(
-            f"| {record.username} | {record.role} | {record.firm} | {record.branch} | {DEVELOPMENT_PASSWORD} | {record.description} |"
+            f"| {record.username} | {record.role} | {record.firm} | {record.branch} | "
+            f"{DEVELOPMENT_PASSWORD} | {record.description} |"
         )
     lines.append("")
     return "\n".join(lines)
@@ -5844,7 +5888,7 @@ def _print_summary(counts: Counter[str]) -> None:
             print(f"{key}: {counts[key]}")
 
 
-def _count_active(session: Session, model: Any) -> int:
+def _count_active(session: Session, model: type[BaseEntity]) -> int:
     if hasattr(model, "is_deleted"):
         statement = (
             select(func.count()).select_from(model).where(model.is_deleted.is_(False))
@@ -5937,6 +5981,7 @@ def _branch_name_for_warehouse(branches: list[Branch], branch_id: UUID) -> str:
 
 
 def profiles_tax_code(context: FirmContext, fallback: str) -> str:
+    """Return the tax group code a firm's profile implies."""
     return (
         fallback
         if fallback in context.tax_profiles

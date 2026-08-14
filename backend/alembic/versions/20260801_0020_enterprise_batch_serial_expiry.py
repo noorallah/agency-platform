@@ -2,8 +2,9 @@
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "20260801_0020"
 down_revision: str | Sequence[str] | None = "20260801_0019"
@@ -42,6 +43,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply phase 16B enterprise batch, lot, serial number, and expiry management."""
     # 1. Add tracking flag columns to products
     op.add_column(
         "products",
@@ -328,6 +330,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse phase 16B enterprise batch, lot, serial number, and expiry management."""
     op.drop_index(
         "IX_inventory_transactions_serial_id", table_name="inventory_transactions"
     )

@@ -34,9 +34,7 @@ _COLUMNS = {
     "reversal_journal_entry_id": sa.Column(
         "reversal_journal_entry_id", UUIDType(), nullable=True
     ),
-    "reversed_at": sa.Column(
-        "reversed_at", sa.DateTime(timezone=True), nullable=True
-    ),
+    "reversed_at": sa.Column("reversed_at", sa.DateTime(timezone=True), nullable=True),
     "reversed_by": sa.Column("reversed_by", UUIDType(), nullable=True),
     "reversal_reason": sa.Column("reversal_reason", sa.Text(), nullable=True),
 }

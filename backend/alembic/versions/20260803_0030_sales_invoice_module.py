@@ -6,8 +6,9 @@ Create Date: 2026-08-03 12:00:00.000000
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 from app.core.database.types import UUIDType
 
 revision = "20260803_0030"
@@ -17,6 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Apply the sales_invoice module tables."""
     # sales_invoices table
     op.create_table(
         "sales_invoices",
@@ -358,6 +360,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the sales_invoice module tables."""
     op.drop_index(
         "IX_sales_invoice_accounting_events_type",
         table_name="sales_invoice_accounting_events",

@@ -48,6 +48,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply the enterprise branch and warehouse management schema."""
     op.create_table(
         "branch_types",
         *_base_columns(),
@@ -290,6 +291,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the enterprise branch and warehouse management schema."""
     op.drop_index(
         "IX_warehouse_storage_nodes_warehouse_type",
         table_name="warehouse_storage_nodes",

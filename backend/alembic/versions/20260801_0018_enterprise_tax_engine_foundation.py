@@ -2,9 +2,9 @@
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260801_0018"
@@ -14,6 +14,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    """Apply phase 15A enterprise tax engine foundation."""
     op.create_table(
         "tax_rules",
         sa.Column("firm_id", sa.Uuid(), nullable=False),
@@ -299,6 +300,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse phase 15A enterprise tax engine foundation."""
     op.drop_index(
         op.f("ix_tax_rule_execution_logs_firm_id"), table_name="tax_rule_execution_logs"
     )

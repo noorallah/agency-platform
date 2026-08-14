@@ -46,6 +46,7 @@ def _base_columns() -> list[sa.Column]:
 
 
 def upgrade() -> None:
+    """Apply the territory extensions for geo masters and route metadata."""
     op.add_column(
         "territory_customer_assignments",
         sa.Column("visit_sequence", sa.Integer(), nullable=True),
@@ -302,6 +303,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse the territory extensions for geo masters and route metadata."""
     op.drop_table("territory_working_days")
     op.drop_table("territory_route_profiles")
     op.drop_table("sales_route_types")

@@ -40,6 +40,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply delivery note module foundation."""
     op.create_table(
         "delivery_notes",
         *_base_columns(),
@@ -339,6 +340,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse delivery note module foundation."""
     op.drop_index("IX_delivery_note_notes_note", table_name="delivery_note_notes")
     op.drop_index(
         "IX_delivery_note_notes_delivery_note_id", table_name="delivery_note_notes"

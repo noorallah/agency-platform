@@ -883,6 +883,50 @@ disagree -- reading `firms` through `FirmMetadataReader`, because that table
 lives only in the platform schema and a direct query from a tenant session
 answered 503.
 
+## 12. The lint debt is gone, and what it uncovered
+
+**Done on 2026-08-14.** `ruff check .` and `black --check .` are clean across
+the whole tree for the first time -- `app/`, `tests/`, `scripts/` and
+`alembic/`. The 181 findings `CLAUDE.md` described as permanent debt were 81
+long lines, 41 undocumented functions, 8 undocumented classes, 32 missing
+annotations and a handful of unused names.
+
+Nothing about behaviour moved, and that is checked rather than asserted: every
+string literal and f-string in the four seed scripts was compared by AST before
+and after, and every SQL statement in the six re-wrapped migrations is
+byte-identical once whitespace is normalised. The forty-one migration
+docstrings are derived from each migration's own module docstring, so they say
+what the migration does rather than "Apply the migration" forty-one times.
+
+**`scripts/generate_sample_data.py` was already unrunnable**, which is why
+nobody had noticed. It imported `ProductUomConfig`, deleted in `b569479` when
+its fourteen columns were folded back onto `products` -- that commit's message
+says "nothing outside `app/uom` referenced the model", and this script
+referenced it four times. It has raised `ImportError` on every run since
+2026-08-12 while `CLAUDE.md` documented it as a primary command. The unit slots
+are written onto the product now, and the script starts.
+
+**It still does not finish, and this is the next piece of work.** Its
+`delete_order` is a hand-maintained tuple that has gone stale by **61 mapped
+models**. Two were fixed here -- `batches` has to be deleted after
+`inventory_transactions` and `inventories`, both of which have pointed at a
+batch since stock became batch-grained -- and the run then stops on
+`product_valuations`. The rest include `physical_counts`, `settlements`,
+`sales_returns`, `sales_quotations`, `customer_receivable_transactions` and the
+whole finance schema.
+
+Finishing it needs a decision this PR deliberately did not guess at: **which of
+the 61 the reset is meant to preserve.** Firms, users, roles, permissions and
+the geo masters are clearly kept; the finance chart of accounts is arguable.
+Getting that wrong on a `--reset` deletes something a developer wanted. The
+structural fix is the one `generate_transaction_history.py` already has --
+`_assert_reset_tables_exist`, which refuses to run rather than silently doing
+less than it says -- or deriving the order from `Base.metadata.sorted_tables`,
+which knows the dependency graph the hand list keeps getting wrong.
+
+`scripts/seed_multi_firm_demo.py` and `generate_transaction_history.py` are
+unaffected and remain the working way to build demo data.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every

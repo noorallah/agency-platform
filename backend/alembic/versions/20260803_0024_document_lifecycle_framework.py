@@ -45,6 +45,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply generic enterprise document lifecycle framework."""
     op.create_table(
         "document_type_definitions",
         *_base_columns(),
@@ -328,6 +329,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse generic enterprise document lifecycle framework."""
     op.drop_index("IX_document_totals_document_header_id", table_name="document_totals")
     op.drop_index("IX_document_totals_firm_id", table_name="document_totals")
     op.drop_table("document_totals")

@@ -2,8 +2,9 @@
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision: str = "20260802_0022"
 down_revision: str | Sequence[str] | None = "20260802_0021"
@@ -42,6 +43,7 @@ def _base_columns() -> list[sa.Column[object]]:
 
 
 def upgrade() -> None:
+    """Apply enterprise purchase management foundation."""
     op.create_table(
         "purchase_orders",
         *_base_columns(),
@@ -353,6 +355,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Reverse enterprise purchase management foundation."""
     op.drop_index(
         "IX_purchase_order_history_firm_action", table_name="purchase_order_history"
     )
