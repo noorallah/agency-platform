@@ -249,3 +249,44 @@ def test_every_number_a_rule_issues_is_unique() -> None:
         )
 
     assert len(set(issued)) == len(issued), f"duplicate numbers issued: {issued}"
+
+
+def test_a_preview_shows_the_number_the_document_would_actually_get() -> None:
+    """Found by building the numbering screen and reading its output.
+
+    The label fell through as None when a caller did not name one, so a
+    preview read ``PO-2026-000001`` while the document it was previewing would
+    be called ``PO-2026-2027-000001``. Showing the wrong number is the one
+    thing a preview must not do.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = DocumentFrameworkService(session)
+    document_type = service.create_type(
+        firm.id,
+        DocumentTypeCreate(code="PURCHASE_ORDER", name="Purchase Order"),
+        actor_id,
+    )
+    rule = service.create_numbering_rule(
+        firm.id,
+        DocumentNumberingRuleCreate(
+            document_type_id=document_type.id,
+            code="DEFAULT",
+            name="Default Numbering",
+            prefix="PO",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    # The firm's year starts in April, so a January date is in 2025-2026.
+    preview = service.preview_number(
+        rule.id, firm_id=firm.id, document_date=date(2026, 1, 1)
+    )
+    reserved = service.reserve_number(
+        rule.id, firm_id=firm.id, document_date=date(2026, 1, 1), actor_id=actor_id
+    )
+
+    assert preview == "PO-2025-2026-000001"
+    assert reserved == preview

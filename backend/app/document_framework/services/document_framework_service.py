@@ -10,7 +10,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.utils.dates import (
+    financial_year_label as build_financial_year_label,
+)
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -481,14 +485,43 @@ class DocumentFrameworkService:
         document_date: date | None = None,
         manual_number: str | None = None,
     ) -> str:
+        """Return the number this rule would produce, without consuming it.
+
+        The label defaults to the firm's own financial year when the caller
+        does not name one. It used to fall through as None, so a preview read
+        ``QT-2026-000001`` while the document it was previewing would be
+        called ``QT-2026-2027-000001`` -- which is the one thing a preview
+        must not do.
+        """
         rule = self.get_numbering_rule(firm_id, rule_id)
+        on = document_date or utc_now().date()
         return self._build_document_number(
             rule,
-            financial_year_label=financial_year_label,
+            financial_year_label=self._year_label(firm_id, on, financial_year_label),
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or utc_now().date(),
+            document_date=on,
             manual_number=manual_number,
+        )
+
+    def _year_label(self, firm_id: UUID, on: date, given: str | None) -> str:
+        """Return the financial-year label a document number should carry.
+
+        Derived here rather than in each caller so that a preview and the
+        reservation it previews cannot disagree -- they did: the label fell
+        through as None and the scope signature used the plain calendar year,
+        so a preview read ``PO-2026-000001`` for a number that would be issued
+        as ``PO-2025-2026-000001``.
+
+        ``FirmMetadataReader``, not a direct query: ``firms`` lives only in the
+        platform schema, and a tenant session's search_path points at the
+        firm's own -- reading it directly answered 503.
+        """
+        if given is not None:
+            return given
+        starts_on = FirmMetadataReader(self._session).get(firm_id).financial_year_start
+        return build_financial_year_label(
+            on, start_month=starts_on.month if starts_on is not None else 4
         )
 
     def reserve_number(
@@ -504,19 +537,23 @@ class DocumentFrameworkService:
         actor_id: UUID | None = None,
     ) -> str:
         rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
+        on = document_date or utc_now().date()
+        # The same derivation `preview_number` uses, so the two cannot answer
+        # differently for the same rule and date.
+        label = self._year_label(firm_id, on, financial_year_label)
         scope_signature = self._scope_signature(
-            financial_year_label=financial_year_label,
+            financial_year_label=label,
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or utc_now().date(),
+            document_date=on,
         )
         counter = self._sequence_for(rule, scope_signature, actor_id=actor_id)
         number = self._build_document_number(
             rule,
-            financial_year_label=financial_year_label,
+            financial_year_label=label,
             branch_code=branch_code,
             company_code=company_code,
-            document_date=document_date or utc_now().date(),
+            document_date=on,
             manual_number=manual_number,
         )
         if manual_number is not None and rule.manual_allowed:

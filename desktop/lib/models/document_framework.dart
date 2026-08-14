@@ -161,3 +161,81 @@ class DocumentTimelineSnapshot {
             : const <String, dynamic>{},
       );
 }
+
+/// How one document type's numbers are built.
+///
+/// The rule behind every `SI-2026-2027-000008` in the system. It had endpoints
+/// and no screen, so "what will the next invoice be called" was a question
+/// only the database could answer.
+class NumberingRule {
+  const NumberingRule({
+    required this.id,
+    required this.documentTypeId,
+    required this.code,
+    required this.name,
+    required this.prefix,
+    required this.suffix,
+    required this.separator,
+    required this.includeFinancialYear,
+    required this.includeBranchCode,
+    required this.includeCompanyCode,
+    required this.sequencePadding,
+    required this.nextSequence,
+    required this.autoReset,
+    required this.manualAllowed,
+    required this.isDefault,
+    required this.isActive,
+  });
+
+  final String id;
+  final String documentTypeId;
+  final String code;
+  final String name;
+  final String prefix;
+  final String suffix;
+  final String separator;
+  final bool includeFinancialYear;
+  final bool includeBranchCode;
+  final bool includeCompanyCode;
+  final int sequencePadding;
+
+  /// The number the next document will take. The single most useful figure
+  /// here, and the one nobody could see.
+  final int nextSequence;
+  final bool autoReset;
+  final bool manualAllowed;
+  final bool isDefault;
+  final bool isActive;
+
+  /// What the rule says, in words rather than in flags.
+  String get shape {
+    final List<String> parts = [
+      if (prefix.isNotEmpty) prefix,
+      if (includeCompanyCode) 'company',
+      if (includeBranchCode) 'branch',
+      if (includeFinancialYear) 'financial year',
+      '#' * (sequencePadding == 0 ? 6 : sequencePadding),
+      if (suffix.isNotEmpty) suffix,
+    ];
+    return parts.join(separator.isEmpty ? '-' : separator);
+  }
+
+  factory NumberingRule.fromJson(Json json) => NumberingRule(
+        id: stringValue(json['id']),
+        documentTypeId: stringValue(json['document_type_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        prefix: stringValue(json['prefix']),
+        suffix: stringValue(json['suffix']),
+        separator: stringValue(json['separator']),
+        includeFinancialYear: boolValue(json['include_financial_year']),
+        includeBranchCode: boolValue(json['include_branch_code']),
+        includeCompanyCode: boolValue(json['include_company_code']),
+        sequencePadding: (json['sequence_padding'] as num?)?.toInt() ?? 0,
+        nextSequence: (json['next_sequence'] as num?)?.toInt() ?? 0,
+        autoReset: boolValue(json['auto_reset']),
+        manualAllowed: boolValue(json['manual_allowed']),
+        isDefault: boolValue(json['is_default']),
+        isActive: boolValue(json['is_active']),
+      );
+}

@@ -44,6 +44,8 @@ import 'dashboard_page.dart';
 import 'finance/finance_workspace.dart';
 import 'inventory/physical_count_page.dart';
 import 'reports/reports_workspace.dart';
+import 'settings/financial_years_page.dart';
+import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
@@ -1449,6 +1451,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           definition:
               _userFirmAssignmentDefinition(widget.api, widget.permissions),
         ),
+      'numbering-series' => NumberingSeriesPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'business-profiles' => ResourceManagementPage<BusinessProfileRecord>(
           api: widget.api,
           definition: _businessProfileDefinition(
@@ -1612,6 +1619,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
             widget.permissions,
             showFrame: false,
           ),
+        ),
+      'financial-years' => FinancialYearsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
         ),
       'firm-settings' => FirmSettingsPage(
           api: widget.api,

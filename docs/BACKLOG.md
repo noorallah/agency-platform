@@ -839,6 +839,50 @@ emailing a quotation to the customer. `RESET_ORDER` in
 `scripts/generate_transaction_history.py` gained the four new tables, the same
 step sales returns needed.
 
+## 11. No tab advertises what the platform cannot open
+
+**Done on 2026-08-14.** Twenty-one tabs and navigation nodes were declared
+`available: false` -- rendered, greyed out and disabled. A tab in that state
+for a year reads as broken, not as roadmap.
+
+Each was checked against the running server's OpenAPI, and they split three
+ways:
+
+- **Fourteen removed** because nothing was behind them. `user-audit`,
+  `branches-departments` and the Sales module's `sales-orders`,
+  `delivery-notes` and `sales-invoices` duplicated modules with their own place
+  in the sidebar; `dashboard`, `gst`, `background-jobs`, `system-settings`,
+  `api-monitoring`, `approval-workflows`, `document-templates` and
+  `notification-templates` had no endpoints at all, as did the four Licensing
+  tabs (§2 is still parked).
+- **Two built**, because deleting them would have hidden a working capability
+  rather than stopped advertising a missing one:
+  - **Financial years** (`/api/v1/finance/financial-years` + `accounting-periods`)
+    decides whether a document can be posted at all. The refusal "no open
+    accounting period" had nowhere to send anybody. The screen lists years with
+    how many of their periods are open -- the fact that decides it, which the
+    year's own dates do not say -- and opens or closes a period for whoever
+    holds `financial_year`.
+  - **Numbering series** (`/api/v1/document-framework/numbering-rules`) is the
+    rule behind every document number. Read-only on purpose: `next_sequence` is
+    a counter the server advances under a lock, and a form that let somebody
+    set it back would mint a number a document already holds.
+
+`test_configuration_screens_test.dart` now fails the build if any catalog tab
+is `available: false`, and if a navigation node draws a path its module has no
+tab for -- which `numbering-series` did, landing the reader silently on the
+first tab instead.
+
+**Building the numbering screen found a defect in the preview.** The endpoint
+let `financial_year_label` fall through as None, and the scope signature then
+used the plain calendar year: a preview read `QT-2026-000001` for a number that
+would be issued as `QT-2026-2027-000001`. Showing the wrong number is the one
+thing a preview must not do. The label is now derived once, in `_year_label`,
+and used by both `preview_number` and `reserve_number` so the two cannot
+disagree -- reading `firms` through `FirmMetadataReader`, because that table
+lives only in the platform schema and a direct query from a tenant session
+answered 503.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
