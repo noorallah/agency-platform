@@ -697,6 +697,195 @@ def _expense_account(
     )
 
 
+def test_the_balance_sheet_balances_because_earnings_are_carried_to_equity() -> None:
+    """Nothing closes the year, so the accumulated result is the equity.
+
+    Income and expense accounts here accumulate indefinitely -- no year-end
+    entry ever zeroes them -- so their net is the firm's earnings. Without
+    carrying that into equity the sheet is short by everything the firm has
+    ever made, and no chart of accounts can fix it because the entry that would
+    do it is never written. March 2027 in the seeded firm balances to the rupee
+    this way: assets 484,890.29 against liabilities 393,759.20 and an
+    accumulated result of 91,131.09.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    engine = JournalEntryEngine(session)
+
+    # A sale of 100 for cash: cash 100 on one side, sales 100 on the other, and
+    # nothing in equity to hold the profit.
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-SALE",
+        description="Cash sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    report = GeneralLedgerService(session).balance_sheet(
+        firm_id=firm.id, accounting_period_id=book.period.id
+    )
+
+    assert [line.account_code for line in report.assets] == ["1000"]
+    assert report.total_assets == Decimal("100.00")
+    assert report.liabilities == []
+    assert report.equity == [], "the seeded chart has no equity account at all"
+    assert report.total_equity == Decimal("100.00"), "the result is the equity"
+    assert report.result_for_the_year == Decimal("100.00")
+    assert report.retained_earnings_brought_forward == Decimal("0.00")
+    assert report.is_balanced
+
+    # Sales is an income account and has no business appearing as an asset or
+    # a liability, however the earnings are carried.
+    listed = {
+        line.account_code for line in report.assets + report.liabilities + report.equity
+    }
+    assert "4000" not in listed
+
+
+def test_the_balance_sheet_splits_this_year_from_what_came_before() -> None:
+    """Two figures, because they answer different questions.
+
+    What the firm built up before this year, and how this year is going. Their
+    sum is the whole accumulated result.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-LAST-YEAR",
+        description="Last year's sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    next_year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2028",
+            name="2027-2028",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2028, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    april = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=next_year.id,
+            period_number=1,
+            code="P1",
+            name="April 2027",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2027, 4, 30),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=april.id,
+        journal_date=date(2027, 4, 10),
+        reference_number="JV-THIS-YEAR",
+        description="This year's sale",
+        lines=_sale_lines(book, "40.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    report = GeneralLedgerService(session).balance_sheet(
+        firm_id=firm.id, accounting_period_id=april.id
+    )
+
+    assert report.retained_earnings_brought_forward == Decimal("100.00")
+    assert report.result_for_the_year == Decimal("40.00")
+    assert report.total_equity == Decimal("140.00")
+    assert report.total_assets == Decimal("140.00")
+    assert report.is_balanced
+
+
+def test_a_balance_sheet_carries_an_account_that_did_not_move() -> None:
+    """As at, not for: a quiet account still holds what it holds.
+
+    The same omission that made the trial balance report a sound ledger out of
+    balance would take an asset off the balance sheet entirely.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-SALE",
+        description="Cash sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    report = GeneralLedgerService(session).balance_sheet(
+        firm_id=firm.id, accounting_period_id=may.id
+    )
+
+    assert [line.amount for line in report.assets] == [
+        Decimal("100.00")
+    ], "cash saw nothing in May and still holds what April left it"
+    assert report.total_equity == Decimal("100.00")
+    assert report.result_for_the_year == Decimal("100.00"), (
+        "the result is the year to this period, not the period: April is in "
+        "the same financial year"
+    )
+    assert report.retained_earnings_brought_forward == Decimal("0.00")
+    assert report.is_balanced
+
+
 def test_the_profit_and_loss_reports_the_month_and_the_year_to_date() -> None:
     """One column is the wrong answer half the time.
 

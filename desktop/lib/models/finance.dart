@@ -194,6 +194,117 @@ class TrialBalanceReport {
   );
 }
 
+/// One account's balance as at a period end.
+class BalanceSheetLine {
+  const BalanceSheetLine({
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.accountType,
+    required this.amount,
+  });
+
+  final String ledgerAccountId;
+  final String accountCode;
+  final String accountName;
+  final String accountType;
+  final String amount;
+
+  factory BalanceSheetLine.fromJson(Json json) => BalanceSheetLine(
+        ledgerAccountId: stringValue(json['ledger_account_id']),
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        accountType: stringValue(json['account_type']),
+        amount: stringValue(json['amount']),
+      );
+}
+
+/// The balance sheet as at one period end.
+///
+/// The two earnings figures are computed rather than accounts: nothing in this
+/// ledger posts a year-end closing entry, so income and expense accounts
+/// accumulate and their net is the firm's earnings. Both are already inside
+/// [totalEquity].
+class BalanceSheetReport {
+  const BalanceSheetReport({
+    required this.accountingPeriodId,
+    required this.financialYearId,
+    required this.generatedAt,
+    required this.assets,
+    required this.liabilities,
+    required this.equity,
+    required this.totalAssets,
+    required this.totalLiabilities,
+    required this.totalEquity,
+    required this.retainedEarningsBroughtForward,
+    required this.resultForTheYear,
+    required this.isBalanced,
+  });
+
+  final String accountingPeriodId;
+  final String financialYearId;
+  final String generatedAt;
+  final List<BalanceSheetLine> assets;
+  final List<BalanceSheetLine> liabilities;
+  final List<BalanceSheetLine> equity;
+  final String totalAssets;
+  final String totalLiabilities;
+  final String totalEquity;
+  final String retainedEarningsBroughtForward;
+  final String resultForTheYear;
+
+  /// Whether the sheet balances, as the server reported it.
+  ///
+  /// Carried through rather than recomputed, for the same reason the trial
+  /// balance's verdict is.
+  final bool isBalanced;
+
+  bool get isEmpty => assets.isEmpty && liabilities.isEmpty && equity.isEmpty;
+
+  factory BalanceSheetReport.fromJson(Json json) {
+    final Json d =
+        json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
+    List<BalanceSheetLine> section(String key) {
+      final dynamic value = d[key];
+      return [
+        for (final dynamic line in value is List ? value : const [])
+          if (line is Map) BalanceSheetLine.fromJson(Map<String, dynamic>.from(line)),
+      ];
+    }
+
+    return BalanceSheetReport(
+      accountingPeriodId: stringValue(d['accounting_period_id']),
+      financialYearId: stringValue(d['financial_year_id']),
+      generatedAt: stringValue(d['generated_at']),
+      assets: section('assets'),
+      liabilities: section('liabilities'),
+      equity: section('equity'),
+      totalAssets: stringValue(d['total_assets']),
+      totalLiabilities: stringValue(d['total_liabilities']),
+      totalEquity: stringValue(d['total_equity']),
+      retainedEarningsBroughtForward:
+          stringValue(d['retained_earnings_brought_forward']),
+      resultForTheYear: stringValue(d['result_for_the_year']),
+      isBalanced: boolValue(d['is_balanced']),
+    );
+  }
+
+  static const BalanceSheetReport empty = BalanceSheetReport(
+    accountingPeriodId: '',
+    financialYearId: '',
+    generatedAt: '',
+    assets: [],
+    liabilities: [],
+    equity: [],
+    totalAssets: '0.00',
+    totalLiabilities: '0.00',
+    totalEquity: '0.00',
+    retainedEarningsBroughtForward: '0.00',
+    resultForTheYear: '0.00',
+    isBalanced: true,
+  );
+}
+
 /// One income or expense account's contribution to the result.
 ///
 /// Both figures are the account's own movement in its natural direction, so a

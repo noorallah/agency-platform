@@ -7,18 +7,11 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import 'statement_amount.dart';
 
-/// Write a figure the way a statement writes it: negatives in parentheses.
-///
-/// A minus sign in a column of money is easy to miss and easy to mistake for a
-/// hyphen, and this report has two places a negative is meaningful and normal
-/// -- a loss, and a contra account such as sales returns that reduces income
-/// rather than costing anything.
-String presentAmount(String amount) {
-  final String trimmed = amount.trim();
-  if (!trimmed.startsWith('-')) return trimmed;
-  return '(${trimmed.substring(1)})';
-}
+// Re-exported so a screen that shows figures does not have to know which file
+// the formatter lives in; the profit and loss is where it was first needed.
+export 'statement_amount.dart';
 
 /// The profit and loss for one period, and the year it belongs to.
 ///
