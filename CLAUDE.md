@@ -61,7 +61,9 @@ uv run python scripts/generate_transaction_history.py --firm WHOLE01 --years 2 -
 uv run python scripts/reset_tenancy_layout.py --yes   # destructive local rebuild of platform + firm_shared
 ```
 
-**`generate_sample_data.py` does not currently finish.** Its `delete_order` is a hand-maintained tuple that has gone stale by 61 mapped models, so `--reset` stops on a foreign key (`product_valuations` at the time of writing). The `ImportError` that stopped it before it did anything -- it imported `ProductUomConfig`, deleted on 2026-08-12 -- was fixed on 2026-08-14. Finishing it needs a decision about which of the 61 the reset is meant to preserve; `docs/BACKLOG.md` §12 has the list. Use `scripts/seed_multi_firm_demo.py` and `scripts/generate_transaction_history.py`, which work.
+**`app/core/database/all_models.py` is the one list of model modules.** `alembic/env.py`, `tests/conftest.py` and `scripts/generate_sample_data.py` all import it, so a new model module is added there and nowhere else; `tests/unit/test_schema_registry.py` fails the build if one is missing. Three hand-maintained copies used to exist and this file told you to keep two of them in step, which is how the sample-data reset fell 61 tables behind.
+
+**`generate_sample_data.py --reset` derives its delete order** from `Base.metadata.sorted_tables` reversed, and clears each schema by name -- the seed session's `search_path` spans `platform` and `firm_shared`, so an unqualified delete hit whichever copy resolved first and left the other. `PRESERVED_TABLES` names the fourteen exceptions. **`seed_multi_firm_demo.py` cannot yet seed a database this has reset**: its products fail the mandatory-attribute check against rules it wrote itself. See `docs/BACKLOG.md` §12.
 
 `alembic upgrade head --sql` intentionally fails at `20260728_0004`, which inspects a live schema. Use `upgrade 20260728_0003 --sql` for offline bootstrap DDL.
 

@@ -906,23 +906,51 @@ referenced it four times. It has raised `ImportError` on every run since
 2026-08-12 while `CLAUDE.md` documented it as a primary command. The unit slots
 are written onto the product now, and the script starts.
 
-**It still does not finish, and this is the next piece of work.** Its
-`delete_order` is a hand-maintained tuple that has gone stale by **61 mapped
-models**. Two were fixed here -- `batches` has to be deleted after
-`inventory_transactions` and `inventories`, both of which have pointed at a
-batch since stock became batch-grained -- and the run then stops on
-`product_valuations`. The rest include `physical_counts`, `settlements`,
-`sales_returns`, `sales_quotations`, `customer_receivable_transactions` and the
-whole finance schema.
+**It finishes now.** The `delete_order` tuple is gone: the order is derived
+from `Base.metadata.sorted_tables`, which already knows the dependency graph,
+reversed. It cannot go stale -- a table added tomorrow is in it the moment its
+model is imported -- and the 61 missing models are no longer a category of
+problem. `PRESERVED_TABLES` names the fourteen exceptions and says why each
+survives.
 
-Finishing it needs a decision this PR deliberately did not guess at: **which of
-the 61 the reset is meant to preserve.** Firms, users, roles, permissions and
-the geo masters are clearly kept; the finance chart of accounts is arguable.
-Getting that wrong on a `--reset` deletes something a developer wanted. The
-structural fix is the one `generate_transaction_history.py` already has --
-`_assert_reset_tables_exist`, which refuses to run rather than silently doing
-less than it says -- or deriving the order from `Base.metadata.sorted_tables`,
-which knows the dependency graph the hand list keeps getting wrong.
+**The hand list was not the whole story.** The delete was also unqualified,
+while the seed session runs with `search_path = platform, firm_shared, public`.
+A table that exists in both schemas -- and `product_valuations` is one --
+resolved to the platform copy, which is empty, while the firm_shared rows
+survived to break the next foreign key. That is why the list appeared to work
+for years: it worked for tables that live in one schema only. Each schema is
+now cleared by name, in full, before the next.
+
+Proven by running it twice: a second `--yes` succeeds, which it could only do
+if the first run's reset cleared everything. A `reset` leaves nothing behind
+except the fourteen preserved tables and the six that
+`seed_uom_reference_data` immediately re-seeds.
+
+**One list of model modules**, `app/core/database/all_models.py`. Alembic's
+`env.py`, `tests/conftest.py` and the seed script each kept their own copy, and
+`CLAUDE.md` carried a standing instruction to keep two of them in step by hand
+-- the shape of a rule that gets forgotten, and it was.
+`tests/unit/test_schema_registry.py` fails the build if a module under
+`app/*/models/` is missing from it.
+
+## Two things this uncovered, both left open
+
+**`seed_multi_firm_demo.py` cannot seed a genuinely clean database.** Nobody
+had one before, because the reset never worked. Two problems: it asked for UOM
+codes `GRAM` and `TABLET` that the baseline catalogue never had -- fixed here,
+`TABLET` joins the catalogue below `STRIP` and `GRAM` becomes `G`, the code the
+catalogue uses -- and then its own products fail the mandatory-attribute check
+against the `CategoryAttributeRule` rows it has just written. The second is
+unfixed and needs someone to work out which attribute the rule requires that
+the product does not supply.
+
+**The generated dataset does not balance.** `verify_sample_data.py` reports
+customers owing 885,000.00 against a receivable control account of zero: the
+generator sets `customers.opening_balance` directly and nothing posts a
+journal. It is the same defect class as
+`CustomerService.post_receivable_transaction`, and fixing it needs a decision
+about the counterpart -- opening balance equity, the way opening stock got one
+in `20260814_0080`.
 
 `scripts/seed_multi_firm_demo.py` and `generate_transaction_history.py` are
 unaffected and remain the working way to build demo data.
