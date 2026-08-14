@@ -369,9 +369,24 @@ Decisions in the editors worth knowing before copying them:
   date returned a 403 naming the feature. That is the "desktop does not pre-hide
   feature-gated fields" item under **Also open**, now with a concrete case.
 
-Not part of this, but adjacent and unbuilt: warehouse-to-warehouse transfers,
-physical count reconciliation, and dedicated damage/expiry/quarantine
-write-offs (only a generic `ADJUSTMENT` reaches those buckets).
+**Warehouse transfers were built on 2026-08-14.** `POST /inventory/transfers`
+writes a `TRANSFER_OUT` and a `TRANSFER_IN` against one reference, carrying the
+batch across so it stays traceable through the move, and **writes no journal**:
+the firm owns the same goods at the same value afterwards, and there is one
+inventory control account, so debiting and crediting it for the same amount
+would be noise rather than information. Stock by warehouse in the accounts
+would need an account per warehouse, which is a different and much larger
+feature.
+
+The value is held still deliberately -- stock leaves at the moving average and
+arrives at the same figure, so a transfer cannot quietly revalue a product,
+which it would if the inbound leg valued itself at nothing. Unlike a dispatch,
+which may run stock negative because the goods have physically gone, a transfer
+of stock the source does not hold is refused: nothing left the building.
+
+Still unbuilt: physical count reconciliation and dedicated
+damage/expiry/quarantine write-offs (only a generic `ADJUSTMENT` reaches those
+buckets, and it now posts).
 
 **"Stock movements post nothing to the general ledger" was wrong**, and the
 correction matters because it changes what needs building. Measured on

@@ -34,6 +34,7 @@ from app.inventory.schemas import (
     OpeningStockImportRequest,
     OpeningStockUpdate,
     StockLedgerListFilters,
+    StockTransferCreate,
 )
 from app.inventory.schemas.inventory import (
     InventoryLocationSummary,
@@ -541,6 +542,34 @@ def create_adjustment(
         data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.transaction_response(row))
+
+
+@router.post(
+    "/transfers",
+    response_model=ApiResponse[list[InventoryTransactionResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def transfer_stock(
+    data: StockTransferCreate,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[InventoryTransactionResponse]]:
+    """Move stock between warehouses.
+
+    Returns both movements, out and in: a transfer is two sides of one thing,
+    and returning only one of them would leave the caller to guess the other.
+    """
+    service = InventoryService(db)
+    outbound, inbound = service.transfer_stock(
+        data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=[
+            service.transaction_response(outbound),
+            service.transaction_response(inbound),
+        ],
+        message="Stock transferred.",
+    )
 
 
 @router.get("/export")
