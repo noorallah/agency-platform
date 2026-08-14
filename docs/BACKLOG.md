@@ -371,9 +371,44 @@ Decisions in the editors worth knowing before copying them:
 
 Not part of this, but adjacent and unbuilt: warehouse-to-warehouse transfers,
 physical count reconciliation, and dedicated damage/expiry/quarantine
-write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
-also post nothing to the general ledger, so stock value and the inventory
-control account never reconcile.
+write-offs (only a generic `ADJUSTMENT` reaches those buckets).
+
+**"Stock movements post nothing to the general ledger" was wrong**, and the
+correction matters because it changes what needs building. Measured on
+2026-08-14 against both stores:
+
+    wholesale_hub   stock 210,338.7956   ledger 210,338.79   drift 0.0056
+    firm_shared     stock 420,677.5916   ledger 420,677.58   drift 0.0116
+
+The two agree. The drift is the valuation holding four decimals and the ledger
+two, not a missing posting. Goods receipts post `Dr Inventory / Cr GRNI` and
+dispatches post `Dr COGS / Cr Inventory`, and between them they keep the
+control account honest for everything the demo exercises.
+
+**Three movement types do change stock value and post nothing**, and each one
+silently breaks that reconciliation the first time it is used:
+
+1. **`ADJUSTMENT`** -- `InventoryService` writes the movement and revalues the
+   product with no journal. This is the worst of the three: there is no
+   document behind it, so nothing on screen would ever hint that the ledger
+   disagrees. It needs a new control purpose (`INVENTORY_ADJUSTMENT` -> an
+   expense account), a chart entry, and a migration that maps it for every
+   existing firm -- otherwise posting would refuse every adjustment a firm
+   makes until an administrator noticed.
+2. **Purchase returns** -- `record_purchase_return` moves stock out;
+   `PurchaseReturnService` imports no posting service at all. Inventory
+   overstates by the value returned. This one needs **no new accounts**:
+   `INVENTORY`, `PURCHASE_RETURNS` and `ACCOUNTS_PAYABLE` are all mapped
+   already, and the value of the movement is on the stock ledger entry as
+   `total_cost`.
+3. **Opening stock** -- lays stock down with no counterpart. The chart has **no
+   equity account at all**, so there is nothing to credit; it needs an opening
+   balance equity account before it can post, which is also what the balance
+   sheet would want.
+
+Purchase returns are the piece to take first: no new accounts, no migration,
+and the value is already recorded. Adjustments are second and need the chart
+decision above.
 
 ## 7. Finance has a screen -- and now the full set of reports
 
