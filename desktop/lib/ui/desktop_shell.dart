@@ -1068,18 +1068,30 @@ class _DesktopShellState extends State<DesktopShell> {
         label: 'MASTERS',
         moduleIds: pick([AppModule.masters]),
       ),
+      // Documents are filed under the process they belong to. This section
+      // used to carry eight top-level entries, with Sales Invoices a sibling
+      // of Sales -- a document type outranking the process it belongs to, so
+      // somebody hunting an invoice had to know it had been promoted rather
+      // than filed where they would look first.
+      //
+      // Each one is still a whole module with its own page, permissions and
+      // route. Only where it is drawn changed, which is why no stored
+      // workspace had to be migrated and no route needed an alias.
       EnterpriseSidebarSection(
         label: 'TRANSACTIONS',
-        moduleIds: pick([
-          AppModule.purchases,
-          AppModule.purchaseInvoices,
-          AppModule.purchaseReturns,
-          AppModule.goodsReceipts,
-          AppModule.sales,
-          AppModule.salesOrders,
-          AppModule.deliveryNotes,
-          AppModule.salesInvoices,
-        ]),
+        moduleIds: pick([AppModule.purchases, AppModule.sales]),
+        childModuleIds: {
+          AppModule.purchases: pick([
+            AppModule.goodsReceipts,
+            AppModule.purchaseInvoices,
+            AppModule.purchaseReturns,
+          ]),
+          AppModule.sales: pick([
+            AppModule.salesOrders,
+            AppModule.deliveryNotes,
+            AppModule.salesInvoices,
+          ]),
+        },
       ),
       EnterpriseSidebarSection(
         label: 'INVENTORY',

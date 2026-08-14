@@ -174,20 +174,29 @@ document type outranks the process it belongs to, so somebody hunting an invoice
 has to know it was promoted to the top level rather than filed under Sales,
 where they would look first.
 
-**The change**, when it happens: re-parent the six document modules —
-`salesOrders`, `deliveryNotes`, `salesInvoices` under Sales;
-`purchaseInvoices`, `purchaseReturns`, `goodsReceipts` under Purchases. That
-takes the top level from 16 entries to 10 and the TRANSACTIONS section to 2. It
-is catalog data plus the `_page(...)` switch and `_moduleCode` in
-`desktop_shell.dart`; the sidebar needs nothing new.
+**Done on 2026-08-14.** The six document modules are filed under the process
+they belong to -- `goodsReceipts`, `purchaseInvoices`, `purchaseReturns` under
+Purchases; `salesOrders`, `deliveryNotes`, `salesInvoices` under Sales. The
+TRANSACTIONS section went from eight top-level entries to two.
 
-Two things to carry into it:
+**The alias map turned out not to be needed, and that was a design choice.**
+Nesting was done in the sidebar -- `EnterpriseSidebarSection.childModuleIds`
+plus an indent -- so each document is still a whole module with its own page,
+permissions and **route name**. `_routeModule()` matches a stored
+`lastWorkspace` against `AppModule.values` by name, and no name moved, so a
+client last on Sales Invoices still reopens there.
 
-- `_routeModule()` falls back to Dashboard for an unknown route (`orElse`), so a
-  stored `lastWorkspace` cannot crash — but **without an alias map, anyone whose
-  last screen was `salesInvoices` silently lands on Dashboard.**
-- `desktop/test/navigation_tree_test.dart` and `workspace_overflow_test.dart`
-  both assert on the current tree and will need updating with it.
+The alternative was to make the documents tabs of Sales and Purchases, which
+would have changed those route names and needed the map. It would also have put
+document tabs beside the workspaces' own tabs and forced `_page(...)` to
+dispatch per tab, for the same visible result. `navigation_reparenting_test.dart`
+holds the tripwire: it asserts every re-parented module still resolves to itself
+by name, so changing a route id instead of a section fails there rather than in
+somebody's next session.
+
+Not covered: the **collapsed** rail is a flat strip of icons, so the six still
+appear at its top level. Nesting is not expressible in a one-icon-wide rail, and
+the flyout it opens shows a module's own tabs.
 
 Also open in the same pass: **Purchases is listed before Sales** (fine, but be
 deliberate), and **Configuration is scattered** across Masters and Settings —
