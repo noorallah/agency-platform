@@ -73,8 +73,6 @@ from app.customers.schemas import (
     CustomerAddressInput,
     CustomerContactInput,
     CustomerCreate,
-    CustomerReceivableTransactionCreate,
-    CustomerReceivableTransactionType,
 )
 from app.customers.schemas.customer import AddressType as CustomerAddressType
 from app.customers.schemas.customer import CustomerStatus, CustomerType
@@ -529,6 +527,15 @@ def main() -> int:
             seeded_firms: list[Firm] = []
             for blueprint in FIRM_BLUEPRINTS:
                 firm = _ensure_firm(session, firm_service, blueprint, actor_id)
+                # `FirmService.create` records the intent; the storage is built
+                # by the explicit provisioning action. Reusing an already
+                # provisioned firm hid this -- once the sample-data reset began
+                # deleting firms, the new records were unprovisioned and every
+                # request for them was refused. Re-running is safe.
+                if blueprint.deployment_mode is not DeploymentMode.SHARED:
+                    _firm, already = firm_service.provision(firm.id, actor_id)
+                    if not already:
+                        print(f"  provisioned {blueprint.code}")
                 seeded_firms.append(firm)
 
             _ensure_firm_admins(
@@ -1145,7 +1152,7 @@ def _seed_customers(
             )
         ):
             continue
-        customer = service.create(
+        service.create(
             CustomerCreate(
                 code=f"{firm.code}C{index:02d}",
                 customer_type=CustomerType.BUSINESS,
@@ -1192,74 +1199,17 @@ def _seed_customers(
             firm_id=firm.id,
             actor_id=actor_id,
         )
-        if index == 1:
-            service.post_receivable_transaction(
-                customer.id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.INVOICE,
-                    transaction_date=utc_now().date(),
-                    amount=Decimal("50000"),
-                    reference_type="SEED_INVOICE",
-                    reference_number=f"SI-DEMO-{firm.code}-001",
-                    remarks="Seeded receivable invoice balance.",
-                ),
-                firm_scope=firm.id,
-                actor_id=actor_id,
-            )
-            service.post_receivable_transaction(
-                customer.id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.RECEIPT,
-                    transaction_date=utc_now().date(),
-                    amount=Decimal("20000"),
-                    reference_type="SEED_RECEIPT",
-                    reference_number=f"RCPT-DEMO-{firm.code}-001",
-                    remarks="Seeded customer receipt allocation.",
-                ),
-                firm_scope=firm.id,
-                actor_id=actor_id,
-            )
-        elif index == 2:
-            service.post_receivable_transaction(
-                customer.id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.ADVANCE_RECEIPT,
-                    transaction_date=utc_now().date(),
-                    amount=Decimal("15000"),
-                    reference_type="SEED_ADVANCE",
-                    reference_number=f"ADV-DEMO-{firm.code}-001",
-                    remarks="Seeded unapplied customer advance.",
-                ),
-                firm_scope=firm.id,
-                actor_id=actor_id,
-            )
-        elif index == 3:
-            service.post_receivable_transaction(
-                customer.id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.INVOICE,
-                    transaction_date=utc_now().date(),
-                    amount=Decimal("12000"),
-                    reference_type="SEED_INVOICE",
-                    reference_number=f"SI-DEMO-{firm.code}-003",
-                    remarks="Seeded receivable invoice.",
-                ),
-                firm_scope=firm.id,
-                actor_id=actor_id,
-            )
-            service.post_receivable_transaction(
-                customer.id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
-                    transaction_date=utc_now().date(),
-                    amount=Decimal("3000"),
-                    reference_type="SEED_CREDIT_NOTE",
-                    reference_number=f"CN-DEMO-{firm.code}-003",
-                    remarks="Seeded credit note adjustment.",
-                ),
-                firm_scope=firm.id,
-                actor_id=actor_id,
-            )
+        # No hand-posted balances here. These called
+        # `CustomerService.post_receivable_transaction`, which moves a
+        # customer's balance and writes no journal -- CLAUDE.md names it as the
+        # older path the two books drift by every rupee of. It left MEDI01's
+        # first customer owing 30,000 that the receivable control account had
+        # never heard of, on every seed.
+        #
+        # Two financial years of generated trading give every customer a real
+        # balance built from invoices and receipts that do post. If the demo
+        # ever wants an unapplied advance to show, raise it through
+        # `ReceiptService` so it reaches the ledger like any other money.
 
 
 def _seed_business_framework(

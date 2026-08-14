@@ -970,13 +970,58 @@ Proven end to end: `generate_sample_data.py reset --yes`, then
 `seed_multi_firm_demo.py`, then `verify_sample_data.py` -- **all three stores
 hold together**, from a full reset, for the first time.
 
-**Still open:** the generated dataset from `generate_sample_data.py --yes`
-itself does not balance -- customers owe 885,000.00 against a receivable
-control account of zero, because the generator sets
-`customers.opening_balance` directly and nothing posts a journal. Same defect
-class as `CustomerService.post_receivable_transaction`. Fixing it needs a
-decision about the counterpart: opening balance equity, the way opening stock
-got one in `20260814_0080`. The demo seeder does not have this problem.
+## 13. An opening balance reaches the ledger
+
+**Done on 2026-08-15.** A customer's opening balance moved their account and
+wrote no journal, so a firm's customers could owe it 885,000.00 against a
+receivable control account of zero. `CustomerService` wrote the balance and a
+receivable transaction and stopped there -- the same shape as the credit note
+that did not post until 2026-08-14, and the gap `verify_sample_data.py` exists
+to find.
+
+**The counterpart was already decided.** `post_opening_stock` put opening
+balance equity in the chart for exactly this and said so: "a firm that later
+records opening receivables or opening cash has somewhere consistent to put
+them." A day-one receivable arrived from nowhere the ledger can see, and what
+it represents is what the owners brought into the business, so the receivable
+is debited and equity credited. A customer in credit swaps the legs -- the firm
+owes them, and nothing about that is a receipt.
+
+**It is refused rather than skipped** when the firm has no chart of accounts or
+no open period. A balance nobody can book is one the firm should not be told it
+has recorded, and the message says which setup is missing. The customer itself
+still opens; it is the balance that cannot.
+
+Three paths make a balance stop being true, and all three mirror the entry:
+revising one, and deleting the customer -- found by driving the API, where two
+probe customers left 50,000 in the ledger after being deleted.
+`customer_receivable_transactions.journal_entry_id` (`20260815_0088`) is what
+lets them: searching the ledger by source module would not tell an opening
+balance from the credit notes and refunds the same customer raises.
+
+**Two seeders were writing balances nothing backed.**
+`generate_sample_data.py` created firms with no chart of accounts at all --
+they have one now, for the financial year that contains today, since an opening
+balance posts on the day it is recorded. `seed_multi_firm_demo.py` hand-posted
+50,000 of invoice and 20,000 of receipt onto its first customer through
+`CustomerService.post_receivable_transaction`, the path `CLAUDE.md` names as
+the one the two books drift by every rupee of; it left MEDI01 owing 30,000
+nobody had journalled, on every seed. Those lines are gone: two financial years
+of generated trading give every customer a real balance built from documents
+that do post. If the demo ever wants an unapplied advance to show, raise it
+through `ReceiptService` so it reaches the ledger like any other money.
+
+`seed_multi_firm_demo.py` also **provisions** the dedicated firms it creates.
+`FirmService.create` records the intent and the storage is built by the
+explicit provisioning action; reusing already-provisioned firms hid that, and
+once the reset began deleting firms every request for WHOLE01 and ELEC01 was
+refused.
+
+Verified over HTTP: creating a customer with 25,000 moves Trade Receivables and
+opening balance equity by 25,000 each, deleting them moves both back, and the
+lifecycle nets to zero. The revise path is covered at service level -- the API
+needs an `If-Match` whose value is not returned as an ETag, which is a separate
+gap. **All three stores hold together** after a full reset and re-seed.
 
 ## Also open
 

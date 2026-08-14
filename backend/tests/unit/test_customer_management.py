@@ -41,6 +41,7 @@ from app.customers.models import (
     Customer,
     CustomerAddress,
     CustomerContact,
+    CustomerReceivableTransaction,
 )
 from app.customers.schemas import (
     CreditControlSettingsWrite,
@@ -56,6 +57,8 @@ from app.customers.schemas.customer import (
 )
 from app.customers.services import CreditControlService, CustomerService
 from app.customers.services.credit_control import DEFAULT_SETTINGS
+from app.finance.models import JournalEntry
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
@@ -93,6 +96,17 @@ def _firm(session: Session, code: str) -> Firm:
         financial_year_start=date(2026, 4, 1),
     )
     session.add(firm)
+    session.commit()
+    # A customer here opens with a balance, and an opening balance is money
+    # owed: it posts to the receivable against opening balance equity, so the
+    # firm needs its chart of accounts and an open period the way a real one
+    # would before anybody starts keying customers in.
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=uuid4(),
+    )
     session.commit()
     return firm
 
@@ -704,3 +718,150 @@ def test_a_warning_threshold_above_the_block_is_rejected() -> None:
             warn_at_percent=Decimal("120"),
             block_at_percent=Decimal("100"),
         )
+
+
+def test_an_opening_balance_reaches_the_ledger() -> None:
+    """A day-one receivable is money owed, and it has to be booked as such.
+
+    `verify_sample_data.py` found the gap: customers owing 885,000.00 against a
+    receivable control account of zero, because this wrote the balance and the
+    receivable transaction and stopped there.
+    """
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session, "OB-FIRM")
+    service = CustomerService(session)
+    actor_id = uuid4()
+
+    customer = service.create(
+        _customer_data("CUST-OB"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    # The customer data opens 150.00 in credit, so the firm owes them: the
+    # legs swap and equity is debited.
+    assert customer.unapplied_advance_balance == Decimal("150.00")
+    transaction = session.scalar(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.customer_id == customer.id
+        )
+    )
+    assert transaction is not None
+    assert transaction.journal_entry_id is not None
+    entry = session.get(JournalEntry, transaction.journal_entry_id)
+    assert entry is not None
+    assert entry.reference_number == "CUST-OB-OB"
+    assert entry.total_debit == Decimal("150.00")
+    assert entry.total_credit == Decimal("150.00")
+
+
+def test_revising_an_opening_balance_mirrors_the_one_it_replaces() -> None:
+    """The old entry asserted a figure the customer no longer carries."""
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session, "OB-FIRM2")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    customer = service.create(
+        _customer_data("CUST-OB2"), firm_id=firm.id, actor_id=actor_id
+    )
+
+    service.update(
+        customer.id,
+        _customer_data("CUST-OB2").model_copy(
+            update={"opening_balance": Decimal("400.00")}
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    references = sorted(
+        row
+        for row in session.scalars(
+            select(JournalEntry.reference_number).where(JournalEntry.firm_id == firm.id)
+        ).all()
+    )
+    # The original, its mirror, and the revised figure -- each on its own
+    # reference, because a firm's journal references are unique.
+    assert references == ["CUST-OB2-OB", "CUST-OB2-OB-REV", "CUST-OB2-OB2"]
+    session.refresh(customer)
+    assert customer.current_outstanding == Decimal("400.00")
+
+
+def test_a_firm_with_no_chart_of_accounts_says_so() -> None:
+    """Refused, rather than recorded somewhere the ledger cannot see."""
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = Firm(
+        name="Bare Firm",
+        code="BARE",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(firm)
+    session.commit()
+    service = CustomerService(session)
+
+    with pytest.raises(ValidationError, match="chart of accounts"):
+        service.create(_customer_data("CUST-BARE"), firm_id=firm.id, actor_id=uuid4())
+    # The customer was staged before the posting ran, and a request that gets
+    # this error rolls back with it.
+    session.rollback()
+
+    # The customer itself is fine -- it is the balance that cannot be booked.
+    without = service.create(
+        _customer_data("CUST-BARE").model_copy(
+            update={"opening_balance": Decimal("0.00")}
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    assert without.code == "CUST-BARE"
+
+
+def test_deleting_a_customer_takes_its_opening_balance_with_it() -> None:
+    """Found by driving the API: two probe customers left 50,000 in the ledger.
+
+    The balance leaves the customer's account on delete, so an entry left
+    standing puts the receivable control account above what anybody is
+    recorded as owing -- the same drift, in the other direction.
+    """
+    session_factory = _session_factory()
+    session = session_factory()
+    firm = _firm(session, "OB-FIRM3")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    customer = service.create(
+        _customer_data("CUST-OB3").model_copy(
+            update={"opening_balance": Decimal("25000.00")}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    posted = session.scalar(
+        select(CustomerReceivableTransaction.journal_entry_id).where(
+            CustomerReceivableTransaction.customer_id == customer.id
+        )
+    )
+    assert posted is not None
+
+    service.delete(customer.id, firm_scope=firm.id, actor_id=actor_id)
+
+    references = sorted(
+        row
+        for row in session.scalars(
+            select(JournalEntry.reference_number).where(JournalEntry.firm_id == firm.id)
+        ).all()
+    )
+    assert references == ["CUST-OB3-OB", "CUST-OB3-OB-REV"]
+    # Both legs still exist, and they cancel: the ledger records that the
+    # balance was claimed and then withdrawn, rather than pretending neither.
+    entries = list(
+        session.scalars(
+            select(JournalEntry).where(JournalEntry.firm_id == firm.id)
+        ).all()
+    )
+    assert sum(entry.total_debit for entry in entries) == Decimal("50000.00")
+    assert sum(entry.total_credit for entry in entries) == Decimal("50000.00")

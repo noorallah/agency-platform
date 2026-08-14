@@ -29,6 +29,9 @@ from app.customers.schemas import (
     CustomerUpdate,
 )
 from app.customers.schemas.customer import CustomerListFilters
+from app.finance.models import JournalEntry
+from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine
 
 
 class CustomerService:
@@ -38,6 +41,7 @@ class CustomerService:
         """Bind the service to one request unit of work."""
         self._session = session
         self._repository = CustomerRepository(session)
+        self._posting = DocumentPostingService(session)
 
     def create(
         self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
@@ -178,9 +182,16 @@ class CustomerService:
     def delete(
         self, customer_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> None:
-        """Soft delete one customer and audit the lifecycle action."""
+        """Soft delete one customer and audit the lifecycle action.
+
+        A customer with an opening balance takes its journal with it. The
+        balance leaves the customer's account on delete, so leaving the entry
+        behind would put the receivable control account above what anybody is
+        recorded as owing -- which is the same drift in the other direction.
+        """
         customer = self.get(customer_id, firm_scope=firm_scope)
         before = self._audit_snapshot(customer)
+        self._reverse_opening_balance_postings(customer, actor_id=actor_id)
         customer.is_deleted = True
         customer.deleted_at = utc_now()
         customer.deleted_by = actor_id
@@ -551,6 +562,63 @@ class CustomerService:
         advance = -opening_balance if opening_balance < 0 else zero
         return outstanding, advance
 
+    def _reverse_opening_balance_postings(
+        self, customer: Customer, *, actor_id: UUID
+    ) -> None:
+        """Mirror every journal this customer's opening balances have posted.
+
+        Used by both paths that make an opening balance stop being true:
+        revising it and deleting the customer. Each reversal takes the original
+        entry's reference with `-REV`, so the pair reads as one correction.
+        """
+        engine = JournalEntryEngine(self._session)
+        for row in self._session.scalars(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.customer_id == customer.id,
+                CustomerReceivableTransaction.transaction_type
+                == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+                CustomerReceivableTransaction.journal_entry_id.is_not(None),
+            )
+        ).all():
+            if row.journal_entry_id is None:
+                continue
+            original = self._session.get(JournalEntry, row.journal_entry_id)
+            engine.reverse_entry(
+                row.journal_entry_id,
+                firm_id=customer.firm_id,
+                reference_number=(
+                    f"{original.reference_number}-REV"
+                    if original is not None
+                    else f"{customer.code}-OB-REV"
+                ),
+                actor_id=actor_id,
+            )
+            row.journal_entry_id = None
+
+    def _opening_balance_reference(self, customer: Customer) -> str:
+        """Return a journal reference no earlier opening balance has taken.
+
+        Journal references are unique per firm, and a customer code is not:
+        soft-deleting a customer releases the code, and revising an opening
+        balance posts a second entry for the same one. Both collided on the
+        bare code.
+        """
+        base = f"{customer.code}-OB"
+        taken = set(
+            self._session.scalars(
+                select(JournalEntry.reference_number).where(
+                    JournalEntry.firm_id == customer.firm_id,
+                    JournalEntry.reference_number.like(f"{base}%"),
+                )
+            ).all()
+        )
+        if base not in taken:
+            return base
+        suffix = 2
+        while f"{base}{suffix}" in taken:
+            suffix += 1
+        return f"{base}{suffix}"
+
     def _record_opening_balance_transaction(
         self,
         *,
@@ -558,8 +626,40 @@ class CustomerService:
         amount: Decimal,
         actor_id: UUID,
     ) -> None:
+        """Record a day-one balance on the customer's account and in the ledger.
+
+        Both, together. This wrote the receivable transaction and stopped, so a
+        firm's customers could owe it 885,000 against a receivable control
+        account of zero -- the same shape of gap that cancelling an invoice had
+        until 2026-08-14, and the one `verify_sample_data.py` exists to catch.
+
+        The posting runs first and is allowed to fail the write: a balance the
+        firm cannot book is one it should not be told it has recorded. A firm
+        with no chart of accounts therefore cannot open a customer with a
+        balance -- it can still open the customer -- and the error says which
+        setup is missing.
+        """
         if amount == 0:
             return
+        try:
+            entry = self._posting.post_opening_balance(
+                firm_id=customer.firm_id,
+                customer_id=customer.id,
+                reference_number=self._opening_balance_reference(customer),
+                posting_date=utc_now().date(),
+                amount=amount,
+                actor_id=actor_id,
+            )
+        except ValidationError as error:
+            # `_require_mapping` speaks about approving a document, which is
+            # not what anybody is doing here. Say what this operation needs.
+            raise ValidationError(
+                f"{customer.code} cannot open with a balance: {error}. An "
+                "opening balance is money owed and has to be booked, so the "
+                "firm needs a chart of accounts and an open period covering "
+                "today. Create the customer without a balance, or complete "
+                "the firm's finance setup first."
+            ) from error
         zero = Decimal("0")
         outstanding_delta = amount if amount > 0 else zero
         advance_delta = -amount if amount < 0 else zero
@@ -575,6 +675,7 @@ class CustomerService:
             reference_number=customer.code,
             remarks="Opening balance seeded from customer financial profile.",
             actor_id=actor_id,
+            journal_entry_id=None if entry is None else entry.id,
         )
 
     def reverse_receivable_transaction(
@@ -692,8 +793,10 @@ class CustomerService:
         reference_number: str | None,
         remarks: str | None,
         actor_id: UUID,
+        journal_entry_id: UUID | None = None,
     ) -> CustomerReceivableTransaction:
         row = CustomerReceivableTransaction(
+            journal_entry_id=journal_entry_id,
             firm_id=customer.firm_id,
             customer_id=customer.id,
             transaction_type=tx_type,
@@ -721,6 +824,10 @@ class CustomerService:
         amount: Decimal,
         actor_id: UUID,
     ) -> None:
+        # Mirror whatever the old balance posted before dropping the row that
+        # points at it. Deleting the transaction alone would leave the journal
+        # asserting a figure the customer no longer carries.
+        self._reverse_opening_balance_postings(customer, actor_id=actor_id)
         self._session.query(CustomerReceivableTransaction).filter(
             CustomerReceivableTransaction.customer_id == customer.id,
             CustomerReceivableTransaction.transaction_type
