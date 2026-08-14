@@ -447,8 +447,44 @@ statement by definition and `CONTROL` is not a section of a balance sheet; if
 either ever holds a balance the sheet stops balancing and the screen names that
 as the likely cause rather than absorbing it silently.
 
-**Receipts and payments have no endpoint at all** and are a feature rather than
-a gap -- the last thing in the module that is a gap rather than a decision.
+**Receipts and payments** were built on 2026-08-14 as `app/settlements`, the
+last real gap in the module. Nothing in the product could record money
+arriving: two years of seeded trading left Cash at 0.00 while Trade Receivables
+grew to 249,236.70, because invoices were the only document that reached the
+ledger.
+
+The one path that existed was worse than none.
+`POST /customers/{id}/receivables/transactions` accepts a RECEIPT, moves the
+customer's outstanding balance and **writes no journal**, so every use of it put
+the subsidiary ledger and the general ledger further apart, silently and
+permanently. A settlement is therefore a document that posts, and the posting is
+what makes it real -- no control account or no open period refuses the whole
+thing rather than recording it half-way. `settlements.journal_entry_id` is NOT
+NULL to keep that true in the schema and not only in the service.
+
+One table for both directions: a receipt and a payment are the same document
+with the signs reversed. Allocations record which invoices it cleared, and what
+an invoice still owes is **derived** from them rather than stored, because a
+paid-to-date column is a second copy of the same facts and is wrong the first
+time anything writes one outside the service. Money not tied to an invoice is
+held on account, which is a normal thing for a customer to send.
+
+Two things it deliberately does not do, and the reasons:
+
+- **A settlement cannot be cancelled.** Reversing one has to unwind the
+  customer's outstanding *and* advance balances by the exact amounts it moved
+  them, and the receivable service has no transaction type that does it. That is
+  its own piece of work; a wrong reversal is worse than none.
+- **No vendor payable balance was introduced.** Customers carry a denormalised
+  `current_outstanding` that credit control depends on, so receipts keep it in
+  step. Vendors carry nothing, and what they are owed is derived from their
+  invoices less allocations rather than adding a second balance to drift.
+
+**The seeder raises no purchase invoices** -- 29 goods receipts and zero
+invoices in the seeded wholesale firm -- so the payment direction has no demo
+data to allocate against and was verified on-account instead, plus a unit test
+asserting the Dr payable / Cr bank legs. Worth fixing in
+`generate_transaction_history.py` so the payables side of the demo is real.
 
 **The trial balance lists every account with a balance** as of 2026-08-14, not
 only the accounts that moved. A `ledger_balances` row is written when an account

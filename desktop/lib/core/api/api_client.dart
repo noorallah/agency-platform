@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../../models/entities.dart';
 import '../../models/finance.dart';
+import '../../models/settlement.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -2439,6 +2440,57 @@ class ApiClient {
           'GET',
           '/api/v1/finance/trial-balance',
           query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
+
+  // Receipts and payments. Nothing in the product could record money
+  // arriving until these existed: two years of seeded trading left Cash at
+  // 0.00 while receivables grew, because invoices were the only document that
+  // reached the ledger.
+
+  Future<PagedResult<Settlement>> settlements({
+    required bool isReceipt,
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? partyId,
+  }) =>
+      _list(
+        isReceipt ? '/api/v1/receipts' : '/api/v1/payments',
+        Settlement.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (partyId != null) (isReceipt ? 'customer_id' : 'vendor_id'): partyId,
+        },
+      );
+
+  /// The party's invoices that still owe something.
+  Future<List<OutstandingInvoice>> outstandingInvoices({
+    required bool isReceipt,
+    required String partyId,
+  }) async {
+    final Json response = await request(
+      'GET',
+      isReceipt ? '/api/v1/receipts/outstanding' : '/api/v1/payments/outstanding',
+      query: {(isReceipt ? 'customer_id' : 'vendor_id'): partyId},
+    );
+    return _unwrapList(response, OutstandingInvoice.fromJson);
+  }
+
+  /// Record money that has already moved, and post it to the ledger.
+  Future<Settlement> recordSettlement({
+    required bool isReceipt,
+    required Json data,
+  }) async =>
+      Settlement.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            isReceipt ? '/api/v1/receipts' : '/api/v1/payments',
+            body: data,
+          ),
         ),
       );
 

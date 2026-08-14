@@ -30,6 +30,7 @@ from app.purchase_return.models import purchase_return  # noqa: F401
 from app.sales.models import territory  # noqa: F401
 from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
+from app.settlements.models import settlement  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.uom.models import uom  # noqa: F401
 from app.vendors.models import vendor  # noqa: F401

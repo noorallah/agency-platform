@@ -699,10 +699,8 @@ abstract final class ModuleCatalog {
             id: 'chart-of-accounts', label: 'Chart of Accounts'),
         ModuleTabDefinition(
             id: 'journal-entries', label: 'Journal Entries'),
-        ModuleTabDefinition(
-            id: 'receipts', label: 'Receipts', available: false),
-        ModuleTabDefinition(
-            id: 'payments', label: 'Payments', available: false),
+        ModuleTabDefinition(id: 'receipts', label: 'Receipts'),
+        ModuleTabDefinition(id: 'payments', label: 'Payments'),
         ModuleTabDefinition(id: 'ledgers', label: 'Ledgers'),
         ModuleTabDefinition(id: 'trial-balance', label: 'Trial Balance'),
         ModuleTabDefinition(id: 'profit-loss', label: 'Profit & Loss'),
