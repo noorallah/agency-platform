@@ -11,7 +11,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -282,6 +282,71 @@ class JournalEntryEngine:
             },
         )
         return reversal
+
+    def list_entries(
+        self,
+        *,
+        firm_id: UUID,
+        page: int,
+        page_size: int,
+        search: str | None = None,
+        accounting_period_id: UUID | None = None,
+        status: str | None = None,
+        journal_type_id: UUID | None = None,
+        descending: bool = True,
+    ) -> tuple[list[JournalEntry], int]:
+        """Return a page of journal entries, newest first by default.
+
+        The module could create an entry and read one back by id, and had no
+        way to find one -- so every posting the documents made was unfindable
+        unless somebody already knew its id. Ordering is by journal date and
+        then reference number, which is how an accountant looks for one, and
+        the reference breaks the tie so two entries on one date keep a stable
+        order across pages.
+
+        Returns:
+            The page and the total count, the shape `PaginatedResponse` wants.
+
+        """
+        conditions = [
+            JournalEntry.firm_id == firm_id,
+            JournalEntry.is_deleted.is_(False),
+        ]
+        if accounting_period_id is not None:
+            conditions.append(JournalEntry.accounting_period_id == accounting_period_id)
+        if status:
+            conditions.append(JournalEntry.status == status)
+        if journal_type_id is not None:
+            conditions.append(JournalEntry.journal_type_id == journal_type_id)
+        if search:
+            term = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    JournalEntry.reference_number.ilike(term),
+                    JournalEntry.description.ilike(term),
+                )
+            )
+        order = (
+            (JournalEntry.journal_date.desc(), JournalEntry.reference_number.desc())
+            if descending
+            else (JournalEntry.journal_date.asc(), JournalEntry.reference_number.asc())
+        )
+        rows = list(
+            self._session.scalars(
+                select(JournalEntry)
+                .where(*conditions)
+                .order_by(*order)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+        )
+        total = int(
+            self._session.scalar(
+                select(func.count()).select_from(JournalEntry).where(*conditions)
+            )
+            or 0
+        )
+        return rows, total
 
     def get_entry(self, journal_entry_id: UUID, *, firm_id: UUID) -> JournalEntry:
         """Return one journal entry or raise when it is unavailable."""

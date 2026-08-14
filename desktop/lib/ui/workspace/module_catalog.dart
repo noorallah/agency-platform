@@ -698,7 +698,7 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
             id: 'chart-of-accounts', label: 'Chart of Accounts'),
         ModuleTabDefinition(
-            id: 'journal-entries', label: 'Journal Entries', available: false),
+            id: 'journal-entries', label: 'Journal Entries'),
         ModuleTabDefinition(
             id: 'receipts', label: 'Receipts', available: false),
         ModuleTabDefinition(
