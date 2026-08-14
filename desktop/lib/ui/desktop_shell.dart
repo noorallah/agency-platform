@@ -386,31 +386,21 @@ class _DesktopShellState extends State<DesktopShell> {
           height: 68,
           child: Padding(
             padding: const EdgeInsets.only(left: 12, right: 4),
+            // The application name, the collapse toggle and the theme
+            // selector all used to sit here as well as in the sidebar, which
+            // owns all three -- its header carries the name and the toggle,
+            // its footer the theme. Two copies of a control are two things to
+            // keep in step and one of them is always the wrong one to reach
+            // for.
+            //
+            // The module title stays. It is the third place it appears, after
+            // the selected sidebar item and the page's own header -- but only
+            // seven screens render a header of their own, so removing it here
+            // would leave the rest with no title at all. Back and forward stay
+            // whatever else changes: they are genuinely useful and rare in an
+            // ERP.
             child: Row(children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.account_balance,
-                    size: 20,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.branding.appName,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                ],
-              ),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: _sidebarCollapsed
-                    ? 'Expand navigation'
-                    : 'Collapse navigation',
-                onPressed: _toggleSidebar,
-                icon: Icon(
-                  _sidebarCollapsed ? Icons.chevron_right : Icons.chevron_left,
-                ),
-              ),
+              const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Back',
                 onPressed: _router.canGoBack ? _router.back : null,
@@ -433,7 +423,6 @@ class _DesktopShellState extends State<DesktopShell> {
               const Spacer(),
               _firmControl(),
               const SizedBox(width: 8),
-              ThemeSelector(manager: widget.themes),
               PopupMenuButton<String>(
                 tooltip: 'Profile',
                 padding: EdgeInsets.zero,
@@ -1077,19 +1066,23 @@ class _DesktopShellState extends State<DesktopShell> {
       // Each one is still a whole module with its own page, permissions and
       // route. Only where it is drawn changed, which is why no stored
       // workspace had to be migrated and no route needed an alias.
+      // Sales first. The section is ordered by how often it is opened, not by
+      // the order goods move in: a distribution firm raises sales orders every
+      // day and purchase orders every few weeks, so putting the weekly job
+      // above the daily one costs the daily one a glance every time.
       EnterpriseSidebarSection(
         label: 'TRANSACTIONS',
-        moduleIds: pick([AppModule.purchases, AppModule.sales]),
+        moduleIds: pick([AppModule.sales, AppModule.purchases]),
         childModuleIds: {
-          AppModule.purchases: pick([
-            AppModule.goodsReceipts,
-            AppModule.purchaseInvoices,
-            AppModule.purchaseReturns,
-          ]),
           AppModule.sales: pick([
             AppModule.salesOrders,
             AppModule.deliveryNotes,
             AppModule.salesInvoices,
+          ]),
+          AppModule.purchases: pick([
+            AppModule.goodsReceipts,
+            AppModule.purchaseInvoices,
+            AppModule.purchaseReturns,
           ]),
         },
       ),

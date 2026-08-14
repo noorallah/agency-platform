@@ -51,10 +51,10 @@ void main() {
     test('a child module is declared under its parent, not beside it', () {
       const EnterpriseSidebarSection section = EnterpriseSidebarSection(
         label: 'TRANSACTIONS',
-        moduleIds: [AppModule.purchases, AppModule.sales],
+        moduleIds: [AppModule.sales, AppModule.purchases],
         childModuleIds: {
-          AppModule.purchases: _purchaseDocuments,
           AppModule.sales: _salesDocuments,
+          AppModule.purchases: _purchaseDocuments,
         },
       );
 
@@ -83,10 +83,10 @@ void main() {
         _sidebar(
           const EnterpriseSidebarSection(
             label: 'TRANSACTIONS',
-            moduleIds: [AppModule.purchases, AppModule.sales],
+            moduleIds: [AppModule.sales, AppModule.purchases],
             childModuleIds: {
-              AppModule.purchases: _purchaseDocuments,
               AppModule.sales: _salesDocuments,
+              AppModule.purchases: _purchaseDocuments,
             },
           ),
         ),

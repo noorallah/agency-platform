@@ -1070,25 +1070,40 @@ abstract final class ModuleCatalog {
               ),
           ],
         ),
-      if (visibleTabIds.contains('financial-years'))
-        const WorkspaceNavigationNode(
-          label: 'Financial Years',
-          path: 'financial-years',
-          icon: Icons.event_note_outlined,
-          available: false,
-        ),
-      if (visibleTabIds.contains('firm-settings'))
-        const WorkspaceNavigationNode(
-          label: 'Firm Settings',
-          path: 'firm-settings',
-          icon: Icons.settings_applications_outlined,
-        ),
-      if (visibleTabIds.contains('branches-departments'))
-        const WorkspaceNavigationNode(
-          label: 'Branches / Departments',
-          path: 'branches-departments',
-          icon: Icons.account_tree_outlined,
-          available: false,
+      // Configuration in one place, the way Administration already groups
+      // its own. These three sat loose at the bottom of Masters, level with
+      // Customers and Products -- so a module of master data ended in three
+      // entries that are not master data, and somebody looking for a setting
+      // had to know it had been left there.
+      //
+      // Grouping only. Every path is unchanged, so a stored workspace still
+      // resolves and no permission moved.
+      if (hasAny(['financial-years', 'firm-settings', 'branches-departments']))
+        WorkspaceNavigationNode(
+          label: 'Configuration',
+          icon: Icons.tune_outlined,
+          children: [
+            if (visibleTabIds.contains('firm-settings'))
+              const WorkspaceNavigationNode(
+                label: 'Firm Settings',
+                path: 'firm-settings',
+                icon: Icons.settings_applications_outlined,
+              ),
+            if (visibleTabIds.contains('financial-years'))
+              const WorkspaceNavigationNode(
+                label: 'Financial Years',
+                path: 'financial-years',
+                icon: Icons.event_note_outlined,
+                available: false,
+              ),
+            if (visibleTabIds.contains('branches-departments'))
+              const WorkspaceNavigationNode(
+                label: 'Branches / Departments',
+                path: 'branches-departments',
+                icon: Icons.account_tree_outlined,
+                available: false,
+              ),
+          ],
         ),
     ];
   }
