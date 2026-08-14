@@ -60,6 +60,13 @@ PURCHASE_INVOICE_PURPOSES = (
 # Only the party side. The cash or bank account is resolved by the caller from
 # the method the money moved by, so requiring both here would stop a firm that
 # maps cash and not bank from recording a cash receipt.
+PURCHASE_RETURN_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.INPUT_TAX,
+    ControlAccountPurpose.INVENTORY,
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+)
+
 RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
@@ -245,6 +252,109 @@ class DocumentPostingService:
             lines=lines,
             source_module="sales_invoice",
             source_id=invoice_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_purchase_return(
+        self,
+        *,
+        firm_id: UUID,
+        return_id: UUID,
+        return_number: str,
+        return_date: date,
+        stock_value: Decimal,
+        tax_amount: Decimal,
+        total_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post goods going back to a supplier.
+
+        The supplier owes the firm the whole credit note, so **accounts payable
+        is debited** with the total including tax, and the input tax claimed on
+        the way in is reversed with the goods. What leaves stock is credited to
+        inventory at what the stock actually cost -- the moving average the
+        issue consumed at -- not at the price on the return.
+
+        Those two are routinely different: goods bought at several prices sit at
+        one average, and a return is priced at what the supplier agrees to
+        credit. The gap is a purchase price variance and belongs in the P&L,
+        exactly as it does when an invoice disagrees with the receipt it clears.
+        Crediting inventory at the return price instead would leave stock valued
+        at something no movement ever paid.
+
+        Args:
+            firm_id: The owning firm.
+            return_id: The source document.
+            return_number: The document number, used as the reference.
+            return_date: The date the goods went back.
+            stock_value: What the goods leaving stock actually cost.
+            tax_amount: Input tax being reversed.
+            total_amount: What the supplier credits, tax included.
+            actor_id: The user completing the return.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, PURCHASE_RETURN_PURPOSES)
+        context = self.context_for(firm_id, return_date)
+
+        # Derived at the ledger's scale from the two figures the supplier sees,
+        # so payables, input tax, inventory and the variance still balance once
+        # each is rounded to two decimals.
+        ledger_total = quantize_ledger(quantize_money(total_amount))
+        ledger_tax = quantize_ledger(quantize_money(tax_amount))
+        ledger_goods = ledger_total - ledger_tax
+        ledger_stock = quantize_ledger(quantize_money(stock_value))
+        variance = ledger_goods - ledger_stock
+
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                debit_amount=ledger_total,
+                description=f"Purchase return {return_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                credit_amount=ledger_stock,
+                description=f"Goods returned on {return_number}",
+            ),
+        ]
+        if ledger_tax != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.INPUT_TAX],
+                    credit_amount=ledger_tax,
+                    description=f"Input tax reversed on {return_number}",
+                )
+            )
+        if variance != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+                    ],
+                    debit_amount=ZERO if variance > ZERO else -variance,
+                    credit_amount=variance if variance > ZERO else ZERO,
+                    description=f"Price variance on {return_number}",
+                )
+            )
+
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=return_date,
+            reference_number=return_number,
+            description=f"Purchase return {return_number}",
+            lines=lines,
+            source_module="purchase_return",
+            source_id=return_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

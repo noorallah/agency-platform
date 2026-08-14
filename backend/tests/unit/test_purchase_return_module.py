@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -17,9 +17,11 @@ from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
+from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
-from app.inventory.models import InventoryRecord, InventoryTransaction
+from app.inventory.models import InventoryRecord, InventoryTransaction, StockLedgerEntry
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -56,6 +58,15 @@ def _firm(session: Session) -> Firm:
         financial_year_start=date(2026, 4, 1),
     )
     session.add(row)
+    session.commit()
+    # Completing a return posts to the general ledger, so the firm needs its
+    # chart of accounts, an open period and its control accounts.
+    seed_finance_setup(
+        session,
+        firm_id=row.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=uuid4(),
+    )
     session.commit()
     return row
 
@@ -470,3 +481,85 @@ def test_a_batch_only_product_cannot_be_returned_without_a_batch() -> None:
 
     with pytest.raises(ValidationError, match="may only be issued from a batch"):
         service.complete_return(row.id, firm_scope=firm.id, actor_id=uuid4())
+
+
+def test_completing_a_purchase_return_posts_it_to_the_ledger() -> None:
+    """Goods going back reach the ledger, or they do not go back.
+
+    Purchase returns moved stock and posted nothing, so the inventory control
+    account overstated by the value returned and nothing on screen said so.
+    The supplier owes the whole credit note, so payables is debited with tax
+    included; the input tax claimed on the way in is reversed with the goods;
+    and inventory is credited with what the stock actually cost.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+
+    postings = {
+        code: (debit, credit)
+        for code, debit, credit in session.execute(
+            select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+            .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .where(JournalEntry.source_id == row.id)
+        ).all()
+    }
+
+    assert postings, "the return wrote no journal at all"
+    payable_debit = postings["2100"][0]
+    assert payable_debit == row.grand_total, "the supplier owes the whole credit note"
+    if row.tax_total > Decimal("0.00"):
+        assert postings["1300"][1] == row.tax_total, "input tax reversed with the goods"
+
+    # Inventory is credited with what the stock ledger says the goods cost --
+    # not with what the return is priced at. In this fixture the stock was
+    # never costed, so that figure is zero and the whole goods value lands in
+    # the variance; the contract is that the two always come from those two
+    # different places.
+    recorded_cost = session.scalar(
+        select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+            StockLedgerEntry.transaction_type == "RETURN",
+            StockLedgerEntry.is_deleted.is_(False),
+        )
+    )
+    assert postings["1200"][1] == Decimal(recorded_cost).quantize(Decimal("0.01"))
+
+    # Whatever the split, the entry balances -- the engine refuses it otherwise,
+    # and the variance leg is what absorbs a return price that differs from the
+    # average the stock was carried at.
+    debits = sum(debit for debit, _ in postings.values())
+    credits = sum(credit for _, credit in postings.values())
+    assert debits == credits
+
+
+def test_a_return_priced_above_cost_books_the_difference_as_a_variance() -> None:
+    """Stock leaves at what it cost, not at what the supplier will credit.
+
+    Goods bought at several prices sit at one moving average, and a return is
+    priced at whatever the supplier agrees to. Crediting inventory at the return
+    price would leave stock valued at something no movement ever paid, so the
+    gap goes to purchase price variance -- the same account an invoice uses when
+    it disagrees with the receipt it clears.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+
+    stock_credit = session.scalar(
+        select(func.coalesce(func.sum(GLPosting.credit_amount), 0))
+        .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+        .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+        .where(JournalEntry.source_id == row.id, LedgerAccount.code == "1200")
+    )
+    goods_value = row.grand_total - row.tax_total
+    variance = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+        .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+        .where(JournalEntry.source_id == row.id, LedgerAccount.code == "5400")
+    )
+    # Inventory plus the variance is what the supplier is crediting for goods.
+    assert Decimal(stock_credit) - Decimal(variance) == goods_value
