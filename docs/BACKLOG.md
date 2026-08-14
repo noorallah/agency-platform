@@ -198,9 +198,24 @@ Not covered: the **collapsed** rail is a flat strip of icons, so the six still
 appear at its top level. Nesting is not expressible in a one-icon-wide rail, and
 the flyout it opens shows a module's own tabs.
 
-Also open in the same pass: **Purchases is listed before Sales** (fine, but be
-deliberate), and **Configuration is scattered** across Masters and Settings —
-the §13 grouping from the enterprise CRUD brief, still outstanding.
+**Sales is listed before Purchases** as of 2026-08-14. The section is ordered by
+how often it is opened rather than by the order goods move in: a distribution
+firm raises sales orders every day and purchase orders every few weeks, so
+putting the weekly job above the daily one cost the daily one a glance every
+time.
+
+**Configuration is grouped** in Masters, the way Administration already grouped
+its own. `Firm Settings`, `Financial Years` and `Branches / Departments` sat
+loose at the bottom, level with Customers and Products, so a module of master
+data ended in three entries that are not master data. Grouping only -- every
+path is unchanged.
+
+What that does **not** do is unify configuration across Masters and the Settings
+module. Settings is still a separate module, and all four of its tabs
+(`audit-logs`, `background-jobs`, `system-settings`, `api-monitoring`) are
+`available: false` -- unbuilt placeholders. Moving working screens into a module
+that does nothing yet would bury them; that unification is worth doing when the
+placeholders become real, and not before.
 
 ### Not to do
 
@@ -215,11 +230,17 @@ and rejected, not overlooked.
 Both were examined and the decision was to **change nothing for now**. Recorded
 so the next reader knows these are known, not missed:
 
-- The header (68px, `_applicationHeader`) shows the application name a second
-  time (the sidebar has it), `ThemeSelector` a second time (the sidebar footer
-  has it), and the module title up to three times — header label, selected
-  sidebar item, and the page's own `PageHeader`. Back and forward are genuinely
-  useful and unusual in an ERP; keep them whatever else changes.
+- The header was **trimmed on 2026-08-14**. It carried the application name, a
+  sidebar collapse toggle and `ThemeSelector`, all three of which the sidebar
+  owns -- its header has the name and the toggle, its footer the theme. Two
+  copies of a control are two things to keep in step, and one of them is always
+  the wrong one to reach for. Back and forward stayed.
+
+  **The module title stayed too**, deliberately. It is the third place the title
+  appears, after the selected sidebar item and the page's own header — but only
+  seven files render a header of their own, so removing it here would leave the
+  rest of the screens with no title at all. Worth revisiting once
+  `ModuleWorkspaceFrame` is used everywhere.
 - The footer's health lights were **decided and fixed on 2026-08-14**: they
   probe for real. `/health` and `/health/database` both already existed and
   neither was ever called, so the bar reported "checking" for the life of the
