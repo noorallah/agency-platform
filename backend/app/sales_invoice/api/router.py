@@ -69,8 +69,13 @@ SalesInvoiceImportScope = Annotated[
 ]
 
 
+# "" rather than "/", which is what the other fourteen list endpoints declare.
+# With a slash, FastAPI serves the list at `/api/v1/sales-invoices/` and answers
+# `/api/v1/sales-invoices` with a 307 -- and the desktop client sets
+# `followRedirects = false`, so every call to it failed with "Request failed
+# (307)". The sales invoice workspace had been in that state.
 @router.get(
-    "/",
+    "",
     response_model=PaginatedResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
@@ -118,8 +123,11 @@ def list_sales_invoices(
     )
 
 
+# "" for the same reason as the list above: a client posting to
+# `/api/v1/sales-invoices` was redirected, and one that does not follow
+# redirects cannot create an invoice at all.
 @router.post(
-    "/",
+    "",
     response_model=SalesInvoiceResponse,
     status_code=status.HTTP_201_CREATED,
 )

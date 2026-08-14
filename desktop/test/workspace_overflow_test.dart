@@ -9,6 +9,7 @@ import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/finance/finance_workspace.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
+import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
 import 'package:agency_desktop/ui/settings/settings_workspace.dart';
 import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.dart';
 import 'package:agency_desktop/ui/goods_receipts/goods_receipt_management_page.dart';
@@ -131,6 +132,13 @@ final Map<String, _PageBuilder> _screens = {
         permissions: d.permissions,
         hasActiveFirm: false,
         tabId: 'operational',
+      ),
+  // A master/detail split whose right pane stacks three cards, the widest
+  // being a line that names its source document and what is still returnable.
+  'sales returns': (d) => SalesReturnManagementPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
       ),
   'audit logs': (d) => SystemSettingsWorkspace(
         api: d.api,

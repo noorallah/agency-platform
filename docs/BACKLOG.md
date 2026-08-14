@@ -784,8 +784,23 @@ tables. Leaving them behind while the numbering counters were cleared made a
 freshly regenerated firm answer 409 to the first return raised against it --
 the same staleness its header already records for settlements.
 
-**Not built, deliberately:** import/export, and the desktop workspace. The
-backend is complete and driven end to end; the client is the next piece.
+**The desktop workspace followed the same day.** A master/detail list whose
+right pane says which of the three books have moved, because "COMPLETED" alone
+does not tell a reader whether anything reached the shelf or the customer. The
+editor is a document picker rather than a form: a return line belongs to a line
+of a delivery note or a sales invoice, so there is nothing to type that the
+source does not already say except how many came back and how many of those are
+still sellable.
+
+**It found a live bug in the sales invoice router**, which declared its list and
+create routes at `"/"` while the other fourteen modules use `""`. FastAPI
+therefore served them at `/api/v1/sales-invoices/` and answered
+`/api/v1/sales-invoices` with a 307 -- and `api_client.dart` sets
+`followRedirects = false`, so **every desktop call to list or create a sales
+invoice failed** with "Request failed (307)". The Sales Invoices workspace had
+been in that state.
+
+**Not built, deliberately:** import/export.
 
 ## Also open
 
