@@ -384,9 +384,31 @@ which it would if the inbound leg valued itself at nothing. Unlike a dispatch,
 which may run stock negative because the goods have physically gone, a transfer
 of stock the source does not hold is refused: nothing left the building.
 
-Still unbuilt: physical count reconciliation and dedicated
-damage/expiry/quarantine write-offs (only a generic `ADJUSTMENT` reaches those
-buckets, and it now posts).
+**Reason-coded write-offs and quarantine were built on 2026-08-14.**
+`POST /inventory/write-offs` takes a reason (`DAMAGE`, `EXPIRY`, `LOSS`), which
+rides on the movement and into the journal narration: a firm could already
+answer how much stock it lost and not to what. The value leaves through the
+same `5500 Inventory Adjustment` account, because splitting damage from expiry
+into separate accounts is a chart decision a firm can make by remapping the
+purpose -- seeding three accounts would be deciding it for them.
+
+`POST /inventory/quarantine` holds stock back from sale and releases it again,
+and **posts nothing**: quarantined stock is still owned and still worth what it
+was. Condemning it is a separate decision taken once somebody has looked at the
+goods.
+
+Two defects found building it, both about value rather than quantity. A
+quarantine hold rolled the moving average as though the stock had left, writing
+120.00 off a firm that had lost nothing -- `_Movement.revalues` marks a
+movement that changes buckets and not ownership. And a write-off of quarantined
+stock posted nothing at all, because the valuation follows the sellable bucket
+which the hold had already emptied: the goods went in the skip and the value
+stayed on the balance sheet. `_Movement.owned_delta` says how much the firm
+stopped owning, separately from which bucket it left.
+
+**Still unbuilt: physical count reconciliation.** A count sheet needs its own
+table to be useful -- counts are entered over hours and posted once -- so it is
+a document, not an endpoint.
 
 **"Stock movements post nothing to the general ledger" was wrong**, and the
 correction matters because it changes what needs building. Measured on
