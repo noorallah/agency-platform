@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -321,6 +322,11 @@ class CustomerService:
 
         if tx_type == CustomerReceivableTransactionType.OPENING_BALANCE:
             raise ValidationError("Opening balance transactions are system-managed.")
+        if tx_type == CustomerReceivableTransactionType.REVERSAL:
+            raise ValidationError(
+                "A reversal is posted against the transaction it undoes, "
+                "not on its own."
+            )
         if tx_type == CustomerReceivableTransactionType.INVOICE:
             outstanding_delta = amount
         elif tx_type in {
@@ -570,6 +576,107 @@ class CustomerService:
             remarks="Opening balance seeded from customer financial profile.",
             actor_id=actor_id,
         )
+
+    def reverse_receivable_transaction(
+        self,
+        transaction_id: UUID,
+        *,
+        firm_scope: UUID | None,
+        actor_id: UUID,
+        reference_number: str | None = None,
+        remarks: str | None = None,
+        commit: bool = True,
+    ) -> CustomerReceivableTransaction:
+        """Undo one receivable transaction by its own recorded deltas.
+
+        The deltas are read from the row rather than recomputed from its type,
+        which is the whole reason this can be correct. A receipt of 500 against
+        an outstanding 300 became 300 off the balance and 200 of advance; a
+        reversal that re-derived those numbers from the *current* balance would
+        put back something else entirely.
+
+        Args:
+            transaction_id: The transaction to undo.
+            firm_scope: The firm the caller is acting in.
+            actor_id: The user reversing it.
+            reference_number: What to call the reversal.
+            remarks: Why it was reversed.
+            commit: Whether to commit, so a caller inside a larger unit of
+                work can keep the whole thing atomic.
+
+        Returns:
+            The reversal row.
+
+        Raises:
+            ResourceNotFoundError: If the transaction is not visible.
+            ValidationError: If it is a reversal, is already reversed, or the
+                undo would drive a balance negative.
+
+        """
+        original = self._session.scalar(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.id == transaction_id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+        )
+        if original is None:
+            raise ResourceNotFoundError("Receivable transaction not found.")
+        customer = self.get(original.customer_id, firm_scope=firm_scope)
+        if original.transaction_type == CustomerReceivableTransactionType.REVERSAL:
+            raise ValidationError("A reversal cannot itself be reversed.")
+        already = self._session.scalar(
+            select(CustomerReceivableTransaction.id).where(
+                CustomerReceivableTransaction.reference_type == "reversal",
+                CustomerReceivableTransaction.reference_id == original.id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+        )
+        if already is not None:
+            raise ValidationError("This transaction has already been reversed.")
+
+        outstanding_after = customer.current_outstanding - original.outstanding_delta
+        advance_after = customer.unapplied_advance_balance - original.advance_delta
+        if outstanding_after < 0 or advance_after < 0:
+            # The customer has traded since, and undoing this now would leave
+            # them owing less than nothing. Refusing is the honest answer:
+            # the correction needed is a credit note, not a reversal.
+            raise ValidationError(
+                "Reversing this would drive the customer's balance negative. "
+                "It has been overtaken by later transactions."
+            )
+        customer.current_outstanding = outstanding_after
+        customer.unapplied_advance_balance = advance_after
+        customer.updated_by = actor_id
+        row = self._record_receivable_transaction(
+            customer=customer,
+            tx_type=CustomerReceivableTransactionType.REVERSAL.value,
+            amount=original.amount,
+            outstanding_delta=-original.outstanding_delta,
+            advance_delta=-original.advance_delta,
+            transaction_date=original.transaction_date,
+            reference_type="reversal",
+            reference_id=original.id,
+            reference_number=reference_number or original.reference_number,
+            remarks=remarks,
+            actor_id=actor_id,
+        )
+        record_audit(
+            self._session,
+            action="customer.receivable_transaction_reversed",
+            entity_type="customer",
+            entity_id=customer.id,
+            actor_id=actor_id,
+            firm_id=customer.firm_id,
+            before_data={"transaction_id": str(original.id)},
+            after_data={
+                "outstanding_delta": str(row.outstanding_delta),
+                "advance_delta": str(row.advance_delta),
+            },
+        )
+        self._session.flush()
+        if commit:
+            self._session.commit()
+        return row
 
     def _record_receivable_transaction(
         self,

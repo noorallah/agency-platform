@@ -231,10 +231,87 @@ class _SettlementsPageState extends State<SettlementsPage> {
     );
   }
 
+  /// Take one back, after saying why.
+  ///
+  /// The reason is asked for rather than optional in spirit: a reversed
+  /// receipt is a question somebody will ask about later, and "why" is the
+  /// answer they want. The document is not deleted -- both it and the mirror
+  /// journal stay.
+  Future<void> _reverse(Settlement row) async {
+    // No TextEditingController: the dialog rebuilds while it animates out, so
+    // one disposed the moment `showDialog` returns is used after disposal.
+    // The reason is a plain string the field writes into.
+    String why = '';
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Reverse ${row.settlementNumber}'),
+        // Bounded, because an AlertDialog gives its content unbounded height
+        // and a Column inside one overflows by whatever it feels like.
+        content: SizedBox(
+          width: 460,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+            widget.isReceipt
+                ? 'This writes an opposite journal, puts the invoices back and '
+                    'restores what the customer owed. Nothing is deleted: both '
+                    'the receipt and its reversal stay on the record.'
+                : 'This writes an opposite journal and puts the bills back. '
+                    'Nothing is deleted: both the payment and its reversal stay '
+                    'on the record.',
+            style: Theme.of(dialogContext).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          TextField(
+            onChanged: (value) => why = value,
+            decoration: const InputDecoration(
+              labelText: 'Why is it being reversed?',
+            ),
+          ),
+          ]),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Reverse'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await widget.api.reverseSettlement(
+        isReceipt: widget.isReceipt,
+        id: row.id,
+        reason: why.trim(),
+      );
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${row.settlementNumber} reversed.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   Widget _tile(BuildContext context, Settlement row) {
+    // A reversed settlement still names what it had cleared: that is the
+    // first thing anybody asks when a correction is queried.
     final String cleared = row.allocations.isEmpty
         ? 'Not applied to any invoice'
-        : 'Cleared ${row.allocations.map((a) => a.invoiceNumber).join(', ')}';
+        : '${row.isReversed ? 'Had cleared' : 'Cleared'} '
+            '${row.allocations.map((a) => a.invoiceNumber).join(', ')}';
     return ListTile(
       title: Text(
         '${row.settlementNumber}  ·  ${row.settlementDate}  ·  '
@@ -247,10 +324,18 @@ class _SettlementsPageState extends State<SettlementsPage> {
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Text(row.amount, style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(width: AppSpacing.md),
+        if (_canCreate && !row.isReversed)
+          IconButton(
+            tooltip: 'Reverse',
+            icon: const Icon(Icons.undo),
+            onPressed: () => unawaited(_reverse(row)),
+          ),
         // On-account money is worth flagging: it reached the ledger and
         // reduced the balance, but no document says what it was for, and
         // somebody has to apply it eventually.
-        if (row.isOnAccount)
+        if (row.isReversed)
+          const StatusBadge(label: 'Reversed')
+        else if (row.isOnAccount)
           StatusBadge(label: 'On account ${row.unallocatedAmount}')
         else
           const StatusBadge(label: 'Applied'),

@@ -21,6 +21,7 @@ from app.settlements.schemas import (
     SettlementAllocationResponse,
     SettlementCreate,
     SettlementResponse,
+    SettlementReverseRequest,
 )
 from app.settlements.services import PaymentService, ReceiptService, SettlementService
 
@@ -84,6 +85,9 @@ def _to_response(service: SettlementService, row: Settlement) -> SettlementRespo
         narration=row.narration,
         status=row.status,
         journal_entry_id=row.journal_entry_id,
+        reversal_journal_entry_id=row.reversal_journal_entry_id,
+        reversed_at=row.reversed_at,
+        reversal_reason=row.reversal_reason,
         allocations=allocation_rows,
         version=row.version,
     )
@@ -180,6 +184,28 @@ def record_receipt(
     )
 
 
+@receipts_router.post(
+    "/{receipt_id}/reverse", response_model=ApiResponse[SettlementResponse]
+)
+def reverse_receipt(
+    receipt_id: UUID,
+    payload: SettlementReverseRequest,
+    scope: ReceiptCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Take a receipt back, in the ledger and on the customer's account."""
+    service = ReceiptService(db)
+    row = service.reverse(
+        receipt_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=payload.reason,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_to_response(service, row), message="Receipt reversed.")
+
+
 @payments_router.get("", response_model=PaginatedResponse[SettlementResponse])
 def list_payments(
     scope: PaymentViewScope,
@@ -246,3 +272,25 @@ def record_payment(
     return ApiResponse(
         data=_to_response(service, row), message="Payment recorded and posted."
     )
+
+
+@payments_router.post(
+    "/{payment_id}/reverse", response_model=ApiResponse[SettlementResponse]
+)
+def reverse_payment(
+    payment_id: UUID,
+    payload: SettlementReverseRequest,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Take a payment back, in the ledger."""
+    service = PaymentService(db)
+    row = service.reverse(
+        payment_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=payload.reason,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_to_response(service, row), message="Payment reversed.")
