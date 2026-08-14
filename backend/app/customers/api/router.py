@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -284,6 +285,7 @@ def update_credit_settings(
 def get_customer(
     customer_id: UUID,
     scope: CustomerViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerResponse]:
@@ -293,6 +295,7 @@ def get_customer(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
     )
+    set_etag(response, customer)
     return ApiResponse(data=CustomerResponse.model_validate(customer))
 
 
@@ -301,15 +304,27 @@ def update_customer(
     customer_id: UUID,
     data: CustomerUpdate,
     scope: CustomerUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[CustomerResponse]:
-    """Replace one visible customer."""
-    customer = CustomerService(db).update(
+    """Replace one visible customer.
+
+    The update replaces the whole address and contact collections, so two
+    people editing the same customer do not merge badly -- one of them loses
+    every row they entered. ``If-Match`` is how a client refuses that.
+    """
+    service = CustomerService(db)
+    assert_version(
+        service.get(customer_id, firm_scope=scope.firm_id).version, expected_version
+    )
+    customer = service.update(
         customer_id,
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, customer)
     return ApiResponse(data=CustomerResponse.model_validate(customer))
 
 

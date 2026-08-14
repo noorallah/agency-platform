@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
-from app.core.concurrency import ExpectedVersion, assert_version
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -251,6 +251,7 @@ def export_purchase_orders(
 def get_purchase_order(
     order_id: UUID,
     scope: PurchaseViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PurchaseOrderResponse]:
@@ -259,6 +260,7 @@ def get_purchase_order(
     row = service.get_order(
         order_id, firm_scope=scope.firm_id, include_deleted=include_deleted
     )
+    set_etag(response, row)
     return ApiResponse(data=service.order_response(row))
 
 
@@ -267,6 +269,7 @@ def update_purchase_order(
     order_id: UUID,
     data: PurchaseOrderUpdate,
     scope: PurchaseUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PurchaseOrderResponse]:
@@ -278,6 +281,7 @@ def update_purchase_order(
     row = service.update_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.order_response(row))
 
 

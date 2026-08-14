@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -447,9 +448,15 @@ def test_update_rejects_a_stale_if_match_version() -> None:
     loaded_version = order.version
 
     # No precondition: accepted, so existing clients keep working.
-    update_sales_order(order_id=order.id, data=_payload("5"), scope=scope, db=session)
+    first = Response()
+    update_sales_order(
+        order_id=order.id, data=_payload("5"), scope=scope, response=first, db=session
+    )
     bumped = service.get_order(order.id, firm_scope=firm.id).version
     assert bumped > loaded_version, "an update must advance the version"
+    assert (
+        first.headers["ETag"] == f'"{bumped}"'
+    ), "the version a client must send next is only knowable from the response"
 
     # The version we first read is now stale.
     with pytest.raises(ConflictError):
@@ -457,17 +464,19 @@ def test_update_rejects_a_stale_if_match_version() -> None:
             order_id=order.id,
             data=_payload("6"),
             scope=scope,
+            response=Response(),
             db=session,
             expected_version=loaded_version,
         )
 
-    # The current version is accepted.
+    # The current version is accepted, and it is the one the ETag published.
     update_sales_order(
         order_id=order.id,
         data=_payload("7"),
         scope=scope,
+        response=Response(),
         db=session,
-        expected_version=bumped,
+        expected_version=parse_if_match(first.headers["ETag"]),
     )
     final = session.scalar(
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)

@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
-from app.core.concurrency import ExpectedVersion, assert_version
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -181,6 +181,7 @@ def update_delivery_note(
     note_id: UUID,
     data: DeliveryNoteUpdate,
     scope: DeliveryNoteUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[DeliveryNoteResponse]:
@@ -192,6 +193,7 @@ def update_delivery_note(
     row = service.update_note(
         note_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.note_response(row))
 
 
@@ -277,13 +279,14 @@ def close_delivery_note(
 def get_delivery_note(
     note_id: UUID,
     scope: DeliveryNoteViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DeliveryNoteResponse]:
     """Return one delivery note."""
     service = DeliveryNoteService(db)
-    return ApiResponse(
-        data=service.note_response(service.get_note(note_id, firm_scope=scope.firm_id))
-    )
+    row = service.get_note(note_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.note_response(row))
 
 
 @router.get(
