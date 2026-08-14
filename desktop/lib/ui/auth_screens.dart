@@ -281,7 +281,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     keyboardType: TextInputType.url,
                     decoration: const InputDecoration(
                       labelText: 'API URL',
-                      hintText: 'https://api.example.com',
+                      hintText: 'http://192.168.1.20:8000',
+                      helperText:
+                          'https:// anywhere, or http:// on your own network',
+                      helperMaxLines: 2,
                     ),
                   ),
                   if (widget.preferences.current.recentServers.isNotEmpty) ...[
