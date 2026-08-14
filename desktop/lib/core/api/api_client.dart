@@ -1636,6 +1636,21 @@ class ApiClient {
         ),
       );
 
+  /// The rows of one report.
+  ///
+  /// Every report endpoint answers with flat rows in the standard envelope, so
+  /// one method serves all of them and the difference between reports is a
+  /// path. Six of them answered differently until that was corrected; a client
+  /// method per report would have hidden that rather than surfaced it.
+  Future<List<Json>> reportRows(String path) async {
+    final Json response = await request('GET', path);
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic row in data is List ? data : const [])
+        if (row is Map) Map<String, dynamic>.from(row),
+    ];
+  }
+
   /// Move stock between warehouses. Returns both movements, out and in.
   ///
   /// Nothing posts: the firm owns the same goods at the same value afterwards.
