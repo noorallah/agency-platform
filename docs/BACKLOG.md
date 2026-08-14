@@ -78,16 +78,23 @@ Draft test cases: `docs/MANUAL_UI_TEST_PLAN.md` §2.
 
 ---
 
-## 4. A skill for resetting and regenerating demo data
+## 4. A skill for resetting and regenerating demo data — done
 
-`seed_multi_firm_demo.py` now seeds masters and two years of trading in one
-command, and `generate_transaction_history.py` regenerates one firm's history
-on its own. Wrapping the sequence in a skill would make it one instruction
-rather than a command plus the four `alembic upgrade head` runs that have to
-precede it, and would carry the traps with it -- migrate every store, enumerate
-the targets from the registry, clear `AGENCY_DATABASE_*` afterwards.
+`.claude/skills/reset-demo-data/SKILL.md` carries the sequence and the traps:
+migrate every store first and never with a bare `alembic upgrade head`, clear
+`AGENCY_DATABASE_*` afterwards, reset before laying opening stock down, and read
+the delivery-note count against the sales-order count because a gap between
+firms is how a real dispatch defect was found.
 
-Worth doing when the reset sequence stops changing.
+**`scripts/verify_sample_data.py` does not run**, which the skill says rather
+than offering it. It belongs to `generate_sample_data.py`'s single-firm
+`NAVK_CPL` dataset and predates multi-tenancy: it fails at import on
+`ProductUomConfig`, dropped in `20260812_0068`, and repairing that only moves
+the failure to `relation "platform.uoms" does not exist`, because it reads
+platform and firm-owned tables from one schema. Making it work means splitting
+its queries across the platform store and each firm store — a rewrite, and one
+that should decide first whether it is verifying the single-firm sample or the
+four-firm demo. The checks that do work are in the skill.
 
 ---
 
