@@ -383,9 +383,11 @@ def test_journal_entries_can_be_found_and_not_only_created() -> None:
 
     rows, total = engine.list_entries(firm_id=firm.id, page=1, page_size=10)
     assert total == 3
-    assert [row.reference_number for row in rows] == ["JV-003", "JV-002", "JV-001"], (
-        "newest date first, and the reference breaks a same-day tie"
-    )
+    assert [row.reference_number for row in rows] == [
+        "JV-003",
+        "JV-002",
+        "JV-001",
+    ], "newest date first, and the reference breaks a same-day tie"
 
     # Paging is a window on that order, not a second one.
     first, _ = engine.list_entries(firm_id=firm.id, page=1, page_size=2)
@@ -510,6 +512,119 @@ def test_reversal_cancels_the_original_and_zeroes_the_ledger() -> None:
             reference_number="JV-0002-R2",
             actor_id=actor_id,
         )
+
+
+def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:
+    """A trial balance lists every account with a balance, not only the movers.
+
+    A `ledger_balances` row is written when an account is posted to, so the
+    stored rows for a period are the accounts that moved in it. Totting those up
+    reported a firm out of balance whenever a quiet period touched one side and
+    not the other: March 2027 in the seeded demo firm read `dr 0.00 cr
+    211217.50` with the ledger perfectly sound.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    # April trades: cash and sales both move and the period balances.
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-APR",
+        description="Cash sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    # Nothing at all happens in May.
+    report = GeneralLedgerService(session).trial_balance(
+        firm_id=firm.id, accounting_period_id=may.id
+    )
+
+    assert {line.account_code for line in report.lines} == {
+        "1000",
+        "4000",
+    }, "both balances are carried, not only whichever account moved"
+    for line in report.lines:
+        assert line.period_debit == Decimal("0.00")
+        assert line.period_credit == Decimal("0.00")
+        assert line.opening_balance == line.closing_balance
+    assert report.total_debit == Decimal("100.00")
+    assert report.total_credit == Decimal("100.00")
+    assert report.is_balanced, "a period where nothing happened still balances"
+
+    # Carrying a balance into a report must not write one into the ledger: a
+    # stored balance for a period nothing happened in is invented history.
+    stored = session.scalars(
+        select(LedgerBalance).where(LedgerBalance.accounting_period_id == may.id)
+    ).all()
+    assert stored == []
+
+
+def test_an_account_with_nothing_to_carry_is_left_out() -> None:
+    """A trial balance is not a list of every account ever created."""
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+
+    unused = service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1999",
+            name="Never Used",
+            account_type=AccountTypeEnum.ASSET,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-APR2",
+        description=None,
+        lines=_sale_lines(book, "50.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    report = GeneralLedgerService(session).trial_balance(
+        firm_id=firm.id, accounting_period_id=book.period.id
+    )
+
+    assert unused.code not in {line.account_code for line in report.lines}
+    assert report.is_balanced
 
 
 def test_trial_balance_reports_both_sides_and_balances() -> None:
