@@ -194,6 +194,113 @@ class TrialBalanceReport {
   );
 }
 
+/// One movement on an account statement, with the balance it left behind.
+class GeneralLedgerLine {
+  const GeneralLedgerLine({
+    required this.journalEntryId,
+    required this.journalDate,
+    required this.referenceNumber,
+    required this.description,
+    required this.debitAmount,
+    required this.creditAmount,
+    required this.runningBalance,
+  });
+
+  final String journalEntryId;
+  final String journalDate;
+  final String referenceNumber;
+  final String description;
+  final String debitAmount;
+  final String creditAmount;
+
+  /// The balance after this movement, as the server ran it.
+  ///
+  /// Accumulated there rather than here because it starts from the opening
+  /// balance and depends on which side the account increases on -- a client
+  /// adding the column up itself is a second opinion about the ledger.
+  final String runningBalance;
+
+  factory GeneralLedgerLine.fromJson(Json json) => GeneralLedgerLine(
+        journalEntryId: stringValue(json['journal_entry_id']),
+        journalDate: stringValue(json['journal_date']),
+        referenceNumber: stringValue(json['reference_number']),
+        description: stringValue(json['description']),
+        debitAmount: stringValue(json['debit_amount']),
+        creditAmount: stringValue(json['credit_amount']),
+        runningBalance: stringValue(json['running_balance']),
+      );
+}
+
+/// One account's statement for one period: what it opened at, what moved it,
+/// and what it closed at.
+class GeneralLedgerReport {
+  const GeneralLedgerReport({
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.accountType,
+    required this.accountingPeriodId,
+    required this.openingBalance,
+    required this.totalDebit,
+    required this.totalCredit,
+    required this.closingBalance,
+    required this.lines,
+  });
+
+  final String ledgerAccountId;
+  final String accountCode;
+  final String accountName;
+  final String accountType;
+  final String accountingPeriodId;
+  final String openingBalance;
+  final String totalDebit;
+  final String totalCredit;
+  final String closingBalance;
+  final List<GeneralLedgerLine> lines;
+
+  /// Whether the account was quiet rather than empty.
+  ///
+  /// The difference matters on screen: no movement and no balance means there
+  /// is nothing to see, while no movement against a carried balance means the
+  /// account sat still holding money.
+  bool get carriesABalance =>
+      lines.isEmpty && (double.tryParse(openingBalance) ?? 0) != 0;
+
+  factory GeneralLedgerReport.fromJson(Json json) {
+    final Json d =
+        json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
+    final dynamic lines = d['lines'];
+    return GeneralLedgerReport(
+      ledgerAccountId: stringValue(d['ledger_account_id']),
+      accountCode: stringValue(d['account_code']),
+      accountName: stringValue(d['account_name']),
+      accountType: stringValue(d['account_type']),
+      accountingPeriodId: stringValue(d['accounting_period_id']),
+      openingBalance: stringValue(d['opening_balance']),
+      totalDebit: stringValue(d['total_debit']),
+      totalCredit: stringValue(d['total_credit']),
+      closingBalance: stringValue(d['closing_balance']),
+      lines: [
+        for (final dynamic line in lines is List ? lines : const [])
+          if (line is Map) GeneralLedgerLine.fromJson(Map<String, dynamic>.from(line)),
+      ],
+    );
+  }
+
+  static const GeneralLedgerReport empty = GeneralLedgerReport(
+    ledgerAccountId: '',
+    accountCode: '',
+    accountName: '',
+    accountType: '',
+    accountingPeriodId: '',
+    openingBalance: '0.00',
+    totalDebit: '0.00',
+    totalCredit: '0.00',
+    closingBalance: '0.00',
+    lines: [],
+  );
+}
+
 /// One line of a journal entry: an amount on one side of one account.
 class JournalLine {
   const JournalLine({

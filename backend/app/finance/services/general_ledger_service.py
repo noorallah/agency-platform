@@ -31,7 +31,11 @@ from app.finance.schemas import (
     TrialBalanceReport,
 )
 
-ZERO = Decimal("0")
+# Two decimal places, because this constant is what an untouched figure is
+# reported as. `Decimal("0")` serialises as `"0"` next to a stored `"0.00"`,
+# and a statement whose columns disagree about how to write nothing looks
+# unfinished in exactly the place people are checking the arithmetic.
+ZERO = Decimal("0.00")
 
 
 class GeneralLedgerService:
@@ -109,7 +113,21 @@ class GeneralLedgerService:
                 LedgerBalance.firm_id == firm_id,
             )
         )
-        opening = balance.opening_balance if balance is not None else ZERO
+        # No stored row means the account was not posted to in this period --
+        # which is not the same as having nothing. It may be carrying a balance
+        # from an earlier one, and a statement that opens at zero because
+        # nothing happened this month is telling the reader the account is
+        # empty. Trade Receivables read `opening 0, closing 0` for March 2027
+        # in the seeded firm while the firm was owed 249,236.70.
+        opening = (
+            balance.opening_balance
+            if balance is not None
+            else self._carried_opening(
+                firm_id=firm_id,
+                ledger_account_id=ledger_account_id,
+                accounting_period_id=accounting_period_id,
+            )
+        )
         increases_on_debit = account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
 
         # Ordered by the journal date, not by ``posting_date``. A back-dated
@@ -284,6 +302,35 @@ class GeneralLedgerService:
                 )
             )
         return carried
+
+    def _carried_opening(
+        self, *, firm_id: UUID, ledger_account_id: UUID, accounting_period_id: UUID
+    ) -> Decimal:
+        """Return the balance one account carries into a period it did not move in.
+
+        The single-account form of :meth:`_carried_balances`, and it stays a
+        `LIMIT 1` rather than reusing that method: a statement asks about one
+        account, and loading every balance the firm holds to read one of them
+        is the shape that makes a report slow as a firm accumulates years.
+        """
+        period = self._session.get(AccountingPeriod, accounting_period_id)
+        if period is None:
+            return ZERO
+        balance = self._session.scalar(
+            select(LedgerBalance)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerBalance.ledger_account_id == ledger_account_id,
+                AccountingPeriod.ends_on < period.starts_on,
+            )
+            .order_by(AccountingPeriod.ends_on.desc())
+            .limit(1)
+        )
+        return balance.closing_balance if balance is not None else ZERO
 
     def _present_balance(
         self, account_type: str, closing_balance: Decimal

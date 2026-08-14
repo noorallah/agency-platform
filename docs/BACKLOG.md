@@ -375,7 +375,7 @@ write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
 also post nothing to the general ledger, so stock value and the inventory
 control account never reconcile.
 
-## 7. Finance has a screen -- the first two tabs
+## 7. Finance has a screen -- accounts, journal, ledgers, trial balance
 
 `app/finance` is thirty live endpoints and has been since `20260809_0042`.
 Every goods receipt, dispatch, sales invoice and purchase invoice posts to the
@@ -402,9 +402,16 @@ to *find* an entry -- create, read-one-by-id, post and reverse, and no list --
 so everything the documents posted was unfindable unless somebody already knew
 its id. `GET /finance/journal-entries` was added with it.
 
-**Still placeholders, and the catalogue still says so:** ledgers, profit and
-loss. **Receipts and payments have no endpoint at all** and are a feature
-rather than a gap.
+**Ledgers** followed on 2026-08-14: pick an account and a period, and read what
+it opened at, every movement with the entry that wrote it, and what it closed
+at. The running balance comes down from the server with the lines rather than
+being added up in the client -- it starts from the opening balance and moves in
+whichever direction the account type increases in, and a client totalling it
+itself is a second opinion about the ledger.
+
+**Still placeholders, and the catalogue still says so:** profit and loss,
+balance sheet. **Receipts and payments have no endpoint at all** and are a
+feature rather than a gap.
 
 **The trial balance lists every account with a balance** as of 2026-08-14, not
 only the accounts that moved. A `ledger_balances` row is written when an account
@@ -415,6 +422,15 @@ with the ledger perfectly sound. Accounts holding a balance that saw no movement
 are now carried in with a zero-movement line, built in memory and never written:
 a stored balance for a period nothing happened in would be invented history. All
 36 seeded periods balance, including the earliest, which has nothing to carry.
+
+**An account statement opens at the balance it carries**, from the same day and
+for the same reason. `general_ledger` read its opening from the stored row for
+the period, so an account that saw no movement opened at zero and closed at
+zero -- which tells the reader the account is empty rather than that it was
+quiet. Trade Receivables read `opening 0, closing 0` for March 2027 while the
+firm was owed 249,236.70; it now reads 249,236.70 both sides with no lines
+between them. `ZERO` in the same service became `Decimal("0.00")` with it, so a
+carried figure is not written `0` in a column of `0.00`s.
 
 ---
 
