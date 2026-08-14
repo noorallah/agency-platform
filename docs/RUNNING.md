@@ -13,6 +13,25 @@ the traps that actually cost time.
 
 ---
 
+## The short way
+
+```powershell
+install\install.bat -DryRun     # report every step, change nothing
+install\install.bat             # install and start
+```
+
+One command from a machine with nothing on it to a running backend and the
+desktop client at the login screen: prerequisites, configuration with a
+generated signing key, the database, every store migrated, and the client
+built. It is safe to run twice and never overwrites `backend\config\.env`.
+
+`-BindHost 0.0.0.0` serves the local network, `-CertFile` / `-KeyFile` serve
+TLS, `-WithDemoData` seeds the four demo firms. `install\install.ps1 -?` lists
+the rest.
+
+The manual sequence below is what the installer automates, and is still the
+right thing when developing.
+
 ## Prerequisites
 
 | Need | Version | Check |

@@ -82,29 +82,55 @@ get its own data out.
 
 Draft test cases: `docs/MANUAL_UI_TEST_PLAN.md` §10.
 
-## 3. Single self-installing batch file
+## 3. Single self-installing batch file -- built
 
-One Windows script that installs the prerequisites, migrates **every** schema,
-starts the backend, and opens the UI. No Docker; target is a low-configuration
-Windows machine.
+`install\install.bat` (a wrapper) and `install\install.ps1` (the work). One
+command from a machine with nothing on it to a running backend and a desktop
+client at the login screen. No Docker.
 
-Waiting on item 1 — the installer has to set up whatever transport we settle on,
-including placing a certificate in the trust store if it comes to that.
+It carries the four things this project has been bitten by:
 
-Things it must get right, each of which has bitten this project already:
+- **Every store is migrated**, through `scripts/migrate_all_stores.py`, which
+  enumerates targets from the registry rather than a hardcoded list.
+- **Refuses the development secrets**: the generated `.env` writes
+  `AGENCY_ENVIRONMENT=production` and a random signing key, so the
+  application's own startup checks refuse a development JWT key or a missing
+  bootstrap password. The installer does not reimplement those rules; it makes
+  them apply.
+- **Safe to run twice.** Every step checks first. `config\.env` is never
+  overwritten -- it holds the signing key and the database password, and
+  replacing it would sign every user out and lock the application out of its
+  own database.
+- **Transport is a choice**, per §1: plain HTTP by default, `-CertFile` /
+  `-KeyFile` to serve TLS, and half a TLS configuration is refused rather than
+  quietly falling back.
 
-- **Migrate every store, not just `platform`.** `alembic upgrade head` advances
-  one schema, chosen by `AGENCY_DATABASE_SCHEMA`. A firm store left behind is
-  invisible until a query hits a missing column.
-- **Enumerate the real targets** from `firms` and `firm_storage_mappings` rather
-  than a hardcoded list.
-- Refuse to start with the development JWT key or without a bootstrap admin
-  password, the way the app already does.
-- Be safe to run twice.
+`-DryRun` reports every step and changes nothing. `-InstallPrerequisites` is
+what allows it to install Python and PostgreSQL through winget; without it a
+missing prerequisite stops the run with the exact command to fix it, because
+installing a database server should not be a side effect of running a script
+that looked like it would set up an application.
 
-Draft test cases: `docs/MANUAL_UI_TEST_PLAN.md` §2.
+**What building it found**, both fixed here:
 
----
+- `start_backend.ps1` ran everything through `uv run`, which fails on some
+  Windows machines with "uv trampoline failed to canonicalize script path". It
+  now prefers the virtual environment's own interpreter.
+- Worse, and only visible because the installer waited for `/health`: native
+  programs log progress to **stderr**, and in Windows PowerShell 5.1 `2>&1`
+  wraps each such line in an ErrorRecord, so with `$ErrorActionPreference =
+  'Stop'` the first alembic INFO line aborted the script. It stopped dead after
+  "Applying migrations..." with nothing in the log to say why.
+
+**Not yet verified: a machine that has never had the toolchain.** 2.2 and 2.5 in
+`docs/MANUAL_UI_TEST_PLAN.md` §2 were checked on a developer box; 2.1, 2.3 and
+2.4 cannot be answered there, because a developer machine passes a clean-install
+test on the strength of what is already on it. The prerequisite-install path and
+the no-internet path are written but unproven.
+
+Also unresolved, and cheap to decide later: the repository has an ignored
+`installer/` directory holding a small tenancy-config helper from an earlier
+attempt. It is not wired to anything. Either fold it in or delete it.
 
 ## 4. A skill for resetting and regenerating demo data — done
 
