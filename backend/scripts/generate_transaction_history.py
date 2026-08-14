@@ -73,12 +73,20 @@ from app.delivery_note.services import DeliveryNoteService
 from app.finance.models import FinancialYear
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
+from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services import GoodsReceiptService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderStatus
 from app.purchase.services import PurchaseService
+from app.purchase_invoice.schemas import (
+    PurchaseInvoiceCreate,
+    PurchaseInvoiceLineWrite,
+    PurchaseInvoiceSourceType,
+    PurchaseInvoiceSourceWrite,
+)
+from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -114,6 +122,11 @@ SALE_SHAPES: tuple[tuple[str, str], ...] = (
 #: them. Masters are deliberately absent: this clears trading history, never
 #: the customers, products or vendors it trades with.
 RESET_ORDER: tuple[str, ...] = (
+    # Settlements first: their allocations reference the invoices below, so
+    # clearing history without them fails on a foreign key. They arrived with
+    # the receipts and payments module and this list did not know about them.
+    "settlement_allocations",
+    "settlements",
     "sales_invoice_accounting_events",
     "sales_invoice_attachments",
     "sales_invoice_notes",
@@ -268,6 +281,7 @@ class Tally:
     years: int = 0
     purchase_orders: int = 0
     goods_receipts: int = 0
+    purchase_invoices: int = 0
     sales_orders: int = 0
     delivery_notes: int = 0
     sales_invoices: int = 0
@@ -279,7 +293,8 @@ class Tally:
             # "financial", because --years 2 populates the current financial
             # year plus the two before it, so the honest count is three.
             f"{self.years} financial year(s) | PO {self.purchase_orders} | "
-            f"GRN {self.goods_receipts} | SO {self.sales_orders} | "
+            f"GRN {self.goods_receipts} | PINV {self.purchase_invoices} | "
+            f"SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices}"
         )
 
@@ -581,6 +596,58 @@ class HistoryBuilder:
             receipt.id, firm_scope=self._target.firm_id, actor_id=ACTOR
         )
         self._tally.goods_receipts += 1
+        self._session.commit()
+
+        # The supplier bills for what arrived. This step was missing entirely,
+        # so the demo firm had 29 goods receipts and no purchase invoices: the
+        # payables side of the ledger stayed at zero, nothing was ever owed to
+        # a vendor, and a payment had nothing to be applied to.
+        self._bill(receipt_id=receipt.id, on=on)
+
+    def _bill(self, *, receipt_id: UUID, on: date) -> None:
+        """Raise and approve the supplier's invoice for one goods receipt."""
+        receipt_lines = self._session.scalars(
+            select(GoodsReceiptLine)
+            .where(GoodsReceiptLine.goods_receipt_id == receipt_id)
+            .order_by(GoodsReceiptLine.line_number.asc())
+        ).all()
+        if not receipt_lines:
+            self._tally.skipped.append("purchase invoice with no receipt lines")
+            return
+        invoices = PurchaseInvoiceService(self._session)
+        invoice = invoices.create_invoice(
+            PurchaseInvoiceCreate(
+                invoice_date=on,
+                # A supplier's own number, which is what the firm keys from the
+                # paperwork. It has to be unique per vendor, so it carries the
+                # receipt it came with.
+                supplier_invoice_number=f"SUP-{str(receipt_id)[:8].upper()}",
+                supplier_invoice_date=on,
+                source_documents=[
+                    PurchaseInvoiceSourceWrite(
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt_id,
+                    )
+                ],
+                lines=[
+                    PurchaseInvoiceLineWrite(
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt_id,
+                        source_document_line_id=line.id,
+                        line_number=line.line_number,
+                        current_invoice_quantity=line.current_receipt_quantity,
+                        unit_price=line.unit_price,
+                    )
+                    for line in receipt_lines
+                ],
+            ),
+            firm_id=self._target.firm_id,
+            actor_id=ACTOR,
+        )
+        invoices.approve_invoice(
+            invoice.id, firm_scope=self._target.firm_id, actor_id=ACTOR
+        )
+        self._tally.purchase_invoices += 1
         self._session.commit()
 
     def sell(
