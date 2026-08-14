@@ -2442,6 +2442,16 @@ class ApiClient {
         ),
       );
 
+  /// The profit and loss for one period, with the year it belongs to.
+  Future<ProfitLossReport> profitAndLoss(String accountingPeriodId) async =>
+      ProfitLossReport.fromJson(
+        await request(
+          'GET',
+          '/api/v1/finance/profit-loss',
+          query: {'accounting_period_id': accountingPeriodId},
+        ),
+      );
+
   /// One account's statement for one period.
   ///
   /// The running balance comes down with the lines. It starts from the opening

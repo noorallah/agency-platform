@@ -705,8 +705,7 @@ abstract final class ModuleCatalog {
             id: 'payments', label: 'Payments', available: false),
         ModuleTabDefinition(id: 'ledgers', label: 'Ledgers'),
         ModuleTabDefinition(id: 'trial-balance', label: 'Trial Balance'),
-        ModuleTabDefinition(
-            id: 'profit-loss', label: 'Profit & Loss', available: false),
+        ModuleTabDefinition(id: 'profit-loss', label: 'Profit & Loss'),
         ModuleTabDefinition(
             id: 'balance-sheet', label: 'Balance Sheet', available: false),
       ],

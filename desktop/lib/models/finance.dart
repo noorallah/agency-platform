@@ -194,6 +194,116 @@ class TrialBalanceReport {
   );
 }
 
+/// One income or expense account's contribution to the result.
+///
+/// Both figures are the account's own movement in its natural direction, so a
+/// positive number always means "this much income" or "this much cost",
+/// whichever section the line is in. A contra account such as sales returns
+/// runs the other way and reports negative, which is what it does to the
+/// result.
+class ProfitLossLine {
+  const ProfitLossLine({
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.accountType,
+    required this.periodAmount,
+    required this.yearToDateAmount,
+  });
+
+  final String ledgerAccountId;
+  final String accountCode;
+  final String accountName;
+  final String accountType;
+  final String periodAmount;
+  final String yearToDateAmount;
+
+  factory ProfitLossLine.fromJson(Json json) => ProfitLossLine(
+        ledgerAccountId: stringValue(json['ledger_account_id']),
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        accountType: stringValue(json['account_type']),
+        periodAmount: stringValue(json['period_amount']),
+        yearToDateAmount: stringValue(json['year_to_date_amount']),
+      );
+}
+
+/// The profit and loss for one period, and for the year it belongs to.
+///
+/// Two columns, because one on its own is the wrong answer half the time: a
+/// month is what somebody asks about, and the year to date is what tells them
+/// whether the month was normal. June 2026 in the seeded firm is exactly that
+/// case -- a loss of 2,657.46 inside a year that is 5,086.46 ahead.
+class ProfitLossReport {
+  const ProfitLossReport({
+    required this.accountingPeriodId,
+    required this.financialYearId,
+    required this.generatedAt,
+    required this.income,
+    required this.expenses,
+    required this.totalIncome,
+    required this.totalExpense,
+    required this.netProfit,
+    required this.yearToDateIncome,
+    required this.yearToDateExpense,
+    required this.yearToDateNetProfit,
+  });
+
+  final String accountingPeriodId;
+  final String financialYearId;
+  final String generatedAt;
+  final List<ProfitLossLine> income;
+  final List<ProfitLossLine> expenses;
+  final String totalIncome;
+  final String totalExpense;
+  final String netProfit;
+  final String yearToDateIncome;
+  final String yearToDateExpense;
+  final String yearToDateNetProfit;
+
+  bool get isEmpty => income.isEmpty && expenses.isEmpty;
+
+  factory ProfitLossReport.fromJson(Json json) {
+    final Json d =
+        json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
+    List<ProfitLossLine> section(String key) {
+      final dynamic value = d[key];
+      return [
+        for (final dynamic line in value is List ? value : const [])
+          if (line is Map) ProfitLossLine.fromJson(Map<String, dynamic>.from(line)),
+      ];
+    }
+
+    return ProfitLossReport(
+      accountingPeriodId: stringValue(d['accounting_period_id']),
+      financialYearId: stringValue(d['financial_year_id']),
+      generatedAt: stringValue(d['generated_at']),
+      income: section('income'),
+      expenses: section('expenses'),
+      totalIncome: stringValue(d['total_income']),
+      totalExpense: stringValue(d['total_expense']),
+      netProfit: stringValue(d['net_profit']),
+      yearToDateIncome: stringValue(d['year_to_date_income']),
+      yearToDateExpense: stringValue(d['year_to_date_expense']),
+      yearToDateNetProfit: stringValue(d['year_to_date_net_profit']),
+    );
+  }
+
+  static const ProfitLossReport empty = ProfitLossReport(
+    accountingPeriodId: '',
+    financialYearId: '',
+    generatedAt: '',
+    income: [],
+    expenses: [],
+    totalIncome: '0.00',
+    totalExpense: '0.00',
+    netProfit: '0.00',
+    yearToDateIncome: '0.00',
+    yearToDateExpense: '0.00',
+    yearToDateNetProfit: '0.00',
+  );
+}
+
 /// One movement on an account statement, with the balance it left behind.
 class GeneralLedgerLine {
   const GeneralLedgerLine({
