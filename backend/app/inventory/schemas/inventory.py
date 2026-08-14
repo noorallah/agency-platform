@@ -43,6 +43,9 @@ class InventoryTransactionType(StrEnum):
     DISPATCH = "DISPATCH"
     TRANSFER_OUT = "TRANSFER_OUT"
     TRANSFER_IN = "TRANSFER_IN"
+    WRITE_OFF = "WRITE_OFF"
+    QUARANTINE_HOLD = "QUARANTINE_HOLD"
+    QUARANTINE_RELEASE = "QUARANTINE_RELEASE"
 
 
 #: Appended by ``reverse_transaction`` to the type it reverses.
@@ -432,6 +435,65 @@ class OpeningStockImportRequest(InventorySchema):
     remarks: str | None = None
     auto_post: bool = True
     lines: list[OpeningStockLineCreate] = Field(min_length=1, max_length=5000)
+
+
+class WriteOffReason(StrEnum):
+    """Why stock stopped being stock.
+
+    A generic `ADJUSTMENT` reached all of these buckets, so "we lost 40,000 of
+    stock this year" was answerable and "to what" was not. The reason is on the
+    movement and on the journal narration, which is where somebody reading the
+    ledger asks it.
+    """
+
+    DAMAGE = "DAMAGE"
+    EXPIRY = "EXPIRY"
+    LOSS = "LOSS"
+
+
+class StockWriteOffCreate(InventorySchema):
+    """Take stock off the books, and say why."""
+
+    branch_id: UUID
+    warehouse_id: UUID
+    storage_node_id: UUID | None = None
+    product_id: UUID
+    batch_id: UUID | None = None
+    reason: WriteOffReason
+    quantity: Decimal = Field(gt=0, max_digits=18)
+    entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
+    entered_uom_id: UUID | None = None
+    reference_number: str = Field(min_length=2, max_length=80)
+    transaction_date: date
+    remarks: str | None = None
+
+
+class QuarantineAction(StrEnum):
+    """Whether stock is being held back or let go."""
+
+    HOLD = "HOLD"
+    RELEASE = "RELEASE"
+
+
+class StockQuarantineCreate(InventorySchema):
+    """Hold stock back from sale, or release it again.
+
+    Quarantined stock is still owned and still worth what it was, so this moves
+    quantity between buckets and **posts nothing**. Writing it off is a
+    different decision, taken later and separately, once somebody has looked at
+    the goods.
+    """
+
+    branch_id: UUID
+    warehouse_id: UUID
+    storage_node_id: UUID | None = None
+    product_id: UUID
+    batch_id: UUID | None = None
+    action: QuarantineAction
+    quantity: Decimal = Field(gt=0, max_digits=18)
+    reference_number: str = Field(min_length=2, max_length=80)
+    transaction_date: date
+    remarks: str | None = None
 
 
 class StockTransferCreate(InventorySchema):

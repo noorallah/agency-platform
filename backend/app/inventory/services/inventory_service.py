@@ -51,9 +51,12 @@ from app.inventory.schemas import (
     OpeningStockLineCreate,
     OpeningStockLineResponse,
     OpeningStockUpdate,
+    QuarantineAction,
     StockLedgerListFilters,
     StockLedgerResponse,
+    StockQuarantineCreate,
     StockTransferCreate,
+    StockWriteOffCreate,
 )
 from app.products.models import Product
 from app.uom.models import ConversionRule
@@ -83,6 +86,23 @@ class _Movement:
     #: "where did batch B-2405 go" is answerable from the history rather than
     #: only from the current balance.
     batch_id: UUID | None = None
+    #: How much the firm stopped owning, when that is not ``current_delta``.
+    #:
+    #: The valuation follows ``current_delta``, which is right for almost
+    #: everything: stock arrives into the sellable bucket and leaves from it.
+    #: Condemning quarantined stock does not touch that bucket at all -- it was
+    #: moved out of it when it was held -- so the write-off left the value on
+    #: the books while the goods went in the skip.
+    owned_delta: Decimal | None = None
+    #: Whether this movement changes what the firm owns.
+    #:
+    #: Almost every movement does, and the moving average is rolled forward
+    #: from ``current_delta``. A quarantine hold does not: the goods are still
+    #: owned and still worth what they were, they have only stopped being
+    #: sellable. Rolling the average on one consumed the value as though the
+    #: stock had left -- a hold of 4 units at 30.00 wrote 120.00 off a firm
+    #: that had lost nothing.
+    revalues: bool = True
 
 
 class InventoryService:
@@ -1267,6 +1287,206 @@ class InventoryService:
             actor_id=actor_id,
         )
 
+    def write_off_stock(
+        self,
+        data: StockWriteOffCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> InventoryTransaction:
+        """Take stock off the books, and record why.
+
+        A generic adjustment reached damage, expiry and loss alike, so a firm
+        could answer "how much stock did we lose" and not "to what". The reason
+        rides on the movement and into the journal narration, which is where
+        somebody reading the ledger asks the question.
+
+        The value leaves through the same inventory adjustment account an
+        adjustment uses. Splitting damage and expiry into separate accounts is
+        a chart decision a firm can make by remapping the purpose; putting
+        three accounts into the seeded chart would be deciding it for them.
+
+        Args:
+            data: What is being written off, and why.
+            firm_scope: The owning firm.
+            actor_id: The user writing it off.
+
+        Returns:
+            The movement written.
+
+        Raises:
+            ValidationError: If the location does not hold that much.
+
+        """
+        (
+            base_quantity,
+            entered_quantity,
+            entered_uom_id,
+            conversion_version,
+        ) = self._resolve_base_quantity(
+            firm_scope=firm_scope,
+            product_id=data.product_id,
+            quantity=(
+                data.entered_quantity
+                if data.entered_quantity is not None
+                else data.quantity
+            ),
+            entered_uom_id=data.entered_uom_id,
+            conversion_version=None,
+            on_date=data.transaction_date,
+        )
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            storage_node_id=data.storage_node_id,
+            product_id=data.product_id,
+            actor_id=actor_id,
+            batch_id=data.batch_id,
+        )
+        held = inventory.current_quantity + inventory.quarantine_quantity
+        if base_quantity > held:
+            raise ValidationError(
+                f"This location holds {held}, so {base_quantity} cannot be "
+                "written off from it."
+            )
+        # Quarantined stock is condemned first: it is in quarantine because
+        # somebody already doubted it, so it is the likeliest thing going.
+        from_quarantine = min(base_quantity, inventory.quarantine_quantity)
+        from_current = base_quantity - from_quarantine
+        reference = data.reference_number.strip().upper()
+        reason = data.reason.value
+        narration = (
+            f"{reason.title()}: {data.remarks}"
+            if data.remarks
+            else f"Stock written off as {reason.lower()}"
+        )
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.WRITE_OFF.value,
+                batch_id=data.batch_id,
+                reference_number=reference,
+                reference_type=reason,
+                transaction_date=data.transaction_date,
+                quantity=base_quantity,
+                current_delta=-from_current,
+                quarantine_delta=-from_quarantine,
+                # The whole amount leaves the firm, whichever bucket held it.
+                owned_delta=-base_quantity,
+                entered_quantity=entered_quantity,
+                entered_uom_id=entered_uom_id,
+                conversion_version=conversion_version,
+                remarks=narration,
+            ),
+        )
+        # The flush is required: request sessions do not autoflush, so the row
+        # staged above is invisible to this query until it is written.
+        self._session.flush()
+        entry = self._session.scalar(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.transaction_id == transaction.id
+            )
+        )
+        value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
+        DocumentPostingService(self._session).post_stock_adjustment(
+            firm_id=firm_scope,
+            transaction_id=transaction.id,
+            reference_number=reference,
+            transaction_date=data.transaction_date,
+            value_delta=-value,
+            actor_id=actor_id,
+            remarks=narration,
+        )
+        record_audit(
+            self._session,
+            action="inventory.stock_written_off",
+            entity_type="inventory_transaction",
+            entity_id=transaction.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "reference_number": reference,
+                "reason": reason,
+                "quantity": str(base_quantity),
+            },
+        )
+        self._commit()
+        self._session.refresh(transaction)
+        return transaction
+
+    def quarantine_stock(
+        self,
+        data: StockQuarantineCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> InventoryTransaction:
+        """Hold stock back from sale, or release it again.
+
+        Quarantined stock is still owned and still worth what it was, so this
+        moves quantity between buckets and posts nothing. Condemning it is a
+        separate decision taken once somebody has looked at the goods, and it
+        goes through `write_off_stock`.
+
+        Args:
+            data: What is being held or released.
+            firm_scope: The owning firm.
+            actor_id: The user doing it.
+
+        Returns:
+            The movement written.
+
+        Raises:
+            ValidationError: If there is not that much to hold or release.
+
+        """
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=data.branch_id,
+            warehouse_id=data.warehouse_id,
+            storage_node_id=data.storage_node_id,
+            product_id=data.product_id,
+            actor_id=actor_id,
+            batch_id=data.batch_id,
+        )
+        holding = data.action == QuarantineAction.HOLD
+        available = (
+            inventory.current_quantity - inventory.reserved_quantity
+            if holding
+            else inventory.quarantine_quantity
+        )
+        verb = "hold" if holding else "release"
+        if data.quantity > available:
+            raise ValidationError(
+                f"There is {available} to {verb}, so {data.quantity} cannot be."
+            )
+        sign = Decimal("-1") if holding else Decimal("1")
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=(
+                    InventoryTransactionType.QUARANTINE_HOLD.value
+                    if holding
+                    else InventoryTransactionType.QUARANTINE_RELEASE.value
+                ),
+                batch_id=data.batch_id,
+                reference_number=data.reference_number.strip().upper(),
+                reference_type="QUARANTINE",
+                transaction_date=data.transaction_date,
+                quantity=data.quantity,
+                current_delta=sign * data.quantity,
+                quarantine_delta=-sign * data.quantity,
+                remarks=data.remarks,
+                revalues=False,
+            ),
+        )
+        self._commit()
+        self._session.refresh(transaction)
+        return transaction
+
     def transfer_stock(
         self,
         data: StockTransferCreate,
@@ -1589,6 +1809,12 @@ class InventoryService:
             self._session.flush()
         return row
 
+    def _held_average(self, inventory: InventoryRecord, movement: _Movement) -> Decimal:
+        """Return the average a value-neutral movement leaves untouched."""
+        return self.valuation_for(
+            firm_scope=inventory.firm_id, product_id=inventory.product_id
+        ).average_cost
+
     def _apply_valuation(
         self, inventory: InventoryRecord, movement: _Movement, actor_id: UUID
     ) -> tuple[Decimal | None, Decimal | None, Decimal]:
@@ -1613,7 +1839,11 @@ class InventoryService:
         valuation = self.valuation_for(
             firm_scope=inventory.firm_id, product_id=inventory.product_id
         )
-        delta = movement.current_delta
+        delta = (
+            movement.current_delta
+            if movement.owned_delta is None
+            else movement.owned_delta
+        )
         average = Decimal(str(valuation.average_cost))
         on_hand = Decimal(str(valuation.quantity_on_hand))
 
@@ -2895,8 +3125,10 @@ class InventoryService:
         inventory.last_transaction_at = movement.transaction_date
         inventory.updated_by = actor_id
 
-        unit_cost, total_cost, average_after = self._apply_valuation(
-            inventory, movement, actor_id
+        unit_cost, total_cost, average_after = (
+            self._apply_valuation(inventory, movement, actor_id)
+            if movement.revalues
+            else (None, None, self._held_average(inventory, movement))
         )
         transaction = InventoryTransaction(
             inventory_id=inventory.id,

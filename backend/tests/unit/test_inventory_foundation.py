@@ -25,7 +25,12 @@ from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
 from app.customers.models import customer as _customer_models  # noqa: F401
-from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.models import (
+    GLPosting,
+    JournalEntry,
+    JournalLine,
+    LedgerAccount,
+)
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
@@ -41,6 +46,10 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.schemas import (
+    QuarantineAction,
+    StockQuarantineCreate,
+    StockWriteOffCreate,
+    WriteOffReason,
     StockTransferCreate,
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -1393,3 +1402,254 @@ def test_a_transfer_to_where_the_stock_already_is_makes_no_sense() -> None:
             reference_number="TRF-SAME",
             transaction_date=date(2026, 8, 2),
         )
+
+
+def _costed_stock(session, firm, branch, warehouse, product, actor_id):
+    """Put costed stock in, so a write-off has a value to remove."""
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+    service = InventoryService(session)
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-WO",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("30.00"),
+    )
+    return service
+
+
+def test_a_write_off_says_what_the_stock_was_lost_to() -> None:
+    """A generic adjustment reached damage, expiry and loss alike.
+
+    So a firm could answer how much stock it lost and not to what. The reason
+    is on the movement and in the journal narration, which is where somebody
+    reading the ledger asks it.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "WOFF")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+
+    row = service.write_off_stock(
+        StockWriteOffCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            reason=WriteOffReason.EXPIRY,
+            quantity=Decimal("2"),
+            reference_number="WO-EXP-1",
+            transaction_date=date(2026, 8, 2),
+            remarks="Past use-by on the top shelf",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert row.transaction_type == "WRITE_OFF"
+    assert row.reference_type == "EXPIRY", "the bucket is on the movement"
+
+    postings = {
+        code: (debit, credit)
+        for code, debit, credit in session.execute(
+            select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+            .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .where(JournalEntry.reference_number == "WO-EXP-1")
+        ).all()
+    }
+    assert postings["1200"] == (Decimal("0.00"), Decimal("60.00")), "stock leaves"
+    assert postings["5500"] == (Decimal("60.00"), Decimal("0.00")), "and it is a cost"
+
+    narration = session.scalar(
+        select(JournalLine.description)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(JournalEntry.reference_number == "WO-EXP-1")
+    )
+    assert "Expiry" in (narration or ""), "the ledger says what it was lost to"
+
+
+def test_a_write_off_of_more_than_is_there_is_refused() -> None:
+    """Stock that is not there cannot be condemned."""
+    session = _session_factory()()
+    firm = _firm(session, "WOFFNEG")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+
+    with pytest.raises(ValidationError, match="cannot be"):
+        service.write_off_stock(
+            StockWriteOffCreate(
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                product_id=product.id,
+                reason=WriteOffReason.DAMAGE,
+                quantity=Decimal("500"),
+                reference_number="WO-TOO-MUCH",
+                transaction_date=date(2026, 8, 2),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_quarantined_stock_is_held_not_lost() -> None:
+    """It is still owned and still worth what it was, so nothing posts.
+
+    Condemning it is a separate decision, taken once somebody has looked at the
+    goods -- and a hold that wrote the value off would make that decision for
+    them.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "QUAR")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+    before = service.valuation_for(
+        firm_scope=firm.id, product_id=product.id
+    ).total_value
+
+    service.quarantine_stock(
+        StockQuarantineCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            action=QuarantineAction.HOLD,
+            quantity=Decimal("4"),
+            reference_number="QR-HOLD-1",
+            transaction_date=date(2026, 8, 2),
+            remarks="Suspect carton, awaiting inspection",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    rows, _ = service.list_inventory(
+        firm_scope=firm.id,
+        filters=InventoryListFilters(),
+        page=1,
+        page_size=50,
+        search=None,
+        sort_by="created_at",
+        descending=True,
+    )
+    held = rows[0]
+    assert held.quarantine_quantity == Decimal("4.0000")
+    assert held.current_quantity == Decimal("6.0000")
+    after = service.valuation_for(firm_scope=firm.id, product_id=product.id).total_value
+    assert after == before, "a hold is not a loss"
+    written = session.scalar(
+        select(func.count())
+        .select_from(JournalEntry)
+        .where(JournalEntry.reference_number == "QR-HOLD-1")
+    )
+    assert written == 0
+
+    # And releasing it puts it back where it came from.
+    service.quarantine_stock(
+        StockQuarantineCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            action=QuarantineAction.RELEASE,
+            quantity=Decimal("4"),
+            reference_number="QR-REL-1",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    rows, _ = service.list_inventory(
+        firm_scope=firm.id,
+        filters=InventoryListFilters(),
+        page=1,
+        page_size=50,
+        search=None,
+        sort_by="created_at",
+        descending=True,
+    )
+    assert rows[0].quarantine_quantity == Decimal("0.0000")
+    assert rows[0].current_quantity == Decimal("10.0000")
+
+
+def test_a_write_off_condemns_quarantined_stock_first() -> None:
+    """Stock in quarantine is there because somebody already doubted it."""
+    session = _session_factory()()
+    firm = _firm(session, "QUARWO")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+    service.quarantine_stock(
+        StockQuarantineCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            action=QuarantineAction.HOLD,
+            quantity=Decimal("3"),
+            reference_number="QR-HOLD-2",
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    service.write_off_stock(
+        StockWriteOffCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            reason=WriteOffReason.DAMAGE,
+            quantity=Decimal("3"),
+            reference_number="WO-DMG-1",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    rows, _ = service.list_inventory(
+        firm_scope=firm.id,
+        filters=InventoryListFilters(),
+        page=1,
+        page_size=50,
+        search=None,
+        sort_by="created_at",
+        descending=True,
+    )
+    assert rows[0].quarantine_quantity == Decimal("0.0000"), "the doubted stock went"
+    assert rows[0].current_quantity == Decimal("7.0000"), "the good stock stayed"
+
+    # And it left the books as well as the shelf. The valuation follows the
+    # sellable bucket, which a quarantine hold has already emptied, so the
+    # write-off has to say separately how much the firm stopped owning --
+    # without that the goods went in the skip and the value stayed on the
+    # balance sheet.
+    postings = {
+        code: (debit, credit)
+        for code, debit, credit in session.execute(
+            select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+            .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .where(JournalEntry.reference_number == "WO-DMG-1")
+        ).all()
+    }
+    assert postings["1200"] == (Decimal("0.00"), Decimal("90.00"))
+    assert postings["5500"] == (Decimal("90.00"), Decimal("0.00"))
+    assert service.valuation_for(
+        firm_scope=firm.id, product_id=product.id
+    ).quantity_on_hand == Decimal("7.0000")

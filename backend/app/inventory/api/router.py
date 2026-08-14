@@ -34,7 +34,9 @@ from app.inventory.schemas import (
     OpeningStockImportRequest,
     OpeningStockUpdate,
     StockLedgerListFilters,
+    StockQuarantineCreate,
     StockTransferCreate,
+    StockWriteOffCreate,
 )
 from app.inventory.schemas.inventory import (
     InventoryLocationSummary,
@@ -570,6 +572,52 @@ def transfer_stock(
         ],
         message="Stock transferred.",
     )
+
+
+@router.post(
+    "/write-offs",
+    response_model=ApiResponse[InventoryTransactionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def write_off_stock(
+    data: StockWriteOffCreate,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[InventoryTransactionResponse]:
+    """Take stock off the books, and say why.
+
+    A generic adjustment reached damage, expiry and loss alike, so a firm could
+    answer how much stock it lost and not to what.
+    """
+    service = InventoryService(db)
+    row = service.write_off_stock(
+        data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=service.transaction_response(row), message="Stock written off."
+    )
+
+
+@router.post(
+    "/quarantine",
+    response_model=ApiResponse[InventoryTransactionResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def quarantine_stock(
+    data: StockQuarantineCreate,
+    scope: InventoryAdjustScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[InventoryTransactionResponse]:
+    """Hold stock back from sale, or release it again.
+
+    Quarantined stock is still owned and still worth what it was, so nothing
+    posts. Condemning it is a separate decision and goes through the write-off.
+    """
+    service = InventoryService(db)
+    row = service.quarantine_stock(
+        data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.transaction_response(row))
 
 
 @router.get("/export")
