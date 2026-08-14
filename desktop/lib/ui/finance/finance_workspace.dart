@@ -9,6 +9,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
+import 'profit_loss_page.dart';
 import 'trial_balance_page.dart';
 
 /// The chart of accounts, as a plain REST resource.
@@ -149,6 +150,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'ledgers' => LedgerStatementPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'profit-loss' => ProfitLossPage(
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,

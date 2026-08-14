@@ -193,8 +193,14 @@ class LedgerAccountCreate(FinanceSchema):
     name: str = NameField
     account_type: AccountTypeEnum
     description: str | None = None
-    is_balance_sheet: bool = True
-    is_profit_loss: bool = False
+    #: Which statement the account belongs on. Omit both and they follow the
+    #: account type, which is what they describe: income and expenses make the
+    #: profit and loss, everything else sits on the balance sheet. They were
+    #: plain defaults of `True` / `False`, so every account created without
+    #: them -- the whole seeded chart, Sales and Purchases included -- claimed
+    #: to be a balance sheet account and no part of the profit and loss.
+    is_balance_sheet: bool | None = None
+    is_profit_loss: bool | None = None
     requires_cost_center: bool = False
     requires_profit_center: bool = False
     is_active: bool = True
@@ -528,6 +534,50 @@ class GeneralLedgerReport(FinanceSchema):
     lines: list[GeneralLedgerLine]
 
 
+class ProfitLossLine(FinanceSchema):
+    """Return one income or expense account's contribution to the result.
+
+    Both figures are the account's own movement in its natural direction --
+    income counted on the credit side, expenses on the debit -- so a positive
+    number always means "this much income" or "this much cost", whichever
+    section the line is in. A contra account such as sales returns runs the
+    other way and reports negative, which is what it does to the result.
+    """
+
+    ledger_account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: AccountTypeEnum
+    period_amount: Decimal
+    year_to_date_amount: Decimal
+
+
+class ProfitLossReport(FinanceSchema):
+    """Return the profit and loss for one period and the year it belongs to.
+
+    Two columns, because one on its own is the wrong answer half the time: a
+    month is what somebody asks about, and the year to date is what tells them
+    whether the month was normal.
+
+    There is no `is_profit` flag. Whether the books balance is a claim about
+    the ledger and belongs to the server, but profit against loss is only the
+    sign of a number that is already here, and a second field carrying it is a
+    second thing to keep in step.
+    """
+
+    accounting_period_id: UUID
+    financial_year_id: UUID
+    generated_at: datetime
+    income: list[ProfitLossLine]
+    expenses: list[ProfitLossLine]
+    total_income: Decimal
+    total_expense: Decimal
+    net_profit: Decimal
+    year_to_date_income: Decimal
+    year_to_date_expense: Decimal
+    year_to_date_net_profit: Decimal
+
+
 class AccountSummary(FinanceSchema):
     """Return one aggregated account balance row."""
 
@@ -578,6 +628,8 @@ __all__ = [
     "ProfitCenterCreate",
     "ProfitCenterResponse",
     "ProfitCenterUpdate",
+    "ProfitLossLine",
+    "ProfitLossReport",
     "TrialBalanceLine",
     "TrialBalanceReport",
     "VoucherTypeCreate",

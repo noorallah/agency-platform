@@ -37,6 +37,7 @@ from app.finance.models import (
     GLPosting,
     JournalLine,
     JournalStatus,
+    LedgerAccount,
     LedgerBalance,
     PeriodStatus,
 )
@@ -668,6 +669,283 @@ def test_a_statement_for_the_first_period_opens_at_nothing() -> None:
     assert report.opening_balance == Decimal("0.00")
     assert report.closing_balance == Decimal("0.00")
     assert report.lines == []
+
+
+def _expense_account(
+    session: Session, book: _Book, firm_id: UUID, actor_id: UUID, code: str, name: str
+) -> LedgerAccount:
+    """Create one expense account under its own group."""
+    service = FinanceService(session)
+    group = service.create_account_group(
+        AccountGroupCreate(
+            code=f"EXP{code}",
+            name=f"{name} group",
+            account_type=AccountTypeEnum.EXPENSE,
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+    return service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=group.id,
+            code=code,
+            name=name,
+            account_type=AccountTypeEnum.EXPENSE,
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+
+
+def test_the_profit_and_loss_reports_the_month_and_the_year_to_date() -> None:
+    """One column is the wrong answer half the time.
+
+    A month is what somebody asks about; the year to date is what tells them
+    whether the month was normal. An account that saw nothing this month but
+    moved earlier in the year belongs in the report for its year-to-date figure
+    alone -- it is part of the year's result.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    rent = _expense_account(session, book, firm.id, actor_id, "6000", "Rent")
+
+    def post(
+        period_id: UUID, when: date, reference: str, lines: list[JournalLineData]
+    ) -> None:
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=period_id,
+            journal_date=when,
+            reference_number=reference,
+            description=reference,
+            lines=lines,
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+        session.commit()
+
+    # April: a sale of 100 and rent of 40.
+    post(book.period.id, date(2026, 4, 10), "JV-SALE", _sale_lines(book, "100.00"))
+    post(
+        book.period.id,
+        date(2026, 4, 20),
+        "JV-RENT",
+        [
+            JournalLineData(ledger_account_id=rent.id, debit_amount=Decimal("40.00")),
+            JournalLineData(
+                ledger_account_id=book.cash.id, credit_amount=Decimal("40.00")
+            ),
+        ],
+    )
+
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    # May: a sale of 60 and no rent.
+    post(may.id, date(2026, 5, 12), "JV-SALE-2", _sale_lines(book, "60.00"))
+
+    report = GeneralLedgerService(session).profit_and_loss(
+        firm_id=firm.id, accounting_period_id=may.id
+    )
+
+    assert [line.account_code for line in report.income] == ["4000"]
+    assert report.income[0].period_amount == Decimal("60.00")
+    assert report.income[0].year_to_date_amount == Decimal("160.00")
+
+    assert [line.account_code for line in report.expenses] == ["6000"], (
+        "rent moved earlier in the year, so it is part of this year's result "
+        "even though it saw nothing this month"
+    )
+    assert report.expenses[0].period_amount == Decimal("0.00")
+    assert report.expenses[0].year_to_date_amount == Decimal("40.00")
+
+    assert report.total_income == Decimal("60.00")
+    assert report.total_expense == Decimal("0.00")
+    assert report.net_profit == Decimal("60.00")
+    assert report.year_to_date_income == Decimal("160.00")
+    assert report.year_to_date_expense == Decimal("40.00")
+    assert report.year_to_date_net_profit == Decimal("120.00")
+    assert report.financial_year_id == book.year.id
+
+
+def test_the_profit_and_loss_stops_at_the_financial_year() -> None:
+    """Profit resets at the year, so the year to date starts there.
+
+    Carrying last year's trading into this year's result would overstate it by
+    everything the firm has ever done.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-LAST-YEAR",
+        description="Last year's sale",
+        lines=_sale_lines(book, "100.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    next_year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2028",
+            name="2027-2028",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2028, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    april = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=next_year.id,
+            period_number=1,
+            code="P1",
+            name="April 2027",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2027, 4, 30),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    report = GeneralLedgerService(session).profit_and_loss(
+        firm_id=firm.id, accounting_period_id=april.id
+    )
+
+    assert report.income == [], "last year's sale is not this year's income"
+    assert report.year_to_date_income == Decimal("0.00")
+    assert report.net_profit == Decimal("0.00")
+
+
+def test_a_contra_income_account_reduces_income_rather_than_being_a_cost() -> None:
+    """A sales return is negative income, not an expense.
+
+    Both figures are the account's movement in its natural direction, so an
+    income account that ran the other way reports negative -- which is what it
+    does to the result. Filing it as a cost would report the same net profit
+    with revenue and costs both overstated.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    returns = service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.income_group.id,
+            code="4100",
+            name="Sales Returns",
+            account_type=AccountTypeEnum.INCOME,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-RETURN",
+        description="Goods returned",
+        lines=[
+            JournalLineData(
+                ledger_account_id=returns.id, debit_amount=Decimal("25.00")
+            ),
+            JournalLineData(
+                ledger_account_id=book.cash.id, credit_amount=Decimal("25.00")
+            ),
+        ],
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    report = GeneralLedgerService(session).profit_and_loss(
+        firm_id=firm.id, accounting_period_id=book.period.id
+    )
+
+    assert [line.account_code for line in report.income] == ["4100"]
+    assert report.income[0].period_amount == Decimal("-25.00")
+    assert report.expenses == []
+    assert report.net_profit == Decimal("-25.00")
+
+
+def test_an_income_account_is_a_profit_and_loss_account_without_being_told() -> None:
+    """The flags follow the account type unless the caller says otherwise.
+
+    They were plain defaults of `True` / `False` that nothing set, so every
+    account the chart-of-accounts seeder built claimed to be a balance sheet
+    account and no part of the profit and loss -- Sales and Purchases included,
+    which the account detail panel showed to the user as fact.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+
+    assert book.sales.is_profit_loss is True
+    assert book.sales.is_balance_sheet is False
+    assert book.cash.is_balance_sheet is True
+    assert book.cash.is_profit_loss is False
+
+    # And an administrator can still overrule it: a memo account belongs
+    # wherever they decide it does.
+    memo_group = service.create_account_group(
+        AccountGroupCreate(
+            code="MEMO", name="Memoranda", account_type=AccountTypeEnum.INCOME
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    off_statement = service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=memo_group.id,
+            code="4900",
+            name="Kept off the statement",
+            account_type=AccountTypeEnum.INCOME,
+            is_profit_loss=False,
+            is_balance_sheet=True,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert off_statement.is_profit_loss is False
+    assert off_statement.is_balance_sheet is True
 
 
 def test_an_account_with_nothing_to_carry_is_left_out() -> None:

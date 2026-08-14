@@ -15,6 +15,7 @@ from app.core.exceptions import ResourceNotFoundError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
+    PROFIT_LOSS_ACCOUNT_TYPES,
     AccountingPeriod,
     GLPosting,
     JournalEntry,
@@ -27,6 +28,8 @@ from app.finance.schemas import (
     AccountTypeEnum,
     GeneralLedgerLine,
     GeneralLedgerReport,
+    ProfitLossLine,
+    ProfitLossReport,
     TrialBalanceLine,
     TrialBalanceReport,
 )
@@ -188,6 +191,101 @@ class GeneralLedgerService:
             total_credit=balance.period_credit if balance is not None else ZERO,
             closing_balance=balance.closing_balance if balance is not None else running,
             lines=lines,
+        )
+
+    def profit_and_loss(
+        self, *, firm_id: UUID, accounting_period_id: UUID
+    ) -> ProfitLossReport:
+        """Return the profit and loss for one period, with the year to date.
+
+        Built from movement rather than from balances, which is what makes it a
+        different report from the trial balance: a period contributes what
+        happened in it, and an account that saw nothing contributes nothing. So
+        there is no balance to carry here -- the omission that had to be fixed
+        in the other two reports would be the correct answer in this one.
+
+        Sections are decided by `account_type`, not by the `is_profit_loss`
+        flag on the account. The type is structural -- the ledger already uses
+        it to decide which side an account increases on -- while the flag is a
+        column somebody has to remember to set, and every account in the seeded
+        demo firm carries it as `False`, Sales and Purchases included. A report
+        that reads it would have come back empty on every firm that exists.
+        """
+        period = self._session.get(AccountingPeriod, accounting_period_id)
+        if period is None:
+            raise ResourceNotFoundError("Accounting period not found.")
+
+        # Every income and expense movement in the financial year up to and
+        # including this period. Profit resets at the year, so the year is the
+        # boundary; one query serves both columns, and the period's own figures
+        # are the subset written against it.
+        rows = self._session.execute(
+            select(LedgerBalance, LedgerAccount)
+            .join(LedgerAccount, LedgerAccount.id == LedgerBalance.ledger_account_id)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.firm_id == firm_id,
+                LedgerAccount.is_deleted.is_(False),
+                LedgerAccount.account_type.in_(PROFIT_LOSS_ACCOUNT_TYPES),
+                AccountingPeriod.financial_year_id == period.financial_year_id,
+                AccountingPeriod.starts_on <= period.starts_on,
+            )
+        ).all()
+
+        totals: dict[UUID, tuple[LedgerAccount, Decimal, Decimal]] = {}
+        for balance, account in rows:
+            movement = (
+                balance.period_debit - balance.period_credit
+                if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
+                else balance.period_credit - balance.period_debit
+            )
+            _, in_period, year_to_date = totals.get(account.id, (account, ZERO, ZERO))
+            if balance.accounting_period_id == accounting_period_id:
+                in_period += movement
+            totals[account.id] = (account, in_period, year_to_date + movement)
+
+        income: list[ProfitLossLine] = []
+        expenses: list[ProfitLossLine] = []
+        for account, in_period, year_to_date in totals.values():
+            # An account that did nothing all year is not a line. It is the
+            # same judgement the trial balance makes about a zero balance: a
+            # report listing every account ever created is a worse report.
+            if in_period == ZERO and year_to_date == ZERO:
+                continue
+            line = ProfitLossLine(
+                ledger_account_id=account.id,
+                account_code=account.code,
+                account_name=account.name,
+                account_type=AccountTypeEnum(account.account_type),
+                period_amount=in_period,
+                year_to_date_amount=year_to_date,
+            )
+            if account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES:
+                expenses.append(line)
+            else:
+                income.append(line)
+        income.sort(key=lambda line: line.account_code)
+        expenses.sort(key=lambda line: line.account_code)
+
+        total_income = sum((line.period_amount for line in income), ZERO)
+        total_expense = sum((line.period_amount for line in expenses), ZERO)
+        ytd_income = sum((line.year_to_date_amount for line in income), ZERO)
+        ytd_expense = sum((line.year_to_date_amount for line in expenses), ZERO)
+        return ProfitLossReport(
+            accounting_period_id=accounting_period_id,
+            financial_year_id=period.financial_year_id,
+            generated_at=utc_now(),
+            income=income,
+            expenses=expenses,
+            total_income=total_income,
+            total_expense=total_expense,
+            net_profit=total_income - total_expense,
+            year_to_date_income=ytd_income,
+            year_to_date_expense=ytd_expense,
+            year_to_date_net_profit=ytd_income - ytd_expense,
         )
 
     def account_summary(

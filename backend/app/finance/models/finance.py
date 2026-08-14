@@ -43,6 +43,14 @@ class AccountType(StrEnum):
 #: Account types whose balance increases on the debit side.
 DEBIT_BALANCE_ACCOUNT_TYPES = frozenset({AccountType.ASSET, AccountType.EXPENSE})
 
+#: Account types the profit and loss is drawn from.
+#:
+#: The type rather than the `is_profit_loss` flag on the account: the type is
+#: structural and already decides which side an account increases on, while the
+#: flag is a column somebody has to set and every account in the seeded demo
+#: firm carries it as `False`, Sales and Purchases included.
+PROFIT_LOSS_ACCOUNT_TYPES = frozenset({AccountType.INCOME, AccountType.EXPENSE})
+
 
 class PeriodStatus(StrEnum):
     """Describe whether an accounting period accepts new postings."""

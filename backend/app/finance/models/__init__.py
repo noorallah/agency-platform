@@ -2,6 +2,7 @@
 
 from app.finance.models.finance import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
+    PROFIT_LOSS_ACCOUNT_TYPES,
     AccountGroup,
     AccountingPeriod,
     AccountType,
@@ -25,6 +26,7 @@ from app.finance.models.finance import (
 
 __all__ = [
     "DEBIT_BALANCE_ACCOUNT_TYPES",
+    "PROFIT_LOSS_ACCOUNT_TYPES",
     "AccountGroup",
     "AccountType",
     "AccountingPeriod",

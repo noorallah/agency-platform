@@ -16,6 +16,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.finance.models import (
+    PROFIT_LOSS_ACCOUNT_TYPES,
     AccountGroup,
     AccountingPeriod,
     CostCenter,
@@ -410,6 +411,11 @@ class FinanceService:
             raise ValidationError(
                 "A ledger account must share its group's account type."
             )
+        # Which statement the account belongs on follows its type unless the
+        # caller says otherwise. An administrator can still put a memo account
+        # on the profit and loss; what they should not have to do is remember
+        # to tick "profit and loss" on an income account.
+        on_profit_loss = data.account_type.value in PROFIT_LOSS_ACCOUNT_TYPES
         account = LedgerAccount(
             firm_id=firm_id,
             account_group_id=group.id,
@@ -417,8 +423,14 @@ class FinanceService:
             name=data.name,
             account_type=data.account_type.value,
             description=data.description,
-            is_balance_sheet=data.is_balance_sheet,
-            is_profit_loss=data.is_profit_loss,
+            is_balance_sheet=(
+                not on_profit_loss
+                if data.is_balance_sheet is None
+                else data.is_balance_sheet
+            ),
+            is_profit_loss=(
+                on_profit_loss if data.is_profit_loss is None else data.is_profit_loss
+            ),
             requires_cost_center=data.requires_cost_center,
             requires_profit_center=data.requires_profit_center,
             is_active=data.is_active,

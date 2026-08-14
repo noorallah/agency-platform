@@ -38,6 +38,7 @@ from app.finance.schemas import (
     ProfitCenterCreate,
     ProfitCenterResponse,
     ProfitCenterUpdate,
+    ProfitLossReport,
     TrialBalanceReport,
     VoucherTypeCreate,
     VoucherTypeResponse,
@@ -83,6 +84,9 @@ JournalReverseScope = Annotated[
 LedgerViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("LEDGER_VIEW")]
 TrialBalanceScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("TRIAL_BALANCE_VIEW")
+]
+ProfitLossScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PROFIT_LOSS_VIEW")
 ]
 
 
@@ -610,6 +614,19 @@ def general_ledger(
         firm_id=scope.firm_id,
         ledger_account_id=ledger_account_id,
         accounting_period_id=accounting_period_id,
+    )
+    return ApiResponse(data=report)
+
+
+@router.get("/profit-loss", response_model=ApiResponse[ProfitLossReport])
+def profit_and_loss(
+    accounting_period_id: UUID,
+    scope: ProfitLossScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ProfitLossReport]:
+    """Return the profit and loss for one period, with the year to date."""
+    report = GeneralLedgerService(db).profit_and_loss(
+        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
     )
     return ApiResponse(data=report)
 

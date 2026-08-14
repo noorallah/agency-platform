@@ -375,7 +375,7 @@ write-offs (only a generic `ADJUSTMENT` reaches those buckets). Stock movements
 also post nothing to the general ledger, so stock value and the inventory
 control account never reconcile.
 
-## 7. Finance has a screen -- accounts, journal, ledgers, trial balance
+## 7. Finance has a screen -- accounts, journal, ledgers, trial balance, P&L
 
 `app/finance` is thirty live endpoints and has been since `20260809_0042`.
 Every goods receipt, dispatch, sales invoice and purchase invoice posts to the
@@ -409,9 +409,29 @@ being added up in the client -- it starts from the opening balance and moves in
 whichever direction the account type increases in, and a client totalling it
 itself is a second opinion about the ledger.
 
-**Still placeholders, and the catalogue still says so:** profit and loss,
-balance sheet. **Receipts and payments have no endpoint at all** and are a
-feature rather than a gap.
+**Profit and loss** followed on 2026-08-14, backend and screen: `GET
+/finance/profit-loss` had to be written, since the module served a trial
+balance and a statement but nothing that said whether the firm made money.
+
+Two columns, the period and the year to date, because one on its own is the
+wrong answer half the time -- June 2026 in the seeded firm is a loss of 2,657.46
+inside a year that is 5,086.46 ahead. It is built from movement rather than
+balances, which makes it the one report where an account that saw nothing
+contributes nothing and the carried-balance fix above would be *wrong*. The year
+is the boundary, because profit resets there.
+
+Sections come from `account_type`, deliberately not from the `is_profit_loss`
+flag: the type is structural, while the flag was a plain default nothing set, so
+every account in every firm carried "balance sheet, not profit and loss" --
+Sales and Purchases included, and the account detail panel showed it as fact. A
+report reading it would have come back empty everywhere. The flag now follows
+the type on create unless the caller overrules it, and `20260814_0075` brings
+existing rows into line, touching only rows still at both defaults so a
+deliberate choice is never overwritten.
+
+**Still a placeholder, and the catalogue still says so:** balance sheet.
+**Receipts and payments have no endpoint at all** and are a feature rather than
+a gap.
 
 **The trial balance lists every account with a balance** as of 2026-08-14, not
 only the accounts that moved. A `ledger_balances` row is written when an account

@@ -113,6 +113,13 @@ final Map<String, _PageBuilder> _screens = {
       ),
   // Two pickers side by side above a six-column table, which is the other
   // shape that runs out of width first.
+  'profit and loss': (d) => FinanceWorkspace(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'profit-loss',
+      ),
   'ledgers': (d) => FinanceWorkspace(
         api: d.api,
         preferences: d.preferences,
