@@ -186,9 +186,14 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
         ),
       );
       for (final ModuleDefinition module in sectionModules) {
-        final bool hasChildren = _addExpandedModuleTile(tiles, module);
-        if (!hasChildren) {
-          continue;
+        _addExpandedModuleTile(tiles, module);
+        for (final AppModule childId
+            in section.childModuleIds[module.id] ?? const <AppModule>[]) {
+          final ModuleDefinition? child = moduleById[childId];
+          // Absent when the user's permissions filtered it out, which is the
+          // normal case rather than an error.
+          if (child == null) continue;
+          _addExpandedModuleTile(tiles, child, indent: 16);
         }
       }
     }
@@ -198,33 +203,42 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
     );
   }
 
-  bool _addExpandedModuleTile(List<Widget> tiles, ModuleDefinition module) {
+  void _addExpandedModuleTile(
+    List<Widget> tiles,
+    ModuleDefinition module, {
+    double indent = 0,
+  }) {
     final List<WorkspaceNavigationNode> children = widget.navigationChildren(
       module,
     );
     final bool selectedModule = module.id == widget.selectedModule;
     if (children.isEmpty) {
       tiles.add(
-        ListTile(
-          selected: selectedModule,
-          leading: Icon(module.icon),
-          title: Text(module.label),
-          onTap: () => widget.onSelectModule(module.id),
+        Padding(
+          padding: EdgeInsets.only(left: indent),
+          child: ListTile(
+            selected: selectedModule,
+            leading: Icon(module.icon),
+            title: Text(module.label),
+            onTap: () => widget.onSelectModule(module.id),
+          ),
         ),
       );
-      return true;
+      return;
     }
     tiles.add(
-      _ModuleGroup(
-        key: ValueKey(module.id),
-        module: module,
-        children: children,
-        initiallyExpanded: selectedModule,
-        selectedPath: selectedModule ? widget.selectedPath : null,
-        onSelectedPath: (path) => widget.onSelectLeaf(module.id, path),
+      Padding(
+        padding: EdgeInsets.only(left: indent),
+        child: _ModuleGroup(
+          key: ValueKey(module.id),
+          module: module,
+          children: children,
+          initiallyExpanded: selectedModule,
+          selectedPath: selectedModule ? widget.selectedPath : null,
+          onSelectedPath: (path) => widget.onSelectLeaf(module.id, path),
+        ),
       ),
     );
-    return true;
   }
 }
 
@@ -232,10 +246,25 @@ class EnterpriseSidebarSection {
   const EnterpriseSidebarSection({
     required this.label,
     required this.moduleIds,
+    this.childModuleIds = const {},
   });
 
   final String label;
+
+  /// The modules shown at the top of this section, in order.
   final List<AppModule> moduleIds;
+
+  /// Modules filed underneath one of [moduleIds], indented beneath it.
+  ///
+  /// A document type should not outrank the process it belongs to. Sales
+  /// Invoices used to sit beside Sales rather than under it, so somebody
+  /// hunting an invoice had to know it had been promoted to the top level
+  /// instead of filed where they would look first.
+  ///
+  /// A child here is still a whole module -- its own page, permissions and
+  /// route. Only where it is drawn changes, which is why nothing about
+  /// routing or stored workspaces has to move with it.
+  final Map<AppModule, List<AppModule>> childModuleIds;
 }
 
 /// Top-level "CollapsibleGroup": one module entry that expands in place to
