@@ -79,6 +79,10 @@ STOCK_ADJUSTMENT_PURPOSES = (
 
 RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
+#: A refund is money out against the same account a receipt is money
+#: in against: what the customer paid in advance is being handed back.
+REFUND_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
+
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
 GOODS_RECEIPT_PURPOSES = (
@@ -521,6 +525,77 @@ class DocumentPostingService:
             lines=lines,
             source_module="inventory",
             source_id=batch_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_customer_refund(
+        self,
+        *,
+        firm_id: UUID,
+        settlement_id: UUID,
+        settlement_number: str,
+        settlement_date: date,
+        amount: Decimal,
+        money_account_id: UUID,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post money handed back to a customer.
+
+        The mirror of a receipt: the receivable is debited because the customer
+        is no longer owed the advance they paid, and the cash or bank account
+        the money left is credited.
+
+        It is a separate posting from a payment despite both being money out.
+        A payment settles what the firm owes a supplier and touches payables; a
+        refund returns what a customer overpaid and touches receivables, and
+        putting them through one method would mean a flag deciding which
+        control account real money lands in.
+
+        Args:
+            firm_id: The owning firm.
+            settlement_id: The source document.
+            settlement_number: The document number, used as the reference.
+            settlement_date: The date the money moved.
+            amount: How much was handed back.
+            money_account_id: The cash or bank account it left.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, REFUND_PURPOSES)
+        context = self.context_for(firm_id, settlement_date)
+        total = quantize_ledger(quantize_money(amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+                ],
+                debit_amount=total,
+                description=f"Refund {settlement_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=money_account_id,
+                credit_amount=total,
+                description=f"Refund {settlement_number}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=settlement_date,
+            reference_number=settlement_number,
+            description=f"Customer refund {settlement_number}",
+            lines=lines,
+            source_module="settlements",
+            source_id=settlement_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

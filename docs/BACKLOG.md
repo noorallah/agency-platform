@@ -422,11 +422,19 @@ stays general -- the sales invoice and settlement services call it inside a
 larger unit of work that does post. Credit notes and advance applications still
 go through it, because they move no money.
 
-**`REFUND` is the hole this leaves.** It reduces a customer's advance and posts
-nothing, and there is no customer-refund path: settlements pay vendors, not
-customers. Refusing it would remove capability with nothing to replace it, so
-it is still accepted and still wrong. A refund is money out and belongs in
-settlements as a direction, or as a customer-side payment.
+**`REFUND` was the hole this left, and it is closed** (2026-08-14).
+`POST /api/v1/refunds` is a third settlement direction: money out, like a
+payment, and about a customer, like a receipt -- which is why it is neither.
+It debits receivables because the customer is no longer owed the advance they
+paid, credits the account the money left, and reduces the advance through the
+receivable service, which already held the rule that a refund cannot exceed
+what the customer is actually holding.
+
+It is not applied to an invoice: a refund returns money held on account, which
+is the opposite of settling a document. `20260814_0082` widens the party check
+constraint so a refund carries a customer, and it takes the money-out grants
+rather than the receipt ones -- the person trusted to collect is not
+automatically the person trusted to hand money back.
 
 **Still unbuilt: physical count reconciliation.** A count sheet needs its own
 table to be useful -- counts are entered over hours and posted once -- so it is

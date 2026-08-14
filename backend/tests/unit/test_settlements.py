@@ -50,7 +50,7 @@ from app.settlements.schemas import (
     SettlementCreate,
     SettlementMethodEnum,
 )
-from app.settlements.services import PaymentService, ReceiptService
+from app.settlements.services import PaymentService, ReceiptService, RefundService
 from app.vendors.models import Vendor
 
 # Every test posts inside the seeded 2026-2027 financial year.
@@ -716,3 +716,89 @@ def test_a_credit_note_still_goes_through_the_receivable_endpoint() -> None:
     assert response.data.transaction_type == "CREDIT_NOTE"
     books.session.refresh(books.customer)
     assert books.customer.current_outstanding == Decimal("400.00")
+
+
+def test_a_refund_hands_money_back_and_posts_it() -> None:
+    """The mirror of a receipt, and the hole the receivable endpoint left.
+
+    A refund is money out like a payment and about a customer like a receipt,
+    so it was neither and could not be recorded -- which left the old
+    receivable endpoint accepting one that moved the advance and wrote no
+    journal.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "500.00")
+    books.session.commit()
+    books.session.refresh(books.customer)
+    assert books.customer.unapplied_advance_balance == Decimal("200.00")
+
+    settlement = RefundService(books.session).create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=WHEN,
+            amount=Decimal("200.00"),
+            method=SettlementMethodEnum.BANK,
+            narration="Overpayment returned",
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    postings = books.postings(settlement)
+    assert postings["1100"] == (
+        Decimal("200.00"),
+        Decimal("0.00"),
+    ), "the customer is no longer owed the advance"
+    assert postings["1010"] == (Decimal("0.00"), Decimal("200.00")), "the bank paid it"
+    assert settlement.settlement_number.startswith("RF")
+
+    books.session.refresh(books.customer)
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+
+
+def test_a_refund_larger_than_the_advance_is_refused() -> None:
+    """A firm cannot hand back money a customer never left with it."""
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "300.00")
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="exceeds unapplied advance"):
+        RefundService(books.session).create(
+            SettlementCreate(
+                party_id=books.customer.id,
+                settlement_date=WHEN,
+                amount=Decimal("50.00"),
+                method=SettlementMethodEnum.CASH,
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+
+def test_a_refund_is_not_applied_to_an_invoice() -> None:
+    """It returns money held on account, which is the opposite of settling."""
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    invoice = books.sales_invoice("SI-1", "300.00")
+    _receipt(books, "500.00")
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="not applied to an invoice"):
+        RefundService(books.session).create(
+            SettlementCreate(
+                party_id=books.customer.id,
+                settlement_date=WHEN,
+                amount=Decimal("100.00"),
+                method=SettlementMethodEnum.CASH,
+                allocations=[
+                    SettlementAllocationWrite(
+                        invoice_id=invoice.id, amount=Decimal("100.00")
+                    )
+                ],
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
