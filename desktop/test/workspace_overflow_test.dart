@@ -8,6 +8,7 @@ import 'package:agency_desktop/ui/dashboard_page.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/finance/finance_workspace.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
+import 'package:agency_desktop/ui/reports/reports_workspace.dart';
 import 'package:agency_desktop/ui/settings/settings_workspace.dart';
 import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.dart';
 import 'package:agency_desktop/ui/goods_receipts/goods_receipt_management_page.dart';
@@ -122,6 +123,14 @@ final Map<String, _PageBuilder> _screens = {
         api: d.api,
         permissions: d.permissions,
         hasActiveFirm: false,
+      ),
+  // A 300px picker beside a table whose columns come from the data, so the
+  // grid is the widest thing in the app and scrolls sideways on purpose.
+  'reports': (d) => ReportsWorkspace(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'operational',
       ),
   'audit logs': (d) => SystemSettingsWorkspace(
         api: d.api,

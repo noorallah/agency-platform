@@ -696,6 +696,33 @@ module wrapped in `ApiResponse`, which `CLAUDE.md` says is universal. Nothing
 consumed them yet, so it cost nothing to correct; a client written against the
 exception would have made it permanent.
 
+**Built on 2026-08-14** as `desktop/lib/ui/reports/` -- a `ReportDefinition`
+catalogue rendering into one grid, so a report is an entry rather than a screen.
+Twenty-nine of the 34 are catalogued, and all 29 were driven against the running
+backend. The five left out are left out for a reason:
+
+- `sales-invoices/reports/summary` answers one object, not rows. It belongs on a
+  dashboard, not in a grid.
+- **`purchase-returns/reports/{by-vendor,by-product,damaged,expired}` do not do
+  what their names say.** `by-vendor` and `supplier-analysis` are the same call
+  (`outstanding_report`) under two paths. `damaged` filters
+  `current_return_quantity > 0` and `expired` filters `pending_quantity >= 0` --
+  neither looks at `return_reason`, which is where the reason is recorded, so
+  they answer "anything returned" and "nearly everything" respectively.
+  `by-product` returns `reconciliation_report`, which is per source-document
+  line and carries no product at all. Fixing them needs product and reason on
+  `PurchaseReturnReconciliationRecord`, a real grouping for `by-product`, and a
+  decision about whether `return_reason` -- free text, `String(80)`, written as
+  `"DAMAGED"` by the sample data -- should become a constrained set. Catalogue
+  entries are cheap once the endpoints answer the question their name asks.
+
+Nine of the 29 answer with **whole documents** rather than report rows
+(`goods-receipts/{pending,completed,rejected,damaged}`, `sales-invoices` and
+`purchase-invoices` `{pending,overdue}`, `delivery-notes/pending`): forty-odd
+fields including `lines` and `attachments`. The client names their columns
+explicitly rather than deriving them. Narrowing them server-side to a record
+would be the better fix and would let the catalogue drop the override.
+
 ## Also open
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every

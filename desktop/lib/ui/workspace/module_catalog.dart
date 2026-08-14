@@ -723,13 +723,9 @@ abstract final class ModuleCatalog {
       tabs: [
         ModuleTabDefinition(
             id: 'dashboard', label: 'Dashboard', available: false),
-        ModuleTabDefinition(
-            id: 'operational', label: 'Operational Reports', available: false),
-        ModuleTabDefinition(
-            id: 'financial', label: 'Financial Reports', available: false),
+        ModuleTabDefinition(id: 'operational', label: 'Operational Reports'),
+        ModuleTabDefinition(id: 'financial', label: 'Financial Reports'),
         ModuleTabDefinition(id: 'gst', label: 'GST Reports', available: false),
-        ModuleTabDefinition(
-            id: 'audit', label: 'Audit Reports', available: false),
       ],
     ),
     ModuleDefinition(

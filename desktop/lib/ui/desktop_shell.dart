@@ -41,6 +41,7 @@ import 'firms/firm_settings_page.dart';
 import 'dashboard_page.dart';
 import 'finance/finance_workspace.dart';
 import 'inventory/physical_count_page.dart';
+import 'reports/reports_workspace.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
@@ -1231,7 +1232,13 @@ class _DesktopShellState extends State<DesktopShell> {
             tabId: _router.current.tab ?? 'audit-logs',
             firmLabel: widget.session.currentFirm?.name,
           ),
-        AppModule.reports || AppModule.licensing => _ComingSoonModule(
+        AppModule.reports => ReportsWorkspace(
+            api: api,
+            permissions: widget.permissions,
+            hasActiveFirm: widget.session.currentFirm != null,
+            tabId: _router.current.tab ?? 'operational',
+          ),
+        AppModule.licensing => _ComingSoonModule(
             module: ModuleCatalog.byId(section),
             permissions: widget.permissions,
           ),
