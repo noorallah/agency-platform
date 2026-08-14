@@ -90,6 +90,14 @@ SEED_UOMS: tuple[UomSeed, ...] = (
         "is_decimal_allowed": False,
     },
     {
+        "id": UUID("81000000-0000-0000-0000-000000000015"),
+        "code": "TABLET",
+        "name": "Tablet",
+        "symbol": "tab",
+        "dimension": "COUNT",
+        "is_decimal_allowed": False,
+    },
+    {
         "id": UUID("81000000-0000-0000-0000-000000000004"),
         "code": "STRIP",
         "name": "Strip",
@@ -230,9 +238,10 @@ SEED_UOM_GROUPS: tuple[UomGroupSeed, ...] = (
         "name": "Pharma Pack",
         "description": "Pharma-focused strip to carton packaging hierarchy.",
         "units": (
-            ("STRIP", True, 1),
-            ("BOX", False, 2),
-            ("CARTON", False, 3),
+            ("TABLET", True, 1),
+            ("STRIP", False, 2),
+            ("BOX", False, 3),
+            ("CARTON", False, 4),
         ),
     },
     {

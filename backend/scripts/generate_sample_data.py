@@ -14,11 +14,11 @@ from random import Random
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, func, inspect, select, text
+from sqlalchemy import Table, delete, func, inspect, select, text
 from sqlalchemy.orm import Session
 
+import app.core.database.all_models  # noqa: F401
 from app.api.dependencies.settings import get_settings
-from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
 from app.branches.models import (
     Branch,
     BranchType,
@@ -41,17 +41,17 @@ from app.business.models import (
     AttributeDefinition,
     BusinessProfile,
     CategoryAttributeRule,
-    FirmBusinessProfile,
 )
 from app.business.schemas import FirmBusinessProfileAssign
 from app.business.services.framework_service import BusinessProfileFrameworkService
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models.audit_log import AuditLog
 from app.core.config.settings import Environment, Settings
+from app.core.database.base import Base
 from app.core.database.engine import DatabaseManager
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ValidationError
-from app.customers.models import Customer, CustomerAddress, CustomerContact
+from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerAddressInput,
     CustomerContactInput,
@@ -85,17 +85,11 @@ from app.goods_receipt.models import (
     GoodsReceiptNote,
 )
 from app.identity.models import (
-    LoginHistory,
-    PasswordHistory,
     Permission,
     PlatformAdmin,
-    RefreshToken,
     Role,
     RolePermission,
     User,
-    UserFirm,
-    UserPreferences,
-    UserRole,
 )
 from app.identity.schemas.api import UserCreate, UserFirmAssignment
 from app.identity.services.identity_service import IdentityService
@@ -109,9 +103,7 @@ from app.inventory.models import (
 )
 from app.products.models import (
     Product,
-    ProductAttributeValue,
     ProductCategory,
-    ProductMedia,
 )
 from app.products.schemas import (
     ProductAttributeInput,
@@ -145,23 +137,14 @@ from app.purchase_return.models import (
     PurchaseReturnSource,
 )
 from app.sales.models import (
-    AddressMaster,
-    BeatPlan,
-    BeatPlanStop,
     GeoCity,
     GeoCountry,
     GeoDistrict,
     GeoLocality,
     GeoPostalCode,
     GeoState,
-    RouteTypeMaster,
-    SalesHierarchyConfig,
-    SalesHierarchyLevel,
     SalesTerritoryNode,
-    TerritoryCustomerAssignment,
     TerritoryRouteProfile,
-    TerritorySalesmanAssignment,
-    TerritoryWorkingDay,
 )
 from app.sales.schemas import (
     GeoCityWrite,
@@ -201,15 +184,8 @@ from app.sales_order.models import (
 )
 from app.tax.models import (
     TaxComponent,
-    TaxCountryMapping,
-    TaxMigrationMapping,
     TaxProfile,
-    TaxProfileComponent,
     TaxRule,
-    TaxRuleAction,
-    TaxRuleCondition,
-    TaxRuleExecutionLog,
-    TaxSettings,
     TaxSystem,
 )
 from app.tax.schemas import (
@@ -242,14 +218,6 @@ from app.uom.models import (
 from app.uom.system_seed import seed_uom_reference_data
 from app.vendors.models import (
     Vendor,
-    VendorAddress,
-    VendorAttachment,
-    VendorBankAccount,
-    VendorCategory,
-    VendorContact,
-    VendorNote,
-    VendorTaxDetail,
-    VendorType,
 )
 from app.vendors.schemas import (
     VendorAddressInput,
@@ -646,7 +614,7 @@ def main() -> None:
     try:
         with database.sessions().session() as session:
             _configure_seed_search_path(session, settings)
-            _reset_development_data(session)
+            _reset_development_data(session, settings)
             seed_system_rbac(session)
             seed_business_profiles(session)
             seed_uom_reference_data(session)
@@ -716,6 +684,46 @@ def _confirm_or_exit(mode: str) -> None:
         raise SystemExit("Operation cancelled.")
 
 
+def _reset_schemas(settings: Settings) -> tuple[str, ...]:
+    """Return the schemas a reset clears, platform first.
+
+    The seed session sees both through its search path, which is why the
+    delete has to name one: a table that exists in both -- and several do --
+    otherwise resolves to the platform copy while the firm_shared rows survive
+    to break the next foreign key.
+    """
+    platform_schema = settings.database_schema or "platform"
+    shared_schema = settings.tenancy_shared_schema_name or "firm_shared"
+    if platform_schema == shared_schema:
+        return (platform_schema,)
+    return (platform_schema, shared_schema)
+
+
+def _safe_delete_table(session: Session, table: Table, schema: str | None) -> None:
+    """Clear one table in one schema, skipping it where it does not exist.
+
+    The platform schema holds the platform tables and firm_shared the
+    firm-owned ones, so most tables are in exactly one of the two and the other
+    pass skips them. The names come from the metadata, so unlike a
+    hand-maintained list they cannot be wrong -- only absent.
+    """
+    bind = session.get_bind()
+    if bind is None:
+        return
+    if bind.dialect.name != "postgresql":
+        if not inspect(bind).has_table(table.name):
+            return
+        session.execute(table.delete())
+        return
+    qualified = f'"{schema}"."{table.name}"' if schema else f'"{table.name}"'
+    exists = session.scalar(
+        text("SELECT to_regclass(:name) IS NOT NULL"), {"name": qualified}
+    )
+    if not exists:
+        return
+    session.execute(text(f"DELETE FROM {qualified}"))  # noqa: S608
+
+
 def _safe_delete(session: Session, model: type[BaseEntity]) -> None:
     bind = session.get_bind()
     if bind is None:
@@ -734,128 +742,72 @@ def _safe_delete(session: Session, model: type[BaseEntity]) -> None:
         session.execute(delete(model))
 
 
-def _reset_development_data(session: Session) -> None:
+#: Tables `--reset` must not clear, and why each one survives.
+#:
+#: Everything else is generated data and goes. The delete order is derived from
+#: the schema rather than listed by hand: the old tuple named 108 models for a
+#: 169-table schema, so a reset died on whichever foreign key the missing 61
+#: violated first, and it had already gone stale four times.
+PRESERVED_TABLES: frozenset[str] = frozenset(
+    {
+        # Alembic's own bookkeeping. Clearing it would make the database look
+        # unmigrated and the next `upgrade` would replay everything.
+        "alembic_version",
+        # The business-profile catalogue is seeded by migrations
+        # (`20260801_0011`, `20260809_0046`, `20260810_0059`,
+        # `20260812_0067`) and by nothing else. Deleting it leaves a platform
+        # with no features or modules and no way back short of a downgrade;
+        # the per-firm assignment in `firm_business_profiles` is generated and
+        # is cleared.
+        "business_profiles",
+        "business_features",
+        "business_modules",
+        "profile_features",
+        "profile_modules",
+        # Cleared below with rules the generic pass cannot express: platform
+        # admins and their users survive, system roles and permissions
+        # survive, and the audit trail is truncated rather than deleted
+        # because it is append-only.
+        "users",
+        "platform_admins",
+        "roles",
+        "permissions",
+        "role_permissions",
+        "firms",
+        "firm_storage_mappings",
+        "audit_logs",
+    }
+)
+
+
+def _generated_tables() -> list[Table]:
+    """Return every table `--reset` clears, children before their parents.
+
+    ``sorted_tables`` is ordered so a table follows everything it depends on;
+    reversed, that is a delete order whose foreign keys are satisfied by
+    construction. Self-referencing tables -- territory nodes, storage nodes,
+    account groups -- are fine, because a single `DELETE FROM t` removes the
+    parent and child rows in one statement.
+    """
+    return [
+        table
+        for table in reversed(Base.metadata.sorted_tables)
+        if table.name not in PRESERVED_TABLES
+    ]
+
+
+def _reset_development_data(session: Session, settings: Settings) -> None:
     preserved_platform_admin_ids = set(
         session.scalars(
             select(PlatformAdmin.user_id).where(PlatformAdmin.is_deleted.is_(False))
         ).all()
     )
 
-    delete_order: tuple[Any, ...] = (
-        DocumentLifecycleEvent,
-        DocumentTotal,
-        DocumentLine,
-        DocumentHeader,
-        DocumentNumberingRule,
-        DocumentStateDefinition,
-        DocumentTypeDefinition,
-        SalesInvoiceAttachment,
-        SalesInvoiceNote,
-        SalesInvoiceAccountingEvent,
-        SalesInvoiceLine,
-        SalesInvoiceSource,
-        SalesInvoice,
-        DeliveryNoteAttachment,
-        DeliveryNoteNote,
-        DeliveryNoteLine,
-        DeliveryNote,
-        SalesOrderAttachment,
-        SalesOrderNote,
-        SalesOrderLine,
-        SalesOrder,
-        PurchaseReturnAttachment,
-        PurchaseReturnNote,
-        PurchaseReturnAccountingEvent,
-        PurchaseReturnLine,
-        PurchaseReturnSource,
-        PurchaseReturn,
-        PurchaseInvoiceAttachment,
-        PurchaseInvoiceNote,
-        PurchaseInvoiceAccountingEvent,
-        PurchaseInvoiceLine,
-        PurchaseInvoiceSource,
-        PurchaseInvoice,
-        GoodsReceiptAttachment,
-        GoodsReceiptNote,
-        GoodsReceiptLine,
-        GoodsReceipt,
-        PurchaseAttachment,
-        PurchaseNote,
-        PurchaseOrderHistory,
-        PurchaseDeliverySchedule,
-        PurchaseOrderLine,
-        PurchaseOrder,
-        OpeningStockLine,
-        OpeningStockBatch,
-        SerialNumber,
-        LotRecord,
-        # Movements before batches: `inventory_transactions.batch_id` and the
-        # stock ledger both point at a batch since stock became batch-grained,
-        # so deleting batches first violates the foreign key.
-        StockLedgerEntry,
-        InventoryTransaction,
-        InventoryRecord,
-        BatchRecord,
-        ProductAttributeValue,
-        ProductMedia,
-        ProductPackagingLevel,
-        ConversionRule,
-        Product,
-        ProductCategory,
-        TaxRuleExecutionLog,
-        TaxRuleAction,
-        TaxRuleCondition,
-        TaxRule,
-        TaxMigrationMapping,
-        TaxCountryMapping,
-        TaxProfileComponent,
-        TaxProfile,
-        TaxComponent,
-        TaxSystem,
-        TaxSettings,
-        BusinessProfileUomDefault,
-        UomGroupUnit,
-        UomGroup,
-        PackagingType,
-        Uom,
-        TerritoryWorkingDay,
-        TerritoryRouteProfile,
-        TerritoryCustomerAssignment,
-        TerritorySalesmanAssignment,
-        BeatPlanStop,
-        BeatPlan,
-        SalesTerritoryNode,
-        SalesHierarchyLevel,
-        SalesHierarchyConfig,
-        RouteTypeMaster,
-        AddressMaster,
-        WarehouseStorageNode,
-        Warehouse,
-        WarehouseType,
-        Branch,
-        BranchType,
-        VendorContact,
-        VendorAddress,
-        VendorBankAccount,
-        VendorTaxDetail,
-        VendorAttachment,
-        VendorNote,
-        Vendor,
-        VendorCategory,
-        VendorType,
-        CustomerAddress,
-        CustomerContact,
-        Customer,
-        FirmBusinessProfile,
-        UserPreferences,
-        UserRole,
-        UserFirm,
-        PasswordHistory,
-        RefreshToken,
-        LoginHistory,
-    )
-    for model in delete_order:
-        _safe_delete(session, model)
+    # Derived from the schema, not listed here: see PRESERVED_TABLES. Each
+    # schema is cleared in full before the next, children before parents.
+    for schema in _reset_schemas(settings):
+        for table in _generated_tables():
+            _safe_delete_table(session, table, schema)
 
     session.execute(
         delete(RolePermission).where(
