@@ -5,6 +5,7 @@ import 'dart:io';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
 import '../../models/finance.dart';
+import '../../models/physical_count.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
@@ -1582,6 +1583,57 @@ class ApiClient {
       OpeningStockBatchRecord.fromJson(
         _unwrapMap(
             await request('POST', '/api/v1/inventory/opening-stock/$id/post')),
+      );
+
+  // Counting a warehouse. The sheet is drawn up from what the system holds,
+  // walked over hours, and posted once at the end -- so it is a document with
+  // a draft the client saves into, not a form that applies on submit.
+
+  Future<PagedResult<PhysicalCountSheet>> physicalCounts({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+  }) =>
+      _list(
+        '/api/v1/inventory/counts',
+        PhysicalCountSheet.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+      );
+
+  Future<PhysicalCountSheet> physicalCount(String id) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/inventory/counts/$id')),
+      );
+
+  /// Open a sheet. Naming no lines draws it up from the whole warehouse.
+  Future<PhysicalCountSheet> openPhysicalCount(Json data) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/inventory/counts', body: data)),
+      );
+
+  /// Save what has been counted so far, on a sheet nobody has posted.
+  Future<PhysicalCountSheet> recordPhysicalCount(String id, Json data) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(
+          await request('PUT', '/api/v1/inventory/counts/$id', body: data),
+        ),
+      );
+
+  /// Turn every difference into a stock adjustment, which reaches the ledger.
+  Future<PhysicalCountSheet> postPhysicalCount(String id) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/counts/$id/post'),
+        ),
+      );
+
+  Future<PhysicalCountSheet> cancelPhysicalCount(String id) async =>
+      PhysicalCountSheet.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/inventory/counts/$id/cancel'),
+        ),
       );
 
   /// Move stock between warehouses. Returns both movements, out and in.

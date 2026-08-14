@@ -467,6 +467,20 @@ general ledger since `20260814_0079`, so a count that finds twelve missing
 cartons puts their value in the profit and loss without anybody keying a
 journal.
 
+**The screen followed the same day**, under Inventory. Saving and posting are
+separate buttons because the sheet is walked over hours: what has been found so
+far goes to the server rather than sitting in a form somebody might close.
+Building it found that `WorkspaceDialog.onSave` is bound to a keyboard shortcut
+and nothing else, so a sheet relying on it would have had no visible Save at
+all -- losing an afternoon of counting to an unknown shortcut is exactly the
+failure the screen exists to avoid. Both actions are buttons now.
+
+The difference is shown as it is typed, so a fat-fingered digit is visible
+before posting rather than after; a blank line is sent as no count rather than
+as zero, matching the server's rule that an uncounted line is not a line that
+found nothing; and posting says how many lines nobody walked before it goes
+ahead.
+
 **"Stock movements post nothing to the general ledger" was wrong**, and the
 correction matters because it changes what needs building. Measured on
 2026-08-14 against both stores:

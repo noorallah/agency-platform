@@ -7,6 +7,7 @@ import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:agency_desktop/ui/dashboard_page.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/finance/finance_workspace.dart';
+import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
 import 'package:agency_desktop/ui/settings/settings_workspace.dart';
 import 'package:agency_desktop/ui/delivery_notes/delivery_note_management_page.dart';
 import 'package:agency_desktop/ui/goods_receipts/goods_receipt_management_page.dart';
@@ -115,6 +116,13 @@ final Map<String, _PageBuilder> _screens = {
   // Two pickers side by side above a six-column table, which is the other
   // shape that runs out of width first.
   // The audit trail: a master/detail split with a three-column diff inside it.
+  // A count sheet is a table with an editable column, which is the shape that
+  // runs out of width first.
+  'physical counts': (d) => PhysicalCountPage(
+        api: d.api,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+      ),
   'audit logs': (d) => SystemSettingsWorkspace(
         api: d.api,
         permissions: d.permissions,
