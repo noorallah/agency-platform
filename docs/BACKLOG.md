@@ -486,11 +486,19 @@ Two things it deliberately does not do, and the reasons:
   step. Vendors carry nothing, and what they are owed is derived from their
   invoices less allocations rather than adding a second balance to drift.
 
-**The seeder raises no purchase invoices** -- 29 goods receipts and zero
-invoices in the seeded wholesale firm -- so the payment direction has no demo
-data to allocate against and was verified on-account instead, plus a unit test
-asserting the Dr payable / Cr bank legs. Worth fixing in
-`generate_transaction_history.py` so the payables side of the demo is real.
+**The seeder now raises purchase invoices** (2026-08-14). It had 29 goods
+receipts and zero invoices, so the payables side of the ledger stayed at zero,
+nothing was ever owed to a vendor, and a payment had nothing to be applied to.
+Each receipt is now billed and approved, which is what clears the
+goods-received accrual into Trade Payables: the seeded wholesale firm went from
+`2300 Goods Received Not Invoiced 355,740.00` to
+`2100 Trade Payables 419,773.20` with 29 unpaid bills, and paying one clears it
+against the ledger.
+
+Fixing that exposed a second gap: **`RESET_ORDER` did not know about the
+settlement tables**, so `--reset` failed on the foreign key from
+`settlement_allocations` to `sales_invoices` as soon as any receipt existed.
+They are cleared first now.
 
 **The trial balance lists every account with a balance** as of 2026-08-14, not
 only the accounts that moved. A `ledger_balances` row is written when an account
