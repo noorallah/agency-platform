@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
@@ -154,6 +155,7 @@ class DeliveryNoteEditorDialog extends StatefulWidget {
     required this.salesOrders,
     required this.warehouses,
     required this.products,
+    this.features = const BusinessFeatures.unknown(),
   });
 
   final ApiClient api;
@@ -162,6 +164,10 @@ class DeliveryNoteEditorDialog extends StatefulWidget {
   final List<Json> salesOrders;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
+
+  /// Which optional fields this firm's profile turns on. Unknown means shown:
+  /// a configuration gap is not a decision.
+  final BusinessFeatures features;
 
   @override
   State<DeliveryNoteEditorDialog> createState() =>
@@ -480,7 +486,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
           ),
           _text('Delivery Date *', _deliveryDate,
               (value) => _deliveryDate = value, 'YYYY-MM-DD'),
-          _text('Vehicle', _vehicle, (value) => _vehicle = value, null),
+          // Offered only where the firm's profile enables it. The server
+          // refuses a dispatch carrying one otherwise -- a 403 naming the
+          // feature, after the whole document has been keyed.
+          if (widget.features.isEnabled('VEHICLE_TRACKING'))
+            _text('Vehicle', _vehicle, (value) => _vehicle = value, null),
           _text('Driver', _driver, (value) => _driver = value, null),
           _text('Remarks', _remarks, (value) => _remarks = value, null),
         ],

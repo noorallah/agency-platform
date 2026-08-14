@@ -47,6 +47,20 @@ void main() {
       );
     });
 
+    test('vehicle tracking is offered where the profile has it', () {
+      // The delivery note and goods receipt both ask this before showing a
+      // vehicle field. WHOLE01 has no VEHICLE_TRACKING, so both hid it, and a
+      // dispatch carrying one came back 403 after the document was keyed.
+      expect(
+        const BusinessFeatures({'BARCODE'}).isEnabled('VEHICLE_TRACKING'),
+        isFalse,
+      );
+      expect(
+        const BusinessFeatures({'VEHICLE_TRACKING'}).isEnabled('VEHICLE_TRACKING'),
+        isTrue,
+      );
+    });
+
     test('the explanation names the feature', () {
       // "Disabled" without saying by what leaves somebody guessing at their
       // own configuration.

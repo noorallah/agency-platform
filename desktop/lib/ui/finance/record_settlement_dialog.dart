@@ -216,6 +216,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       loading: _busy,
       onClose: _busy ? null : () => Navigator.of(context).pop(),
       onSave: _busy ? null : () => unawaited(_save()),
+      saveLabel: 'Record ${widget.direction.noun}',
       body: LoadingOverlay(
         loading: _busy,
         child: SingleChildScrollView(

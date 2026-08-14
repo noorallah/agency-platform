@@ -13,6 +13,13 @@
 ///
 /// It is cosmetic, and deliberately so. The server is the boundary; this only
 /// stops somebody typing into a field that cannot be saved.
+///
+/// **The product form does not use this, on purpose.** It reads the same
+/// feature set out of `ProductMetadataRecord`, which it already fetches for
+/// categories and attributes in one call. Both come from `resolve_capabilities`
+/// firm-wide -- the category only affects which attributes apply, not which
+/// features are on -- so the two cannot disagree, and moving the product form
+/// onto this class would add an HTTP call to reach the same answer.
 class BusinessFeatures {
   const BusinessFeatures(this._codes);
 

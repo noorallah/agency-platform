@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -53,6 +54,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   List<Json> _deliverableOrders = const [];
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
+  // Unknown until the call returns, and unknown means every field is offered.
+  BusinessFeatures _features = const BusinessFeatures.unknown();
 
   bool get _canCreate => widget.permissions.hasPermission('SALES_CREATE');
 
@@ -114,6 +117,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         ),
         widget.api.warehouses(page: 1, pageSize: 100),
         widget.api.products(page: 1, pageSize: 100),
+        widget.api.activeBusinessFeatureCodes(),
       ]);
       // A paginated body carries a list under `data`, so `_unwrap` returns the
       // envelope rather than the payload here.
@@ -126,6 +130,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         ];
         _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
         _products = (results[2] as PagedResult<Product>).items;
+        _features = BusinessFeatures((results[3] as List<String>).toSet());
       });
     } on ApiException {
       if (!mounted) return;
@@ -143,6 +148,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         salesOrders: _deliverableOrders,
         warehouses: _warehouses,
         products: _products,
+        features: _features,
       ),
     );
     if (saved == null || !mounted) return;

@@ -151,6 +151,11 @@ class _StockActionDialogState extends State<StockActionDialog> {
         subtitle: '${widget.productLabel} · ${widget.warehouseLabel}',
         onClose: () => Navigator.of(context).pop(),
         onSave: _save,
+        saveLabel: switch (widget.action) {
+          StockAction.transfer => 'Transfer',
+          StockAction.writeOff => 'Write off',
+          StockAction.quarantine => _releasing ? 'Release' : 'Hold back',
+        },
         body: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

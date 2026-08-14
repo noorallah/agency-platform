@@ -719,10 +719,28 @@ carried figure is not written `0` in a column of `0.00`s.
   and manufacturing date, which is the check that the gate is reading the
   profile rather than hiding everything.
 
-  **Still to sweep:** the same fields appear in the delivery note editor,
-  purchase and batch screens, and DRUG_LICENSE / SHELF_LIFE / WARRANTY are
-  ungated in the client everywhere. The product form has its own gating already
-  (it reads product metadata rather than `/active-features`), which is a second
-  mechanism worth collapsing into this one.
+  **Swept on 2026-08-14.** The delivery note's vehicle field is gated too --
+  it was the only remaining *write* field of the three. The other hits are
+  read-only displays (batch grid columns, detail lines, a product attribute
+  label), and gating those would hide history rather than prevent a refusal:
+  the server refuses writes, not reads.
+
+  **The product form deliberately keeps its own path.** It reads the same
+  feature set out of `ProductMetadataRecord`, which it already fetches for
+  categories and attributes in one call. Both come from `resolve_capabilities`
+  firm-wide -- the category affects which attributes apply, not which features
+  are on -- so the two cannot disagree, and moving the product form onto
+  `BusinessFeatures` would add an HTTP call to reach the same answer. The
+  relationship is written down in `business_features.dart` so neither side gets
+  "fixed" into the other.
+- **A dialog that can be saved shows a way to save it**, as of 2026-08-14.
+  `WorkspaceDialog.onSave` was wired to a keyboard shortcut and nothing else,
+  so a dialog passing it without building its own footer offered no visible
+  button. Two had shipped that way -- recording a receipt and moving stock --
+  and both were reachable only by a shortcut nobody had been told about. The
+  dialog now renders a default Cancel/Save footer when it is given `onSave` and
+  no footer of its own, with `saveLabel` naming the action, so the gap cannot
+  recur silently.
+
 - **`tests/` still has about 40 ruff findings** — missing docstrings and long
   lines in older test files. `app/` is clean.
