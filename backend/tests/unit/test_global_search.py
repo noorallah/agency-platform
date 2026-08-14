@@ -69,6 +69,11 @@ def _principal(
 
 
 def test_global_search_respects_firm_scope_and_permissions() -> None:
+    """Search returns one firm's records to that firm, and no others.
+
+    A search box that reaches across firms is a tenancy breach with a
+    friendly interface.
+    """
     session = _session_factory()()
     first_firm = Firm(
         name="First Firm",
@@ -142,6 +147,7 @@ def test_global_search_respects_firm_scope_and_permissions() -> None:
 
 
 def test_global_search_returns_platform_entities_for_platform_admin() -> None:
+    """Platform administration is searchable by platform authority only."""
     session = _session_factory()()
     actor = uuid4()
     session.add_all(

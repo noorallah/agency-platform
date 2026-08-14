@@ -258,6 +258,7 @@ def test_a_batch_cannot_be_created_holding_stock() -> None:
 
 
 def test_create_batch_success() -> None:
+    """A new batch keeps its dates and starts available to sell."""
     session = _session_factory()()
     firm = _firm(session, "BS1")
     product = _product(session, firm.id)
@@ -286,6 +287,11 @@ def test_create_batch_success() -> None:
 
 
 def test_create_batch_duplicate_raises_conflict() -> None:
+    """One product cannot hold the same batch number twice.
+
+    Two deliveries under one number would be one heap again, which is
+    what batch tracking exists to prevent.
+    """
     session = _session_factory()()
     firm = _firm(session, "BS2")
     product = _product(session, firm.id)
@@ -300,6 +306,10 @@ def test_create_batch_duplicate_raises_conflict() -> None:
 
 
 def test_get_batch_not_found() -> None:
+    """An unknown batch raises rather than returning nothing.
+
+    A caller that gets ``None`` back tends to carry on with it.
+    """
     session = _session_factory()()
     firm = _firm(session, "BS3")
     service = BatchSerialService(session)
@@ -309,6 +319,7 @@ def test_get_batch_not_found() -> None:
 
 
 def test_update_batch() -> None:
+    """A batch can be quarantined, with the reason kept on it."""
     session = _session_factory()()
     firm = _firm(session, "BS4")
     product = _product(session, firm.id)
@@ -333,6 +344,12 @@ def test_update_batch() -> None:
 
 
 def test_delete_batch_soft() -> None:
+    """Deleting a batch hides it and keeps its history.
+
+    A batch that has been received, moved or shipped is referenced by
+    every one of those movements; removing the row would take the trail
+    with it.
+    """
     session = _session_factory()()
     firm = _firm(session, "BS5")
     product = _product(session, firm.id)
@@ -356,6 +373,11 @@ def test_delete_batch_soft() -> None:
 
 
 def test_expiry_dashboard() -> None:
+    """The dashboard counts what has expired and what is held back.
+
+    Both halves count the same batches: one marked expired by hand, and
+    one that expired on its own once UTC passed its date.
+    """
     session = _session_factory()()
     firm = _firm(session, "BS6")
     product = _product(session, firm.id)
@@ -404,6 +426,7 @@ def test_expiry_dashboard() -> None:
 
 
 def test_create_lot_success() -> None:
+    """A lot is created against its product and quantity."""
     session = _session_factory()()
     firm = _firm(session, "BS7")
     product = _product(session, firm.id)
@@ -428,6 +451,7 @@ def test_create_lot_success() -> None:
 
 
 def test_create_serial_success() -> None:
+    """A serial number is created against its product."""
     session = _session_factory()()
     firm = _firm(session, "BS8")
     product = _product(session, firm.id)
@@ -451,6 +475,11 @@ def test_create_serial_success() -> None:
 
 
 def test_serial_links_to_batch() -> None:
+    """A serial can name the batch it came out of.
+
+    Which is what makes a recall answerable in both directions: from a
+    batch to its units, and from a unit back to its batch.
+    """
     session = _session_factory()()
     firm = _firm(session, "BS9")
     product = _product(session, firm.id)
@@ -480,6 +509,7 @@ def test_serial_links_to_batch() -> None:
 
 
 def test_list_batches_pagination() -> None:
+    """Listing batches reports the page and the total it came from."""
     session = _session_factory()()
     firm = _firm(session, "BS10")
     product = _product(session, firm.id)

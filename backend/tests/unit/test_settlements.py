@@ -12,8 +12,8 @@ mostly about the two staying together.
 """
 
 from datetime import date
-from types import SimpleNamespace
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest

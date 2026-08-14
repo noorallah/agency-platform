@@ -24,6 +24,11 @@ def _session_factory() -> sessionmaker[Session]:
 
 
 def test_record_audit_adds_correlation_metadata_to_payload() -> None:
+    """An audit row carries the request that caused it.
+
+    Without the correlation id, a trail says what changed and gives
+    nobody a way to find the request it came from.
+    """
     session = _session_factory()()
     actor_id = uuid4()
     entity_id = uuid4()
@@ -59,4 +64,3 @@ def test_record_audit_adds_correlation_metadata_to_payload() -> None:
     assert isinstance(before_meta, dict)
     assert after_meta["correlation_id"] == "corr-100"
     assert before_meta["request_id"] == "req-100"
-

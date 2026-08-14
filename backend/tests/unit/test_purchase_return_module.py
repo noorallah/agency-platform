@@ -167,6 +167,7 @@ def _purchase_order(
 
 
 def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
+    """Returning against a purchase order builds the document type too."""
     session_factory = _session_factory()
     session = session_factory()
     firm = _firm(session)

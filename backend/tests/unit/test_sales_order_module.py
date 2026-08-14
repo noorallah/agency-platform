@@ -137,6 +137,11 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
 
 
 def test_sales_order_creates_lifecycle_and_reservation() -> None:
+    """Approving an order reserves the stock it promised.
+
+    Stock that is promised twice is stock that gets dispatched once and
+    apologised for once.
+    """
     session_factory = _session_factory()
     session = session_factory()
     firm = _firm(session)
