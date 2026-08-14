@@ -127,6 +127,10 @@ RESET_ORDER: tuple[str, ...] = (
     # makes the next return collide with a number the surviving rows already
     # hold -- which is exactly how a fresh WHOLE01 answered 409 to the first
     # return raised against it.
+    "sales_quotation_attachments",
+    "sales_quotation_notes",
+    "sales_quotation_lines",
+    "sales_quotations",
     "sales_return_attachments",
     "sales_return_notes",
     "sales_return_lines",

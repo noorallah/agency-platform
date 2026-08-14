@@ -130,6 +130,7 @@ void main() {
         'Administration',
         'Masters',
         'Sales',
+        'Quotations',
         'Sales Orders',
         'Delivery Notes',
         'Sales Invoices',

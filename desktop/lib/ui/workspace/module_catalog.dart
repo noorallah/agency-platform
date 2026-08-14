@@ -7,6 +7,7 @@ enum AppModule {
   administration,
   masters,
   sales,
+  quotations,
   salesOrders,
   deliveryNotes,
   salesInvoices,
@@ -297,14 +298,26 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
         ModuleTabDefinition(
-            id: 'quotations', label: 'Quotations', available: false),
-        ModuleTabDefinition(
             id: 'sales-orders', label: 'Sales Orders', available: false),
         ModuleTabDefinition(
             id: 'delivery-notes', label: 'Delivery Notes', available: false),
         ModuleTabDefinition(
             id: 'sales-invoices', label: 'Sales Invoices', available: false),
       ],
+    ),
+    ModuleDefinition(
+      id: AppModule.quotations,
+      label: 'Quotations',
+      icon: Icons.request_quote_outlined,
+      description: 'Prices offered before anything is sold.',
+      workspaceTemplate: WorkspaceTemplateType.transaction,
+      requiredPermissions: [
+        'SALES_VIEW',
+        'SALES_QUOTATION_CREATE',
+        'SALES_APPROVE',
+        'SALES_CANCEL',
+      ],
+      requiresAnyPermission: true,
     ),
     ModuleDefinition(
       id: AppModule.salesOrders,

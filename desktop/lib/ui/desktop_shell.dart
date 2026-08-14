@@ -27,6 +27,7 @@ import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
+import 'quotations/quotation_management_page.dart';
 import 'sales/sales_order_management_page.dart';
 import 'sales_returns/sales_return_management_page.dart';
 import 'sales/sales_territory_management_page.dart';
@@ -279,6 +280,7 @@ class _DesktopShellState extends State<DesktopShell> {
         AppModule.administration => 'ADMINISTRATION',
         AppModule.masters => 'MASTERS',
         AppModule.sales => 'SALES',
+        AppModule.quotations => 'QUOTATIONS',
         AppModule.salesOrders => 'SALES_ORDERS',
         AppModule.deliveryNotes => 'DELIVERY_NOTES',
         AppModule.salesInvoices => 'SALES_INVOICES',
@@ -1081,6 +1083,7 @@ class _DesktopShellState extends State<DesktopShell> {
         moduleIds: pick([AppModule.sales, AppModule.purchases]),
         childModuleIds: {
           AppModule.sales: pick([
+            AppModule.quotations,
             AppModule.salesOrders,
             AppModule.deliveryNotes,
             AppModule.salesInvoices,
@@ -1195,6 +1198,12 @@ class _DesktopShellState extends State<DesktopShell> {
             permissions: widget.permissions,
             hasActiveFirm: widget.session.currentFirm != null,
             onOpenGlobalSearch: _openGlobalSearch,
+          ),
+        AppModule.quotations => QuotationManagementPage(
+            key: ValueKey('quotations-${widget.session.firmContextVersion}'),
+            api: api,
+            permissions: widget.permissions,
+            hasActiveFirm: widget.session.currentFirm != null,
           ),
         AppModule.salesReturns => SalesReturnManagementPage(
             key: ValueKey('sales-returns-${widget.session.firmContextVersion}'),
