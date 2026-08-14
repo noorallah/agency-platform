@@ -6,6 +6,7 @@ import '../../models/entities.dart';
 import '../../models/audit.dart';
 import '../../models/finance.dart';
 import '../../models/settlement.dart';
+import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -2491,55 +2492,51 @@ class ApiClient {
   // reached the ledger.
 
   Future<PagedResult<Settlement>> settlements({
-    required bool isReceipt,
+    required SettlementDirection direction,
     int page = 1,
     int pageSize = 20,
     String search = '',
     String? partyId,
   }) =>
       _list(
-        isReceipt ? '/api/v1/receipts' : '/api/v1/payments',
+        '/api/v1/${direction.path}',
         Settlement.fromJson,
         page,
         search,
         pageSize: pageSize,
         additionalQuery: {
-          if (partyId != null) (isReceipt ? 'customer_id' : 'vendor_id'): partyId,
+          if (partyId != null) direction.partyParameter: partyId,
         },
       );
 
   /// The party's invoices that still owe something.
   Future<List<OutstandingInvoice>> outstandingInvoices({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required String partyId,
   }) async {
     final Json response = await request(
       'GET',
-      isReceipt ? '/api/v1/receipts/outstanding' : '/api/v1/payments/outstanding',
-      query: {(isReceipt ? 'customer_id' : 'vendor_id'): partyId},
+      '/api/v1/${direction.path}/outstanding',
+      query: {direction.partyParameter: partyId},
     );
     return _unwrapList(response, OutstandingInvoice.fromJson);
   }
 
   /// Record money that has already moved, and post it to the ledger.
   Future<Settlement> recordSettlement({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required Json data,
   }) async =>
       Settlement.fromJson(
         _unwrapMap(
-          await request(
-            'POST',
-            isReceipt ? '/api/v1/receipts' : '/api/v1/payments',
-            body: data,
-          ),
+          await request('POST', '/api/v1/${direction.path}', body: data),
         ),
       );
 
   /// Take a settlement back. The original stays and a mirror journal cancels
   /// it, so nothing is edited or deleted.
   Future<Settlement> reverseSettlement({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required String id,
     String? reason,
   }) async =>
@@ -2547,7 +2544,7 @@ class ApiClient {
         _unwrapMap(
           await request(
             'POST',
-            isReceipt ? '/api/v1/receipts/$id/reverse' : '/api/v1/payments/$id/reverse',
+            '/api/v1/${direction.path}/$id/reverse',
             body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
           ),
         ),
