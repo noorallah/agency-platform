@@ -14,7 +14,7 @@ from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -35,7 +35,13 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import CreditControlSettings, Customer
 from app.customers.schemas import CreditEnforcement
-from app.finance.models import JournalEntry, JournalLine, JournalStatus
+from app.finance.models import (
+    GLPosting,
+    JournalEntry,
+    JournalLine,
+    JournalStatus,
+    LedgerAccount,
+)
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -551,3 +557,65 @@ def test_the_default_policy_lets_the_same_invoice_through() -> None:
 
     approved = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
     assert approved.status == SalesInvoiceStatus.APPROVED.value
+
+
+def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
+    """Otherwise the receivable account keeps an invoice the customer does not.
+
+    Approving posts revenue, tax and a receivable. Cancelling reduced the
+    customer's balance through a credit note and left all three in the ledger,
+    so the receivable control account overstated by the whole invoice from that
+    moment on -- found by `scripts/verify_sample_data.py`, which compares the
+    two.
+
+    The entry is reversed rather than booked as a sales return: a mirror of
+    what the invoice raised puts revenue and tax back where they came from,
+    which crediting a returns account would not.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    def receivable() -> Decimal:
+        return Decimal(
+            str(
+                session.scalar(
+                    select(
+                        func.coalesce(
+                            func.sum(GLPosting.debit_amount - GLPosting.credit_amount),
+                            0,
+                        )
+                    )
+                    .join(
+                        LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id
+                    )
+                    .where(LedgerAccount.code == "1100")
+                )
+            )
+        )
+
+    owed_after_approval = receivable()
+    assert owed_after_approval > Decimal("0"), "approving raises a receivable"
+
+    service.cancel_invoice(
+        invoice_id, firm_scope=firm.id, actor_id=uuid4(), reason="duplicate"
+    )
+
+    assert receivable() == Decimal("0.00"), "cancelling takes it back"
+    # Both entries stay: the invoice happened, and so did taking it back.
+    entries = session.scalars(
+        select(JournalEntry.reference_number).where(
+            JournalEntry.source_module == "sales_invoice"
+        )
+    ).all()
+    assert len(entries) >= 1
+    reversals = session.scalars(
+        select(JournalEntry.reference_number).where(
+            JournalEntry.reference_number.like("%-REV")
+        )
+    ).all()
+    assert len(reversals) == 1, "one mirror entry, named after the invoice"

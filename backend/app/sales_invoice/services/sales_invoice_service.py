@@ -36,7 +36,9 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine
 from app.identity.models import User
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
@@ -621,6 +623,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.cancel_reason = reason
         row.updated_by = actor_id
         if before == SalesInvoiceStatus.APPROVED.value:
+            # The invoice posted revenue, tax and a receivable when it was
+            # approved. Cancelling it reduced the customer's balance and left
+            # all three in the ledger, so the receivable control account
+            # overstated by the whole invoice from that moment on. Reversing
+            # the entry mirrors what it raised, which is right in a way that
+            # booking the lot as a sales return would not be.
+            self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
             CustomerService(self._session).post_receivable_transaction(
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
@@ -1633,6 +1642,39 @@ class SalesInvoiceService(TransactionalDocumentService):
         if self._session.scalar(statement) is not None:
             return "A sales invoice with this customer invoice number already exists."
         return None
+
+    def _reverse_invoice_posting(
+        self,
+        row: SalesInvoice,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Cancel the journal an approved invoice wrote, if it wrote one.
+
+        Found by `scripts/verify_sample_data.py`, which compares what customers
+        owe against the receivable control account: cancelling an approved
+        invoice moved the first and not the second.
+        """
+        entry_id = self._session.scalar(
+            select(JournalEntry.id).where(
+                JournalEntry.firm_id == firm_scope,
+                JournalEntry.source_module == "sales_invoice",
+                JournalEntry.source_id == row.id,
+                JournalEntry.status == JournalStatus.POSTED.value,
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if entry_id is None:
+            # Nothing posted, so there is nothing to take back -- a firm that
+            # approved invoices before posting existed is in this state.
+            return
+        JournalEntryEngine(self._session).reverse_entry(
+            entry_id,
+            firm_id=firm_scope,
+            reference_number=f"{row.invoice_number}-REV",
+            actor_id=actor_id,
+        )
 
     def _record_event(
         self,
