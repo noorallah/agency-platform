@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
+import '../../models/settlement_direction.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
 import 'record_settlement_dialog.dart';
@@ -24,13 +25,13 @@ class SettlementsPage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
-    required this.isReceipt,
+    required this.direction,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
-  final bool isReceipt;
+  final SettlementDirection direction;
 
   @override
   State<SettlementsPage> createState() => _SettlementsPageState();
@@ -45,12 +46,12 @@ class _SettlementsPageState extends State<SettlementsPage> {
   bool _loading = false;
   String? _error;
 
-  String get _noun => widget.isReceipt ? 'receipt' : 'payment';
-  String get _title => widget.isReceipt ? 'Receipts' : 'Payments';
-  bool get _canView => widget.permissions
-      .hasPermission(widget.isReceipt ? 'RECEIPT_VIEW' : 'PAYMENT_VIEW');
-  bool get _canCreate => widget.permissions
-      .hasPermission(widget.isReceipt ? 'RECEIPT_CREATE' : 'PAYMENT_CREATE');
+  String get _noun => widget.direction.noun;
+  String get _title => widget.direction.title;
+  bool get _canView =>
+      widget.permissions.hasPermission(widget.direction.viewPermission);
+  bool get _canCreate =>
+      widget.permissions.hasPermission(widget.direction.createPermission);
 
   @override
   void initState() {
@@ -73,7 +74,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
     });
     try {
       final PagedResult<Settlement> result = await widget.api.settlements(
-        isReceipt: widget.isReceipt,
+        direction: widget.direction,
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
@@ -99,7 +100,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
     setState(() => _loading = true);
     List<PartyOption> parties = const [];
     try {
-      if (widget.isReceipt) {
+      if (widget.direction.isCustomer) {
         final PagedResult<Customer> result =
             await widget.api.customers(page: 1, search: '');
         parties = [
@@ -123,7 +124,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
     if (!mounted) return;
     if (parties.isEmpty) {
-      setState(() => _error = widget.isReceipt
+      setState(() => _error = widget.direction.isCustomer
           ? 'There are no customers to receive money from yet.'
           : 'There are no vendors to pay yet.');
       return;
@@ -133,7 +134,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
       barrierDismissible: false,
       builder: (_) => RecordSettlementDialog(
         api: widget.api,
-        isReceipt: widget.isReceipt,
+        direction: widget.direction,
         parties: parties,
       ),
     );
@@ -175,7 +176,11 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 decoration: InputDecoration(
                   labelText: 'Search by number or reference',
                   prefixIcon: const Icon(Icons.search),
-                  hintText: widget.isReceipt ? 'RC-…' : 'PY-…',
+                  hintText: switch (widget.direction) {
+                    SettlementDirection.receipt => 'RC-…',
+                    SettlementDirection.payment => 'PY-…',
+                    SettlementDirection.refund => 'RF-…',
+                  },
                 ),
                 onSubmitted: (_) => _load(requestedPage: 1),
               ),
@@ -186,7 +191,11 @@ class _SettlementsPageState extends State<SettlementsPage> {
                 onPressed: () => unawaited(_record()),
                 icon: const Icon(Icons.add),
                 label: Text(
-                  widget.isReceipt ? 'Record Receipt' : 'Record Payment',
+                  switch (widget.direction) {
+                    SettlementDirection.receipt => 'Record Receipt',
+                    SettlementDirection.payment => 'Record Payment',
+                    SettlementDirection.refund => 'Record Refund',
+                  },
                 ),
               ),
           ]),
@@ -209,11 +218,17 @@ class _SettlementsPageState extends State<SettlementsPage> {
               ? StandardEmptyState(
                   type: EmptyStateType.noRecords,
                   title: 'No ${_noun}s yet',
-                  message: widget.isReceipt
-                      ? 'Recording a receipt puts the money in the ledger and '
-                          'reduces what the customer owes.'
-                      : 'Recording a payment puts the money in the ledger and '
+                  message: switch (widget.direction) {
+                    SettlementDirection.receipt =>
+                      'Recording a receipt puts the money in the ledger and '
+                          'reduces what the customer owes.',
+                    SettlementDirection.payment =>
+                      'Recording a payment puts the money in the ledger and '
                           'reduces what the firm owes the vendor.',
+                    SettlementDirection.refund =>
+                      'Recording a refund puts the money in the ledger and '
+                          'reduces what the customer is holding in advance.',
+                  },
                 )
               : ListView.separated(
                   itemCount: _rows.length,
@@ -252,7 +267,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
           width: 460,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text(
-            widget.isReceipt
+            widget.direction.isCustomer
                 ? 'This writes an opposite journal, puts the invoices back and '
                     'restores what the customer owed. Nothing is deleted: both '
                     'the receipt and its reversal stay on the record.'
@@ -286,7 +301,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
     setState(() => _loading = true);
     try {
       await widget.api.reverseSettlement(
-        isReceipt: widget.isReceipt,
+        direction: widget.direction,
         id: row.id,
         reason: why.trim(),
       );

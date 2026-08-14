@@ -128,6 +128,13 @@ final Map<String, _PageBuilder> _screens = {
         hasActiveFirm: false,
         tabId: 'receipts',
       ),
+  'refunds': (d) => FinanceWorkspace(
+        api: d.api,
+        preferences: d.preferences,
+        permissions: d.permissions,
+        hasActiveFirm: false,
+        tabId: 'refunds',
+      ),
   'payments': (d) => FinanceWorkspace(
         api: d.api,
         preferences: d.preferences,

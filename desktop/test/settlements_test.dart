@@ -4,6 +4,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/settlement.dart';
+import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/finance/settlements_page.dart';
 import 'package:flutter/material.dart';
@@ -38,7 +39,7 @@ class _SettlementApi extends ApiClient {
 
   @override
   Future<PagedResult<Settlement>> settlements({
-    required bool isReceipt,
+    required SettlementDirection direction,
     int page = 1,
     int pageSize = 20,
     String search = '',
@@ -48,14 +49,14 @@ class _SettlementApi extends ApiClient {
 
   @override
   Future<List<OutstandingInvoice>> outstandingInvoices({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required String partyId,
   }) async =>
       outstanding;
 
   @override
   Future<Settlement> reverseSettlement({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required String id,
     String? reason,
   }) async {
@@ -66,7 +67,7 @@ class _SettlementApi extends ApiClient {
 
   @override
   Future<Settlement> recordSettlement({
-    required bool isReceipt,
+    required SettlementDirection direction,
     required Json data,
   }) async {
     recorded = data;
@@ -115,7 +116,7 @@ Settlement _settlement({
 Future<void> _pump(
   WidgetTester tester,
   _SettlementApi api, {
-  bool isReceipt = true,
+  SettlementDirection direction = SettlementDirection.receipt,
   List<String> perms = const ['RECEIPT_VIEW', 'RECEIPT_CREATE'],
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
@@ -128,7 +129,7 @@ Future<void> _pump(
           api: api,
           permissions: _permissionsFor(perms),
           hasActiveFirm: true,
-          isReceipt: isReceipt,
+          direction: direction,
         ),
       ),
     ),
@@ -290,7 +291,7 @@ void main() {
           home: Scaffold(
             body: RecordSettlementDialog(
               api: api,
-              isReceipt: true,
+              direction: SettlementDirection.receipt,
               parties: const [
                 PartyOption(id: 'c-1', code: 'WHOLE01C03', name: 'Third Customer'),
               ],
@@ -359,13 +360,66 @@ void main() {
       expect(api.reversedReason, 'Keyed against the wrong customer');
     });
 
+    testWidgets('a refund applies to nothing, and says why', (tester) async {
+      // A refund returns money held on account, which is the opposite of
+      // settling a document. Offering an invoice table would invite somebody
+      // to do the thing the server refuses.
+      final _SettlementApi api = _SettlementApi(
+        rows: const [],
+        outstanding: [_invoice('i-1', 'SI-1', '100.00')],
+      );
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.refund,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'WHOLE01C03', name: 'Third Customer'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Record a refund'), findsOneWidget);
+      expect(find.text('Refunded to'), findsOneWidget);
+      expect(find.textContaining('not applied to an invoice'), findsOneWidget);
+      expect(find.text('Apply to invoices'), findsNothing);
+    });
+
+    testWidgets('a refund reads the money-out permissions', (tester) async {
+      // The person trusted to collect is not automatically the person trusted
+      // to hand money back, and the server enforces the same split.
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await _pump(
+        tester,
+        api,
+        direction: SettlementDirection.refund,
+        perms: const ['RECEIPT_VIEW', 'RECEIPT_CREATE'],
+      );
+      expect(find.textContaining('do not have permission'), findsOneWidget);
+
+      await _pump(
+        tester,
+        api,
+        direction: SettlementDirection.refund,
+        perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+      );
+      expect(find.widgetWithText(FilledButton, 'Record Refund'), findsOneWidget);
+    });
+
     testWidgets('the payments tab says payment everywhere it says receipt',
         (tester) async {
       final _SettlementApi api = _SettlementApi();
       await _pump(
         tester,
         api,
-        isReceipt: false,
+        direction: SettlementDirection.payment,
         perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
       );
 

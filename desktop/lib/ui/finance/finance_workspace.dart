@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
+import '../../models/settlement_direction.dart';
 import '../resource_management_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
@@ -160,13 +161,19 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
-              isReceipt: true,
+              direction: SettlementDirection.receipt,
             ),
           'payments' => SettlementsPage(
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
-              isReceipt: false,
+              direction: SettlementDirection.payment,
+            ),
+          'refunds' => SettlementsPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+              direction: SettlementDirection.refund,
             ),
           'balance-sheet' => BalanceSheetPage(
               api: widget.api,

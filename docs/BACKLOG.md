@@ -436,6 +436,14 @@ constraint so a refund carries a customer, and it takes the money-out grants
 rather than the receipt ones -- the person trusted to collect is not
 automatically the person trusted to hand money back.
 
+**The Refunds tab followed the same day.** Adding it turned the client's
+money-in boolean into a `SettlementDirection`: a refund is money out like a
+payment and about a customer like a receipt, so no single flag described it,
+and the three places that had been asking `isReceipt ? ... : ...` were each
+about to grow a third arm. The direction now owns its path, its party
+parameter, its permissions and its nouns, so a fourth direction would touch one
+file. The dialog shows no invoice table for a refund and says why.
+
 **Still unbuilt: physical count reconciliation.** A count sheet needs its own
 table to be useful -- counts are entered over hours and posted once -- so it is
 a document, not an endpoint.

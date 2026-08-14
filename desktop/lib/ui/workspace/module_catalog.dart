@@ -701,6 +701,7 @@ abstract final class ModuleCatalog {
             id: 'journal-entries', label: 'Journal Entries'),
         ModuleTabDefinition(id: 'receipts', label: 'Receipts'),
         ModuleTabDefinition(id: 'payments', label: 'Payments'),
+        ModuleTabDefinition(id: 'refunds', label: 'Refunds'),
         ModuleTabDefinition(id: 'ledgers', label: 'Ledgers'),
         ModuleTabDefinition(id: 'trial-balance', label: 'Trial Balance'),
         ModuleTabDefinition(id: 'profit-loss', label: 'Profit & Loss'),

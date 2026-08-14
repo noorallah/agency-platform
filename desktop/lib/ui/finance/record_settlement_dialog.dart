@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/settlement.dart';
+import '../../models/settlement_direction.dart';
 import '../workspace/desktop_framework.dart';
 
 /// A customer or vendor, reduced to what this dialog needs.
@@ -62,12 +63,12 @@ class RecordSettlementDialog extends StatefulWidget {
   const RecordSettlementDialog({
     super.key,
     required this.api,
-    required this.isReceipt,
+    required this.direction,
     required this.parties,
   });
 
   final ApiClient api;
-  final bool isReceipt;
+  final SettlementDirection direction;
   final List<PartyOption> parties;
 
   @override
@@ -87,7 +88,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   bool _busy = false;
   String? _error;
 
-  String get _noun => widget.isReceipt ? 'receipt' : 'payment';
+  String get _noun => widget.direction.noun;
 
   @override
   void dispose() {
@@ -107,7 +108,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     });
     try {
       final List<OutstandingInvoice> rows = await widget.api.outstandingInvoices(
-        isReceipt: widget.isReceipt,
+        direction: widget.direction,
         partyId: partyId,
       );
       if (!mounted) return;
@@ -170,7 +171,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     });
     try {
       final Settlement saved = await widget.api.recordSettlement(
-        isReceipt: widget.isReceipt,
+        direction: widget.direction,
         data: <String, dynamic>{
           'party_id': _partyId,
           'settlement_date':
@@ -202,10 +203,16 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     final double amount = double.tryParse(_amount.text.trim()) ?? 0;
     final double unapplied = amount - _allocatedTotal;
     return WorkspaceDialog(
-      title: widget.isReceipt ? 'Record a receipt' : 'Record a payment',
-      subtitle: widget.isReceipt
-          ? 'Money already received. Recording it posts to the ledger.'
-          : 'Money already paid. Recording it posts to the ledger.',
+      title: 'Record a ${widget.direction.noun}',
+      subtitle: switch (widget.direction) {
+        SettlementDirection.receipt =>
+          'Money already received. Recording it posts to the ledger.',
+        SettlementDirection.payment =>
+          'Money already paid. Recording it posts to the ledger.',
+        SettlementDirection.refund =>
+          'Money already handed back. It reduces what the customer paid '
+              'in advance, and posts to the ledger.',
+      },
       loading: _busy,
       onClose: _busy ? null : () => Navigator.of(context).pop(),
       onSave: _busy ? null : () => unawaited(_save()),
@@ -257,9 +264,20 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                 ),
               ]),
               const SizedBox(height: AppSpacing.lg),
-              _allocationHeader(context, unapplied),
-              const SizedBox(height: AppSpacing.sm),
-              _invoiceTable(context),
+              // A refund returns money held on account, which is the
+              // opposite of settling a document -- so there is nothing
+              // to apply it to, and the server refuses it if asked.
+              if (widget.direction.allocates) ...[
+                _allocationHeader(context, unapplied),
+                const SizedBox(height: AppSpacing.sm),
+                _invoiceTable(context),
+              ] else
+                Text(
+                  'A refund returns money the customer paid in advance. '
+                  'It is not applied to an invoice, and cannot be more '
+                  'than the advance they are holding.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
             ],
           ),
         ),
@@ -271,7 +289,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         initialValue: _partyId.isEmpty ? null : _partyId,
         isExpanded: true,
         decoration: InputDecoration(
-          labelText: widget.isReceipt ? 'Received from' : 'Paid to',
+          labelText: switch (widget.direction) {
+            SettlementDirection.receipt => 'Received from',
+            SettlementDirection.payment => 'Paid to',
+            SettlementDirection.refund => 'Refunded to',
+          },
         ),
         items: [
           for (final PartyOption party in widget.parties)
@@ -283,7 +305,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         onChanged: (value) {
           if (value == null) return;
           setState(() => _partyId = value);
-          unawaited(_loadInvoices(value));
+          if (widget.direction.allocates) unawaited(_loadInvoices(value));
         },
       );
 
@@ -326,7 +348,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   Widget _allocationHeader(BuildContext context, double unapplied) => Row(
         children: [
           Text(
-            widget.isReceipt ? 'Apply to invoices' : 'Apply to bills',
+            widget.direction.isCustomer ? 'Apply to invoices' : 'Apply to bills',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(width: AppSpacing.md),
@@ -358,7 +380,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   Widget _invoiceTable(BuildContext context) {
     if (_partyId.isEmpty) {
       return Text(
-        widget.isReceipt
+        widget.direction.isCustomer
             ? 'Choose a customer to see what they owe.'
             : 'Choose a vendor to see what the firm owes them.',
         style: Theme.of(context).textTheme.bodySmall,
@@ -368,7 +390,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       // Not an error. Money can arrive before an invoice does, and it is
       // recorded on account.
       return Text(
-        widget.isReceipt
+        widget.direction.isCustomer
             ? 'Nothing is outstanding for this customer. The whole amount will '
                 'be held on account.'
             : 'Nothing is outstanding for this vendor. The whole amount will '
