@@ -140,8 +140,8 @@ migrate every store first and never with a bare `alembic upgrade head`, clear
 the delivery-note count against the sales-order count because a gap between
 firms is how a real dispatch defect was found.
 
-**`scripts/verify_sample_data.py` does not run**, which the skill says rather
-than offering it. It belongs to `generate_sample_data.py`'s single-firm
+**`scripts/verify_sample_data.py` was rewritten on 2026-08-14** and is worth
+running after a reseed; what follows is why the old one had to go. It belongs to `generate_sample_data.py`'s single-firm
 `NAVK_CPL` dataset and predates multi-tenancy: it fails at import on
 `ProductUomConfig`, dropped in `20260812_0068`, and repairing that only moves
 the failure to `relation "platform.uoms" does not exist`, because it reads
@@ -741,6 +741,31 @@ carried figure is not written `0` in a column of `0.00`s.
   dialog now renders a default Cancel/Save footer when it is given `onSave` and
   no footer of its own, with `saveLabel` naming the action, so the gap cannot
   recur silently.
+
+- **A credit note moves a receivable and writes no journal.** Found by the new
+  verifier within minutes of it existing, in data this session had produced.
+  `POST /customers/{id}/receivables/transactions` refuses RECEIPT and
+  ADVANCE_RECEIPT since 2026-08-14, and the reasoning given for leaving
+  CREDIT_NOTE was that it "moves no money" -- which is the wrong test. What
+  matters is whether the **receivable balance** moves, and a credit note
+  reduces it: WHOLE01 drifted by exactly the 10.00 credit note posted while
+  verifying that change, customers owing 155,644.98 against a receivable
+  account of 155,654.98.
+
+  It wants `Dr Sales Returns / Cr Accounts Receivable`, and both accounts are
+  already mapped (`SALES_RETURNS`, `ACCOUNTS_RECEIVABLE`). `ADVANCE_APPLY` is
+  genuinely fine by contrast: the advance was credited to receivables when the
+  receipt posted, so applying it to an invoice moves nothing the ledger has not
+  already recorded.
+
+- **`scripts/verify_sample_data.py` works again** (2026-08-14), rewritten
+  rather than repaired. The old one counted rows in one schema for one firm and
+  predated multi-tenancy. It now enumerates every firm store from the registry
+  the way `migrate_all_stores.py` does, and checks the five things that were
+  actually found broken this week: stock value against the inventory control
+  account, every period balancing, customer outstanding against the receivable
+  control account, every settlement carrying its journal, and every approved
+  invoice having posted.
 
 - **`tests/` still has about 40 ruff findings** — missing docstrings and long
   lines in older test files. `app/` is clean.
