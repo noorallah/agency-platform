@@ -11,7 +11,7 @@ happened to the seven transactional document modules before they were given a
 shared base.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -29,7 +29,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UUIDType
+from app.core.database.types import UTCDateTime, UUIDType
 
 
 class SettlementDirection(StrEnum):
@@ -49,14 +49,15 @@ class SettlementMethod(StrEnum):
 class SettlementStatus(StrEnum):
     """The lifecycle of a settlement.
 
-    There is exactly one state. A settlement is recorded after the money has
-    moved, so there is nothing to approve; and it is not cancellable here,
-    because reversing one has to unwind the customer's outstanding and advance
-    balances by the exact amounts it moved them. That is its own piece of work
-    rather than a flag.
+    Two states, and no approval between them: a settlement is recorded after
+    the money has moved, so there is nothing to decide. A mistake is taken back
+    rather than edited -- the original stays, a mirror journal cancels it, and
+    both are visible. Money that was recorded and then unrecorded is a fact
+    about the day, not something to erase.
     """
 
     POSTED = "POSTED"
+    REVERSED = "REVERSED"
 
 
 class Settlement(BaseEntity):
@@ -118,6 +119,14 @@ class Settlement(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=SettlementStatus.POSTED.value
     )
+    #: The mirror journal that cancelled this one, and why. Set together with
+    #: the status so a reversed settlement can always show what undid it.
+    reversal_journal_entry_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    reversed_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    reversal_reason: Mapped[str | None] = mapped_column(Text())
     #: The journal this wrote. A settlement that did not reach the ledger is
     #: the defect this module exists to fix, so the link is not optional.
     journal_entry_id: Mapped[UUID] = mapped_column(

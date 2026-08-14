@@ -495,3 +495,165 @@ def test_one_invoice_cannot_appear_twice_in_one_settlement() -> None:
                 ),
             ],
         )
+
+
+def test_reversing_a_receipt_puts_both_books_back() -> None:
+    """The undo is exact because it reads the deltas the receipt recorded.
+
+    A receipt of 500 against an outstanding 300 becomes 300 off the balance and
+    200 of advance. Recomputing that from the current balance at reversal time
+    would put back something else entirely, which is why settlements shipped
+    without a reversal until the receivable service could do it properly.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    settlement = _receipt(books, "500.00")
+    books.session.commit()
+
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("0.00")
+    assert books.customer.unapplied_advance_balance == Decimal("200.00")
+
+    service = ReceiptService(books.session)
+    reversed_row = service.reverse(
+        settlement.id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        reason="Keyed against the wrong customer",
+    )
+    books.session.commit()
+
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("300.00"), "balance restored"
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+    assert reversed_row.status == "REVERSED"
+    assert reversed_row.reversal_journal_entry_id is not None
+    assert reversed_row.reversal_reason == "Keyed against the wrong customer"
+
+    # The mirror journal cancels the original rather than deleting it: both
+    # entries stay in the ledger.
+    mirror = books.session.execute(
+        select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+        .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+        .where(GLPosting.journal_entry_id == reversed_row.reversal_journal_entry_id)
+    ).all()
+    postings = {code: (debit, credit) for code, debit, credit in mirror}
+    assert postings["1000"] == (
+        Decimal("0.00"),
+        Decimal("500.00"),
+    ), "cash credited back"
+    assert postings["1100"] == (
+        Decimal("500.00"),
+        Decimal("0.00"),
+    ), "receivable restored"
+
+
+def test_a_reversed_receipt_stops_clearing_its_invoice() -> None:
+    """The invoice it settled is owed again, and the record of it stays.
+
+    The allocation rows are not deleted: the reversed receipt still shows what
+    it had been applied to, which is the first thing anybody asks when a
+    correction is queried.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    invoice = books.sales_invoice("SI-1", "500.00")
+    service = ReceiptService(books.session)
+
+    settlement = _receipt(
+        books,
+        "500.00",
+        [SettlementAllocationWrite(invoice_id=invoice.id, amount=Decimal("500.00"))],
+    )
+    books.session.commit()
+    assert (
+        service.outstanding_invoices(firm_id=books.firm.id, party_id=books.customer.id)
+        == []
+    )
+
+    service.reverse(settlement.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    remaining = service.outstanding_invoices(
+        firm_id=books.firm.id, party_id=books.customer.id
+    )
+    assert [row.outstanding_amount for row in remaining] == [Decimal("500.00")]
+    assert len(service.allocations_for(settlement.id)) == 1, "the record stays"
+
+
+def test_a_settlement_cannot_be_reversed_twice() -> None:
+    """The second attempt is refused rather than doubling the undo."""
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    settlement = _receipt(books, "100.00")
+    books.session.commit()
+    service = ReceiptService(books.session)
+    service.reverse(settlement.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="already been reversed"):
+        service.reverse(settlement.id, firm_id=books.firm.id, actor_id=books.actor_id)
+
+
+def test_a_reversal_overtaken_by_later_trading_is_refused() -> None:
+    """An undo that would leave a balance below nothing is refused.
+
+    The customer overpaid, the excess was refunded, and only then does somebody
+    try to reverse the original receipt -- putting back 200 of advance that has
+    already been paid out. Silently clamping at zero would invent a balance
+    nobody can explain, so the message says the reversal has been overtaken.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    settlement = _receipt(books, "500.00")
+    books.session.commit()
+    books.session.refresh(books.customer)
+    assert books.customer.unapplied_advance_balance == Decimal("200.00")
+
+    # The overpayment is refunded, so the advance this receipt created is gone.
+    CustomerService(books.session).post_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.REFUND,
+            amount=Decimal("200.00"),
+            transaction_date=WHEN,
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="overtaken"):
+        ReceiptService(books.session).reverse(
+            settlement.id, firm_id=books.firm.id, actor_id=books.actor_id
+        )
+
+
+def test_a_payment_reverses_without_touching_a_party_balance() -> None:
+    """Vendors carry no denormalised balance, so there is none to put back."""
+    books = _Books(_session_factory()())
+    invoice = books.purchase_invoice("PI-1", "700.00")
+    service = PaymentService(books.session)
+    settlement = service.create(
+        SettlementCreate(
+            party_id=books.vendor.id,
+            settlement_date=WHEN,
+            amount=Decimal("700.00"),
+            method=SettlementMethodEnum.BANK,
+            allocations=[
+                SettlementAllocationWrite(
+                    invoice_id=invoice.id, amount=Decimal("700.00")
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    service.reverse(settlement.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    assert settlement.status == "REVERSED"
+    owed = service.outstanding_invoices(firm_id=books.firm.id, party_id=books.vendor.id)
+    assert [row.outstanding_amount for row in owed] == [Decimal("700.00")]

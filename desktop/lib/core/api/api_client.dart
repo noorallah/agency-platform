@@ -2494,6 +2494,23 @@ class ApiClient {
         ),
       );
 
+  /// Take a settlement back. The original stays and a mirror journal cancels
+  /// it, so nothing is edited or deleted.
+  Future<Settlement> reverseSettlement({
+    required bool isReceipt,
+    required String id,
+    String? reason,
+  }) async =>
+      Settlement.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            isReceipt ? '/api/v1/receipts/$id/reverse' : '/api/v1/payments/$id/reverse',
+            body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
+          ),
+        ),
+      );
+
   /// The balance sheet as at one period end.
   Future<BalanceSheetReport> balanceSheet(String accountingPeriodId) async =>
       BalanceSheetReport.fromJson(

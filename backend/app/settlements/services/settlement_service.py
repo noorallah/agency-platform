@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
@@ -39,6 +40,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
 )
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
@@ -81,6 +83,7 @@ class SettlementService(TransactionalDocumentService):
         """Bind the lifecycle base plus this module's collaborators."""
         super().__init__(session)
         self._posting = DocumentPostingService(session)
+        self._journals = JournalEntryEngine(session)
         self._controls = ControlAccountService(session)
         self._customers = CustomerService(session)
 
@@ -113,14 +116,20 @@ class SettlementService(TransactionalDocumentService):
             invoice = PurchaseInvoice
             party_column = PurchaseInvoice.vendor_id
             allocation_column = SettlementAllocation.purchase_invoice_id
+        # Joined to the settlement so a reversed one stops clearing anything.
+        # The allocation rows stay: the reversed settlement still shows what it
+        # had been applied to, which is what somebody asks first when a
+        # correction is queried.
         allocated = (
             select(
                 allocation_column.label("invoice_id"),
                 func.coalesce(func.sum(SettlementAllocation.amount), 0).label("total"),
             )
+            .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
             .where(
                 SettlementAllocation.firm_id == firm_id,
                 SettlementAllocation.is_deleted.is_(False),
+                Settlement.status == SettlementStatus.POSTED.value,
                 allocation_column.is_not(None),
             )
             .group_by(allocation_column)
@@ -337,6 +346,87 @@ class SettlementService(TransactionalDocumentService):
                 "amount": str(amount),
                 "allocated_amount": str(allocated),
                 "party": party.code,
+            },
+        )
+        self._session.flush()
+        return row
+
+    def reverse(
+        self,
+        settlement_id: UUID,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
+    ) -> Settlement:
+        """Take a settlement back, in the ledger and on the party's account.
+
+        Nothing is edited or deleted. A mirror journal cancels the original,
+        the allocations stop clearing their invoices, and for a receipt the
+        customer's outstanding and advance balances are put back by the exact
+        amounts this settlement moved them -- read from the transaction row it
+        wrote, not recomputed. A receipt of 500 against an outstanding 300
+        became 300 off the balance and 200 of advance, and only that row
+        remembers the split.
+
+        Args:
+            settlement_id: The settlement to take back.
+            firm_id: The owning firm.
+            actor_id: The user reversing it.
+            reason: Why, kept on the record.
+
+        Returns:
+            The reversed settlement.
+
+        Raises:
+            ValidationError: If it is already reversed, or the customer has
+                traded since in a way that makes the undo impossible.
+
+        """
+        row = self.get(settlement_id, firm_id=firm_id)
+        if row.status == SettlementStatus.REVERSED.value:
+            raise ValidationError(f"{row.settlement_number} has already been reversed.")
+        mirror = self._journals.reverse_entry(
+            row.journal_entry_id,
+            firm_id=firm_id,
+            reference_number=f"{row.settlement_number}-REV",
+            actor_id=actor_id,
+        )
+        if self.DIRECTION == SettlementDirection.RECEIPT:
+            original = self._session.scalar(
+                select(CustomerReceivableTransaction).where(
+                    CustomerReceivableTransaction.reference_type == "settlement",
+                    CustomerReceivableTransaction.reference_id == row.id,
+                    CustomerReceivableTransaction.is_deleted.is_(False),
+                )
+            )
+            if original is not None:
+                self._customers.reverse_receivable_transaction(
+                    original.id,
+                    firm_scope=firm_id,
+                    actor_id=actor_id,
+                    reference_number=f"{row.settlement_number}-REV",
+                    remarks=reason,
+                    commit=False,
+                )
+        row.status = SettlementStatus.REVERSED.value
+        row.reversal_journal_entry_id = mirror.id
+        row.reversed_at = utc_now()
+        row.reversed_by = actor_id
+        row.reversal_reason = reason
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action=f"settlement.{self.DIRECTION.value.lower()}.reversed",
+            entity_type="settlement",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": SettlementStatus.POSTED.value},
+            after_data={
+                "status": SettlementStatus.REVERSED.value,
+                "reversal_journal_entry_id": str(mirror.id),
+                "reason": reason,
             },
         )
         self._session.flush()

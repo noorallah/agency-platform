@@ -35,6 +35,10 @@ class CustomerReceivableTransactionType(StrEnum):
     ADVANCE_APPLY = "ADVANCE_APPLY"
     CREDIT_NOTE = "CREDIT_NOTE"
     REFUND = "REFUND"
+    #: Undoes an earlier transaction by its exact deltas. It is not a category
+    #: of business event -- it is the record of one being taken back -- so it
+    #: carries no rule of its own and cannot be posted directly.
+    REVERSAL = "REVERSAL"
 
 
 class AddressType(StrEnum):

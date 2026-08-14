@@ -471,10 +471,16 @@ held on account, which is a normal thing for a customer to send.
 
 Two things it deliberately does not do, and the reasons:
 
-- **A settlement cannot be cancelled.** Reversing one has to unwind the
-  customer's outstanding *and* advance balances by the exact amounts it moved
-  them, and the receivable service has no transaction type that does it. That is
-  its own piece of work; a wrong reversal is worse than none.
+- **A settlement can be reversed** since 2026-08-14 (`20260814_0077`). Nothing
+  is edited or deleted: a mirror journal cancels the original, the allocations
+  stop clearing their invoices while still recording what they had cleared, and
+  the customer's outstanding and advance balances are put back by the exact
+  amounts the receipt moved them -- read from the transaction row it wrote, not
+  recomputed. A receipt of 500 against an outstanding 300 becomes 300 off the
+  balance and 200 of advance, and only that row remembers the split.
+  A reversal that would drive a balance below zero is **refused** rather than
+  clamped: if the overpayment has since been refunded, the correction that fits
+  is a credit note, and inventing a balance nobody can explain is worse.
 - **No vendor payable balance was introduced.** Customers carry a denormalised
   `current_outstanding` that credit control depends on, so receipts keep it in
   step. Vendors carry nothing, and what they are owed is derived from their

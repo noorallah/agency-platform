@@ -33,6 +33,8 @@ class _SettlementApi extends ApiClient {
   final List<Settlement> rows;
   final List<OutstandingInvoice> outstanding;
   Json? recorded;
+  String? reversedId;
+  String? reversedReason;
 
   @override
   Future<PagedResult<Settlement>> settlements({
@@ -50,6 +52,17 @@ class _SettlementApi extends ApiClient {
     required String partyId,
   }) async =>
       outstanding;
+
+  @override
+  Future<Settlement> reverseSettlement({
+    required bool isReceipt,
+    required String id,
+    String? reason,
+  }) async {
+    reversedId = id;
+    reversedReason = reason;
+    return rows.first;
+  }
 
   @override
   Future<Settlement> recordSettlement({
@@ -75,6 +88,7 @@ Settlement _settlement({
   String number = 'RC-2026-2027-000001',
   String amount = '8429.63',
   String unallocated = '0.00',
+  String status = 'POSTED',
   List<Json> allocations = const [],
 }) =>
     Settlement.fromJson({
@@ -92,8 +106,9 @@ Settlement _settlement({
       'ledger_account_name': 'Bank',
       'instrument_reference': 'NEFT-9931',
       'narration': '',
-      'status': 'POSTED',
+      'status': status,
       'journal_entry_id': 'je-1',
+      'reversal_reason': status == 'REVERSED' ? 'Keyed twice' : '',
       'allocations': allocations,
     });
 
@@ -299,6 +314,49 @@ void main() {
       // "All of it applied" over an empty amount box reads as a tick against
       // a form nobody has filled in.
       expect(find.text('Enter the amount to apply it'), findsOneWidget);
+    });
+
+    testWidgets('a reversed receipt still names what it had cleared',
+        (tester) async {
+      // The first thing anybody asks about a correction is what it had been
+      // applied to, so the reversed row keeps saying so.
+      final _SettlementApi api = _SettlementApi(rows: [
+        _settlement(status: 'REVERSED', allocations: [
+          {
+            'id': 'al-1',
+            'invoice_id': 'i-1',
+            'invoice_number': 'SI-2024-2025-000004',
+            'invoice_date': '2024-05-22',
+            'invoice_total': '8429.63',
+            'amount': '8429.63',
+          },
+        ]),
+      ]);
+      await _pump(tester, api);
+
+      expect(find.text('Reversed'), findsOneWidget);
+      expect(find.textContaining('Had cleared SI-2024-2025-000004'), findsOneWidget);
+      expect(find.byTooltip('Reverse'), findsNothing,
+          reason: 'it cannot be reversed twice');
+    });
+
+    testWidgets('reversing asks why, and sends it', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      await _pump(tester, api);
+
+      await tester.tap(find.byTooltip('Reverse'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Nothing is deleted'), findsOneWidget);
+
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Why is it being reversed?'),
+        'Keyed against the wrong customer',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Reverse'));
+      await tester.pumpAndSettle();
+
+      expect(api.reversedId, 'st-1');
+      expect(api.reversedReason, 'Keyed against the wrong customer');
     });
 
     testWidgets('the payments tab says payment everywhere it says receipt',

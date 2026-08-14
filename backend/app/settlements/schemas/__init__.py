@@ -1,6 +1,6 @@
 """Settlement request and response schemas."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -33,6 +33,12 @@ class SettlementAllocationWrite(SettlementSchema):
 
     invoice_id: UUID
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
+class SettlementReverseRequest(SettlementSchema):
+    """Carry why a settlement was taken back."""
+
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class SettlementCreate(SettlementSchema):
@@ -93,6 +99,9 @@ class SettlementResponse(SettlementSchema):
     narration: str | None
     status: str
     journal_entry_id: UUID
+    reversal_journal_entry_id: UUID | None
+    reversed_at: datetime | None
+    reversal_reason: str | None
     allocations: list[SettlementAllocationResponse]
     version: int
 
@@ -122,5 +131,6 @@ __all__ = [
     "SettlementDirectionEnum",
     "SettlementMethodEnum",
     "SettlementResponse",
+    "SettlementReverseRequest",
     "SettlementSchema",
 ]

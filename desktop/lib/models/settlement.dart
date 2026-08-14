@@ -47,6 +47,7 @@ class Settlement {
     required this.narration,
     required this.status,
     required this.journalEntryId,
+    required this.reversalReason,
     required this.allocations,
   });
 
@@ -73,9 +74,16 @@ class Settlement {
   /// The journal this wrote. Every settlement has one -- a settlement that did
   /// not reach the ledger is the thing the module exists to prevent.
   final String journalEntryId;
+  final String reversalReason;
   final List<SettlementAllocation> allocations;
 
-  bool get isOnAccount => (double.tryParse(unallocatedAmount) ?? 0) > 0;
+  /// Taken back. The original stays and a mirror journal cancels it, so a
+  /// reversed settlement is still a record of money that arrived and was then
+  /// unrecorded -- not an absence.
+  bool get isReversed => status == 'REVERSED';
+
+  bool get isOnAccount =>
+      !isReversed && (double.tryParse(unallocatedAmount) ?? 0) > 0;
 
   factory Settlement.fromJson(Json json) {
     final Json d =
@@ -98,6 +106,7 @@ class Settlement {
       narration: stringValue(d['narration']),
       status: stringValue(d['status']),
       journalEntryId: stringValue(d['journal_entry_id']),
+      reversalReason: stringValue(d['reversal_reason']),
       allocations: [
         for (final dynamic row in rows is List ? rows : const [])
           if (row is Map)
