@@ -122,7 +122,17 @@ SALE_SHAPES: tuple[tuple[str, str], ...] = (
 #: them. Masters are deliberately absent: this clears trading history, never
 #: the customers, products or vendors it trades with.
 RESET_ORDER: tuple[str, ...] = (
-    # Settlements first: their allocations reference the invoices below, so
+    # Sales returns first: they hang off the delivery notes and invoices
+    # below, and leaving them behind while the numbering counters are cleared
+    # makes the next return collide with a number the surviving rows already
+    # hold -- which is exactly how a fresh WHOLE01 answered 409 to the first
+    # return raised against it.
+    "sales_return_attachments",
+    "sales_return_notes",
+    "sales_return_lines",
+    "sales_return_sources",
+    "sales_returns",
+    # Settlements next: their allocations reference the invoices below, so
     # clearing history without them fails on a foreign key. They arrived with
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",

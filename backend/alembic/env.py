@@ -22,8 +22,10 @@ from app.finance.models import finance  # noqa: F401
 from app.firms.models import firm  # noqa: F401
 from app.goods_receipt.models import goods_receipt  # noqa: F401
 from app.identity.models import identity  # noqa: F401
-from app.inventory.models import inventory  # noqa: F401
-from app.inventory.models import physical_count  # noqa: F401
+from app.inventory.models import (
+    inventory,  # noqa: F401
+    physical_count,  # noqa: F401
+)
 from app.products.models import product  # noqa: F401
 from app.purchase.models import purchase  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
@@ -31,6 +33,7 @@ from app.purchase_return.models import purchase_return  # noqa: F401
 from app.sales.models import territory  # noqa: F401
 from app.sales_invoice.models import sales_invoice  # noqa: F401
 from app.sales_order.models import sales_order  # noqa: F401
+from app.sales_return.models import sales_return  # noqa: F401
 from app.settlements.models import settlement  # noqa: F401
 from app.tax.models import tax_framework  # noqa: F401
 from app.uom.models import uom  # noqa: F401

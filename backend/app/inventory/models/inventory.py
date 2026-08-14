@@ -208,6 +208,16 @@ class InventoryTransaction(BaseEntity):
     in_transit_quantity_delta: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, server_default="0"
     )
+    #: How much the firm stopped or started owning, when that is not
+    #: ``current_quantity_delta``. NULL means the two are the same, which is
+    #: true of nearly every movement: stock arrives into the sellable bucket
+    #: and leaves from it.
+    #:
+    #: It is persisted rather than derived because a reversal has to undo the
+    #: valuation the original applied, and the buckets alone do not say what
+    #: that was -- goods returned damaged are owned without being sellable,
+    #: and quarantined goods stop being sellable without ceasing to be owned.
+    owned_quantity_delta: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     previous_current_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False
     )

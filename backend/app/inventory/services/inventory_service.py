@@ -1935,6 +1935,15 @@ class InventoryService:
                 damaged_delta=-original.damaged_quantity_delta,
                 quarantine_delta=-original.quarantine_quantity_delta,
                 in_transit_delta=-original.in_transit_quantity_delta,
+                # Undo the valuation the original applied, not the one
+                # its sellable bucket implies. A return that brought
+                # back a damaged unit owned two and shelved one;
+                # reversing only the shelf left the value behind.
+                owned_delta=(
+                    None
+                    if original.owned_quantity_delta is None
+                    else -original.owned_quantity_delta
+                ),
                 entered_quantity=(
                     -original.entered_quantity
                     if original.entered_quantity is not None
@@ -2039,6 +2048,113 @@ class InventoryService:
             raise ValidationError(
                 "Sellable return quantity cannot exceed return quantity."
             )
+        self._session.flush()
+        return transaction
+
+    def record_sales_return(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        product_id: UUID,
+        reference_number: str,
+        transaction_date: date,
+        return_quantity: Decimal,
+        restock_quantity: Decimal,
+        damaged_quantity: Decimal = Decimal("0"),
+        scrap_quantity: Decimal = Decimal("0"),
+        entered_quantity: Decimal | None = None,
+        entered_uom_id: UUID | None = None,
+        conversion_version: int | None = None,
+        remarks: str | None = None,
+        batch_id: UUID | None = None,
+    ) -> InventoryTransaction:
+        """Take back into stock the goods a customer sent back.
+
+        The mirror of ``record_purchase_return``, in the other direction. Only
+        ``restock_quantity`` returns to the sellable bucket: goods that came
+        back broken are still the firm's and still worth what they cost, but
+        they cannot be sold, so they arrive in the damaged bucket instead. The
+        firm gains ownership of all of it either way, which is why the
+        valuation follows the whole return rather than the sellable part --
+        without that, damaged goods would come back onto the shelf at no cost
+        and the inventory account would understate what the firm holds.
+
+        The unit cost is left unset so the goods return at the moving average
+        the product is carried at. Bringing them back at the selling price
+        would revalue stock at a number no purchase ever paid.
+        """
+        (
+            base_quantity,
+            entered_quantity,
+            entered_uom_id,
+            conversion_version,
+        ) = self._resolve_base_quantity(
+            firm_scope=firm_scope,
+            product_id=product_id,
+            quantity=(
+                entered_quantity if entered_quantity is not None else return_quantity
+            ),
+            entered_uom_id=entered_uom_id,
+            conversion_version=conversion_version,
+            on_date=transaction_date,
+        )
+        conversion_factor = (
+            base_quantity / entered_quantity
+            if entered_quantity not in {None, ZERO}
+            else Decimal("1")
+        )
+        restock_base = Decimal(str(restock_quantity)) * conversion_factor
+        damaged_base = Decimal(str(damaged_quantity)) * conversion_factor
+        scrap_base = Decimal(str(scrap_quantity)) * conversion_factor
+        if restock_base + damaged_base + scrap_base > base_quantity:
+            raise ValidationError(
+                "Restock, damaged and scrap quantities cannot exceed the "
+                "returned quantity."
+            )
+        inventory = self._ensure_inventory_projection(
+            firm_id=firm_scope,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=storage_node_id,
+            product_id=product_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        transaction = self._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type=InventoryTransactionType.SALES_RETURN.value,
+                batch_id=batch_id,
+                reference_number=reference_number.strip().upper(),
+                reference_type="SALES_RETURN",
+                transaction_date=transaction_date,
+                quantity=base_quantity,
+                current_delta=restock_base,
+                damaged_delta=damaged_base,
+                # Scrapped goods came back and were condemned in the same
+                # movement, so they land nowhere: the firm owns them for
+                # valuation and can neither sell nor repair them.
+                blocked_delta=ZERO,
+                quarantine_delta=ZERO,
+                # Everything that came back is owned, sellable or not, so the
+                # value follows the whole return rather than the shelf-ready
+                # part of it.
+                owned_delta=base_quantity,
+                entered_quantity=entered_quantity,
+                entered_uom_id=entered_uom_id,
+                conversion_version=conversion_version,
+                remarks=remarks
+                or (
+                    f"sales_return buckets restock={restock_base} "
+                    f"damaged={damaged_base} scrap={scrap_base}"
+                ),
+            ),
+        )
         self._session.flush()
         return transaction
 
@@ -3150,6 +3266,7 @@ class InventoryService:
             damaged_quantity_delta=movement.damaged_delta,
             quarantine_quantity_delta=movement.quarantine_delta,
             in_transit_quantity_delta=movement.in_transit_delta,
+            owned_quantity_delta=movement.owned_delta,
             previous_current_quantity=previous_current,
             new_current_quantity=new_current,
             previous_reserved_quantity=previous_reserved,

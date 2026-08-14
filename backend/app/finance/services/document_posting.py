@@ -83,6 +83,16 @@ RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 #: in against: what the customer paid in advance is being handed back.
 REFUND_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
+#: What the customer is credited and the tax that comes off with it. The same
+#: three accounts a sales invoice uses, because a return is that invoice
+#: undone: revenue is not debited directly -- sales returns is its contra, so
+#: the year's sales and the year's returns stay separately readable.
+SALES_RETURN_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.SALES_RETURNS,
+    ControlAccountPurpose.OUTPUT_TAX,
+)
+
 CREDIT_NOTE_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
     ControlAccountPurpose.SALES_RETURNS,
@@ -816,6 +826,179 @@ class DocumentPostingService:
                     ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
                     credit_amount=cost,
                     description=f"Stock released on {document_number}",
+                ),
+            ],
+            source_module=source_module,
+            source_id=document_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_sales_return(
+        self,
+        *,
+        firm_id: UUID,
+        return_id: UUID,
+        return_number: str,
+        return_date: date,
+        taxable_amount: Decimal,
+        tax_amount: Decimal,
+        total_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post what a customer is credited for goods they sent back.
+
+        A sales invoice undone: the receivable falls by the whole credit, the
+        output tax charged on the way out is reversed with the goods, and the
+        rest goes to **sales returns** rather than against revenue directly.
+        Debiting revenue would net the return away and leave nobody able to say
+        how much was sold or how much came back -- the two numbers a firm looks
+        at when deciding whether it has a quality problem.
+
+        The cost of the goods is not posted here. Stock returns at what it cost,
+        the credit is at what it sold for, and the two answer different
+        questions -- ``post_goods_return_to_stock`` carries the first, the way
+        ``post_goods_issue`` carries it on the way out.
+
+        Args:
+            firm_id: The owning firm.
+            return_id: The source document.
+            return_number: The document number, used as the reference.
+            return_date: The date the goods came back.
+            taxable_amount: What is credited before tax.
+            tax_amount: Output tax being reversed.
+            total_amount: What the customer no longer owes, tax included.
+            actor_id: The user completing the return.
+
+        Returns:
+            The posted entry, or None when the credit rounds to nothing at the
+            ledger's two decimals. Goods sent out free -- samples, warranty
+            replacements -- come back worth nothing to say, and the engine
+            refuses a journal whose legs are both nil, which failed the whole
+            return with the stock already on the shelf.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing, or the
+                amounts do not balance.
+
+        """
+        taxable = quantize_money(taxable_amount)
+        tax = quantize_money(tax_amount)
+        total = quantize_money(total_amount)
+        if taxable + tax != total:
+            raise ValidationError(
+                f"Sales return {return_number} does not balance: taxable "
+                f"{taxable} plus tax {tax} is not total {total}."
+            )
+
+        # Derived from the two figures the customer sees, so the three legs
+        # still agree once each is rounded to the ledger's two decimals.
+        ledger_total = quantize_ledger(total)
+        ledger_tax = quantize_ledger(tax)
+        ledger_taxable = ledger_total - ledger_tax
+        if ledger_total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, SALES_RETURN_PURPOSES)
+        context = self.context_for(firm_id, return_date)
+
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.SALES_RETURNS],
+                debit_amount=ledger_taxable,
+                description=f"Sales return {return_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
+                credit_amount=ledger_total,
+                description=f"Credit for sales return {return_number}",
+            ),
+        ]
+        if ledger_tax != ZERO:
+            lines.insert(
+                1,
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
+                    debit_amount=ledger_tax,
+                    description=f"Output tax reversed on {return_number}",
+                ),
+            )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=return_date,
+            reference_number=return_number,
+            description=f"Sales return {return_number}",
+            lines=lines,
+            source_module="sales_return",
+            source_id=return_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_goods_return_to_stock(
+        self,
+        *,
+        firm_id: UUID,
+        document_id: UUID,
+        document_number: str,
+        return_date: date,
+        cost_amount: Decimal,
+        source_module: str,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Move the cost of returned goods back out of expense into inventory.
+
+        ``post_goods_issue`` exactly reversed, and it uses the same two accounts
+        on purpose: what left as cost of goods sold when the delivery note
+        dispatched comes back when the customer returns it. Posting only the
+        customer's credit and not this would leave the goods on the shelf and
+        their cost in the profit and loss.
+
+        Args:
+            firm_id: The owning firm.
+            document_id: The returning document.
+            document_number: Its number, used as the journal reference.
+            return_date: The date the journal carries.
+            cost_amount: What the movement put back into stock.
+            source_module: The module raising the posting.
+            actor_id: The user completing the return.
+
+        Returns:
+            The posted entry, or None when the movement carried no value --
+            stock received before valuation existed still has no cost, and a
+            journal whose legs both round to nil is one the engine refuses.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        cost = quantize_ledger(cost_amount)
+        if cost == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, GOODS_ISSUE_PURPOSES)
+        context = self.context_for(firm_id, return_date)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=return_date,
+            reference_number=f"{document_number}-COST",
+            description=f"Cost of goods returned on {document_number}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                    debit_amount=cost,
+                    description=f"Stock returned on {document_number}",
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.COST_OF_GOODS_SOLD
+                    ],
+                    credit_amount=cost,
+                    description=f"Cost of goods sold reversed {document_number}",
                 ),
             ],
             source_module=source_module,
