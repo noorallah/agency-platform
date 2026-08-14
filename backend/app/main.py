@@ -42,6 +42,7 @@ from app.purchase_return.api import router as purchase_returns_router
 from app.sales.api.router import router as sales_territories_router
 from app.sales_invoice.api import router as sales_invoices_router
 from app.sales_order.api import router as sales_orders_router
+from app.settlements.api import payments_router, receipts_router
 from app.search.api import router as global_search_router
 from app.tax.api import router as tax_framework_router
 from app.uom.api import router as uom_framework_router
@@ -127,6 +128,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(document_framework_router)
     application.include_router(uom_framework_router)
     application.include_router(finance_router)
+    application.include_router(receipts_router)
+    application.include_router(payments_router)
     application.include_router(audit_logs_router)
     application.include_router(diagnostics_router)
     register_exception_handlers(application)

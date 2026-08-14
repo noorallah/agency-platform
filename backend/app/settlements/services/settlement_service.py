@@ -1,0 +1,509 @@
+"""Record money arriving and money going out, and put it in the ledger.
+
+The gap this closes: `POST /customers/{id}/receivables/transactions` could
+already record a receipt, and it moved the customer's outstanding balance
+without writing a journal. Using it made the subsidiary ledger and the general
+ledger disagree by the amount collected, silently and permanently. Nothing on
+the vendor side existed at all.
+
+So a settlement is not a balance adjustment that also posts. It is a document
+that posts, and the posting is what makes it real: if the journal cannot be
+written -- no control account, no open period -- the settlement is refused
+rather than recorded half-way.
+"""
+
+from collections.abc import Sequence
+from decimal import Decimal
+from uuid import UUID, uuid4
+
+from sqlalchemy import Select, func, select
+from sqlalchemy.orm import Session
+
+from app.common.audit.services import record_audit
+from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.money import ZERO
+from app.customers.models import Customer
+from app.customers.schemas.customer import (
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
+)
+from app.customers.services.customer_service import CustomerService
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
+)
+from app.finance.models import LedgerAccount
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
+from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import quantize_money as quantize_ledger
+from app.purchase_invoice.models import PurchaseInvoice
+from app.sales_invoice.models import SalesInvoice
+from app.settlements.models import (
+    Settlement,
+    SettlementAllocation,
+    SettlementDirection,
+    SettlementMethod,
+    SettlementStatus,
+)
+from app.settlements.schemas import (
+    OutstandingInvoiceRecord,
+    SettlementCreate,
+)
+from app.vendors.models import Vendor
+
+#: Which control account the money moved through, by method.
+METHOD_PURPOSE = {
+    SettlementMethod.CASH: ControlAccountPurpose.CASH,
+    SettlementMethod.BANK: ControlAccountPurpose.BANK,
+}
+
+#: Invoice states that owe anything. A draft invoice is not a debt, and
+#: cancelled invoices are not owed by anybody.
+SETTLEABLE_INVOICE_STATES = (
+    "APPROVED",
+    "COMPLETED",
+    "CLOSED",
+    "PARTIALLY_PAID",
+    "PAID",
+)
+
+
+class SettlementService(TransactionalDocumentService):
+    """Record a settlement, allocate it to invoices, and post it."""
+
+    DIRECTION: SettlementDirection
+
+    def __init__(self, session: Session) -> None:
+        """Bind the lifecycle base plus this module's collaborators."""
+        super().__init__(session)
+        self._posting = DocumentPostingService(session)
+        self._controls = ControlAccountService(session)
+        self._customers = CustomerService(session)
+
+    # ------------------------------------------------------------------
+    # Reads
+    # ------------------------------------------------------------------
+
+    def outstanding_invoices(
+        self, *, firm_id: UUID, party_id: UUID
+    ) -> list[OutstandingInvoiceRecord]:
+        """Return the party's invoices that still owe something.
+
+        Outstanding is the invoice total less everything allocated against it,
+        computed here rather than stored. A paid-to-date column on the invoice
+        would be a second copy of the allocations, and the copy is wrong the
+        first time anything writes one without going through this service.
+
+        Totals are rounded to the two decimals money moves in. A document is
+        consistent at its own four -- the seeded invoices carry totals like
+        `8429.6250` -- and a customer settling one in full pays `8429.63`,
+        which an unrounded comparison refuses as more than the invoice owes.
+        """
+        is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
+        invoice: type[SalesInvoice] | type[PurchaseInvoice]
+        if is_receipt:
+            invoice = SalesInvoice
+            party_column = SalesInvoice.customer_id
+            allocation_column = SettlementAllocation.sales_invoice_id
+        else:
+            invoice = PurchaseInvoice
+            party_column = PurchaseInvoice.vendor_id
+            allocation_column = SettlementAllocation.purchase_invoice_id
+        allocated = (
+            select(
+                allocation_column.label("invoice_id"),
+                func.coalesce(func.sum(SettlementAllocation.amount), 0).label("total"),
+            )
+            .where(
+                SettlementAllocation.firm_id == firm_id,
+                SettlementAllocation.is_deleted.is_(False),
+                allocation_column.is_not(None),
+            )
+            .group_by(allocation_column)
+            .subquery()
+        )
+        rows = self._session.execute(
+            select(invoice, func.coalesce(allocated.c.total, 0))
+            .outerjoin(allocated, allocated.c.invoice_id == invoice.id)
+            .where(
+                invoice.firm_id == firm_id,
+                party_column == party_id,
+                invoice.is_deleted.is_(False),
+                invoice.status.in_(SETTLEABLE_INVOICE_STATES),
+            )
+            .order_by(invoice.invoice_date.asc(), invoice.invoice_number.asc())
+        ).all()
+        records: list[OutstandingInvoiceRecord] = []
+        for row, allocated_amount in rows:
+            already = quantize_ledger(Decimal(allocated_amount))
+            total = quantize_ledger(row.grand_total)
+            outstanding = total - already
+            if outstanding <= ZERO:
+                continue
+            records.append(
+                OutstandingInvoiceRecord(
+                    invoice_id=row.id,
+                    invoice_number=row.invoice_number,
+                    invoice_date=row.invoice_date,
+                    invoice_total=total,
+                    allocated_amount=already,
+                    outstanding_amount=outstanding,
+                )
+            )
+        return records
+
+    def list_settlements(
+        self,
+        *,
+        firm_id: UUID,
+        page: int,
+        page_size: int,
+        search: str = "",
+        party_id: UUID | None = None,
+    ) -> tuple[Sequence[Settlement], int]:
+        """Return one page of settlements, newest first."""
+        statement = self._scoped(select(Settlement), firm_id)
+        if party_id is not None:
+            statement = statement.where(
+                Settlement.customer_id == party_id
+                if self.DIRECTION == SettlementDirection.RECEIPT
+                else Settlement.vendor_id == party_id
+            )
+        if search.strip():
+            pattern = f"%{search.strip()}%"
+            statement = statement.where(
+                Settlement.settlement_number.ilike(pattern)
+                | Settlement.instrument_reference.ilike(pattern)
+            )
+        total = self._session.scalar(
+            select(func.count()).select_from(statement.subquery())
+        )
+        rows = self._session.scalars(
+            statement.order_by(
+                Settlement.settlement_date.desc(),
+                Settlement.settlement_number.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        return rows, int(total or 0)
+
+    def get(self, settlement_id: UUID, *, firm_id: UUID) -> Settlement:
+        """Return one settlement or raise when it is unavailable."""
+        row = self._session.scalar(
+            self._scoped(select(Settlement), firm_id).where(
+                Settlement.id == settlement_id
+            )
+        )
+        if row is None:
+            raise ResourceNotFoundError("Settlement not found.")
+        return row
+
+    def allocations_for(self, settlement_id: UUID) -> Sequence[SettlementAllocation]:
+        """Return the allocations of one settlement, oldest invoice first."""
+        return self._session.scalars(
+            select(SettlementAllocation)
+            .where(
+                SettlementAllocation.settlement_id == settlement_id,
+                SettlementAllocation.is_deleted.is_(False),
+            )
+            .order_by(SettlementAllocation.created_at.asc())
+        ).all()
+
+    # ------------------------------------------------------------------
+    # Write
+    # ------------------------------------------------------------------
+
+    def create(
+        self, data: SettlementCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Settlement:
+        """Record one settlement, allocate it, and post it to the ledger."""
+        is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
+        _, numbering_rule = self._ensure_document_setup(
+            firm_id=firm_id, actor_id=actor_id
+        )
+        party = self._require_party(firm_id=firm_id, party_id=data.party_id)
+        amount = quantize_ledger(data.amount)
+        allocated = self._validate_allocations(
+            data, firm_id=firm_id, party_id=data.party_id, amount=amount
+        )
+        money_account_id = self._money_account(
+            firm_id=firm_id, method=SettlementMethod(data.method.value)
+        )
+        number = (
+            data.settlement_number.strip().upper()
+            if data.settlement_number
+            else self._documents.reserve_number(
+                numbering_rule.id,
+                firm_id=firm_id,
+                financial_year_label=self._financial_year_label(
+                    data.settlement_date, firm_id
+                ),
+                company_code=self._company_code(firm_id),
+                document_date=data.settlement_date,
+                actor_id=actor_id,
+            )
+        )
+
+        # Both directions of the link are set before either row is written:
+        # the journal names the settlement as its source, and the settlement
+        # names the journal it wrote. Inserting the settlement first with a
+        # placeholder would leave a row referencing nothing if the posting
+        # failed, which is the state this module exists to make impossible.
+        settlement_id = uuid4()
+        entry = self._posting.post_settlement(
+            firm_id=firm_id,
+            settlement_id=settlement_id,
+            settlement_number=number,
+            settlement_date=data.settlement_date,
+            amount=amount,
+            is_receipt=is_receipt,
+            money_account_id=money_account_id,
+            actor_id=actor_id,
+        )
+        row = Settlement(
+            id=settlement_id,
+            firm_id=firm_id,
+            direction=self.DIRECTION.value,
+            customer_id=data.party_id if is_receipt else None,
+            vendor_id=None if is_receipt else data.party_id,
+            settlement_number=number,
+            settlement_date=data.settlement_date,
+            amount=amount,
+            allocated_amount=allocated,
+            unallocated_amount=amount - allocated,
+            method=data.method.value,
+            ledger_account_id=money_account_id,
+            instrument_reference=(
+                data.instrument_reference.strip() if data.instrument_reference else None
+            ),
+            narration=data.narration,
+            status=SettlementStatus.POSTED.value,
+            journal_entry_id=entry.id,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(row)
+        self._session.flush()
+
+        for allocation in data.allocations:
+            self._session.add(
+                SettlementAllocation(
+                    firm_id=firm_id,
+                    settlement_id=row.id,
+                    sales_invoice_id=allocation.invoice_id if is_receipt else None,
+                    purchase_invoice_id=(None if is_receipt else allocation.invoice_id),
+                    amount=quantize_ledger(allocation.amount),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+
+        if is_receipt:
+            # Keep the customer's outstanding and advance balances in step, so
+            # credit control keeps answering with the money already collected.
+            # The receivable service decides for itself how much of a receipt
+            # clears the balance and how much becomes an advance, which is the
+            # one place that rule should live.
+            self._customers.post_receivable_transaction(
+                data.party_id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.RECEIPT,
+                    amount=amount,
+                    transaction_date=data.settlement_date,
+                    reference_type="settlement",
+                    reference_id=row.id,
+                    reference_number=number,
+                    remarks=data.narration,
+                ),
+                firm_scope=firm_id,
+                actor_id=actor_id,
+                commit=False,
+            )
+
+        record_audit(
+            self._session,
+            action=f"settlement.{self.DIRECTION.value.lower()}.recorded",
+            entity_type="settlement",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "settlement_number": number,
+                "amount": str(amount),
+                "allocated_amount": str(allocated),
+                "party": party.code,
+            },
+        )
+        self._session.flush()
+        return row
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _scoped(
+        self, statement: Select[tuple[Settlement]], firm_id: UUID
+    ) -> Select[tuple[Settlement]]:
+        """Restrict a query to this firm, this direction and live rows."""
+        return statement.where(
+            Settlement.firm_id == firm_id,
+            Settlement.direction == self.DIRECTION.value,
+            Settlement.is_deleted.is_(False),
+        )
+
+    def _require_party(self, *, firm_id: UUID, party_id: UUID) -> Customer | Vendor:
+        """Return the customer or vendor this settlement is with."""
+        if self.DIRECTION == SettlementDirection.RECEIPT:
+            customer = self._session.scalar(
+                select(Customer).where(
+                    Customer.id == party_id,
+                    Customer.firm_id == firm_id,
+                    Customer.is_deleted.is_(False),
+                )
+            )
+            if customer is None:
+                raise ResourceNotFoundError("Customer not found.")
+            return customer
+        vendor = self._session.scalar(
+            select(Vendor).where(
+                Vendor.id == party_id,
+                Vendor.firm_id == firm_id,
+                Vendor.is_deleted.is_(False),
+            )
+        )
+        if vendor is None:
+            raise ResourceNotFoundError("Vendor not found.")
+        return vendor
+
+    def _money_account(self, *, firm_id: UUID, method: SettlementMethod) -> UUID:
+        """Return the cash or bank account this method moves money through.
+
+        `resolve` refuses with a message naming the purpose when the firm has
+        not mapped one, which is the right failure: money cannot be recorded
+        as arriving somewhere the firm has not said exists.
+        """
+        return self._controls.resolve(firm_id, METHOD_PURPOSE[method])
+
+    def _validate_allocations(
+        self,
+        data: SettlementCreate,
+        *,
+        firm_id: UUID,
+        party_id: UUID,
+        amount: Decimal,
+    ) -> Decimal:
+        """Check every allocation and return the total allocated.
+
+        Three things can be wrong, and each of them writes a lie into the
+        books if it is let through: allocating more than arrived, allocating to
+        somebody else's invoice, and allocating more to an invoice than is left
+        owing on it.
+        """
+        if not data.allocations:
+            return ZERO
+        outstanding = {
+            record.invoice_id: record
+            for record in self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
+        }
+        total = ZERO
+        for allocation in data.allocations:
+            record = outstanding.get(allocation.invoice_id)
+            if record is None:
+                raise ValidationError(
+                    "An allocated invoice does not belong to this party, is "
+                    "not approved, or is already settled in full."
+                )
+            allocated = quantize_ledger(allocation.amount)
+            if allocated > record.outstanding_amount:
+                raise ValidationError(
+                    f"Invoice {record.invoice_number} has "
+                    f"{record.outstanding_amount} outstanding, so "
+                    f"{allocated} cannot be allocated to it."
+                )
+            total += allocated
+        if total > amount:
+            raise ValidationError(
+                f"Allocations total {total}, which is more than the "
+                f"{amount} that moved."
+            )
+        return total
+
+    def ledger_account_name(self, account_id: UUID) -> str:
+        """Return the name of the account money moved through."""
+        name = self._session.scalar(
+            select(LedgerAccount.name).where(LedgerAccount.id == account_id)
+        )
+        return name or ""
+
+    def party_of(self, row: Settlement) -> Customer | Vendor:
+        """Return the party of one settlement, for the response."""
+        party_id = (
+            row.customer_id
+            if self.DIRECTION == SettlementDirection.RECEIPT
+            else row.vendor_id
+        )
+        if party_id is None:  # pragma: no cover - the check constraint forbids it
+            raise ValidationError("Settlement has no party.")
+        return self._require_party(firm_id=row.firm_id, party_id=party_id)
+
+    def invoice_summaries(
+        self, allocations: Sequence[SettlementAllocation]
+    ) -> dict[UUID, tuple[str, object, Decimal]]:
+        """Return number, date and total for every allocated invoice."""
+        is_receipt = self.DIRECTION == SettlementDirection.RECEIPT
+        invoice = SalesInvoice if is_receipt else PurchaseInvoice
+        ids = [
+            (
+                allocation.sales_invoice_id
+                if is_receipt
+                else allocation.purchase_invoice_id
+            )
+            for allocation in allocations
+        ]
+        wanted = [value for value in ids if value is not None]
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(
+                invoice.id,
+                invoice.invoice_number,
+                invoice.invoice_date,
+                invoice.grand_total,
+            ).where(invoice.id.in_(wanted))
+        ).all()
+        return {row[0]: (row[1], row[2], quantize_ledger(row[3])) for row in rows}
+
+
+class ReceiptService(SettlementService):
+    """Money arriving from a customer."""
+
+    DIRECTION = SettlementDirection.RECEIPT
+    DOCUMENT = DocumentTypeSpec(
+        code="RECEIPT",
+        name="Receipt",
+        description="Money received from a customer",
+        category="FINANCE",
+        module="settlements",
+        prefix="RC",
+        states=(DocumentStateSpec("POSTED", "Posted", 1, is_terminal=True),),
+    )
+
+
+class PaymentService(SettlementService):
+    """Money going out to a vendor."""
+
+    DIRECTION = SettlementDirection.PAYMENT
+    DOCUMENT = DocumentTypeSpec(
+        code="PAYMENT",
+        name="Payment",
+        description="Money paid to a vendor",
+        category="FINANCE",
+        module="settlements",
+        prefix="PY",
+        states=(DocumentStateSpec("POSTED", "Posted", 1, is_terminal=True),),
+    )

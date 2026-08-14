@@ -204,7 +204,9 @@ PERMISSION_GROUPS = {
         "JOURNAL_POST",
         "JOURNAL_REVERSE",
         "PAYMENT_CREATE",
+        "PAYMENT_VIEW",
         "RECEIPT_CREATE",
+        "RECEIPT_VIEW",
         "LEDGER_VIEW",
         "TRIAL_BALANCE_VIEW",
         "PROFIT_LOSS_VIEW",
@@ -323,7 +325,12 @@ ROLE_PERMISSION_CODES = {
     "PURCHASE_MANAGER": _codes("purchase"),
     "PURCHASE_EXECUTIVE": _codes("purchase") - frozenset({"PURCHASE_APPROVE"}),
     "INVENTORY_MANAGER": _codes("inventory", "batch_serial"),
-    "CASHIER": frozenset({"PAYMENT_CREATE", "RECEIPT_CREATE"}),
+    "CASHIER": frozenset(
+        # A cashier who can record money and not look at what they recorded
+        # cannot do the job; the view codes went in with the receipts and
+        # payments module that first enforced them.
+        {"PAYMENT_CREATE", "PAYMENT_VIEW", "RECEIPT_CREATE", "RECEIPT_VIEW"}
+    ),
     "BILLING_EXECUTIVE": frozenset({"SALES_INVOICE_CREATE", "SALES_VIEW"}),
     "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
     "VIEWER": _all_read_permissions

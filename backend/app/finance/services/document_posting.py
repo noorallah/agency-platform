@@ -57,6 +57,13 @@ PURCHASE_INVOICE_PURPOSES = (
     ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
 )
 
+# Only the party side. The cash or bank account is resolved by the caller from
+# the method the money moved by, so requiring both here would stop a firm that
+# maps cash and not bank from recording a cash receipt.
+RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
+
+PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
+
 GOODS_RECEIPT_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
@@ -238,6 +245,83 @@ class DocumentPostingService:
             lines=lines,
             source_module="sales_invoice",
             source_id=invoice_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_settlement(
+        self,
+        *,
+        firm_id: UUID,
+        settlement_id: UUID,
+        settlement_number: str,
+        settlement_date: date,
+        amount: Decimal,
+        is_receipt: bool,
+        money_account_id: UUID,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post money arriving from a customer or going out to a vendor.
+
+        Two legs and no arithmetic to get wrong: a receipt debits the cash or
+        bank account the money landed in and credits the receivable; a payment
+        debits the payable and credits the account the money left.
+
+        Which invoices the settlement clears does not appear here, and should
+        not. The ledger records that the firm's receivable fell by this much;
+        *which* invoice fell is the subsidiary ledger's business, and posting a
+        line per invoice would put the sales ledger inside the general one.
+
+        Args:
+            firm_id: The owning firm.
+            settlement_id: The source document.
+            settlement_number: The document number, used as the reference.
+            settlement_date: The date the money moved.
+            amount: How much moved.
+            is_receipt: True for money in, False for money out.
+            money_account_id: The cash or bank account it moved through.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        purposes = RECEIPT_PURPOSES if is_receipt else PAYMENT_PURPOSES
+        accounts = self._require_mapping(firm_id, purposes)
+        context = self.context_for(firm_id, settlement_date)
+        total = quantize_ledger(quantize_money(amount))
+        party_purpose = (
+            ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+            if is_receipt
+            else ControlAccountPurpose.ACCOUNTS_PAYABLE
+        )
+        kind = "Receipt" if is_receipt else "Payment"
+        money_leg = JournalLineData(
+            ledger_account_id=money_account_id,
+            debit_amount=total if is_receipt else ZERO,
+            credit_amount=ZERO if is_receipt else total,
+            description=f"{kind} {settlement_number}",
+        )
+        party_leg = JournalLineData(
+            ledger_account_id=accounts[party_purpose],
+            debit_amount=ZERO if is_receipt else total,
+            credit_amount=total if is_receipt else ZERO,
+            description=f"{kind} {settlement_number}",
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=settlement_date,
+            reference_number=settlement_number,
+            description=f"{kind} {settlement_number}",
+            lines=[money_leg, party_leg],
+            source_module="settlements",
+            source_id=settlement_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

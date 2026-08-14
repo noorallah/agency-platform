@@ -11,6 +11,7 @@ import 'balance_sheet_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'profit_loss_page.dart';
+import 'settlements_page.dart';
 import 'trial_balance_page.dart';
 
 /// The chart of accounts, as a plain REST resource.
@@ -154,6 +155,18 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               api: widget.api,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'receipts' => SettlementsPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+              isReceipt: true,
+            ),
+          'payments' => SettlementsPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+              isReceipt: false,
             ),
           'balance-sheet' => BalanceSheetPage(
               api: widget.api,
