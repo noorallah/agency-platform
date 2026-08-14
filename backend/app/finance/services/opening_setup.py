@@ -62,6 +62,7 @@ GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
     ("CL", "Current Liabilities", AccountTypeEnum.LIABILITY),
     ("REV", "Revenue", AccountTypeEnum.INCOME),
     ("EXP", "Direct Expenses", AccountTypeEnum.EXPENSE),
+    ("EQ", "Equity", AccountTypeEnum.EQUITY),
 )
 
 CHART: tuple[SeedAccount, ...] = (
@@ -182,6 +183,13 @@ CHART: tuple[SeedAccount, ...] = (
         AccountTypeEnum.EXPENSE,
         "EXP",
         ControlAccountPurpose.INVENTORY_ADJUSTMENT,
+    ),
+    SeedAccount(
+        "3000",
+        "Opening Balance Equity",
+        AccountTypeEnum.EQUITY,
+        "EQ",
+        ControlAccountPurpose.OPENING_BALANCE_EQUITY,
     ),
 )
 

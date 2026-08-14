@@ -981,6 +981,7 @@ class InventoryService:
             raise ConflictError("Opening stock batch has already been posted.")
         if not batch.lines:
             raise ValidationError("Opening stock batch must contain at least one line.")
+        movement_ids: list[UUID] = []
         for line in batch.lines:
             (
                 base_quantity,
@@ -1031,6 +1032,7 @@ class InventoryService:
                     transaction_date=batch.posting_date,
                     quantity=base_quantity,
                     current_delta=base_quantity,
+                    unit_cost=line.unit_cost,
                     entered_quantity=entered_quantity,
                     entered_uom_id=entered_uom_id,
                     conversion_version=conversion_version,
@@ -1039,6 +1041,26 @@ class InventoryService:
             )
             line.transaction_id = transaction.id
             line.updated_by = actor_id
+            movement_ids.append(transaction.id)
+        # Day-one stock arrived from nowhere the ledger can see, so it is
+        # debited to inventory against opening balance equity. The flush is
+        # required for the same reason it is on adjustments: request sessions
+        # do not autoflush, so the rows staged above are invisible to a query
+        # until they are written.
+        self._session.flush()
+        opening_value = self._session.scalar(
+            select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                StockLedgerEntry.transaction_id.in_(movement_ids)
+            )
+        )
+        DocumentPostingService(self._session).post_opening_stock(
+            firm_id=firm_scope,
+            batch_id=batch.id,
+            reference_number=batch.reference_number,
+            posting_date=batch.posting_date,
+            stock_value=Decimal(str(opening_value or ZERO)),
+            actor_id=actor_id,
+        )
         batch.status = "POSTED"
         batch.posted_at = batch.posting_date
         batch.updated_by = actor_id
@@ -2901,6 +2923,7 @@ class InventoryService:
                     storage_locator=locator,
                     business_profile_id=profile.id if profile is not None else None,
                     quantity=line.quantity,
+                    unit_cost=line.unit_cost,
                     entered_quantity=line.entered_quantity,
                     entered_uom_id=line.entered_uom_id,
                     conversion_version=line.conversion_version,

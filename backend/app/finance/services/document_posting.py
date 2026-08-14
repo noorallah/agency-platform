@@ -67,6 +67,11 @@ PURCHASE_RETURN_PURPOSES = (
     ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
 )
 
+OPENING_STOCK_PURPOSES = (
+    ControlAccountPurpose.INVENTORY,
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY,
+)
+
 STOCK_ADJUSTMENT_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.INVENTORY_ADJUSTMENT,
@@ -441,6 +446,81 @@ class DocumentPostingService:
             lines=lines,
             source_module="inventory",
             source_id=transaction_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_opening_stock(
+        self,
+        *,
+        firm_id: UUID,
+        batch_id: UUID,
+        reference_number: str,
+        posting_date: date,
+        stock_value: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post the stock a firm started with.
+
+        Day-one stock arrived from nowhere the ledger can see: no supplier was
+        invoiced for it and no money left. What it represents is what the
+        owners put into the business, so inventory is debited and **opening
+        balance equity** credited -- the counterpart the chart never had, which
+        is why this was the one movement that could not post at all.
+
+        The same account is what a balance sheet wants for any day-one balance,
+        so a firm that later records opening receivables or opening cash has
+        somewhere consistent to put them.
+
+        Returns None when the batch carried no value: day-one stock recorded
+        with no cost has nothing to post, and an empty journal claims something
+        happened in the ledger when nothing did.
+
+        Args:
+            firm_id: The owning firm.
+            batch_id: The opening stock batch being posted.
+            reference_number: The batch reference, used as the journal reference.
+            posting_date: The date the firm says it started with this stock.
+            stock_value: What the stock was brought in at.
+            actor_id: The user posting the batch.
+
+        Returns:
+            The posted journal entry, or None when there was no value.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        value = quantize_ledger(quantize_money(stock_value))
+        if value == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, OPENING_STOCK_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                debit_amount=value,
+                description=f"Opening stock {reference_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                ],
+                credit_amount=value,
+                description=f"Opening stock {reference_number}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=posting_date,
+            reference_number=reference_number,
+            description=f"Opening stock {reference_number}",
+            lines=lines,
+            source_module="inventory",
+            source_id=batch_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

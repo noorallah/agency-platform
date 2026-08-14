@@ -41,6 +41,7 @@ class ControlAccountPurpose(StrEnum):
     COST_OF_GOODS_SOLD = "COST_OF_GOODS_SOLD"
     PURCHASE_PRICE_VARIANCE = "PURCHASE_PRICE_VARIANCE"
     INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
+    OPENING_BALANCE_EQUITY = "OPENING_BALANCE_EQUITY"
     DISCOUNT_ALLOWED = "DISCOUNT_ALLOWED"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
     ROUNDING = "ROUNDING"
@@ -72,6 +73,10 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     # account takes both sides; a firm that would rather book gains separately
     # can map it to an income account instead.
     ControlAccountPurpose.INVENTORY_ADJUSTMENT: frozenset({"EXPENSE", "INCOME"}),
+    # Day-one balances are what the owners put in, so this is equity. It is the
+    # counterpart the chart never had: without it opening stock had nothing to
+    # credit and could not post at all.
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY: frozenset({"EQUITY"}),
     ControlAccountPurpose.DISCOUNT_ALLOWED: frozenset({"EXPENSE"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),

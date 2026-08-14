@@ -1168,3 +1168,88 @@ def test_an_adjustment_worth_nothing_writes_no_journal() -> None:
         .where(JournalEntry.reference_number == "ADJ-NIL")
     )
     assert written == 0
+
+
+def test_opening_stock_is_credited_to_equity() -> None:
+    """Day-one stock arrived from nowhere the ledger can see.
+
+    No supplier was invoiced for it and no money left, so what it represents is
+    what the owners put into the business. This was the one movement that could
+    not post at all: the chart had no equity account, so there was nothing to
+    credit.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "OPENGL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+    service = InventoryService(session)
+
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            reference_number="OS-GL-1",
+            posting_date=date(2026, 8, 1),
+            lines=[{"product_id": product.id, "quantity": "10", "unit_cost": "12.50"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
+
+    postings = {
+        code: (debit, credit)
+        for code, debit, credit in session.execute(
+            select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+            .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+            .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
+            .where(JournalEntry.reference_number == "OS-GL-1")
+        ).all()
+    }
+    assert postings["1200"] == (Decimal("125.00"), Decimal("0.00")), "stock arrives"
+    assert postings["3000"] == (Decimal("0.00"), Decimal("125.00")), "owners put it in"
+
+
+def test_opening_stock_with_no_cost_writes_no_journal() -> None:
+    """Day-one stock recorded with no cost has nothing to post."""
+    session = _session_factory()()
+    firm = _firm(session, "OPENNIL")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+    service = InventoryService(session)
+
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            reference_number="OS-NIL-1",
+            posting_date=date(2026, 8, 1),
+            lines=[{"product_id": product.id, "quantity": "10"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
+
+    written = session.scalar(
+        select(func.count())
+        .select_from(JournalEntry)
+        .where(JournalEntry.reference_number == "OS-NIL-1")
+    )
+    assert written == 0

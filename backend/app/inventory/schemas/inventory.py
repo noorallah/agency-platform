@@ -316,6 +316,11 @@ class OpeningStockLineWrite(InventorySchema):
     product_id: UUID
     storage_node_id: UUID | None = None
     quantity: Decimal = Field(gt=0, max_digits=18)
+    #: What the stock was worth per unit on day one. Optional, because a firm
+    #: that does not know is better served recording the quantity than nothing
+    #: -- but stock entered without it is worth nothing, in the valuation and
+    #: in the ledger alike, and nothing posts.
+    unit_cost: Decimal | None = Field(default=None, ge=0, max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None
     conversion_version: int | None = Field(default=None, ge=1)
