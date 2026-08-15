@@ -437,6 +437,14 @@ class PurchaseOrder {
   final String priority;
   final String remarks;
   final String status;
+
+  /// Raised but not yet sent for approval.
+  bool get isDraft => status == 'DRAFT';
+
+  /// Sent for approval and waiting on it. Reachable since 2026-08-16: before
+  /// that nothing performed the transition, so no order was ever in this
+  /// state and the Open Orders tab it feeds was empty for every firm.
+  bool get isSubmitted => status == 'SUBMITTED';
   final String subtotal;
   final String lineDiscountTotal;
   final String headerDiscountAmount;

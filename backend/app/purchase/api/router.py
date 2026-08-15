@@ -312,6 +312,40 @@ def restore_purchase_order(
     return ApiResponse(data=service.order_response(row))
 
 
+@router.post("/{order_id}/submit", response_model=ApiResponse[PurchaseOrderResponse])
+def submit_purchase_order(
+    order_id: UUID,
+    scope: PurchaseUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseOrderResponse]:
+    """Send a draft purchase order for approval."""
+    service = PurchaseService(db)
+    row = service.submit_order(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.order_response(row))
+
+
+@router.post("/{order_id}/approve", response_model=ApiResponse[PurchaseOrderResponse])
+def approve_purchase_order(
+    order_id: UUID,
+    scope: PurchaseApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseOrderResponse]:
+    """Approve a submitted purchase order.
+
+    Takes `PURCHASE_APPROVE`, deliberately a different code from the
+    `PURCHASE_UPDATE` that submitting needs: the point of the two steps is
+    that the person who raises an order need not be the person who commits
+    the firm to it.
+    """
+    service = PurchaseService(db)
+    row = service.approve_order(
+        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.order_response(row))
+
+
 @router.post("/{order_id}/cancel", response_model=ApiResponse[PurchaseOrderResponse])
 def cancel_purchase_order(
     order_id: UUID,

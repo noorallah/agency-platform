@@ -91,6 +91,10 @@ class PurchaseService(TransactionalDocumentService):
         rule_name="Purchase Order Default Numbering",
         states=(
             DocumentStateSpec("DRAFT", "Draft", 10, allows_edit=True),
+            # Sent for approval but not yet approved. Declared here as well as
+            # in the status enum, because a lifecycle event naming a state the
+            # framework does not know is a timeline entry nobody can read.
+            DocumentStateSpec("SUBMITTED", "Submitted", 15, allows_edit=True),
             DocumentStateSpec("APPROVED", "Approved", 20, allows_edit=True),
             DocumentStateSpec("CANCELLED", "Cancelled", 90, is_terminal=True),
             DocumentStateSpec("CLOSED", "Closed", 100, is_terminal=True),
@@ -543,6 +547,125 @@ class PurchaseService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data={"status": row.status},
+        )
+        self._session.commit()
+        return row
+
+    def submit_order(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Send a draft order for approval.
+
+        The first half of the control point this module never had. Until now
+        the only way an order reached any status was for the client to state
+        one on create or update -- `cancel` and `close` were the sole real
+        transitions -- so `SUBMITTED` existed in the enum, was filtered on by
+        the Open Orders tab, and could not be produced by anything a user did.
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if row.status == PurchaseOrderStatus.SUBMITTED.value:
+            return row
+        if row.status != PurchaseOrderStatus.DRAFT.value:
+            raise ValidationError("Only draft purchase orders can be submitted.")
+        has_lines = self._session.scalar(
+            select(PurchaseOrderLine.id)
+            .where(
+                PurchaseOrderLine.purchase_order_id == row.id,
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
+        if has_lines is None:
+            raise ValidationError("A purchase order with no lines cannot be submitted.")
+        return self._transition(
+            row,
+            to_status=PurchaseOrderStatus.SUBMITTED,
+            action="purchase.submitted",
+            event="SUBMITTED",
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+        )
+
+    def approve_order(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Approve a submitted order, committing the firm to buy.
+
+        Deliberately requires SUBMITTED rather than accepting a draft. An
+        approval anyone can skip is not a control point, and a two-step flow is
+        the reason purchase orders differ from sales orders here --
+        `SalesOrderService.approve_order` goes straight from DRAFT because the
+        thing it guards is credit, checked at that moment, not a second pair of
+        eyes.
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if row.status == PurchaseOrderStatus.APPROVED.value:
+            return row
+        if row.status != PurchaseOrderStatus.SUBMITTED.value:
+            raise ValidationError(
+                "Only submitted purchase orders can be approved. "
+                "Submit the order first."
+            )
+        return self._transition(
+            row,
+            to_status=PurchaseOrderStatus.APPROVED,
+            action="purchase.approved",
+            event="APPROVED",
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+        )
+
+    def _transition(
+        self,
+        row: PurchaseOrder,
+        *,
+        to_status: PurchaseOrderStatus,
+        action: str,
+        event: str,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> PurchaseOrder:
+        """Move an order to a new status, leaving the trail the others leave.
+
+        Factored out rather than copied twice: `cancel_order` and `close_order`
+        each write a history row, a lifecycle event and an audit entry, and a
+        transition that quietly skipped one of the three would be invisible
+        until somebody went looking for the history that was never written.
+        """
+        before = row.status
+        row.status = to_status.value
+        row.updated_by = actor_id
+        document_type = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )[0]
+        self._history(
+            order=row,
+            action=action,
+            from_status=before,
+            to_status=row.status,
+            actor_id=actor_id,
+            details={},
+        )
+        self._record_document_event(
+            firm_id=firm_scope,
+            document_type=document_type,
+            order=row,
+            action=event,
+            from_state=before,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=None,
+            details={},
+        )
+        record_audit(
+            self._session,
+            action=action,
+            entity_type="purchase_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"status": before},
             after_data={"status": row.status},
         )
         self._session.commit()
