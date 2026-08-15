@@ -114,7 +114,12 @@ support gets "it closed" and nothing else.
 
 ### Gates
 
-- [ ] `ruff`, `black`, `mypy` clean **for the module** (repo-wide is still red).
+- [ ] `ruff`, `black`, `mypy` clean. **Repo-wide, not just for the module** —
+      `ruff check .` and `black --check .` have been clean across `app/`,
+      `tests/`, `scripts/` and `alembic/` since 2026-08-14, so a finding
+      anywhere is one this pass introduced. This item used to say repo-wide
+      was still red, which is the kind of stale number that talks people out
+      of running the tools at all.
 - [ ] Full suite no worse than the baseline you captured.
 
 ### Defects the 2026-08-09 pass added to this list
