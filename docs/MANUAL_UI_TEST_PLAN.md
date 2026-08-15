@@ -273,6 +273,21 @@ each was, at some point, wrong.
 | 8.28 | Opening stock can name its batch | Post an opening stock document with a batch number on a line | The batch appears under Batches holding that quantity, and the stock row is that batch's |
 | 8.29 | Day-one stock obeys the receipt rule | Post opening stock for a product that requires a batch on receipt, leaving the number blank | Refused, naming the product. The rule is not only for goods receipts |
 
+### 8.50–8.54 Editing a customer who has traded
+
+**Run these on a seeded firm, not a fresh one.** They are about a customer with
+history behind them, and on a customer created five minutes ago every one of
+them passes for the wrong reason. `WHOLE01` after a demo seed is the right
+subject: pick the customer with the largest outstanding.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.50 | An edit keeps what the customer owes | Note the customer's outstanding, edit an unrelated field — a phone number will do — and save. Re-open them | The outstanding is **exactly** what it was. Until 2026-08-15 it was reset to the opening balance, so every invoice, receipt and credit note since was discarded by an edit nobody thought was financial |
+| 8.51 | The books agree afterwards | Run `scripts/verify_sample_data.py` after 8.50 | Every store holds together. If it reports "customers owe X against receivable account Y ... a balance moved without a journal", 8.50 has regressed — that is the exact wording this defect produced |
+| 8.52 | The edit is not refused | Save the same customer twice in a row | Both succeed. It answered 409 "This record changed since you loaded it" for any customer whose opening balance had posted, with nobody else touching the record |
+| 8.53 | An opening balance still cannot be rewritten after trading | Edit the customer and change the **opening balance** | Refused, saying it cannot change after receivable activity exists. That guard is what makes 8.50 safe: the balances are only ever recomputed where there is nothing else to lose |
+| 8.54 | A new customer's opening balance still reaches the ledger | Create a customer with an opening balance of 25,000, then open the trial balance | Trade Receivables and Opening Balance Equity have each moved by 25,000. Delete the customer and both move back |
+
 ---
 
 ## 9. Concurrency and two-machine cases
