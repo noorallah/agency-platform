@@ -13,6 +13,7 @@ from app.business.gating import assert_feature_fields
 from app.business.models import (
     BusinessFeature,
     BusinessProfile,
+    FirmBusinessProfile,
     ProfileFeature,
 )
 from app.business.schemas import (
@@ -482,3 +483,94 @@ def test_zero_counts_as_a_value_somebody_typed() -> None:
             feature="EXPIRY_TRACKING",
             values={"shelf_life_days": 0},
         )
+
+
+def test_a_soft_deleted_assignment_does_not_reserve_the_firm() -> None:
+    """A removed assignment must not lock its firm out of ever having another.
+
+    `firm_business_profiles` carried a table-wide UNIQUE on `firm_id`. Every
+    query in this module filters `is_deleted`, so a soft-deleted row is
+    invisible to all of them while still holding the key — re-assigning that
+    firm would fail on the constraint with nothing on screen to explain it.
+
+    Nothing sets `is_deleted` here today, which is why this was a trap rather
+    than a defect. The point of the test is the day somebody adds an
+    "unassign" action: the index is now partial (`20260815_0089`), so this
+    passes, and a table-wide constraint makes it fail.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "SOFTDEL")
+    actor_id = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    profile = service.create_profile(
+        BusinessProfileCreate(code="FIRST", name="First", industry_type="GENERIC"),
+        actor_id,
+    )
+    second = service.create_profile(
+        BusinessProfileCreate(code="SECOND", name="Second", industry_type="GENERIC"),
+        actor_id,
+    )
+    assigned = service.assign_profile_to_firm(
+        firm.id,
+        FirmBusinessProfileAssign(business_profile_id=profile.id),
+        actor_id,
+    )
+    session.commit()
+
+    # Stand in for the unassign action that does not exist yet.
+    assigned.is_deleted = True
+    session.commit()
+    assert service.get_firm_assignment(firm.id) is None
+
+    fresh = service.assign_profile_to_firm(
+        firm.id,
+        FirmBusinessProfileAssign(business_profile_id=second.id),
+        actor_id,
+    )
+    session.commit()
+
+    assert fresh.id != assigned.id, "a new row, not the resurrected old one"
+    assert fresh.business_profile_id == second.id
+    current = service.get_firm_assignment(firm.id)
+    assert current is not None and current.business_profile_id == second.id
+
+
+def test_a_firm_still_cannot_hold_two_live_assignments() -> None:
+    """Scoping the key to live rows must not let a firm have two profiles.
+
+    The service updates the firm's existing row in place, so this asserts the
+    behaviour rather than the constraint — but it is the half that would be
+    lost if somebody "fixed" the uniqueness by dropping it altogether.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "ONEONLY")
+    actor_id = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    first = service.create_profile(
+        BusinessProfileCreate(code="AA", name="A", industry_type="GENERIC"),
+        actor_id,
+    )
+    second = service.create_profile(
+        BusinessProfileCreate(code="BB", name="B", industry_type="GENERIC"),
+        actor_id,
+    )
+    original = service.assign_profile_to_firm(
+        firm.id, FirmBusinessProfileAssign(business_profile_id=first.id), actor_id
+    )
+    session.commit()
+
+    replaced = service.assign_profile_to_firm(
+        firm.id, FirmBusinessProfileAssign(business_profile_id=second.id), actor_id
+    )
+    session.commit()
+
+    # The same row, repointed — assigning does not accumulate.
+    assert replaced.id == original.id
+    assert replaced.business_profile_id == second.id
+    live = session.scalars(
+        select(FirmBusinessProfile).where(
+            FirmBusinessProfile.firm_id == firm.id,
+            FirmBusinessProfile.is_deleted.is_(False),
+        )
+    ).all()
+    assert len(live) == 1

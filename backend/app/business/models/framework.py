@@ -11,11 +11,13 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -222,7 +224,24 @@ class FirmBusinessProfile(BaseEntity):
     """Assign exactly one active business profile to a firm."""
 
     __tablename__ = "firm_business_profiles"
-    __table_args__ = (UniqueConstraint("firm_id"),)
+    # One profile per **live** assignment, not per row ever written. The
+    # table-wide UNIQUE this replaces would have let a soft-deleted row block
+    # its firm from ever being assigned again: the row is invisible to every
+    # query here -- all of them filter `is_deleted` -- while still holding the
+    # key. Nothing soft-deletes one today, so this closes the trap before the
+    # first "unassign" action opens it rather than after. Mirrors
+    # UQ_firms_code_active. MySQL ignores the predicate, so the service check
+    # in `assign_profile_to_firm`, which updates in place, stays authoritative
+    # there.
+    __table_args__ = (
+        Index(
+            "UQ_firm_business_profiles_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+    )
 
     firm_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("firms.id"), nullable=False
