@@ -276,6 +276,7 @@ class _PurchaseApi extends ApiClient {
   @override
   Future<PagedResult<PlatformUser>> users({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,

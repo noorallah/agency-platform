@@ -63,6 +63,7 @@ from app.sales.schemas import (
     TerritoryDetailResponse,
     TerritoryListFilters,
     TerritoryResponse,
+    TerritorySalesmanCandidate,
     TerritorySalesmanCoverage,
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
@@ -477,6 +478,23 @@ def territory_salesman_coverage(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[TerritorySalesmanCoverage]]:
     return ApiResponse(data=_service(db).salesman_coverage(firm_scope=scope.firm_id))
+
+
+@router.get(
+    "/salesman-candidates",
+    response_model=ApiResponse[list[TerritorySalesmanCandidate]],
+)
+def territory_salesman_candidates(
+    scope: TerritoryAssignSalesmenScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TerritorySalesmanCandidate]]:
+    """List the people this firm can put on a route.
+
+    Guarded by the assign permission rather than by `USER_VIEW`: the whole
+    point is that somebody who may assign a route is usually not a platform
+    administrator, and `/api/v1/users` refuses them.
+    """
+    return ApiResponse(data=_service(db).salesman_candidates(firm_scope=scope.firm_id))
 
 
 @router.get("/search", response_model=ApiResponse[list[TerritoryResponse]])

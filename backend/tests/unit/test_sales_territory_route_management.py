@@ -365,3 +365,71 @@ def test_bulk_territory_changes_are_audited_per_territory() -> None:
     assert {row.entity_id for row in changed} == {first.id, second.id}
     assert all(row.firm_id == firm.id for row in changed)
     assert all(row.after_data == {"status": "INACTIVE"} for row in changed)
+
+
+def test_salesman_candidates_lists_only_this_firm_s_active_members() -> None:
+    """The picker needs names, and `/api/v1/users` is closed to these roles.
+
+    Assigning a salesperson used to mean typing a raw user id, because the one
+    endpoint that lists people is guarded by `USER_VIEW` -- a platform-admin
+    permission that a sales manager does not hold. This endpoint answers the
+    same question from inside the firm's own scope.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "CAND")
+    other = _firm(session, "OTHR")
+    service = SalesTerritoryService(session)
+
+    active = User(
+        email="ravi@example.local", full_name="Ravi Kumar", password_hash="hash"
+    )
+    inactive = User(
+        email="old@example.local", full_name="Former Rep", password_hash="hash"
+    )
+    stranger = User(
+        email="other@example.local", full_name="Other Firm", password_hash="hash"
+    )
+    removed = User(
+        email="gone@example.local", full_name="Deleted User", password_hash="hash"
+    )
+    session.add_all([active, inactive, stranger, removed])
+    session.flush()
+    removed.is_deleted = True
+    session.add_all(
+        [
+            UserFirm(user_id=active.id, firm_id=firm.id, is_active=True),
+            UserFirm(user_id=inactive.id, firm_id=firm.id, is_active=False),
+            UserFirm(user_id=stranger.id, firm_id=other.id, is_active=True),
+            UserFirm(user_id=removed.id, firm_id=firm.id, is_active=True),
+        ]
+    )
+    session.commit()
+
+    candidates = service.salesman_candidates(firm_scope=firm.id)
+
+    assert [row.user_id for row in candidates] == [active.id]
+    assert candidates[0].full_name == "Ravi Kumar"
+    assert candidates[0].email == "ravi@example.local"
+
+
+def test_salesman_candidates_endpoint_needs_the_assign_permission() -> None:
+    """Not `USER_VIEW`: the person who assigns a route is rarely an admin."""
+    session = _session_factory()()
+    firm = _firm(session, "PERM")
+    user = User(email="rep@example.local", full_name="Rep", password_hash="hash")
+    session.add(user)
+    session.flush()
+    session.add(UserFirm(user_id=user.id, firm_id=firm.id, is_active=True))
+    session.commit()
+
+    viewer = _principal(user.id, {"TERRITORY_VIEW"})
+    with pytest.raises(AuthorizationError):
+        require_permission("TERRITORY_ASSIGN_SALESMEN")(principal=viewer)
+
+    assigner = _principal(user.id, {"TERRITORY_ASSIGN_SALESMEN"})
+    require_permission("TERRITORY_ASSIGN_SALESMEN")(principal=assigner)
+    scope = _firm_scope(assigner, session, firm.id)
+    candidates = SalesTerritoryService(session).salesman_candidates(
+        firm_scope=scope.firm_id
+    )
+    assert [row.email for row in candidates] == ["rep@example.local"]
