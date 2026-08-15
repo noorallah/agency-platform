@@ -13,6 +13,8 @@ manual stock adjustment nobody knew to make.
 
 from __future__ import annotations
 
+import csv
+import io
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -62,6 +64,7 @@ from app.sales_return.schemas import (
     SalesReturnByCustomerRecord,
     SalesReturnByProductRecord,
     SalesReturnCreate,
+    SalesReturnImportRequest,
     SalesReturnLineResponse,
     SalesReturnListFilters,
     SalesReturnNoteResponse,
@@ -268,6 +271,21 @@ class SalesReturnService(TransactionalDocumentService):
         self, data: SalesReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesReturn:
         """Create one sales return in draft."""
+        row = self._stage_return(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def _stage_return(
+        self, data: SalesReturnCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesReturn:
+        """Build one sales return without committing it.
+
+        Split out so an import can stage a whole batch and commit once. A loop
+        over ``create_return`` would commit each row as it went, which is the
+        shape that made the branch and warehouse imports impossible to finish:
+        a batch whose fifth row clashed returned 409 with four rows already
+        written, and the corrected file then failed on those four as duplicates.
+        """
         assert_feature_fields(
             self._session,
             firm_id,
@@ -333,7 +351,10 @@ class SalesReturnService(TransactionalDocumentService):
             updated_by=actor_id,
         )
         self._session.add(row)
-        self._session.flush()
+        # Not a bare flush: a duplicate number clashes here, before the
+        # catch-all below is reached, and an IntegrityError escaping the
+        # service is a 500 where the caller should be told 409.
+        self._flush_or_conflict("Sales return number already exists in this firm.")
         self._apply_children(row, data, source_rows, line_specs, actor_id=actor_id)
         self._record_event(
             firm_id=firm_id,
@@ -354,7 +375,6 @@ class SalesReturnService(TransactionalDocumentService):
             after_data={"return_number": row.return_number, "status": row.status},
         )
         self._flush_or_conflict("Sales return number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_return(
@@ -1304,6 +1324,72 @@ class SalesReturnService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return self._q(response.total_tax_amount)
+
+    # ---- import and export ---------------------------------------------
+
+    def import_returns(
+        self, data: SalesReturnImportRequest, *, firm_scope: UUID, actor_id: UUID
+    ) -> list[SalesReturn]:
+        """Create a validated batch of sales returns in one transaction.
+
+        The whole batch lands or none of it does. Anything else asks somebody
+        to work out which rows of their file already went in before they can
+        correct it and try again -- and a refused record leaves its own header
+        flushed on the session, so without the rollback the caller inherits
+        half a document as well as the committed ones.
+        """
+        try:
+            rows = [
+                self._stage_return(record, firm_id=firm_scope, actor_id=actor_id)
+                for record in data.records
+            ]
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.commit()
+        return rows
+
+    def export_returns_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+        """Export matching sales returns as CSV."""
+        rows, _ = self.list_returns(
+            firm_scope=firm_scope,
+            filters=SalesReturnListFilters(),
+            page=1,
+            page_size=5000,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "return_number",
+                "customer_return_number",
+                "return_date",
+                "customer_id",
+                "branch_id",
+                "warehouse_id",
+                "status",
+                "total_current_return_quantity",
+                "grand_total",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.return_number,
+                    row.customer_return_number,
+                    row.return_date.isoformat(),
+                    str(row.customer_id),
+                    str(row.branch_id),
+                    str(row.warehouse_id),
+                    row.status,
+                    str(row.total_current_return_quantity),
+                    str(row.grand_total),
+                ]
+            )
+        return buffer.getvalue()
 
     # ---- responses -----------------------------------------------------
 

@@ -800,7 +800,29 @@ therefore served them at `/api/v1/sales-invoices/` and answered
 invoice failed** with "Request failed (307)". The Sales Invoices workspace had
 been in that state.
 
-**Not built, deliberately:** import/export.
+**Import and export were built on 2026-08-15**, closing the last gap in this
+module. `GET /sales-returns/export` answers CSV; `POST /sales-returns/import`
+takes a JSON batch of up to 500. Both take the seeded `SALES_EXPORT` /
+`SALES_IMPORT` codes, so no permission or migration was needed.
+
+**JSON only, and that is the decision.** A return line names the delivery-note
+or invoice line it came off, so a flat CSV row cannot express one without
+inventing a way to identify the source -- and a source picked wrongly puts the
+stock back against the wrong document. Purchase returns took the same view.
+
+**The batch lands whole or not at all.** `create_return` commits, so a loop
+over it is the shape that made the branch and warehouse imports impossible to
+finish: a batch whose later row is refused returns an error with the earlier
+rows already written, and the corrected file then fails on those as
+duplicates. Creation is split into `_stage_return`, which builds without
+committing, and `create_return`, which stages one and commits. The import
+stages every record and commits once.
+
+Reverting to the naive loop and re-running `test_a_refused_batch_leaves_nothing_behind`
+shows the failure is worse than "half of it went in": the refused record leaves
+its **own header flushed on the session** as well, so the caller inherits two
+rows where they should see none. That is why the import rolls back rather than
+merely declining to commit.
 
 ## 10. Quotations -- a price offered before anything is sold
 
@@ -832,6 +854,24 @@ identically the day before and the day after the prices lapse.
 total answers, and `/reports/conversion` is the only report that joins what was
 offered to what was sold -- a quotation register says one half and an order
 register the other.
+
+**Import and export were built on 2026-08-15.** `GET /quotations/export` and
+`POST /quotations/import`, JSON batches of up to 500, on the seeded
+`SALES_EXPORT` / `SALES_IMPORT` codes. Staged and committed once, for the same
+reason sales returns are — see §9.
+
+The export carries **`is_expired` as its own column**. Expiry is derived from
+`valid_until` rather than stored, and a quotation reads `SENT` the day before
+and the day after its prices lapse, so a pipeline exported on status alone
+cannot tell a live offer from a dead one. The test asserts exactly that: two
+quotations both `DRAFT`, one expired and one not.
+
+**A duplicate document number is a 409 now, not a 500.** Both modules added
+their header row with a bare `session.flush()`, so a clash with an existing
+number raised `IntegrityError` straight out of the service, past the
+`_flush_or_conflict` translator waiting at the end of the same method. It was
+reachable before this change through an explicit `quotation_number`, and a
+batch import is the likeliest way anybody hits it.
 
 **The desktop dialog takes as many lines as the offer needs**, as of
 2026-08-15. The backend has always accepted up to 1,000 and the form wrote
@@ -1043,11 +1083,82 @@ refused.
 
 Verified over HTTP: creating a customer with 25,000 moves Trade Receivables and
 opening balance equity by 25,000 each, deleting them moves both back, and the
-lifecycle nets to zero. The revise path is covered at service level -- the API
-needs an `If-Match` whose value is not returned as an ETag, which is a separate
-gap. **All three stores hold together** after a full reset and re-seed.
+lifecycle nets to zero. The revise path was covered at service level only,
+because the API returned no ETag to send back; that gap is closed below. **All three stores hold together** after a full reset and re-seed.
 
 ## Also open
+
+- **`PUT /customers/{id}` works again**, as of 2026-08-15. It answered 409
+  "This record changed since you loaded it" for **any customer whose opening
+  balance had posted**, with nobody else touching the record -- so on a seeded
+  firm, every customer edit failed.
+
+  `_reverse_opening_balance_postings` sets `journal_entry_id = None` on the
+  opening-balance rows, and `_reset_opening_balance_transaction` then removed
+  those same rows with a bulk `delete(synchronize_session=False)`. The dirty
+  objects stayed in the session, so their `UPDATE` fired against rows that were
+  already gone and SQLAlchemy raised `StaleDataError`, which the handler maps
+  to 409. They are deleted through the ORM now, so the unit of work knows.
+
+  **The unit suite could not have caught it**, and that is the reusable part.
+  Every fixture here builds a session with SQLAlchemy's default autoflush,
+  while `app/core/database/engine.py` passes `autoflush=False` -- and autoflush
+  writes the pending UPDATE while the row still exists, repairing the ordering
+  by accident. `_request_like_session_factory` in
+  `tests/unit/test_customer_management.py` builds a session shaped like a
+  request's; reach for it whenever a service mixes ORM mutation with bulk
+  statements. It is the same difference that hid the adjustment that returned
+  201 and wrote no journal.
+
+  Found by driving the endpoint over HTTP after the ETag work made it possible
+  to send a precondition, and reproduced against `main` on a second server to
+  be sure it was not introduced by that change.
+
+- **An edit no longer discards what a customer owes**, as of 2026-08-15, and
+  this is the larger of the two. `CustomerService.update` recomputed
+  `current_outstanding` and `unapplied_advance_balance` from `opening_balance`
+  on **every** call, so changing a phone number threw away every invoice,
+  receipt and credit note the customer had accumulated since -- and the
+  receivable control account was then out by the difference, silently and
+  permanently.
+
+  The balance work now runs only when the opening balance actually moved, which
+  the existing guard already restricts to customers with no receivable
+  activity. There, recomputing from the opening figure is the whole truth about
+  the balances; everywhere else it is a lie.
+
+  **Found by `scripts/verify_sample_data.py` catching damage this session
+  caused.** Three probe edits to one WHOLE01 customer -- notes only, opening
+  balance untouched -- moved them from 84,901.23 outstanding to 25,000.00 and
+  put the store 59,901.23 out. The verifier named it as "a balance moved
+  without a journal", which is exactly what had happened. It is the second time
+  that script has paid for itself within minutes.
+
+- **A record now tells you which version to send back**, as of 2026-08-15.
+  `If-Match` had been accepted by five routers since it was written, and **no
+  response carried the version anywhere** -- not as a header, not as a body
+  field. The only value a client could honestly send was `*`, which means "no
+  precondition", so the whole optimistic-concurrency contract was documented
+  and unusable. `set_etag` in `app/core/concurrency.py` publishes the version as
+  a quoted `ETag`, which is exactly what `parse_if_match` reads back, so a
+  client echoes the header it was given without having to know what is inside
+  it.
+
+  It is on the twelve endpoints that answer with one versioned record -- the
+  `GET` and `PUT` pair for firms, purchase orders, sales orders, delivery
+  notes, goods receipts and customers.
+
+  **`PUT /customers/{id}` gained the precondition itself**, which it never had.
+  It is the endpoint the gap was first noticed on and the one where losing it
+  costs most: the update replaces the whole address and contact collection, so
+  the loser of a concurrent edit does not merge badly -- they lose every row
+  they entered.
+
+  **Not wired in the desktop.** `api_client.dart` neither reads the header nor
+  sends one, so today the contract is available to any HTTP caller and used by
+  none. Threading it through means carrying response headers back out of a
+  3,000-line client that currently returns decoded bodies, and it should be
+  done as its own change rather than smuggled into this one.
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the

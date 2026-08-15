@@ -7,6 +7,7 @@ from io import BytesIO
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1064,9 +1065,19 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
     )
     assert listed.pagination.total_records == 1
 
-    fetched = get_purchase_order(created.data.id, scope, False, session)
+    read_response = Response()
+    fetched = get_purchase_order(created.data.id, scope, read_response, False, session)
     assert fetched.data.id == created.data.id
+    version_read = (
+        PurchaseService(session)
+        .get_order(created.data.id, firm_scope=scope.firm_id)
+        .version
+    )
+    assert (
+        read_response.headers["ETag"] == f'"{version_read}"'
+    ), "a reader must be told the version it has to send back in If-Match"
 
+    update_response = Response()
     updated = update_purchase_order(
         created.data.id,
         PurchaseOrderUpdate.model_validate(
@@ -1093,9 +1104,19 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
             }
         ),
         scope,
+        update_response,
         session,
     )
     assert updated.data.status == PurchaseOrderStatus.APPROVED
+    version_after = (
+        PurchaseService(session)
+        .get_order(created.data.id, firm_scope=scope.firm_id)
+        .version
+    )
+    assert (
+        update_response.headers["ETag"] == f'"{version_after}"'
+    ), "the update must publish the version it left behind"
+    assert version_after > version_read
 
     summary = purchase_summary(scope, session)
     assert summary.data.total == 1

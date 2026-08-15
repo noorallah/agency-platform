@@ -51,8 +51,8 @@ platform authority never turns a firm-owned endpoint into an unscoped query.
 | --- | --- | --- |
 | `GET /api/v1/customers` | View | Paginated search, sorting, and filters |
 | `POST /api/v1/customers` | Create | Create a customer with addresses and contacts |
-| `GET /api/v1/customers/{id}` | View | Get a complete customer |
-| `PUT /api/v1/customers/{id}` | Update | Replace editable customer and child data |
+| `GET /api/v1/customers/{id}` | View | Get a complete customer. Answers an `ETag` carrying the version |
+| `PUT /api/v1/customers/{id}` | Update | Replace editable customer and child data. Accepts `If-Match`; answers a new `ETag` |
 | `DELETE /api/v1/customers/{id}` | Delete | Soft delete |
 | `POST /api/v1/customers/{id}/restore` | Restore | Restore |
 | `GET /api/v1/customers/summary` | View | Lifecycle and financial aggregates |
@@ -65,6 +65,57 @@ List search covers code, name, display name, GST, PAN, email, phone, city, and
 status. Filters support status, customer type, city, state, creation-date range,
 and deleted records within the selected firm. Sort fields are whitelisted:
 code, name, status, credit limit, and creation date.
+
+## Balances
+
+A customer carries three figures, and only one of them is an input.
+
+| Field | Written by |
+| --- | --- |
+| `opening_balance` | The user, at create. Effectively frozen afterwards |
+| `current_outstanding` | Receivable activity — invoices, receipts, credit notes, returns |
+| `unapplied_advance_balance` | Money received against no invoice |
+
+**An opening balance posts to the ledger.** Creating a customer with one debits
+Accounts Receivable and credits Opening Balance Equity: a day-one receivable
+arrived from nowhere the ledger can see, and what it represents is what the
+owners brought into the business. A customer in credit swaps the legs. It is
+**refused** rather than skipped when the firm has no chart of accounts or no
+open period — a balance nobody can book is one the firm should not be told it
+has recorded. The customer itself still opens; it is the balance that cannot.
+Revising one, or deleting the customer, mirrors the entry.
+
+**`current_outstanding` is not recomputed on update.** It is derived from
+receivable activity, and the only moment the opening figure is the whole truth
+about it is before any of that activity exists. `update` therefore touches the
+balances **only when `opening_balance` itself changed** — which the guard below
+restricts to customers with no receivable transactions.
+
+That guard is what makes the rule safe, and the rule is what the guard is for:
+`update` refuses a changed `opening_balance` once receivable activity exists.
+Until 2026-08-15 the balances were recomputed on every call regardless, so
+editing a phone number reset `current_outstanding` to the opening balance and
+put the receivable control account out by everything the customer had traded.
+`scripts/verify_sample_data.py` reports that as "a balance moved without a
+journal".
+
+Money is recorded through `/api/v1/receipts` and `/api/v1/payments`, which post.
+`CustomerService.post_receivable_transaction` moves a balance without writing a
+journal and is the older, lower-level path — the two books drift by every rupee
+recorded through it.
+
+## Concurrent edits
+
+`PUT /api/v1/customers/{id}` replaces the **whole** address and contact
+collection, so two people editing one customer do not merge badly — the loser
+loses every row they entered. `If-Match` is how a client refuses that: send the
+version last read and a write aimed at a superseded one is refused with 409.
+
+The version to send is published as an `ETag` on `GET` and on `PUT` itself.
+Echo the header you were given rather than computing the next number: an update
+can advance the counter by more than one. Sending nothing, or `*`, means no
+precondition and is accepted — the guarantee is opt-in, and the desktop does
+not use it yet.
 
 ## Validation and audit
 
