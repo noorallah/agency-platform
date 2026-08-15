@@ -828,11 +828,23 @@ class CustomerService:
         # points at it. Deleting the transaction alone would leave the journal
         # asserting a figure the customer no longer carries.
         self._reverse_opening_balance_postings(customer, actor_id=actor_id)
-        self._session.query(CustomerReceivableTransaction).filter(
-            CustomerReceivableTransaction.customer_id == customer.id,
-            CustomerReceivableTransaction.transaction_type
-            == CustomerReceivableTransactionType.OPENING_BALANCE.value,
-        ).delete(synchronize_session=False)
+        # Deleted through the ORM, one row at a time, and not with a bulk
+        # ``query().delete(synchronize_session=False)``. The reversal above
+        # sets ``journal_entry_id = None`` on these very rows, so a bulk delete
+        # removes them in the database while leaving the dirty objects in the
+        # session: the pending UPDATE then fires against a row that is gone and
+        # raises StaleDataError, which the handler reports as 409 "this record
+        # changed since you loaded it". It only bites where the session does
+        # not autoflush -- which is every request, and no unit test.
+        for stale in self._session.scalars(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.customer_id == customer.id,
+                CustomerReceivableTransaction.transaction_type
+                == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+            )
+        ).all():
+            self._session.delete(stale)
+        self._session.flush()
         self._record_opening_balance_transaction(
             customer=customer,
             amount=amount,

@@ -1025,6 +1025,32 @@ gap. **All three stores hold together** after a full reset and re-seed.
 
 ## Also open
 
+- **`PUT /customers/{id}` works again**, as of 2026-08-15. It answered 409
+  "This record changed since you loaded it" for **any customer whose opening
+  balance had posted**, with nobody else touching the record -- so on a seeded
+  firm, every customer edit failed.
+
+  `_reverse_opening_balance_postings` sets `journal_entry_id = None` on the
+  opening-balance rows, and `_reset_opening_balance_transaction` then removed
+  those same rows with a bulk `delete(synchronize_session=False)`. The dirty
+  objects stayed in the session, so their `UPDATE` fired against rows that were
+  already gone and SQLAlchemy raised `StaleDataError`, which the handler maps
+  to 409. They are deleted through the ORM now, so the unit of work knows.
+
+  **The unit suite could not have caught it**, and that is the reusable part.
+  Every fixture here builds a session with SQLAlchemy's default autoflush,
+  while `app/core/database/engine.py` passes `autoflush=False` -- and autoflush
+  writes the pending UPDATE while the row still exists, repairing the ordering
+  by accident. `_request_like_session_factory` in
+  `tests/unit/test_customer_management.py` builds a session shaped like a
+  request's; reach for it whenever a service mixes ORM mutation with bulk
+  statements. It is the same difference that hid the adjustment that returned
+  201 and wrote no journal.
+
+  Found by driving the endpoint over HTTP after the ETag work made it possible
+  to send a precondition, and reproduced against `main` on a second server to
+  be sure it was not introduced by that change.
+
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the
   table append-only in every store, with nothing in the client able to read one.
