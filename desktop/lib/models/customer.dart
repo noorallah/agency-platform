@@ -103,7 +103,7 @@ class CustomerContact {
 class Customer {
   const Customer({
     required this.id,
-    required this.version,
+    this.version = 0,
     required this.firmId,
     required this.code,
     required this.customerType,

@@ -165,6 +165,7 @@ class ProductMetadataRecord {
 class Product {
   const Product({
     required this.id,
+    this.version = 0,
     required this.firmId,
     required this.code,
     required this.barcode,
@@ -219,6 +220,12 @@ class Product {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String firmId;
   final String code;
   final String barcode;
@@ -272,6 +279,7 @@ class Product {
 
   factory Product.fromJson(Json json) => Product(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
         barcode: stringValue(json['barcode']),

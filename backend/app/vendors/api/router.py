@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -264,6 +265,7 @@ def import_vendors(
 def get_vendor(
     vendor_id: UUID,
     scope: VendorViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorResponse]:
@@ -273,6 +275,7 @@ def get_vendor(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
     )
+    set_etag(response, vendor)
     return ApiResponse(data=VendorResponse.model_validate(vendor))
 
 
@@ -281,15 +284,28 @@ def update_vendor(
     vendor_id: UUID,
     data: VendorUpdate,
     scope: VendorUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[VendorResponse]:
-    """Change vendor."""
-    vendor = VendorService(db).update(
+    """Change vendor.
+
+    An update replaces six child collections -- contacts, addresses, banking,
+    tax registrations, attachments and notes -- so the loser of a concurrent
+    edit does not merge badly, they lose every row they entered. This is the
+    worst case of that shape in the codebase.
+    """
+    service = VendorService(db)
+    assert_version(
+        service.get(vendor_id, firm_scope=scope.firm_id).version, expected_version
+    )
+    vendor = service.update(
         vendor_id,
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, vendor)
     return ApiResponse(data=VendorResponse.model_validate(vendor))
 
 

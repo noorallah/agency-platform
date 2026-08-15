@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
@@ -137,7 +138,11 @@ class ProductController extends ChangeNotifier {
 
   Future<Product> save(Product? product, Json payload) async => product == null
       ? _api.createProduct(payload)
-      : _api.updateProduct(product.id, payload);
+      : _api.updateProduct(
+          product.id,
+          payload,
+          expectedVersion: preconditionFor(product.version),
+        );
 
   Future<void> delete(Product product) => _api.deleteProduct(product.id);
   Future<void> restore(Product product) => _api.restoreProduct(product.id);
@@ -2673,7 +2678,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() {
-          _validationSummary = [exception.message];
+          _validationSummary = [
+            saveFailureMessage(exception, 'product', changesKept: true),
+          ];
         });
       }
     } finally {

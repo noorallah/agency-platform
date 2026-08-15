@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -302,12 +303,14 @@ def delete_category(
 def get_product(
     product_id: UUID,
     scope: ProductViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductResponse]:
     row = ProductService(db).get_product(
         product_id, firm_scope=scope.firm_id, include_deleted=include_deleted
     )
+    set_etag(response, row)
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 
@@ -316,11 +319,19 @@ def update_product(
     product_id: UUID,
     data: ProductUpdate,
     scope: ProductUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[ProductResponse]:
-    row = ProductService(db).update_product(
+    service = ProductService(db)
+    assert_version(
+        service.get_product(product_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
+    row = service.update_product(
         product_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
 
 

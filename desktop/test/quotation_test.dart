@@ -104,6 +104,7 @@ class _QuoteApi extends ApiClient {
   final List<Quotation> rows;
   Json? created;
   Json? revised;
+  int? revisedVersion;
   final List<String> actions = [];
   String? reason;
   String? convertedId;
@@ -216,8 +217,13 @@ class _QuoteApi extends ApiClient {
   }
 
   @override
-  Future<Quotation> updateQuotation(String id, Json data) async {
+  Future<Quotation> updateQuotation(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async {
     revised = data;
+    revisedVersion = expectedVersion;
     return _quote();
   }
 

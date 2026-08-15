@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -776,12 +777,18 @@ class _BranchWarehouseManagementPageState
       if (current == null) {
         await widget.api.createBranch(payload);
       } else {
-        await widget.api.updateBranch(current.id, payload);
+        await widget.api.updateBranch(
+          current.id,
+          payload,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
+      NotificationService.show(
+          context,
+          saveFailureMessage(exception, 'branch', changesKept: false),
           kind: AppNotificationKind.error);
     }
   }
@@ -801,12 +808,18 @@ class _BranchWarehouseManagementPageState
       if (current == null) {
         await widget.api.createWarehouse(payload);
       } else {
-        await widget.api.updateWarehouse(current.id, payload);
+        await widget.api.updateWarehouse(
+          current.id,
+          payload,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
+      NotificationService.show(
+          context,
+          saveFailureMessage(exception, 'warehouse', changesKept: false),
           kind: AppNotificationKind.error);
     }
   }

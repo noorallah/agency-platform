@@ -3,6 +3,7 @@ import 'entities.dart';
 class BranchRecord {
   const BranchRecord({
     required this.id,
+    this.version = 0,
     required this.firmId,
     required this.code,
     required this.name,
@@ -26,6 +27,12 @@ class BranchRecord {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String firmId;
   final String code;
   final String name;
@@ -49,6 +56,7 @@ class BranchRecord {
 
   factory BranchRecord.fromJson(Json json) => BranchRecord(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
@@ -75,6 +83,7 @@ class BranchRecord {
 class WarehouseRecord {
   const WarehouseRecord({
     required this.id,
+    this.version = 0,
     required this.firmId,
     required this.branchId,
     required this.code,
@@ -94,6 +103,12 @@ class WarehouseRecord {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String firmId;
   final String branchId;
   final String code;
@@ -113,6 +128,7 @@ class WarehouseRecord {
 
   factory WarehouseRecord.fromJson(Json json) => WarehouseRecord(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         branchId: stringValue(json['branch_id']),
         code: stringValue(json['code']),

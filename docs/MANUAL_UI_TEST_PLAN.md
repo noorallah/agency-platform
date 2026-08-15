@@ -352,20 +352,30 @@ accepted, so existing clients keep working. The server publishes the version to
 send back as an `ETag` on every response that returns one versioned record, and
 refuses a write aimed at a superseded version.
 
-**The desktop sends it for customers**, as of 2026-08-15. The version rides in
-the response body as well as the ETag header — a list carries many records and
-a header carries one, and this client edits from list rows — so the save
-carries the version of the record the user opened.
+**The desktop sends it** on customers, vendors, products, branches, warehouses
+and quotations, as of 2026-08-15. The version rides in the response body as
+well as the ETag header — a list carries many records and a header carries one,
+and this client edits from list rows — so the save carries the version of the
+record the user opened.
 
-**Every other screen still saves without a precondition**, which is accepted
-and means last-one-wins. So 9.1 is the real two-machine case and 9.1e is the
-control: the same race on a screen that does not send the header yet, where the
-second save is still expected to win silently.
+**What the refusal says depends on where the editor saves from**, and 9.1c is
+the case that checks it:
+
+- **Customers and products** save from **inside** the dialog, so a refusal
+  leaves the form on screen still holding every keystroke. The message says so.
+- **Vendors, branches, warehouses and quotations** close the dialog and save
+  after, so the typing is already gone. Those say the changes were **not
+  saved** — claiming otherwise would be a lie the user acts on.
+
+**Screens that still save last-one-wins**: UOM, tax, batches and serials,
+territories, inventory, opening stock, physical counts, document types and
+business profiles. 9.1e is the control case for those.
 
 | ID | Case | Steps | Expected |
 | --- | --- | --- | --- |
 | 9.1 | Two users edit one customer | Open the same customer on two machines, save on A, then save on B | **B is refused**, and the message says somebody else saved it, that B's changes are still in the form and have not been sent, and to copy anything needed before closing |
-| 9.1e | The same race where the header is not sent yet | Repeat 9.1 on **vendors** or **products** | B **succeeds and overwrites A**, silently. That is the current behaviour for every screen except customers — record it, do not file it |
+| 9.1c | The refusal tells the truth about the typing | Run 9.1 on a **customer** (saves inside the dialog), then on a **vendor** (dialog closes first) | The customer message says the changes are **still here and have not been sent**; the vendor message says they were **not saved**. Neither should claim the other |
+| 9.1e | The same race where the header is not sent yet | Repeat 9.1 on **UOM units** or **territories** | B **succeeds and overwrites A**, silently. That is still the behaviour on the screens listed above — record it, do not file it |
 | 9.1a | The precondition the server owes **(HTTP)** | `GET /api/v1/customers/{id}` and note the `ETag`. `PUT` the same customer twice, sending `If-Match: <that etag>` both times | The first `PUT` returns 200 with a **new** `ETag`; the second is refused **409** with "This record changed since you loaded it" |
 | 9.1b | The published version is the one that works **(HTTP)** | Repeat 9.1a's second `PUT`, this time sending the `ETag` the first `PUT` returned | 200. A client that echoes the header it was last given is never wrongly refused — it must not compute the next version itself |
 | 9.1c | No precondition is still accepted **(HTTP)** | `PUT` the same customer with no `If-Match`, then again with `If-Match: *` | Both 200. `*` means "any version", which is the same as sending nothing |
