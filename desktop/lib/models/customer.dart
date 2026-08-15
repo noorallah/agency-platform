@@ -103,6 +103,7 @@ class CustomerContact {
 class Customer {
   const Customer({
     required this.id,
+    required this.version,
     required this.firmId,
     required this.code,
     required this.customerType,
@@ -132,6 +133,12 @@ class Customer {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server did not supply one, and the
+  /// save then carries no precondition — old behaviour, not a guarantee.
+  final int version;
   final String firmId;
   final String code;
   final String customerType;
@@ -168,6 +175,7 @@ class Customer {
 
   factory Customer.fromJson(Json json) => Customer(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
         customerType: stringValue(json['customer_type']),

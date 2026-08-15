@@ -1154,11 +1154,28 @@ because the API returned no ETag to send back; that gap is closed below. **All t
   the loser of a concurrent edit does not merge badly -- they lose every row
   they entered.
 
-  **Not wired in the desktop.** `api_client.dart` neither reads the header nor
-  sends one, so today the contract is available to any HTTP caller and used by
-  none. Threading it through means carrying response headers back out of a
-  3,000-line client that currently returns decoded bodies, and it should be
-  done as its own change rather than smuggled into this one.
+  **The desktop uses it for customers** as of 2026-08-15. Two people editing
+  one customer is the case that costs most — the update replaces the whole
+  address and contact collection, so the loser does not merge badly, they lose
+  every row they entered.
+
+  **The version rides in the response body as well as the ETag header**, which
+  looks like duplication and is not. A header carries one value and a list
+  carries many records, and this client opens its editor from a list row rather
+  than re-reading the record — so an ETag alone could never have reached the
+  screen that needed it. `CustomerResponse` and the five other versioned
+  responses now carry `version`; the header remains correct for single reads.
+
+  A record whose `version` is absent reads as zero and saves with **no**
+  precondition, so an older backend stays usable rather than having every save
+  refused.
+
+  **Still to do: every other screen.** Vendors, products, branches, warehouses,
+  inventory, batches, UOM, territories, quotations and goods receipts all still
+  save last-one-wins. The plumbing is in `request()` and costs one argument per
+  call site plus `version` on the model; the reason it was not done wholesale is
+  that each screen needs its own conflict message and its own test, and a
+  half-tested precondition is worse than none — it reads as a guarantee.
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the

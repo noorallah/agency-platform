@@ -654,6 +654,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         return DeliveryNoteResponse(
             id=row.id,
+            version=row.version,
             firm_id=row.firm_id,
             sales_order_id=row.sales_order_id,
             customer_id=row.customer_id,

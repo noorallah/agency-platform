@@ -266,6 +266,11 @@ class PurchaseOrderResponse(PurchaseSchema):
     """Purchase Order Response contract."""
 
     id: UUID
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. It rides in the body as well as the ETag
+    #: header because a list carries many records and a header carries
+    #: one — and this desktop edits from list rows.
+    version: int
     firm_id: UUID
     branch_id: UUID
     warehouse_id: UUID

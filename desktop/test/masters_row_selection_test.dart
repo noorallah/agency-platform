@@ -94,6 +94,7 @@ class _CustomerApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     if (path == '/api/v1/customers') {
       return <String, dynamic>{
@@ -263,6 +264,7 @@ class _InventoryApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     if (path == '/api/v1/inventory') {
       return <String, dynamic>{

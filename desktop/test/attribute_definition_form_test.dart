@@ -40,6 +40,7 @@ class _FormApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     if (method == 'POST') {
       writes.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));

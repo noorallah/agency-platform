@@ -547,6 +547,7 @@ class SalesOrderService(TransactionalDocumentService):
         )
         return SalesOrderResponse(
             id=row.id,
+            version=row.version,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
             salesman_id=row.salesman_id,

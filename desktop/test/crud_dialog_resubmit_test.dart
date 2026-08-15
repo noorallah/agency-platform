@@ -34,6 +34,7 @@ class _PickyApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async =>
       <String, dynamic>{'data': <String, dynamic>{}};
 

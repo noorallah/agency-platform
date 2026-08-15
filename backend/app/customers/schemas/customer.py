@@ -220,6 +220,11 @@ class CustomerResponse(CustomerSchema):
     """Expose a complete customer record."""
 
     id: UUID
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. It rides in the body as well as the ETag
+    #: header because a list carries many records and a header carries
+    #: one — and this desktop edits from list rows.
+    version: int
     firm_id: UUID
     code: str
     customer_type: CustomerType

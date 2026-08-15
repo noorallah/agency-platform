@@ -70,10 +70,21 @@ class CustomerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Create or replace a customer.
+  ///
+  /// An update carries the version of the record the user opened, so a save
+  /// aimed at a customer somebody else has changed since is refused rather
+  /// than overwriting their work. `version` of zero means the server did not
+  /// publish one — an older backend — and the save then goes without a
+  /// precondition, exactly as it did before.
   Future<Customer> save(Customer? customer, Json payload) async =>
       customer == null
           ? _api.createCustomer(payload)
-          : _api.updateCustomer(customer.id, payload);
+          : _api.updateCustomer(
+              customer.id,
+              payload,
+              expectedVersion: customer.version > 0 ? customer.version : null,
+            );
 
   Future<void> delete(Customer customer) => _api.deleteCustomer(customer.id);
 
@@ -761,7 +772,15 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     } on ApiException catch (exception) {
       if (mounted) {
         setState(() {
-          _error = exception.message;
+          // A conflict needs more than the server's sentence. The user is
+          // holding a form full of their own typing and is being told to
+          // reload, so say plainly that closing this loses it — otherwise the
+          // safe-looking action is the one that throws their work away.
+          _error = exception.isConflict
+              ? 'Somebody else saved this customer while you were editing it. '
+                  'Your changes are still here and have not been sent. Copy '
+                  'anything you need, then close and reopen to see theirs.'
+              : exception.message;
           _saving = false;
         });
       }

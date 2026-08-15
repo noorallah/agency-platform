@@ -32,6 +32,7 @@ class _ImportApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     if (fails) {
       throw const ApiException(
