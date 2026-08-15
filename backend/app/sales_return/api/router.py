@@ -4,7 +4,8 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from app.sales_return.schemas import (
     SalesReturnByCustomerRecord,
     SalesReturnByProductRecord,
     SalesReturnCreate,
+    SalesReturnImportRequest,
     SalesReturnListFilters,
     SalesReturnReconciliationRecord,
     SalesReturnRegisterRecord,
@@ -58,6 +60,12 @@ SalesReturnApproveScope = Annotated[
 ]
 SalesReturnCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+]
+SalesReturnImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
+SalesReturnExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
 ]
 
 
@@ -216,6 +224,55 @@ def create_sales_return(
     service = SalesReturnService(db)
     row = service.create_return(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.return_response(row))
+
+
+@router.get("/export")
+def export_sales_returns(
+    scope: SalesReturnExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching sales returns as CSV."""
+    csv_content = SalesReturnService(db).export_returns_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sales_returns.csv"},
+    )
+
+
+@router.post(
+    "/import",
+    response_model=ApiResponse[list[SalesReturnResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_sales_returns(
+    scope: SalesReturnImportScope,
+    db: Session = Depends(get_db),
+    format: Annotated[Literal["json"], Form()] = "json",
+    payload: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> ApiResponse[list[SalesReturnResponse]]:
+    """Import a validated batch of sales returns atomically.
+
+    JSON only, as for purchase returns: a return line names the delivery-note
+    or invoice line it came off, so a flat CSV row cannot express one without
+    inventing a way to identify the source, and a source picked wrongly puts
+    stock back against the wrong document.
+    """
+    if format != "json":
+        raise ValidationError("Only JSON import is supported for sales returns.")
+    if payload is None:
+        raise ValidationError("payload is required for JSON import.")
+    service = SalesReturnService(db)
+    rows = service.import_returns(
+        SalesReturnImportRequest.model_validate_json(payload),
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=[service.return_response(item) for item in rows])
 
 
 @router.get("/{return_id}", response_model=ApiResponse[SalesReturnResponse])

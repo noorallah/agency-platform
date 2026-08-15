@@ -278,6 +278,32 @@ each was, at some point, wrong.
 | 8.28 | Opening stock can name its batch | Post an opening stock document with a batch number on a line | The batch appears under Batches holding that quantity, and the stock row is that batch's |
 | 8.29 | Day-one stock obeys the receipt rule | Post opening stock for a product that requires a batch on receipt, leaving the number blank | Refused, naming the product. The rule is not only for goods receipts |
 
+### 8.30–8.34 Importing sales returns and quotations
+
+**These are API cases.** Both modules import over HTTP and neither workspace has
+an import button, so drive them with `curl` — see `.claude/skills/run-app` for
+the token. They are here rather than left to the unit suite because 8.10 is the
+case this project has been bitten by twice, and these are the two newest imports.
+
+The batch is `POST /api/v1/{sales-returns,quotations}/import` with
+`format=json` and `payload={"records":[...]}` as form fields, up to 500 records.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.30 | A quotation batch lands whole | Import two valid quotations in one call | 201 with both, each carrying **its own** document number. The list count rises by exactly two |
+| 8.31 | A refused batch leaves nothing | Import two quotations giving both the **same** explicit `quotation_number` | **409**, and the quotation count is **unchanged**. Not 500: a duplicate number is a conflict the caller can fix, and half a file must never land |
+| 8.32 | The corrected file then works | Fix 8.31's file to use distinct numbers and re-import | 201. This is the half of 8.10 that actually matters — a partial import makes the corrected file fail on its own earlier rows |
+| 8.33 | A sales return batch is refused whole | Import two returns against one delivery note where the second returns far more than was dispatched | **422** naming the quantity, and the sales-return count is **unchanged** |
+| 8.34 | A return batch sees its own earlier rows | Import two returns of 1 unit each against the same delivery note line | Both accepted. The second must count the first's claim — they are staged on one transaction, so an over-return split across a batch is still caught |
+
+### 8.35–8.37 Exporting
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.35 | Sales return export | `GET /api/v1/sales-returns/export` | CSV: a header row plus one row per return, carrying the number, dates, customer, branch, warehouse, status, returned quantity and total |
+| 8.36 | Quotation export names what lapsed | `GET /api/v1/quotations/export` with one live and one expired quotation, **both still `DRAFT`** | An `is_expired` column reading `false` and `true`. The `status` column reads `DRAFT` for both — which is the point: expiry is derived from `valid_until`, so status alone cannot answer it |
+| 8.37 | Export respects the firm | Export quotations as `food01.admin`, then as `medi01.admin` | Each sees only its own. These two share one schema, so this is the isolation case that matters |
+
 ### 8.50–8.54 Editing a customer who has traded
 
 **Run these on a seeded firm, not a fresh one.** They are about a customer with
@@ -292,7 +318,6 @@ subject: pick the customer with the largest outstanding.
 | 8.52 | The edit is not refused | Save the same customer twice in a row | Both succeed. It answered 409 "This record changed since you loaded it" for any customer whose opening balance had posted, with nobody else touching the record |
 | 8.53 | An opening balance still cannot be rewritten after trading | Edit the customer and change the **opening balance** | Refused, saying it cannot change after receivable activity exists. That guard is what makes 8.50 safe: the balances are only ever recomputed where there is nothing else to lose |
 | 8.54 | A new customer's opening balance still reaches the ledger | Create a customer with an opening balance of 25,000, then open the trial balance | Trade Receivables and Opening Balance Equity have each moved by 25,000. Delete the customer and both move back |
-
 ---
 
 ## 9. Concurrency and two-machine cases

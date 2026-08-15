@@ -4,7 +4,8 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
@@ -19,6 +20,7 @@ from app.quotation.schemas import (
     QuotationConvertRequest,
     QuotationCreate,
     QuotationDecision,
+    QuotationImportRequest,
     QuotationListFilters,
     QuotationRegisterRecord,
     QuotationResponse,
@@ -51,6 +53,12 @@ QuotationApproveScope = Annotated[
 ]
 QuotationCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CANCEL")
+]
+QuotationImportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
+QuotationExportScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_EXPORT")
 ]
 
 
@@ -189,6 +197,54 @@ def create_quotation(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.quotation_response(row))
+
+
+@router.get("/export")
+def export_quotations(
+    scope: QuotationExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching quotations as CSV."""
+    csv_content = QuotationService(db).export_quotations_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=quotations.csv"},
+    )
+
+
+@router.post(
+    "/import",
+    response_model=ApiResponse[list[QuotationResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_quotations(
+    scope: QuotationImportScope,
+    db: Session = Depends(get_db),
+    format: Annotated[Literal["json"], Form()] = "json",
+    payload: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> ApiResponse[list[QuotationResponse]]:
+    """Import a validated batch of quotations atomically.
+
+    JSON only. A quotation carries its lines, and a CSV row is one line, so a
+    flat upload would have to be regrouped into documents on some column the
+    file has no reason to be sorted by.
+    """
+    if format != "json":
+        raise ValidationError("Only JSON import is supported for quotations.")
+    if payload is None:
+        raise ValidationError("payload is required for JSON import.")
+    service = QuotationService(db)
+    rows = service.import_quotations(
+        QuotationImportRequest.model_validate_json(payload),
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=[service.quotation_response(item) for item in rows])
 
 
 @router.get("/{quotation_id}", response_model=ApiResponse[QuotationResponse])
