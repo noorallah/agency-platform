@@ -198,6 +198,7 @@ class GoodsReceiptNote {
 class GoodsReceiptRecord {
   const GoodsReceiptRecord({
     required this.id,
+    this.version = 0,
     required this.firmId,
     required this.purchaseOrderId,
     required this.purchaseOrderNumber,
@@ -240,6 +241,12 @@ class GoodsReceiptRecord {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String firmId;
   final String purchaseOrderId;
   final String purchaseOrderNumber;
@@ -282,6 +289,7 @@ class GoodsReceiptRecord {
 
   factory GoodsReceiptRecord.fromJson(Json json) => GoodsReceiptRecord(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         purchaseOrderId: stringValue(json['purchase_order_id']),
         purchaseOrderNumber: stringValue(json['purchase_order_number']),

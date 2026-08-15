@@ -39,6 +39,7 @@ from app.branches.schemas import (
 )
 from app.branches.services import BranchWarehouseService
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -265,6 +266,7 @@ def import_branches(
 def get_branch(
     branch_id: UUID,
     scope: BranchViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchResponse]:
@@ -274,6 +276,7 @@ def get_branch(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
     )
+    set_etag(response, row)
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
     payload["warehouse_count"] = len(
         [item for item in row.warehouses if not item.is_deleted]
@@ -286,15 +289,23 @@ def update_branch(
     branch_id: UUID,
     data: BranchUpdate,
     scope: BranchUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BranchResponse]:
     """Replace one branch."""
-    row = BranchWarehouseService(db).update_branch(
+    service = BranchWarehouseService(db)
+    assert_version(
+        service.get_branch(branch_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
+    row = service.update_branch(
         branch_id,
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
     payload["warehouse_count"] = len(
         [item for item in row.warehouses if not item.is_deleted]
@@ -552,6 +563,7 @@ def import_warehouses(
 def get_warehouse(
     warehouse_id: UUID,
     scope: WarehouseViewScope,
+    response: Response,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseResponse]:
@@ -561,6 +573,7 @@ def get_warehouse(
         firm_scope=scope.firm_id,
         include_deleted=include_deleted,
     )
+    set_etag(response, row)
     return ApiResponse(data=WarehouseResponse.model_validate(row))
 
 
@@ -569,15 +582,23 @@ def update_warehouse(
     warehouse_id: UUID,
     data: WarehouseUpdate,
     scope: WarehouseUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[WarehouseResponse]:
     """Replace one warehouse."""
-    row = BranchWarehouseService(db).update_warehouse(
+    service = BranchWarehouseService(db)
+    assert_version(
+        service.get_warehouse(warehouse_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
+    row = service.update_warehouse(
         warehouse_id,
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=WarehouseResponse.model_validate(row))
 
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -148,7 +149,11 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
     try {
       final Quotation saved = existing == null
           ? await widget.api.createQuotation(payload)
-          : await widget.api.updateQuotation(existing.id, payload);
+          : await widget.api.updateQuotation(
+              existing.id,
+              payload,
+              expectedVersion: preconditionFor(existing.version),
+            );
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -161,7 +166,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       await _load(requestedPage: existing == null ? 1 : _page);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = exception.message);
+      setState(() => _error =
+          saveFailureMessage(exception, 'quotation', changesKept: false));
     }
   }
 

@@ -272,6 +272,11 @@ class BranchResponse(BranchWarehouseSchema):
     """Expose persisted branch."""
 
     id: UUID
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. It rides in the body as well as the ETag
+    #: header because a list carries many records and a header carries
+    #: one — and this desktop edits from list rows.
+    version: int
     firm_id: UUID
     code: str
     name: str
@@ -319,6 +324,11 @@ class WarehouseResponse(BranchWarehouseSchema):
     """Expose persisted warehouse."""
 
     id: UUID
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. It rides in the body as well as the ETag
+    #: header because a list carries many records and a header carries
+    #: one — and this desktop edits from list rows.
+    version: int
     firm_id: UUID
     branch_id: UUID
     code: str

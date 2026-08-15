@@ -107,6 +107,7 @@ class VendorAddress {
 class Vendor {
   const Vendor({
     required this.id,
+    this.version = 0,
     required this.firmId,
     required this.code,
     required this.name,
@@ -135,6 +136,12 @@ class Vendor {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String firmId;
   final String code;
   final String name;
@@ -163,6 +170,7 @@ class Vendor {
 
   factory Vendor.fromJson(Json json) => Vendor(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),

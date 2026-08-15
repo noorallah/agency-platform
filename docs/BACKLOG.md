@@ -1170,12 +1170,33 @@ because the API returned no ETag to send back; that gap is closed below. **All t
   precondition, so an older backend stays usable rather than having every save
   refused.
 
-  **Still to do: every other screen.** Vendors, products, branches, warehouses,
-  inventory, batches, UOM, territories, quotations and goods receipts all still
-  save last-one-wins. The plumbing is in `request()` and costs one argument per
-  call site plus `version` on the model; the reason it was not done wholesale is
-  that each screen needs its own conflict message and its own test, and a
-  half-tested precondition is worse than none — it reads as a guarantee.
+  **Extended to five more screens on 2026-08-15**: vendors, products, branches,
+  warehouses and quotations. Vendors is the one that mattered most — its update
+  replaces **six** child collections (contacts, addresses, banking, tax
+  registrations, attachments, notes), the worst case of that shape in the
+  codebase.
+
+  **The refusal message depends on where the editor saves from**, and getting
+  that wrong tells the user a lie about their own work. Customers and products
+  save from *inside* the dialog, so a refusal leaves the form holding every
+  keystroke and the message says so. Vendors, branches, warehouses and
+  quotations return their payload and close first, so by the time the refusal
+  arrives the typing is gone — those say the changes were **not saved**.
+  `concurrencyMessage(noun, changesKept:)` in
+  `desktop/lib/core/api/concurrency.dart` is that distinction, in one place.
+
+  **`QuotationResponse` already carried `version`** and had since the module was
+  written, so that screen needed no schema change at all — only the client had
+  to start reading it.
+
+  **Still last-one-wins:** UOM, tax, batch/serial, territories, inventory,
+  opening stock, physical counts, document types and business profiles.
+  **UOM and tax are deliberate**, not an oversight: `uom` already uses `version`
+  in its schemas for a conversion rule's own business version, so the
+  concurrency counter cannot take that name there without a rename, and `tax`
+  carries `version_number` on versioned rules for the same reason. Those two
+  need a field-naming decision before they can join, which is why they are not
+  in this change.
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the

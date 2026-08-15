@@ -254,6 +254,9 @@ class QuotationResponse(QuotationSchema):
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
+    #: The optimistic-concurrency version. This response has carried it
+    #: since the module was written, which is why the quotation screen
+    #: needed no schema change to start sending ``If-Match``.
     version: int
     lines: list[QuotationLineResponse]
     attachments: list[QuotationAttachmentResponse]

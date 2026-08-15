@@ -58,6 +58,7 @@ class QuotationLine {
 class Quotation {
   const Quotation({
     required this.id,
+    this.version = 0,
     required this.customerId,
     required this.branchId,
     required this.warehouseId,
@@ -82,6 +83,12 @@ class Quotation {
   });
 
   final String id;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none, and the
+  /// save then carries no precondition.
+  final int version;
   final String customerId;
   final String branchId;
   final String warehouseId;
@@ -123,6 +130,7 @@ class Quotation {
 
   factory Quotation.fromJson(Json json) => Quotation(
         id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
         customerId: stringValue(json['customer_id']),
         branchId: stringValue(json['branch_id']),
         warehouseId: stringValue(json['warehouse_id']),

@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -335,7 +336,11 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
     )
     created = create_product(_base_payload("PROD-COST"), creator_scope, session)
     viewer_scope = _firm_scope(_principal(user_id, {"PRODUCT_VIEW"}), session, firm.id)
-    fetched = get_product(created.data.id, viewer_scope, False, session)
+    read_response = Response()
+    fetched = get_product(created.data.id, viewer_scope, read_response, False, session)
+    assert (
+        read_response.headers["ETag"] == f'"{fetched.data.version}"'
+    ), "a reader must be told the version it has to send back in If-Match"
     assert fetched.data.purchase_price is None
     assert fetched.data.selling_price == Decimal("120.00")
 

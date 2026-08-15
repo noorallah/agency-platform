@@ -814,9 +814,24 @@ class ApiClient {
         await request('POST', '/api/v1/vendors', body: data),
       ));
 
-  Future<Vendor> updateVendor(String id, Json data) async =>
+  /// Replace one vendor.
+  ///
+  /// [expectedVersion] is the `version` of the record the user opened. This
+  /// update replaces six child collections — contacts, addresses, banking, tax
+  /// registrations, attachments and notes — so losing a race here costs more
+  /// than any other master in the product.
+  Future<Vendor> updateVendor(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       Vendor.fromJson(_unwrapMap(
-        await request('PUT', '/api/v1/vendors/$id', body: data),
+        await request(
+          'PUT',
+          '/api/v1/vendors/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        ),
       ));
 
   Future<void> deleteVendor(String id) =>
@@ -887,9 +902,18 @@ class ApiClient {
     return _unwrapList(response, BranchRecord.fromJson);
   }
 
-  Future<BranchRecord> updateBranch(String id, Json data) async =>
+  Future<BranchRecord> updateBranch(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       BranchRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/branches/$id', body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/branches/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteBranch(String id) =>
@@ -956,9 +980,18 @@ class ApiClient {
     return _unwrapList(response, WarehouseRecord.fromJson);
   }
 
-  Future<WarehouseRecord> updateWarehouse(String id, Json data) async =>
+  Future<WarehouseRecord> updateWarehouse(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       WarehouseRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/warehouses/$id', body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/warehouses/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteWarehouse(String id) =>
@@ -1761,9 +1794,18 @@ class ApiClient {
         await request('POST', '/api/v1/products', body: data),
       ));
 
-  Future<Product> updateProduct(String id, Json data) async =>
+  Future<Product> updateProduct(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       Product.fromJson(_unwrapMap(
-        await request('PUT', '/api/v1/products/$id', body: data),
+        await request(
+          'PUT',
+          '/api/v1/products/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        ),
       ));
 
   Future<void> deleteProduct(String id) =>
@@ -2055,10 +2097,18 @@ class ApiClient {
         _unwrapMap(await request('POST', '/api/v1/goods-receipts', body: data)),
       );
 
-  Future<GoodsReceiptRecord> updateGoodsReceipt(String id, Json data) async =>
+  Future<GoodsReceiptRecord> updateGoodsReceipt(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       GoodsReceiptRecord.fromJson(
-        _unwrapMap(
-            await request('PUT', '/api/v1/goods-receipts/$id', body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/goods-receipts/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<GoodsReceiptRecord> completeGoodsReceipt(String id) async =>
@@ -2299,9 +2349,23 @@ class ApiClient {
         _unwrapMap(await request('POST', '/api/v1/quotations', body: data)),
       );
 
-  Future<Quotation> updateQuotation(String id, Json data) async =>
+  /// Replace one quotation.
+  ///
+  /// The update replaces the whole line collection and the editor writes as
+  /// many lines as the offer needs, so a lost race costs every line somebody
+  /// typed rather than a single field.
+  Future<Quotation> updateQuotation(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       Quotation.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/quotations/$id', body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/quotations/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   /// Run a lifecycle action: send, accept, decline or cancel.

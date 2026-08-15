@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -251,11 +252,13 @@ async def import_quotations(
 def get_quotation(
     quotation_id: UUID,
     scope: QuotationViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[QuotationResponse]:
     """Return one quotation."""
     service = QuotationService(db)
     row = service.get_quotation(quotation_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
     return ApiResponse(data=service.quotation_response(row))
 
 
@@ -283,13 +286,25 @@ def update_quotation(
     quotation_id: UUID,
     payload: QuotationUpdate,
     scope: QuotationUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[QuotationResponse]:
-    """Replace one quotation that has not been decided on."""
+    """Replace one quotation that has not been decided on.
+
+    The update replaces the whole line collection, and the desktop dialog now
+    writes as many lines as the offer needs, so a lost race costs every line
+    somebody typed rather than a single field.
+    """
     service = QuotationService(db)
+    assert_version(
+        service.get_quotation(quotation_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_quotation(
         quotation_id, payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.quotation_response(row))
 
 

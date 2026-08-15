@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -109,14 +110,18 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
       if (creating) {
         await widget.api.createVendor(payload);
       } else {
-        await widget.api.updateVendor(vendor.id, payload);
+        await widget.api.updateVendor(
+          vendor.id,
+          payload,
+          expectedVersion: preconditionFor(vendor.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
         context,
-        exception.message,
+        saveFailureMessage(exception, 'vendor', changesKept: false),
         kind: AppNotificationKind.error,
       );
     }
