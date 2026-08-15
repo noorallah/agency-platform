@@ -125,6 +125,12 @@ class QuotationUpdate(QuotationCreate):
     """Replace one quotation."""
 
 
+class QuotationImportRequest(QuotationSchema):
+    """Import a validated batch of quotations."""
+
+    records: list[QuotationCreate] = Field(min_length=1, max_length=500)
+
+
 class QuotationListFilters(QuotationSchema):
     """Narrow a quotation list."""
 

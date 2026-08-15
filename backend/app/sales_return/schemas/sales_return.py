@@ -191,6 +191,17 @@ class SalesReturnUpdate(SalesReturnCreate):
     """Replace one sales return."""
 
 
+class SalesReturnImportRequest(SalesReturnSchema):
+    """Import a validated batch of sales returns.
+
+    Bounded at 500 for the same reason the purchase-return batch is: every
+    record resolves its source delivery note or invoice, prices its lines and
+    simulates tax per line, so a batch is not a cheap loop over inserts.
+    """
+
+    records: list[SalesReturnCreate] = Field(min_length=1, max_length=500)
+
+
 class SalesReturnListFilters(SalesReturnSchema):
     """Narrow a sales return list."""
 

@@ -800,7 +800,29 @@ therefore served them at `/api/v1/sales-invoices/` and answered
 invoice failed** with "Request failed (307)". The Sales Invoices workspace had
 been in that state.
 
-**Not built, deliberately:** import/export.
+**Import and export were built on 2026-08-15**, closing the last gap in this
+module. `GET /sales-returns/export` answers CSV; `POST /sales-returns/import`
+takes a JSON batch of up to 500. Both take the seeded `SALES_EXPORT` /
+`SALES_IMPORT` codes, so no permission or migration was needed.
+
+**JSON only, and that is the decision.** A return line names the delivery-note
+or invoice line it came off, so a flat CSV row cannot express one without
+inventing a way to identify the source -- and a source picked wrongly puts the
+stock back against the wrong document. Purchase returns took the same view.
+
+**The batch lands whole or not at all.** `create_return` commits, so a loop
+over it is the shape that made the branch and warehouse imports impossible to
+finish: a batch whose later row is refused returns an error with the earlier
+rows already written, and the corrected file then fails on those as
+duplicates. Creation is split into `_stage_return`, which builds without
+committing, and `create_return`, which stages one and commits. The import
+stages every record and commits once.
+
+Reverting to the naive loop and re-running `test_a_refused_batch_leaves_nothing_behind`
+shows the failure is worse than "half of it went in": the refused record leaves
+its **own header flushed on the session** as well, so the caller inherits two
+rows where they should see none. That is why the import rolls back rather than
+merely declining to commit.
 
 ## 10. Quotations -- a price offered before anything is sold
 
@@ -833,7 +855,25 @@ total answers, and `/reports/conversion` is the only report that joins what was
 offered to what was sold -- a quotation register says one half and an order
 register the other.
 
-**Not built, deliberately:** multi-line editing in the desktop dialog (the
+**Import and export were built on 2026-08-15.** `GET /quotations/export` and
+`POST /quotations/import`, JSON batches of up to 500, on the seeded
+`SALES_EXPORT` / `SALES_IMPORT` codes. Staged and committed once, for the same
+reason sales returns are — see §9.
+
+The export carries **`is_expired` as its own column**. Expiry is derived from
+`valid_until` rather than stored, and a quotation reads `SENT` the day before
+and the day after its prices lapse, so a pipeline exported on status alone
+cannot tell a live offer from a dead one. The test asserts exactly that: two
+quotations both `DRAFT`, one expired and one not.
+
+**A duplicate document number is a 409 now, not a 500.** Both modules added
+their header row with a bare `session.flush()`, so a clash with an existing
+number raised `IntegrityError` straight out of the service, past the
+`_flush_or_conflict` translator waiting at the end of the same method. It was
+reachable before this change through an explicit `quotation_number`, and a
+batch import is the likeliest way anybody hits it.
+
+**Still not built, deliberately:** multi-line editing in the desktop dialog (the
 backend takes up to 1,000 lines; the form writes one), PDF rendering, and
 emailing a quotation to the customer. `RESET_ORDER` in
 `scripts/generate_transaction_history.py` gained the four new tables, the same

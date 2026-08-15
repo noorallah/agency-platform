@@ -52,6 +52,7 @@ from app.sales_order.services import SalesOrderService
 from app.sales_return.models import SalesReturn, SalesReturnLine
 from app.sales_return.schemas import (
     SalesReturnCreate,
+    SalesReturnImportRequest,
     SalesReturnLineWrite,
     SalesReturnSourceType,
     SalesReturnStatus,
@@ -751,3 +752,74 @@ def test_cancelling_a_return_of_damaged_goods_takes_their_value_back() -> None:
         _stock_value(session, firm_id=setup.firm.id, product_id=setup.product.id)
         == value_before
     )
+
+
+def test_a_batch_import_lands_whole_and_carries_the_returns_it_names() -> None:
+    """Two returns arrive in one transaction and both are real documents."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+
+    rows = service.import_returns(
+        SalesReturnImportRequest(
+            records=[
+                setup.payload(quantity=Decimal("1")),
+                setup.payload(quantity=Decimal("2")),
+            ]
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert [row.total_current_return_quantity for row in rows] == [
+        Decimal("1.0000"),
+        Decimal("2.0000"),
+    ]
+    # Distinct numbers: the second record has to see the counter the first one
+    # advanced, which it only does because both are staged on one session.
+    assert len({row.return_number for row in rows}) == 2
+    assert session.query(SalesReturn).count() == 2
+
+
+def test_a_refused_batch_leaves_nothing_behind() -> None:
+    """The failure that makes a per-row import impossible to finish.
+
+    A loop over ``create_return`` commits as it goes, so a batch whose later
+    row is refused returns an error with the earlier rows already written --
+    and the corrected file then fails on those as duplicates. The whole batch
+    has to land or none of it, and the second record here over-returns the
+    dispatch, which is refused.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+
+    with pytest.raises(ValidationError):
+        service.import_returns(
+            SalesReturnImportRequest(
+                records=[
+                    setup.payload(quantity=Decimal("2")),
+                    setup.payload(quantity=Decimal("9")),
+                ]
+            ),
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+    assert session.query(SalesReturn).count() == 0
+    assert session.query(SalesReturnLine).count() == 0
+
+
+def test_the_export_names_every_return_it_lists() -> None:
+    """The CSV carries the header plus one row per return."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service, row = setup.completed(quantity=Decimal("2"))
+
+    content = service.export_returns_csv(firm_scope=setup.firm.id)
+
+    lines = [line for line in content.splitlines() if line.strip()]
+    assert lines[0].startswith("return_number,customer_return_number,return_date")
+    assert len(lines) == 2
+    assert row.return_number in lines[1]
+    assert str(setup.customer.id) in lines[1]

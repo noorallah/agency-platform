@@ -21,7 +21,7 @@ from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.document_framework.models import DocumentTypeDefinition
@@ -34,6 +34,7 @@ from app.products.models import Product
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import (
     QuotationCreate,
+    QuotationImportRequest,
     QuotationLineWrite,
     QuotationStatus,
 )
@@ -565,3 +566,92 @@ def test_a_quotation_is_visible_only_inside_its_own_firm() -> None:
         session.scalar(select(SalesQuotation).where(SalesQuotation.id == row.id))
         is not None
     )
+
+
+def test_a_batch_import_lands_whole() -> None:
+    """Two quotations arrive in one transaction, each with its own number."""
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    rows = setup.service.import_quotations(
+        QuotationImportRequest(
+            records=[
+                setup.payload(quantity=Decimal("2")),
+                setup.payload(quantity=Decimal("5")),
+            ]
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert len(rows) == 2
+    # The second record has to see the counter the first one advanced, which it
+    # only does because both are staged on one session before anything commits.
+    assert len({row.quotation_number for row in rows}) == 2
+    assert session.query(SalesQuotation).count() == 2
+    # A quotation still commits nothing, imported or not.
+    assert session.query(JournalEntry).count() == 0
+    assert session.query(InventoryTransaction).count() == 0
+
+
+def test_a_refused_batch_leaves_nothing_behind() -> None:
+    """A batch that is refused can be corrected and sent again as it stands.
+
+    Both records carry the same number here, so the second is refused at the
+    flush -- after its own header has been staged. A loop over
+    ``create_quotation`` would leave the first one committed and the second
+    half-written on the session, and the corrected file would then fail on the
+    first as a duplicate.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    first = setup.payload(quantity=Decimal("2"))
+    first.quotation_number = "QT-DUP-1"
+    second = setup.payload(quantity=Decimal("3"))
+    second.quotation_number = "QT-DUP-1"
+
+    with pytest.raises(ConflictError):
+        setup.service.import_quotations(
+            QuotationImportRequest(records=[first, second]),
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+    assert session.query(SalesQuotation).count() == 0
+    assert session.query(SalesQuotationLine).count() == 0
+
+
+def test_the_export_says_whether_the_prices_have_lapsed() -> None:
+    """``is_expired`` is its own column, because the status does not say it.
+
+    A quotation reads SENT the day before and the day after its prices lapse,
+    so a pipeline exported on status alone cannot tell the two apart.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    today = utc_now().date()
+    live = setup.service.create_quotation(
+        setup.payload(valid_until=today + timedelta(days=30)),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    lapsed = setup.service.create_quotation(
+        setup.payload(
+            quotation_date=today - timedelta(days=60),
+            valid_until=today - timedelta(days=1),
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    content = setup.service.export_quotations_csv(firm_scope=setup.firm.id)
+
+    lines = [line for line in content.splitlines() if line.strip()]
+    assert lines[0].startswith("quotation_number,quotation_date,valid_until")
+    by_number = {line.split(",")[0]: line for line in lines[1:]}
+    assert by_number[live.quotation_number].split(",")[6] == "false"
+    assert by_number[lapsed.quotation_number].split(",")[6] == "true"
+    # Both are still DRAFT: the status column cannot answer this question.
+    assert by_number[live.quotation_number].split(",")[5] == "DRAFT"
+    assert by_number[lapsed.quotation_number].split(",")[5] == "DRAFT"

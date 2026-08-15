@@ -11,6 +11,8 @@ since been cut is refused at the point it matters.
 
 from __future__ import annotations
 
+import csv
+import io
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -46,6 +48,7 @@ from app.quotation.schemas import (
     QuotationAttachmentWrite,
     QuotationConversionRecord,
     QuotationCreate,
+    QuotationImportRequest,
     QuotationLineResponse,
     QuotationLineWrite,
     QuotationListFilters,
@@ -249,6 +252,18 @@ class QuotationService(TransactionalDocumentService):
         self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesQuotation:
         """Create one quotation in draft."""
+        row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def _stage_quotation(
+        self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesQuotation:
+        """Build one quotation without committing it.
+
+        Split out so an import can stage a whole batch and commit once, rather
+        than leaving half a file written when a later row is refused.
+        """
         assert_feature_fields(
             self._session,
             firm_id,
@@ -295,7 +310,11 @@ class QuotationService(TransactionalDocumentService):
             updated_by=actor_id,
         )
         self._session.add(row)
-        self._session.flush()
+        # Not a bare flush: a duplicate number clashes here, before the
+        # catch-all below is reached, and an IntegrityError escaping the
+        # service is a 500 where the caller should be told 409 -- which is the
+        # likeliest way a batch import goes wrong.
+        self._flush_or_conflict("Quotation number already exists in this firm.")
         self._apply_children(row, data, actor_id=actor_id)
         self._record_event(
             firm_id=firm_id,
@@ -319,7 +338,6 @@ class QuotationService(TransactionalDocumentService):
             },
         )
         self._flush_or_conflict("Quotation number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_quotation(
@@ -873,6 +891,77 @@ class QuotationService(TransactionalDocumentService):
             actor_id=actor_id,
         )
         return self._q(response.total_tax_amount)
+
+    # ---- import and export ---------------------------------------------
+
+    def import_quotations(
+        self, data: QuotationImportRequest, *, firm_scope: UUID, actor_id: UUID
+    ) -> list[SalesQuotation]:
+        """Create a validated batch of quotations in one transaction.
+
+        The whole batch lands or none of it does, so a file that is refused
+        can be corrected and sent again as it stands.
+        """
+        try:
+            rows = [
+                self._stage_quotation(record, firm_id=firm_scope, actor_id=actor_id)
+                for record in data.records
+            ]
+        except Exception:
+            self._session.rollback()
+            raise
+        self._session.commit()
+        return rows
+
+    def export_quotations_csv(
+        self, *, firm_scope: UUID, search: str | None = None
+    ) -> str:
+        """Export matching quotations as CSV.
+
+        ``is_expired`` is carried as its own column rather than left to be read
+        off ``status``: a quotation reads ``SENT`` the day before and the day
+        after its prices lapse, and that is exactly the row somebody exporting
+        a pipeline needs to be able to tell apart.
+        """
+        rows, _ = self.list_quotations(
+            firm_scope=firm_scope,
+            filters=QuotationListFilters(),
+            page=1,
+            page_size=5000,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(
+            [
+                "quotation_number",
+                "quotation_date",
+                "valid_until",
+                "customer_id",
+                "branch_id",
+                "status",
+                "is_expired",
+                "grand_total",
+                "decline_reason",
+            ]
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.quotation_number,
+                    row.quotation_date.isoformat(),
+                    row.valid_until.isoformat(),
+                    str(row.customer_id),
+                    str(row.branch_id),
+                    row.status,
+                    str(self.is_expired(row)).lower(),
+                    str(row.grand_total),
+                    row.decline_reason,
+                ]
+            )
+        return buffer.getvalue()
 
     # ---- responses -----------------------------------------------------
 
