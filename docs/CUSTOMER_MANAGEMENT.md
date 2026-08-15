@@ -51,8 +51,8 @@ platform authority never turns a firm-owned endpoint into an unscoped query.
 | --- | --- | --- |
 | `GET /api/v1/customers` | View | Paginated search, sorting, and filters |
 | `POST /api/v1/customers` | Create | Create a customer with addresses and contacts |
-| `GET /api/v1/customers/{id}` | View | Get a complete customer |
-| `PUT /api/v1/customers/{id}` | Update | Replace editable customer and child data |
+| `GET /api/v1/customers/{id}` | View | Get a complete customer. Answers an `ETag` carrying the version |
+| `PUT /api/v1/customers/{id}` | Update | Replace editable customer and child data. Accepts `If-Match`; answers a new `ETag` |
 | `DELETE /api/v1/customers/{id}` | Delete | Soft delete |
 | `POST /api/v1/customers/{id}/restore` | Restore | Restore |
 | `GET /api/v1/customers/summary` | View | Lifecycle and financial aggregates |
@@ -103,6 +103,19 @@ Money is recorded through `/api/v1/receipts` and `/api/v1/payments`, which post.
 `CustomerService.post_receivable_transaction` moves a balance without writing a
 journal and is the older, lower-level path — the two books drift by every rupee
 recorded through it.
+
+## Concurrent edits
+
+`PUT /api/v1/customers/{id}` replaces the **whole** address and contact
+collection, so two people editing one customer do not merge badly — the loser
+loses every row they entered. `If-Match` is how a client refuses that: send the
+version last read and a write aimed at a superseded one is refused with 409.
+
+The version to send is published as an `ETag` on `GET` and on `PUT` itself.
+Echo the header you were given rather than computing the next number: an update
+can advance the counter by more than one. Sending nothing, or `*`, means no
+precondition and is accepted — the guarantee is opt-in, and the desktop does
+not use it yet.
 
 ## Validation and audit
 

@@ -1019,9 +1019,8 @@ refused.
 
 Verified over HTTP: creating a customer with 25,000 moves Trade Receivables and
 opening balance equity by 25,000 each, deleting them moves both back, and the
-lifecycle nets to zero. The revise path is covered at service level -- the API
-needs an `If-Match` whose value is not returned as an ETag, which is a separate
-gap. **All three stores hold together** after a full reset and re-seed.
+lifecycle nets to zero. The revise path was covered at service level only,
+because the API returned no ETag to send back; that gap is closed below. **All three stores hold together** after a full reset and re-seed.
 
 ## Also open
 
@@ -1070,6 +1069,32 @@ gap. **All three stores hold together** after a full reset and re-seed.
   put the store 59,901.23 out. The verifier named it as "a balance moved
   without a journal", which is exactly what had happened. It is the second time
   that script has paid for itself within minutes.
+
+- **A record now tells you which version to send back**, as of 2026-08-15.
+  `If-Match` had been accepted by five routers since it was written, and **no
+  response carried the version anywhere** -- not as a header, not as a body
+  field. The only value a client could honestly send was `*`, which means "no
+  precondition", so the whole optimistic-concurrency contract was documented
+  and unusable. `set_etag` in `app/core/concurrency.py` publishes the version as
+  a quoted `ETag`, which is exactly what `parse_if_match` reads back, so a
+  client echoes the header it was given without having to know what is inside
+  it.
+
+  It is on the twelve endpoints that answer with one versioned record -- the
+  `GET` and `PUT` pair for firms, purchase orders, sales orders, delivery
+  notes, goods receipts and customers.
+
+  **`PUT /customers/{id}` gained the precondition itself**, which it never had.
+  It is the endpoint the gap was first noticed on and the one where losing it
+  costs most: the update replaces the whole address and contact collection, so
+  the loser of a concurrent edit does not merge badly -- they lose every row
+  they entered.
+
+  **Not wired in the desktop.** `api_client.dart` neither reads the header nor
+  sends one, so today the contract is available to any HTTP caller and used by
+  none. Threading it through means carrying response headers back out of a
+  3,000-line client that currently returns decoded bodies, and it should be
+  done as its own change rather than smuggled into this one.
 
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the

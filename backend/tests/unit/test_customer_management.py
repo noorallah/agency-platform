@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from pydantic import ValidationError as SchemaValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,6 +17,7 @@ from app.common.scope import (
     optional_firm_scope,
     required_firm_scope,
 )
+from app.core.concurrency import parse_if_match
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
@@ -32,9 +34,11 @@ from app.customers.api.router import (
     customer_credit_status,
     delete_customer,
     get_credit_settings,
+    get_customer,
     list_customers,
     restore_customer,
     update_credit_settings,
+    update_customer,
 )
 from app.customers.models import (
     CreditControlSettings,
@@ -433,6 +437,59 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
         require_permission("CUSTOMER_CREATE")(view_only)
 
     assert session.query(Customer).count() == 1
+
+
+def test_a_reader_is_told_the_version_it_must_send_back() -> None:
+    """The precondition is only usable if the version is published somewhere.
+
+    ``If-Match`` was accepted by five routers from the day it was written while
+    no response carried the version at all, so the only value a client could
+    honestly send was ``*`` -- which means no precondition. A customer update
+    replaces the whole address and contact collections, so the loser of a
+    concurrent edit loses every row they entered; this is the endpoint where
+    that matters most.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "ETAG")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+
+    session = factory()
+    principal = _principal(
+        user_id, {"CUSTOMER_CREATE", "CUSTOMER_VIEW", "CUSTOMER_UPDATE"}
+    )
+    scope = _firm_scope(principal, session, firm.id)
+    created = create_customer(_customer_data(), scope, session)
+    customer_id = created.data.id
+
+    read = Response()
+    get_customer(customer_id, scope, read, False, session)
+    stale = parse_if_match(read.headers["ETag"])
+    assert stale is not None, "the ETag must carry a version, not be absent or *"
+
+    revised = CustomerUpdate.model_validate(
+        {**_customer_data().model_dump(mode="json"), "name": "Renamed Once"}
+    )
+    first = Response()
+    update_customer(customer_id, revised, scope, first, session, stale)
+    fresh = parse_if_match(first.headers["ETag"])
+    assert fresh is not None and fresh > stale, "an update must advance the version"
+
+    # The version read before that update is now stale, and saying so is the
+    # whole point: without the ETag the client could not have known either one.
+    with pytest.raises(ConflictError):
+        update_customer(customer_id, revised, scope, Response(), session, stale)
+
+    again = CustomerUpdate.model_validate(
+        {**_customer_data().model_dump(mode="json"), "name": "Renamed Twice"}
+    )
+    accepted = Response()
+    result = update_customer(customer_id, again, scope, accepted, session, fresh)
+    assert result.data.name == "Renamed Twice"
+    assert parse_if_match(accepted.headers["ETag"]) == fresh + 1
 
 
 def _customer_with_credit(

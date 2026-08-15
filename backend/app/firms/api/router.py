@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
-from app.core.concurrency import ExpectedVersion
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.config.settings import Settings
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -77,10 +77,15 @@ def create_firm(
 
 @router.get("/{firm_id}", response_model=ApiResponse[FirmResponse])
 def get_firm(
-    firm_id: UUID, principal: PlatformPrincipal, db: Session = Depends(get_db)
+    firm_id: UUID,
+    principal: PlatformPrincipal,
+    response: Response,
+    db: Session = Depends(get_db),
 ) -> ApiResponse[FirmResponse]:
     """Retrieve a visible firm."""
-    return ApiResponse(data=FirmResponse.model_validate(FirmService(db).get(firm_id)))
+    firm = FirmService(db).get(firm_id)
+    set_etag(response, firm)
+    return ApiResponse(data=FirmResponse.model_validate(firm))
 
 
 @router.put("/{firm_id}", response_model=ApiResponse[FirmResponse])
@@ -88,6 +93,7 @@ def update_firm(
     firm_id: UUID,
     data: FirmUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
@@ -96,6 +102,7 @@ def update_firm(
     firm = FirmService(db, tenancy_settings=settings.tenancy).update(
         firm_id, data, _actor_id(principal), expected_version
     )
+    set_etag(response, firm)
     return ApiResponse(data=FirmResponse.model_validate(firm))
 
 

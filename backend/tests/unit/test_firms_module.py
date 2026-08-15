@@ -11,6 +11,7 @@ from datetime import date
 from uuid import UUID
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -443,21 +444,34 @@ def test_router_reads_updates_and_deletes_through_the_service() -> None:
     principal = _principal()
     firm = FirmService(session).create(_create_payload(), _ACTOR)
 
-    fetched = get_firm(firm_id=firm.id, principal=principal, db=session)
+    read_response = Response()
+    fetched = get_firm(
+        firm_id=firm.id, principal=principal, response=read_response, db=session
+    )
     assert fetched.data.code == "ACME"
     assert fetched.data.deployment_mode.value == "SHARED"
+    assert (
+        read_response.headers["ETag"]
+        == f'"{FirmService(session).get(firm.id).version}"'
+    )
 
     class _Settings:
         tenancy = None
 
+    update_response = Response()
     updated = update_firm(
         firm_id=firm.id,
         data=_update_payload(name="Renamed"),
         principal=principal,
+        response=update_response,
         db=session,
         settings=_Settings(),  # type: ignore[arg-type]
     )
     assert updated.data.name == "Renamed"
+    assert (
+        update_response.headers["ETag"]
+        == f'"{FirmService(session).get(firm.id).version}"'
+    )
 
     response = delete_firm(firm_id=firm.id, principal=principal, db=session)
     assert response.status_code == 204
