@@ -409,40 +409,80 @@ debt; a wrongly enforced one silently removes a capability a firm was using.
       `row.version += 1` is dead code that reads as load-bearing concurrency
       control. Eight of them were in `finance`.
 
+### Defects the 2026-08-15 pass added to this list
+
+Both were in `customers`, which this checklist had already recorded as reviewed
+with no findings. Neither was reachable by reading the code or by running the
+suite; both fell out of driving the endpoint over HTTP against seeded data.
+
+- [ ] **A derived balance is never recomputed from an input on update.**
+      `CustomerService.update` recomputed `current_outstanding` from
+      `opening_balance` on every call, so editing a phone number discarded every
+      invoice, receipt and credit note the customer had **(found a real bug —
+      one edit put a store 59,901.23 out)**. Ask of every denormalised total:
+      what writes it, and does this path have the right to.
+- [ ] **A bulk `delete()`/`update()` must not follow ORM changes to the same
+      rows.** `synchronize_session=False` leaves the session's dirty objects
+      pending, so their statement fires against rows that are already gone and
+      raises `StaleDataError` — surfaced to the caller as 409 "this record
+      changed since you loaded it" on an edit nobody was racing **(found a real
+      bug)**. Delete through the ORM, or expire the objects first.
+- [ ] **Test the service on a session shaped like a request's.** Fixtures build
+      sessions with SQLAlchemy's default autoflush; `app/core/database/engine.py`
+      passes `autoflush=False`. Autoflush writes a pending statement while the
+      row still exists and repairs an ordering mistake by accident, so the
+      defect above could only exist in production. Use
+      `_request_like_session_factory` (`tests/unit/test_customer_management.py`)
+      wherever a service mixes ORM mutation with bulk statements.
+- [ ] **A precondition nobody can satisfy is not a feature.** Five routers
+      accepted `If-Match` while no response published the version, so the only
+      honest value was `*` — no precondition. If an endpoint takes a
+      precondition, something must return the value it takes.
+- [ ] **Run `scripts/verify_sample_data.py` after driving writes**, not only
+      after seeding. It caught both of these within minutes, and it names the
+      symptom precisely: "a balance moved without a journal".
+
 ## Module inventory
 
-Endpoint counts measured 2026-08-09. As of 2026-08-10 the **whole** of `app/`
-is clean under `ruff`, `black` and `mypy` — verified by running each against
-`app/` as a whole, not module by module. An earlier claim to that effect was
-wrong: `tax` still carried 184 ruff findings and 14 mypy errors because only
-the five transactional modules had been re-measured. `ruff`/`mypy` are current error
-counts for that package — they are the size of the cleanup, not a pass/fail.
+**Endpoint counts re-measured 2026-08-15** by counting route decorators under
+each package, which is why several moved: the 2026-08-09 figures predate five
+modules and a good deal of growth in the ones already listed. `ruff` and `mypy`
+are zero for every module because the whole tree is clean, and the columns are
+kept so a regression has somewhere to show.
+
+Counting note: `settlements` declares three routers (`receipts_router`,
+`payments_router`, `refunds_router`) rather than one `router`, so a count keyed
+on `@router.` misses it entirely. That is how it stayed off this table.
 
 | Module | Endpoints | ruff | mypy | Unit test | Desktop |
 | --- | ---: | ---: | ---: | --- | --- |
-| `finance` | 30 | 0 | 0 | `test_finance_module` | **none** |
+| `finance` | 33 | 0 | 0 | `test_finance_module` | full — chart, trial balance, journals, ledgers, P&L, balance sheet |
 | `common` (audit) | 1 | 0 | 0 | `test_audit_trail_api` | **none** |
 | `identity` | 29 | 0 | 2 | `test_identity_service`, `test_identity_hardening` | typed |
-| `firms` | 5 | 0 | 0 | `test_firms_module` | typed |
+| `firms` | 6 | 0 | 0 | `test_firms_module` | typed |
 | `document_framework` | 15 | 0 | 0 | `test_document_framework` | widgets only |
-| `business` | 28 | 0 | 0 | `test_business_profile_framework` | typed |
+| `business` | 28 | 0 | 0 | `test_business_profile_framework`, `test_business_profile_gating` | typed |
 | `sales` (territory) | 44 | 0 | 0 | `test_sales_territory_route_management` | typed |
-| `customers` | 14 | 0 | 0 | `test_customer_management` | typed |
+| `customers` | 17 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 0 | 0 | `test_global_search` | typed |
 | `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 0 | 0 | `test_goods_receipt` | typed |
-| `inventory` | 19 | 0 | 0 | `test_inventory_foundation` | typed |
+| `inventory` | 29 | 0 | 0 | `test_inventory_foundation`, `test_inventory_transaction_vocabulary` | typed |
 | `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
-| `uom` | 29 | 0 | 0 | `test_uom_packaging_framework` | typed |
+| `uom` | 28 | 0 | 0 | `test_uom_packaging_framework` | typed |
 | `sales_order` | 17 | 0 | 0 | `test_sales_order_module` | typed |
 | `sales_invoice` | 16 | 0 | 0 | `test_sales_invoice_module` | typed |
 | `purchase_invoice` | 16 | 0 | 0 | `test_purchase_invoice_module` | typed |
 | `delivery_note` | 19 | 0 | 0 | `test_delivery_note_module` | typed |
 | `purchase_return` | 18 | 0 | 0 | `test_purchase_return_module` | typed |
 | `tax` | 52 | 0 | 0 | `test_tax_framework` | typed |
+| `sales_return` | 15 | 0 | 0 | `test_sales_return_module` | typed |
+| `quotation` | 14 | 0 | 0 | `test_quotation_module` | typed |
+| `settlements` | 12 | 0 | 0 | `test_settlements` | typed — receipts, payments, refunds |
+| `diagnostics` | 3 | 0 | 0 | `test_diagnostics_module` | **none** |
 
 As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
 matches only `api_client.dart`. The five document workspaces share
@@ -452,25 +492,40 @@ wired to it.
 
 ## Suggested order
 
-**1. `sales_invoice`** — worst combination on the board: no test at all, 34 mypy
-errors, 185 ruff, and an untyped desktop client. Highest chance of a real defect.
+**Every module in the ordering below has been reviewed** — the progress table
+records passes 0 through 21, finishing on 2026-08-10. The list it replaced
+ranked modules by lint and type debt, which is no longer a way to tell them
+apart: the tree has been clean under all four tools since 2026-08-14, so the
+numbers that used to sort this list are now zero everywhere.
 
-**2. `goods_receipt` and `firms`** — the other two modules with no dedicated test.
-`goods_receipt` posts to inventory, so silent breakage there corrupts stock.
+What is left is the four modules built **after** the review passes ended, none
+of which has had one:
 
-**3. The transaction chain** — `purchase_invoice`, `purchase_return`,
-`delivery_note`, `sales_order`. Similar shape, so reviewing them together lets one
-set of fixes apply four times, including lifting their endpoints into
-`api_client.dart`.
+**1. `settlements` (12 endpoints)** — money in and money out, and the only
+module whose defining constraint is a NOT NULL foreign key to a journal entry.
+Worth a pass for the reversal path specifically: a reversal puts balances back
+by the deltas stored on the original row rather than recomputing them, and that
+is the kind of rule a later change breaks quietly.
 
-**4. `tax`** — the largest single module (52 endpoints, 268 ruff) and a dependency
-of every transaction module, so defects here surface as wrong money elsewhere.
+**2. `sales_return` (15)** — moves three books at once (stock, the customer's
+account, the ledger) and any of them failing must fail the whole document.
+Check the cancel path against the checklist item "cancelling a document
+reverses whatever it posted", which is exactly where its known valuation leak
+was.
 
-**5. `uom`, `branches`, `inventory`, `batch_serial`** — high lint debt but tested
-and typed; mostly cleanup.
+**3. `quotation` (14)** — the opposite risk: it is defined by what it does
+**not** do. A review should assert the negative — no reservation, no balance
+movement, no journal — and check that expiry stays derived from `valid_until`
+rather than acquiring a stored flag.
 
-**6. The rest** — `customers`, `products`, `vendors`, `purchase`, `search`,
-`business`, `sales` are in reasonable shape and can be quick passes.
+**4. `diagnostics` (3)** — small, and the only module on the board with no
+desktop surface at all. The Diagnostics section of this checklist calls for a
+triage screen that still does not exist.
+
+Then a second pass over anything the four PRs of 2026-08-15 touched, since two
+defects in `customers` survived its 2026-08-10 review: that pass found nothing
+because both were only reachable by driving `PUT /customers/{id}` over HTTP,
+which nothing did until the endpoint published an ETag.
 
 ## Progress
 
@@ -492,7 +547,7 @@ and typed; mostly cleanup.
 | 10 | `branches` | 2026-08-10 | the six bulk endpoints wrote no audit entries at all; a branch could be deleted with live warehouses under it and a warehouse deleted with stock in it; `is_default` was maintained by nothing, so every branch could be the firm default | yes — module is now clean under ruff, black and mypy |
 | 11 | `inventory` | 2026-08-10 | `GET /inventory/ledger` raised AttributeError for every firm that had ever moved stock, because the ledger row was fed to the transaction response builder | yes — module is now clean under ruff, black and mypy |
 | 12 | `batch_serial` | 2026-08-10 | expiry counts keyed on a `status` nothing ever sets, so the summary reported zero expired batches while the expiry card listed them; the guard blocking purchases of expired stock never fired for the same reason; expiry windows used the server's local date | yes — module is now clean under ruff, black and mypy |
-| 13 | `customers` | 2026-08-10 | none in the review itself — receivable arithmetic, address/contact reconciliation and firm scoping all hold. The recorded-but-unenforced `credit_limit` was resolved separately: warn by default, block if the firm configures it (`20260810_0057`) | gates cleared; credit control shipped |
+| 13 | `customers` | 2026-08-10, **re-opened 2026-08-15** | The 2026-08-10 pass reported none and said receivable arithmetic held. **It did not.** `update` recomputed the balances from `opening_balance` on every call, so editing any field discarded everything the customer had traded; and it collided with its own opening-balance reversal, answering 409 to an edit nobody was racing. Both were invisible to a read-through and to the unit suite — see the note below | credit control shipped 2026-08-10; both balance defects fixed 2026-08-15 |
 | 14 | `products` | 2026-08-10 | bulk delete and restore wrote no audit entries, the same gap found in `branches`; deleting a category was unaudited too | yes |
 | 15 | `vendors` | 2026-08-10 | all five bulk endpoints wrote no audit entries — the third module with this gap | yes — module is now clean under ruff, black and mypy |
 | 16 | `purchase` | 2026-08-10 | a purchase order with goods receipts against it could be deleted, though cancelling the same order was refused; a CSV import helper closed over its loop variable | yes — module is now clean under ruff, black and mypy |
