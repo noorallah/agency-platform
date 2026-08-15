@@ -69,6 +69,18 @@ Json _territoryJson({
 class _TerritoryApi extends ApiClient {
   _TerritoryApi({
     required this.territory,
+    this.routeTypes = const <Json>[
+      <String, dynamic>{
+        'id': 'rt-sales',
+        'code': 'SALES',
+        'name': 'Sales Route',
+      },
+      <String, dynamic>{
+        'id': 'rt-collect',
+        'code': 'COLLECTION',
+        'name': 'Collection Route',
+      },
+    ],
     this.customerPages = const <List<Json>>[],
     this.customerTotal = 0,
     this.assignedSalesmen = const <Json>[],
@@ -80,6 +92,7 @@ class _TerritoryApi extends ApiClient {
         );
 
   final Json territory;
+  final List<Json> routeTypes;
   final List<List<Json>> customerPages;
   final int customerTotal;
   final List<Json> assignedSalesmen;
@@ -128,16 +141,8 @@ class _TerritoryApi extends ApiClient {
   @override
   Future<List<TerritoryRouteTypeRecord>> territoryRouteTypes() async =>
       <TerritoryRouteTypeRecord>[
-        TerritoryRouteTypeRecord.fromJson(<String, dynamic>{
-          'id': 'rt-sales',
-          'code': 'SALES',
-          'name': 'Sales Route',
-        }),
-        TerritoryRouteTypeRecord.fromJson(<String, dynamic>{
-          'id': 'rt-collect',
-          'code': 'COLLECTION',
-          'name': 'Collection Route',
-        }),
+        for (final Json row in routeTypes)
+          TerritoryRouteTypeRecord.fromJson(row),
       ];
 
   @override
@@ -161,9 +166,8 @@ class _TerritoryApi extends ApiClient {
     bool descending = true,
     CustomerQuery filters = const CustomerQuery(),
   }) async {
-    final List<Json> rows = page <= customerPages.length
-        ? customerPages[page - 1]
-        : const <Json>[];
+    final List<Json> rows =
+        page <= customerPages.length ? customerPages[page - 1] : const <Json>[];
     return PagedResult<Customer>(
       items: <Customer>[for (final Json row in rows) Customer.fromJson(row)],
       total: customerTotal,
@@ -184,14 +188,14 @@ class _TerritoryApi extends ApiClient {
   }
 
   @override
-  Future<List<TerritorySalesmanCandidate>> territorySalesmanCandidates() async =>
-      <TerritorySalesmanCandidate>[
-        TerritorySalesmanCandidate.fromJson(<String, dynamic>{
-          'user_id': 'user-1',
-          'full_name': 'Ravi Kumar',
-          'email': 'ravi@agency.local',
-        }),
-      ];
+  Future<List<TerritorySalesmanCandidate>>
+      territorySalesmanCandidates() async => <TerritorySalesmanCandidate>[
+            TerritorySalesmanCandidate.fromJson(<String, dynamic>{
+              'user_id': 'user-1',
+              'full_name': 'Ravi Kumar',
+              'email': 'ravi@agency.local',
+            }),
+          ];
 
   @override
   Future<List<Json>> territorySalesmen(String territoryId) async =>
@@ -283,8 +287,10 @@ void main() {
     await _pump(tester, api);
     await _openNew(tester);
 
-    await tester.enterText(_inDialog(find.widgetWithText(TextField, 'Code')), 'RT02');
-    await tester.enterText(_inDialog(find.widgetWithText(TextField, 'Name')), 'South');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Code')), 'RT02');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'South');
     await _pickFromDropdown(
       tester,
       _inDialog(find.byType(DropdownButtonFormField<String>)).first,
@@ -293,7 +299,10 @@ void main() {
 
     // Off by default: a region and a zone are territories too, and giving
     // every node a route profile is what "infer it from the fields" would do.
-    expect(tester.widget<SwitchListTile>(_inDialog(find.byType(SwitchListTile))).value,
+    expect(
+        tester
+            .widget<SwitchListTile>(_inDialog(find.byType(SwitchListTile)))
+            .value,
         isFalse);
     final Finder routeSwitch = _inDialog(find.text('This is a route'));
     await tester.ensureVisible(routeSwitch);
@@ -329,6 +338,45 @@ void main() {
     expect(profile['city_id'], isNull);
   });
 
+  testWidgets('a firm with no route types can still save a route',
+      (tester) async {
+    // Nothing in this client creates route types — the API has a POST and no
+    // screen calls it — so the helper text must not send anybody looking for
+    // one, and the save must go through without a type.
+    final _TerritoryApi api = _TerritoryApi(
+      territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
+      routeTypes: const <Json>[],
+    );
+    await _pump(tester, api);
+    await _openNew(tester);
+
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Code')), 'RT03');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'Untyped');
+    await _pickFromDropdown(
+      tester,
+      _inDialog(find.byType(DropdownButtonFormField<String>)).first,
+      'Route',
+    );
+    final Finder routeSwitch = _inDialog(find.text('This is a route'));
+    await tester.ensureVisible(routeSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(routeSwitch);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('a route saves without one'), findsOneWidget);
+    expect(find.textContaining('Route Types'), findsNothing,
+        reason: 'that screen does not exist');
+
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    final Json? profile = api.created?['route_profile'] as Json?;
+    expect(profile, isNotNull);
+    expect(profile!['route_type_id'], isNull);
+  });
+
   testWidgets('a territory that is not a route sends no profile',
       (tester) async {
     final _TerritoryApi api = _TerritoryApi(
@@ -337,8 +385,10 @@ void main() {
     await _pump(tester, api);
     await _openNew(tester);
 
-    await tester.enterText(_inDialog(find.widgetWithText(TextField, 'Code')), 'ZN01');
-    await tester.enterText(_inDialog(find.widgetWithText(TextField, 'Name')), 'Zone');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Code')), 'ZN01');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'Zone');
     await _pickFromDropdown(
       tester,
       _inDialog(find.byType(DropdownButtonFormField<String>)).first,
@@ -369,15 +419,22 @@ void main() {
     await _selectRow(tester, 'RT01');
     await _openEdit(tester);
 
-    expect(tester.widget<SwitchListTile>(_inDialog(find.byType(SwitchListTile))).value,
+    expect(
+        tester
+            .widget<SwitchListTile>(_inDialog(find.byType(SwitchListTile)))
+            .value,
         isTrue);
     expect(find.text('Weekly'), findsWidgets);
     expect(
-      tester.widget<FilterChip>(_inDialog(find.widgetWithText(FilterChip, 'Tue'))).selected,
+      tester
+          .widget<FilterChip>(_inDialog(find.widgetWithText(FilterChip, 'Tue')))
+          .selected,
       isTrue,
     );
     expect(
-      tester.widget<FilterChip>(_inDialog(find.widgetWithText(FilterChip, 'Mon'))).selected,
+      tester
+          .widget<FilterChip>(_inDialog(find.widgetWithText(FilterChip, 'Mon')))
+          .selected,
       isFalse,
     );
   });

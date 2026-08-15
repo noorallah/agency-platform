@@ -842,8 +842,11 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
           initialValue: _routeTypeId,
           decoration: InputDecoration(
             labelText: 'Route type',
+            // No screen creates route types yet — the API has a POST but
+            // nothing in this client calls it — so the message says the route
+            // still saves rather than pointing at a door that is not there.
             helperText: widget.routeTypes.isEmpty
-                ? 'None defined — add one under Route Types'
+                ? 'None defined for this firm — a route saves without one'
                 : null,
           ),
           items: <DropdownMenuItem<String?>>[
