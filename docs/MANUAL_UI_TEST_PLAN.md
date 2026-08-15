@@ -327,6 +327,24 @@ quotation that has **not** lapsed — an expired one cannot be sent, accepted or
 converted, and the workspace badges `EXPIRED` separately from the status because
 `SENT` reads identically the day before and the day after.
 
+### 8.80–8.84 A purchase order is submitted, then approved
+
+Built on 2026-08-16, after testing found the Open Orders tab permanently
+empty. Until then `cancel` and `close` were the only real transitions on a
+purchase order — every other status came from whatever the creator typed on
+the form, so `SUBMITTED` could not be produced by anything a user did.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.80 | A draft can be submitted | Purchases → **New**, save a draft, select it | A **Submit** button appears. Pressing it moves the order to SUBMITTED |
+| 8.81 | Approval needs a submission first | On a **draft**, look for Approve | There is none. Over HTTP, `POST /purchases/{id}/approve` on a draft is refused with "Submit the order first" — an approval anyone can skip is not a control point |
+| 8.82 | A submitted order can be approved | Select the submitted order | An **Approve** button appears; pressing it moves the order to APPROVED |
+| 8.83 | Approving needs the approve right | Sign in as a user with `PURCHASE_UPDATE` but not `PURCHASE_APPROVE` | Submit is offered, Approve is not. The person who raises an order need not be the one who commits the firm to it |
+| 8.84 | The Open Orders tab finally has something | After 8.80, open **Open Orders** | The submitted order is listed. That tab filters on SUBMITTED and was empty for every firm before this |
+
+Each step writes a history row, a lifecycle event and an audit entry — check
+the order's history shows `DRAFT->SUBMITTED` and `SUBMITTED->APPROVED`.
+
 ### 8.70–8.72 A branch or warehouse can say what type it is
 
 Raised from testing on 2026-08-16: the New Branch form had no type field, so

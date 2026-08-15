@@ -57,7 +57,7 @@ from app.purchase.api.router import (
     restore_purchase_order,
     update_purchase_order,
 )
-from app.purchase.models import PurchaseOrderLine
+from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderImportRequest,
@@ -1450,3 +1450,155 @@ def test_an_order_with_receipts_against_it_cannot_be_deleted() -> None:
 
     with pytest.raises(ValidationError, match="Goods have been received"):
         service.delete_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+
+
+def _submittable_order(
+    session: Session,
+) -> tuple[PurchaseService, PurchaseOrder, UUID, UUID]:
+    """Build a draft purchase order ready to be submitted."""
+    actor_id = uuid4()
+    firm = _firm(session, "PO-FLOW")
+    profile = _business_profile(session, actor_id)
+    branch = _branch(
+        session,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        business_profile_id=profile.id,
+    )
+    warehouse = _warehouse(
+        session,
+        firm_id=firm.id,
+        branch_id=branch.id,
+        actor_id=actor_id,
+        business_profile_id=profile.id,
+    )
+    storage = _storage_node(session, warehouse_id=warehouse.id, actor_id=actor_id)
+    vendor = _vendor(
+        session,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        business_profile_id=profile.id,
+    )
+    inventory_uom_id, purchase_uom_id = _uom_pair(
+        session, firm_id=firm.id, actor_id=actor_id
+    )
+    tax_profile_id = _tax_profile(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(
+        session,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        tax_profile_group_code=_TAX_PROFILE_GROUP_CODE,
+        base_uom_id=inventory_uom_id,
+        inventory_uom_id=inventory_uom_id,
+        purchase_uom_id=purchase_uom_id,
+    )
+    service = PurchaseService(session)
+    order = service.create_order(
+        _purchase_data(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            vendor_id=vendor.id,
+            product_id=product.id,
+            purchase_uom_id=purchase_uom_id,
+            inventory_uom_id=inventory_uom_id,
+            tax_profile_id=tax_profile_id,
+            storage_node_id=storage.id,
+            status="DRAFT",
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return service, order, firm.id, actor_id
+
+
+def test_a_purchase_order_is_submitted_before_it_is_approved() -> None:
+    """The control point this module never had.
+
+    Until now `cancel` and `close` were the only real transitions: every other
+    status came from the client stating one on create or update. So SUBMITTED
+    sat in the enum, was filtered on by the Open Orders tab, and could not be
+    produced by anything a user did — that tab was empty for every firm.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    assert order.status == PurchaseOrderStatus.DRAFT.value
+
+    submitted = service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    assert submitted.status == PurchaseOrderStatus.SUBMITTED.value
+
+    approved = service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    assert approved.status == PurchaseOrderStatus.APPROVED.value
+
+
+def test_a_draft_cannot_be_approved_without_being_submitted() -> None:
+    """An approval anybody can skip is not a control point.
+
+    This is the one deliberate difference from `SalesOrderService`, which goes
+    straight from DRAFT: what that guards is credit, checked at the moment of
+    approval, not a second pair of eyes.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+
+    with pytest.raises(ValidationError, match="Submit the order first"):
+        service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    assert (
+        service.get_order(order.id, firm_scope=firm_id).status
+        == PurchaseOrderStatus.DRAFT.value
+    )
+
+
+def test_submitting_twice_is_not_an_error() -> None:
+    """A double click must not fail the second time.
+
+    `cancel_order` and `close_order` both return the row unchanged when it is
+    already in that state, and these follow them.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    again = service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    assert again.status == PurchaseOrderStatus.SUBMITTED.value
+
+
+def test_an_approved_order_cannot_go_back_to_submitted() -> None:
+    """Approval commits the firm to buy, so the step is not reversible here."""
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    with pytest.raises(ValidationError, match="Only draft purchase orders"):
+        service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+
+def test_each_transition_leaves_a_trail() -> None:
+    """A status that moves with no history is one nobody can account for.
+
+    `cancel_order` writes a history row, a lifecycle event and an audit entry;
+    a new transition that wrote two of the three would look right until
+    somebody went looking for the third.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    actions = set(
+        session.scalars(
+            select(AuditLog.action).where(AuditLog.entity_id == order.id)
+        ).all()
+    )
+    assert {"purchase.submitted", "purchase.approved"} <= actions
+
+    history = session.scalars(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == order.id
+        )
+    ).all()
+    states = {(event.from_state, event.to_state) for event in history}
+    assert ("DRAFT", "SUBMITTED") in states
+    assert ("SUBMITTED", "APPROVED") in states

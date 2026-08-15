@@ -2202,6 +2202,18 @@ class ApiClient {
         _unwrapMap(await request('POST', '/api/v1/purchases/$id/restore')),
       );
 
+  /// Send a draft purchase order for approval.
+  Future<PurchaseOrder> submitPurchaseOrder(String id) async =>
+      PurchaseOrder.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/purchases/$id/submit'),
+      ));
+
+  /// Approve a submitted purchase order, committing the firm to buy.
+  Future<PurchaseOrder> approvePurchaseOrder(String id) async =>
+      PurchaseOrder.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/purchases/$id/approve'),
+      ));
+
   Future<PurchaseOrder> cancelPurchaseOrder(String id,
           {String reason = ''}) async =>
       PurchaseOrder.fromJson(

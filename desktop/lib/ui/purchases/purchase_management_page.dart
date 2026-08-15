@@ -1118,6 +1118,43 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ),
       );
 
+  /// Send the selected draft for approval.
+  Future<void> _submitSelected(PurchaseOrder order) async {
+    await _runOrderAction(
+      () => widget.api.submitPurchaseOrder(order.id),
+      done: '${order.poNumber} submitted for approval.',
+    );
+  }
+
+  /// Approve the selected submitted order.
+  ///
+  /// Takes `PURCHASE_APPROVE`, which `SALES_MANAGER`-style roles hold and the
+  /// raiser may not — the point of the two steps is that the person who
+  /// raises an order need not be the person who commits the firm to it.
+  Future<void> _approveSelected(PurchaseOrder order) async {
+    await _runOrderAction(
+      () => widget.api.approvePurchaseOrder(order.id),
+      done: '${order.poNumber} approved.',
+    );
+  }
+
+  Future<void> _runOrderAction(
+    Future<PurchaseOrder> Function() action, {
+    required String done,
+  }) async {
+    try {
+      await action();
+      if (!mounted) return;
+      NotificationService.show(context, done,
+          kind: AppNotificationKind.success);
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
   Widget _buildToolbar() {
     final PurchaseOrder? selected = _selected;
     final bool canEditSelected =
@@ -1128,6 +1165,16 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
             _canDelete;
     final bool canRestoreSelected =
         selected != null && selected.isDeleted && _canRestore;
+    // A purchase order is raised, sent for approval, then approved. Until
+    // 2026-08-16 nothing performed those steps: the status was whatever the
+    // creator typed, so SUBMITTED could not be reached and the Open Orders
+    // tab was empty for every firm.
+    final bool canSubmitSelected =
+        selected != null && !selected.isDeleted && selected.isDraft && _canUpdate;
+    final bool canApproveSelected = selected != null &&
+        !selected.isDeleted &&
+        selected.isSubmitted &&
+        _canClose;
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -1138,6 +1185,18 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           icon: const Icon(Icons.add),
           label: const Text('New'),
         ),
+        if (canSubmitSelected)
+          FilledButton.tonalIcon(
+            onPressed: () => unawaited(_submitSelected(selected)),
+            icon: const Icon(Icons.outbox_outlined),
+            label: const Text('Submit'),
+          ),
+        if (canApproveSelected)
+          FilledButton.tonalIcon(
+            onPressed: () => unawaited(_approveSelected(selected)),
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('Approve'),
+          ),
         IconButton(
           tooltip: 'View',
           onPressed: selected == null
