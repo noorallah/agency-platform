@@ -8,11 +8,51 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../workspace/desktop_framework.dart';
 
+/// One line of the offer, while it is being typed.
+///
+/// The controllers belong to the draft rather than to the state, because a line
+/// removed from the middle of the list has to take its own text with it —
+/// keeping three parallel lists of controllers is how a deleted row leaves the
+/// quantity of the row below it behind.
+class _LineDraft {
+  _LineDraft({
+    required this.productId,
+    String quantity = '1',
+    String unitPrice = '0',
+    String discount = '0',
+  })  : quantity = TextEditingController(text: quantity),
+        unitPrice = TextEditingController(text: unitPrice),
+        discount = TextEditingController(text: discount);
+
+  String? productId;
+  final TextEditingController quantity;
+  final TextEditingController unitPrice;
+  final TextEditingController discount;
+
+  double get _quantity => double.tryParse(quantity.text.trim()) ?? 0;
+  double get _price => double.tryParse(unitPrice.text.trim()) ?? 0;
+  double get _discount => double.tryParse(discount.text.trim()) ?? 0;
+
+  /// What this line adds to the offer, before tax.
+  double get netOfDiscount => _quantity * _price * (1 - _discount / 100);
+
+  void dispose() {
+    quantity.dispose();
+    unitPrice.dispose();
+    discount.dispose();
+  }
+}
+
 /// Writing an offer.
 ///
 /// The one field a quotation has that an order does not is how long the prices
 /// stand for, so it is not buried among the terms: an offer with no end date is
 /// one the firm is still bound by next year.
+///
+/// The backend takes up to 1,000 lines and this form wrote exactly one, so a
+/// quotation for more than a single product could not be raised from the
+/// desktop at all — the customer was quoted per item, or somebody went to the
+/// API. Lines are added and removed here now.
 class QuotationEditorDialog extends StatefulWidget {
   const QuotationEditorDialog({
     super.key,
@@ -41,16 +81,13 @@ class QuotationEditorDialog extends StatefulWidget {
 
 class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
-  final TextEditingController _quantity = TextEditingController(text: '1');
-  final TextEditingController _unitPrice = TextEditingController(text: '0');
-  final TextEditingController _discount = TextEditingController(text: '0');
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _paymentTerms = TextEditingController();
   final TextEditingController _deliveryTerms = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
+  final List<_LineDraft> _lines = <_LineDraft>[];
 
   String? _customerId;
-  String? _productId;
   String? _branchId;
   String? _warehouseId;
   late DateTime _validUntil;
@@ -68,28 +105,38 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
         (widget.branches.isEmpty ? null : widget.branches.first.id);
     _warehouseId = existing?.warehouseId ??
         (widget.warehouses.isEmpty ? null : widget.warehouses.first.id);
-    _productId = widget.products.isEmpty ? null : widget.products.first.id;
     if (existing != null) {
       _reference.text = existing.customerReference;
       _paymentTerms.text = existing.paymentTerms;
       _deliveryTerms.text = existing.deliveryTerms;
       _remarks.text = existing.remarks;
       _validUntil = DateTime.tryParse(existing.validUntil) ?? _validUntil;
-      final QuotationLine? line =
-          existing.lines.isEmpty ? null : existing.lines.first;
-      if (line != null) {
-        _productId = line.productId;
-        _quantity.text = line.quantity;
-        _unitPrice.text = line.unitPrice;
+      // Every line, in the order the document holds them. Taking only the
+      // first is what made a revision quietly delete the rest of the offer:
+      // the update replaces the whole collection with what is sent.
+      for (final QuotationLine line in existing.lines) {
+        _lines.add(_LineDraft(
+          productId: line.productId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          discount: line.discountPercent,
+        ));
       }
     }
+    if (_lines.isEmpty) _lines.add(_newLine());
   }
+
+  /// A fresh line, defaulted to the first product so the row is savable as it
+  /// stands rather than starting invalid.
+  _LineDraft _newLine() => _LineDraft(
+        productId: widget.products.isEmpty ? null : widget.products.first.id,
+      );
 
   @override
   void dispose() {
-    _quantity.dispose();
-    _unitPrice.dispose();
-    _discount.dispose();
+    for (final _LineDraft line in _lines) {
+      line.dispose();
+    }
     _reference.dispose();
     _paymentTerms.dispose();
     _deliveryTerms.dispose();
@@ -97,19 +144,28 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     super.dispose();
   }
 
-  double get _quantityValue => double.tryParse(_quantity.text.trim()) ?? 0;
-  double get _priceValue => double.tryParse(_unitPrice.text.trim()) ?? 0;
-  double get _discountValue => double.tryParse(_discount.text.trim()) ?? 0;
-
-  /// What the customer would be quoted before tax. Shown as it is typed,
-  /// because a price list nobody can total is one somebody totals by hand.
-  double get _netOfDiscount =>
-      _quantityValue * _priceValue * (1 - _discountValue / 100);
+  /// What the customer would be quoted before tax, across every line. Shown as
+  /// it is typed, because a price list nobody can total is one somebody totals
+  /// by hand.
+  double get _netOfDiscount => _lines.fold<double>(
+        0,
+        (double running, _LineDraft line) => running + line.netOfDiscount,
+      );
 
   String? _positive(String? value, String what) {
     final double parsed = double.tryParse((value ?? '').trim()) ?? -1;
     if (parsed <= 0) return 'Enter the $what.';
     return null;
+  }
+
+  void _addLine() => setState(() => _lines.add(_newLine()));
+
+  void _removeLine(int index) {
+    // A quotation with no lines is not an offer, and the server refuses one,
+    // so the last row cannot be taken away — the way to abandon a quotation is
+    // to cancel the dialog.
+    if (_lines.length <= 1) return;
+    setState(() => _lines.removeAt(index).dispose());
   }
 
   Future<void> _pickValidUntil() async {
@@ -127,8 +183,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   Json? _payload() {
     if (!(_form.currentState?.validate() ?? false)) return null;
-    if (_customerId == null || _productId == null) return null;
+    if (_customerId == null) return null;
     if (_branchId == null || _warehouseId == null) return null;
+    if (_lines.any((_LineDraft line) => line.productId == null)) return null;
     return <String, dynamic>{
       'customer_id': _customerId,
       'branch_id': _branchId,
@@ -143,15 +200,99 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
         'delivery_terms': _deliveryTerms.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
       'lines': [
-        <String, dynamic>{
-          'line_number': 1,
-          'product_id': _productId,
-          'quantity': _quantity.text.trim(),
-          'unit_price': _unitPrice.text.trim(),
-          'discount_percent': _discount.text.trim(),
-        }
+        for (int index = 0; index < _lines.length; index += 1)
+          <String, dynamic>{
+            'line_number': index + 1,
+            'product_id': _lines[index].productId,
+            'quantity': _lines[index].quantity.text.trim(),
+            'unit_price': _lines[index].unitPrice.text.trim(),
+            'discount_percent': _lines[index].discount.text.trim(),
+          },
       ],
     };
+  }
+
+  /// One line's row of controls.
+  ///
+  /// Each line carries its own running total, because the offer's total alone
+  /// does not say which of five lines was mistyped.
+  Widget _lineEditor(int index) {
+    final _LineDraft line = _lines[index];
+    final bool removable = _lines.length > 1;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                key: ValueKey<String>('quotation-line-product-$index'),
+                initialValue: line.productId,
+                decoration: InputDecoration(labelText: 'Product ${index + 1}'),
+                items: [
+                  for (final Product item in widget.products)
+                    DropdownMenuItem(
+                      value: item.id,
+                      child: Text('${item.code}  ${item.name}',
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                validator: (value) =>
+                    value == null ? 'Choose a product.' : null,
+                onChanged: (value) => setState(() => line.productId = value),
+              ),
+            ),
+            IconButton(
+              onPressed: removable ? () => _removeLine(index) : null,
+              icon: const Icon(Icons.close, size: 18),
+              tooltip: removable
+                  ? 'Remove this line'
+                  : 'A quotation needs at least one line',
+            ),
+          ]),
+          const SizedBox(height: AppSpacing.sm),
+          Row(children: [
+            Expanded(
+              child: TextFormField(
+                controller: line.quantity,
+                decoration: const InputDecoration(labelText: 'Quantity'),
+                keyboardType: TextInputType.number,
+                validator: (value) => _positive(value, 'quantity'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: TextFormField(
+                controller: line.unitPrice,
+                decoration: const InputDecoration(labelText: 'Unit price'),
+                keyboardType: TextInputType.number,
+                validator: (value) => _positive(value, 'price'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: TextFormField(
+                controller: line.discount,
+                decoration: const InputDecoration(labelText: 'Discount %'),
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ]),
+          const SizedBox(height: AppSpacing.xs),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'Line ${index + 1}: ${line.netOfDiscount.toStringAsFixed(2)}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -213,55 +354,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       ]),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    DropdownButtonFormField<String>(
-                      initialValue: _productId,
-                      decoration: const InputDecoration(labelText: 'Product'),
-                      items: [
-                        for (final Product item in widget.products)
-                          DropdownMenuItem(
-                            value: item.id,
-                            child: Text('${item.code}  ${item.name}',
-                                overflow: TextOverflow.ellipsis),
-                          ),
-                      ],
-                      validator: (value) =>
-                          value == null ? 'Choose a product.' : null,
-                      onChanged: (value) => setState(() => _productId = value),
+                    for (int index = 0; index < _lines.length; index += 1)
+                      _lineEditor(index),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _addLine,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Add line'),
+                      ),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    Row(children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _quantity,
-                          decoration:
-                              const InputDecoration(labelText: 'Quantity'),
-                          keyboardType: TextInputType.number,
-                          validator: (value) => _positive(value, 'quantity'),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _unitPrice,
-                          decoration:
-                              const InputDecoration(labelText: 'Unit price'),
-                          keyboardType: TextInputType.number,
-                          validator: (value) => _positive(value, 'price'),
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _discount,
-                          decoration:
-                              const InputDecoration(labelText: 'Discount %'),
-                          keyboardType: TextInputType.number,
-                          onChanged: (_) => setState(() {}),
-                        ),
-                      ),
-                    ]),
                     const SizedBox(height: AppSpacing.sm),
                     Text(
                       'Quoted before tax: '

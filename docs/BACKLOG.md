@@ -833,9 +833,33 @@ total answers, and `/reports/conversion` is the only report that joins what was
 offered to what was sold -- a quotation register says one half and an order
 register the other.
 
-**Not built, deliberately:** multi-line editing in the desktop dialog (the
-backend takes up to 1,000 lines; the form writes one), PDF rendering, and
-emailing a quotation to the customer. `RESET_ORDER` in
+**The desktop dialog takes as many lines as the offer needs**, as of
+2026-08-15. The backend has always accepted up to 1,000 and the form wrote
+exactly one, so a quotation for two products could not be raised from the
+desktop at all.
+
+Three decisions in it worth keeping:
+
+- **A line owns its own controllers.** `_LineDraft` holds the product and the
+  three text fields together, so a row removed from the middle takes its text
+  with it. Three parallel lists indexed by position is how deleting a row
+  leaves the quantity of the row below it behind, and the test removes the
+  middle of three lines specifically to catch that.
+- **Every line shows what it contributes**, beside the offer's total. One
+  total does not say which of five lines was mistyped.
+- **The last line cannot be removed**, and the control says why rather than
+  letting the save fail: the server requires at least one, and abandoning a
+  quotation is what Cancel is for.
+
+**Revising seeded only the first line before this**, which is a silent deletion
+rather than a missing feature -- the update replaces the whole line collection
+with what is sent, so revising a two-line offer through the desktop threw the
+second line away. `QuotationLine` also parsed only `discount_amount`, never
+`discount_percent`, so a discounted line came back into the form at full price
+and was re-sent that way; the model carries the rate now.
+
+**Still not built, deliberately:** PDF rendering and emailing a quotation to
+the customer. `RESET_ORDER` in
 `scripts/generate_transaction_history.py` gained the four new tables, the same
 step sales returns needed.
 
