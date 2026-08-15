@@ -174,6 +174,7 @@ class ResourceDefinition<T> {
     this.export,
     this.customActions = const [],
     this.createFollowUp,
+    this.dialogSubtitle,
     this.searchHint,
     this.pageSize = 25,
     this.pageSizeOptions = const [25, 50, 100],
@@ -213,6 +214,15 @@ class ResourceDefinition<T> {
   /// A warning shown after a create when the new record still needs a step this
   /// form cannot perform. Return null when nothing is outstanding.
   final String? Function(Map<String, dynamic> values)? createFollowUp;
+
+  /// Which record the dialog is about, in the user's words.
+  ///
+  /// Without it the header's second line reads "Edit existing record", which
+  /// is true of every dialog in the application and therefore says nothing. It
+  /// matters most where the form itself carries no identifying field — a
+  /// profile assignment shows a profile dropdown and a notes box, so with no
+  /// subtitle there is nothing on screen naming the firm being assigned to.
+  final String Function(T item)? dialogSubtitle;
 
   /// What this module's records are searchable by, in the user's words —
   /// "Search permissions by name or code" rather than a generic "Search".
@@ -426,6 +436,9 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       barrierDismissible: false,
       builder: (_) => CrudWorkspaceDialog(
         title: widget.definition.title,
+        subtitle: item == null
+            ? null
+            : widget.definition.dialogSubtitle?.call(item),
         fields: widget.definition.fields,
         twoColumn: widget.definition.twoColumnForm,
         values: initialValues,
@@ -986,10 +999,15 @@ class CrudWorkspaceDialog extends StatefulWidget {
     required this.api,
     required this.mode,
     required this.onSave,
+    this.subtitle,
     this.twoColumn = true,
     super.key,
   });
   final String title;
+
+  /// Which record this dialog is about. Replaces the generic mode line, which
+  /// says the same thing on every dialog in the application.
+  final String? subtitle;
   final List<FieldSpec> fields;
   final Map<String, dynamic> values;
   final ApiClient api;
@@ -1175,6 +1193,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
               child: Column(children: [
                 CrudWorkspaceHeader(
                   title: widget.title,
+                  subtitle: widget.subtitle,
                   mode: widget.mode,
                   onClose: _saving ? null : _close,
                 ),
@@ -1689,9 +1708,14 @@ class CrudWorkspaceHeader extends StatelessWidget {
     required this.title,
     required this.mode,
     required this.onClose,
+    this.subtitle,
   });
 
   final String title;
+
+  /// Which record is open. Shown instead of the mode line, because "Edit
+  /// existing record" is true everywhere and so tells the reader nothing.
+  final String? subtitle;
   final CrudDialogMode mode;
   final VoidCallback? onClose;
 
@@ -1715,11 +1739,13 @@ class CrudWorkspaceHeader extends StatelessWidget {
                 children: [
                   Text(title, style: Theme.of(context).textTheme.headlineSmall),
                   Text(
-                    switch (mode) {
-                      CrudDialogMode.create => 'Create new record',
-                      CrudDialogMode.view => 'View record details',
-                      CrudDialogMode.edit => 'Edit existing record',
-                    },
+                    subtitle ??
+                        switch (mode) {
+                          CrudDialogMode.create => 'Create new record',
+                          CrudDialogMode.view => 'View record details',
+                          CrudDialogMode.edit => 'Edit existing record',
+                        },
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
