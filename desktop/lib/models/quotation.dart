@@ -9,6 +9,7 @@ class QuotationLine {
     required this.description,
     required this.quantity,
     required this.unitPrice,
+    required this.discountPercent,
     required this.discountAmount,
     required this.taxAmount,
     required this.netAmount,
@@ -24,6 +25,11 @@ class QuotationLine {
   final String description;
   final String quantity;
   final String unitPrice;
+
+  /// The rate that was quoted, which is what the editor puts back in the field.
+  /// Only the resulting amount was parsed before, so revising a discounted
+  /// line silently re-sent it at full price.
+  final String discountPercent;
   final String discountAmount;
   final String taxAmount;
   final String netAmount;
@@ -36,6 +42,7 @@ class QuotationLine {
         description: stringValue(json['description']),
         quantity: stringValue(json['quantity']),
         unitPrice: stringValue(json['unit_price']),
+        discountPercent: stringValue(json['discount_percent']),
         discountAmount: stringValue(json['discount_amount']),
         taxAmount: stringValue(json['tax_amount']),
         netAmount: stringValue(json['net_amount']),

@@ -304,6 +304,29 @@ The batch is `POST /api/v1/{sales-returns,quotations}/import` with
 | 8.36 | Quotation export names what lapsed | `GET /api/v1/quotations/export` with one live and one expired quotation, **both still `DRAFT`** | An `is_expired` column reading `false` and `true`. The `status` column reads `DRAFT` for both — which is the point: expiry is derived from `valid_until`, so status alone cannot answer it |
 | 8.37 | Export respects the firm | Export quotations as `food01.admin`, then as `medi01.admin` | Each sees only its own. These two share one schema, so this is the isolation case that matters |
 
+### 8.40–8.46 Quotations
+
+The module shipped without manual cases. These are the ones worth a human,
+because most of them are about what a quotation **does not** do and about lines
+quietly disappearing — neither shows up as an error message.
+
+Sales → Quotations, as `whole01.admin`.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.40 | A quotation commits nothing | Create and send a quotation for a stocked product, then open the stock ledger and the customer's account | **No** reservation, no movement, no change to what the customer owes, no journal. Everything the firm promises happens at conversion, on the order |
+| 8.41 | More than one line | **New Quotation**, fill the first line, press **Add line**, fill the second, save | Both lines are on the saved quotation, numbered 1 and 2. The form wrote a single line until 2026-08-15 — a quotation for two products could not be raised from the desktop at all |
+| 8.42 | Each line shows its own total | With two lines of different value, read the per-line figures and the offer total | Each line shows what it contributes; the total is their sum. One total alone does not say which line was mistyped |
+| 8.43 | Removing a line takes its own numbers | Enter three lines with distinct quantities, remove the **middle** one, save | The saved quotation holds the first and third lines **with their own quantities and prices**, renumbered 1 and 2. If the third row inherits the second's numbers, the editor is keeping its fields in lists indexed by position |
+| 8.44 | The only line cannot be removed | On a quotation with one line, look at that line's remove control | Disabled, and its tooltip says a quotation needs at least one line. It must not let the save fail instead |
+| 8.45 | Revising keeps the whole offer | Create a two-line quotation, reopen it with **Revise**, change nothing, save | **Both** lines survive. This is the case to run twice: the update replaces the whole line collection with what is sent, so seeding only the first line is a silent deletion — no error, no warning, one line simply gone |
+| 8.46 | A discount comes back as it was quoted | Put 10% on a line, save, then reopen with **Revise** | The field reads 10, not 0. Only the resulting **amount** was parsed before, so a revision re-sent the line at full price |
+
+Expiry is derived from `valid_until` rather than stored, so 8.45 and 8.46 need a
+quotation that has **not** lapsed — an expired one cannot be sent, accepted or
+converted, and the workspace badges `EXPIRED` separately from the status because
+`SENT` reads identically the day before and the day after.
+
 ### 8.50–8.54 Editing a customer who has traded
 
 **Run these on a seeded firm, not a fresh one.** They are about a customer with
@@ -318,6 +341,7 @@ subject: pick the customer with the largest outstanding.
 | 8.52 | The edit is not refused | Save the same customer twice in a row | Both succeed. It answered 409 "This record changed since you loaded it" for any customer whose opening balance had posted, with nobody else touching the record |
 | 8.53 | An opening balance still cannot be rewritten after trading | Edit the customer and change the **opening balance** | Refused, saying it cannot change after receivable activity exists. That guard is what makes 8.50 safe: the balances are only ever recomputed where there is nothing else to lose |
 | 8.54 | A new customer's opening balance still reaches the ledger | Create a customer with an opening balance of 25,000, then open the trial balance | Trade Receivables and Opening Balance Equity have each moved by 25,000. Delete the customer and both move back |
+
 ---
 
 ## 9. Concurrency and two-machine cases

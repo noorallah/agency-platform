@@ -68,9 +68,25 @@ Quotation _quote({
           'description': 'Shampoo Bottle 180ml',
           'quantity': '5.0000',
           'unit_price': '250.0000',
+          'discount_percent': '10.0000',
           'discount_amount': '125.0000',
           'tax_amount': '202.5000',
           'net_amount': '1327.5000',
+          'remarks': '',
+        },
+        // A second line, because a quotation of one item cannot show whether
+        // the editor keeps the rest of the offer when it is revised.
+        {
+          'id': 'l-2',
+          'line_number': 2,
+          'product_id': 'p-2',
+          'description': 'Soap Bar 100g',
+          'quantity': '2.0000',
+          'unit_price': '40.0000',
+          'discount_percent': '0.0000',
+          'discount_amount': '0.0000',
+          'tax_amount': '14.4000',
+          'net_amount': '94.4000',
           'remarks': '',
         }
       ],
@@ -87,6 +103,7 @@ class _QuoteApi extends ApiClient {
 
   final List<Quotation> rows;
   Json? created;
+  Json? revised;
   final List<String> actions = [];
   String? reason;
   String? convertedId;
@@ -137,9 +154,15 @@ class _QuoteApi extends ApiClient {
             'code': 'SHAMP180',
             'name': 'Shampoo Bottle 180ml',
             'status': 'ACTIVE',
+          }),
+          Product.fromJson({
+            'id': 'p-2',
+            'code': 'SOAP100',
+            'name': 'Soap Bar 100g',
+            'status': 'ACTIVE',
           })
         ],
-        total: 1,
+        total: 2,
       );
 
   @override
@@ -189,6 +212,12 @@ class _QuoteApi extends ApiClient {
   @override
   Future<Quotation> createQuotation(Json data) async {
     created = data;
+    return _quote();
+  }
+
+  @override
+  Future<Quotation> updateQuotation(String id, Json data) async {
+    revised = data;
     return _quote();
   }
 
@@ -476,6 +505,128 @@ void main() {
       expect(line['quantity'], '5');
       expect(line['unit_price'], '250');
       expect(line['discount_percent'], '10');
+    });
+
+    testWidgets('it sends every line that was typed', (tester) async {
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '250');
+      await tester.tap(find.widgetWithText(TextButton, 'Add line'));
+      await tester.pumpAndSettle();
+
+      // Two of each now, so each field is addressed by position.
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity').last, '2');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price').last, '40');
+      await tester.pumpAndSettle();
+
+      // Each line shows what it contributes, and the offer shows the sum --
+      // one total alone does not say which of the lines was mistyped.
+      expect(find.text('Line 1: 1250.00'), findsOneWidget);
+      expect(find.text('Line 2: 80.00'), findsOneWidget);
+      expect(find.textContaining('Quoted before tax: 1330.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
+      expect(lines.length, 2);
+      expect((lines[0] as Map)['line_number'], 1);
+      expect((lines[0] as Map)['quantity'], '5');
+      expect((lines[1] as Map)['line_number'], 2);
+      expect((lines[1] as Map)['quantity'], '2');
+      expect((lines[1] as Map)['unit_price'], '40');
+    });
+
+    testWidgets('removing a line takes its own numbers with it',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Quantity'), '1');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '10');
+      for (final String pair in const ['2:20', '3:30']) {
+        await tester.tap(find.widgetWithText(TextButton, 'Add line'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.widgetWithText(TextFormField, 'Quantity').last,
+            pair.split(':').first);
+        await tester.enterText(
+            find.widgetWithText(TextFormField, 'Unit price').last,
+            pair.split(':').last);
+      }
+      await tester.pumpAndSettle();
+
+      // Drop the middle line. Its controllers belong to the draft, so what is
+      // left has to be the first and third rows -- if the state kept parallel
+      // lists instead, the third row would inherit the second's numbers.
+      await tester.tap(find.byTooltip('Remove this line').at(1));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final List<dynamic> lines = api.created!['lines'] as List<dynamic>;
+      expect(lines.length, 2);
+      expect((lines[0] as Map)['quantity'], '1');
+      expect((lines[0] as Map)['unit_price'], '10');
+      // Renumbered, because line_number is the document's own sequence and a
+      // gap in it is not something the server should be asked to hold.
+      expect((lines[1] as Map)['line_number'], 2);
+      expect((lines[1] as Map)['quantity'], '3');
+      expect((lines[1] as Map)['unit_price'], '30');
+    });
+
+    testWidgets('the only line cannot be removed', (tester) async {
+      await _pump(tester, _QuoteApi());
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      // A quotation with no lines is not an offer and the server refuses one,
+      // so the control says why rather than failing on save.
+      expect(find.byTooltip('A quotation needs at least one line'),
+          findsOneWidget);
+      final IconButton button = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip('A quotation needs at least one line'),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+    });
+
+    testWidgets('a revision starts from every line the offer holds',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi(rows: [_quote()]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+
+      // Both lines of the stored quotation are on screen. Seeding only the
+      // first is a silent deletion: the update replaces the whole collection
+      // with whatever is sent.
+      expect(find.widgetWithText(TextFormField, 'Quantity'), findsNWidgets(2));
+      expect(find.text('Line 1: 1125.00'), findsOneWidget);
+      expect(find.text('Line 2: 80.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      final List<dynamic> lines = api.revised!['lines'] as List<dynamic>;
+      expect(lines.length, 2);
+      expect((lines[0] as Map)['product_id'], 'p-1');
+      // The rate that was quoted, not the amount it worked out to. Only the
+      // amount was parsed before, so revising re-sent the line at full price.
+      expect((lines[0] as Map)['discount_percent'], '10.0000');
+      expect((lines[1] as Map)['product_id'], 'p-2');
     });
 
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
