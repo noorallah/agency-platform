@@ -922,3 +922,148 @@ def test_deleting_a_customer_takes_its_opening_balance_with_it() -> None:
     )
     assert sum(entry.total_debit for entry in entries) == Decimal("50000.00")
     assert sum(entry.total_credit for entry in entries) == Decimal("50000.00")
+
+
+def _request_like_session_factory() -> sessionmaker[Session]:
+    """Build sessions shaped like a request's, which does not autoflush.
+
+    ``app/core/database/engine.py`` passes ``autoflush=False``, and every other
+    fixture here uses the default. That difference hides a whole class of
+    defect: work staged on the session is not written before the next query, so
+    an ordering mistake that autoflush quietly repairs is fatal in production
+    and invisible in the suite.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+
+
+def test_revising_a_balance_twice_does_not_collide_with_its_own_reversal() -> None:
+    """``PUT /customers/{id}`` failed for any customer whose balance had posted.
+
+    ``_reverse_opening_balance_postings`` sets ``journal_entry_id = None`` on
+    the opening-balance rows, and the reset then removed those same rows with a
+    bulk ``delete(synchronize_session=False)``. The dirty objects stayed in the
+    session, so their UPDATE fired against rows that were already gone and
+    SQLAlchemy raised ``StaleDataError`` -- reported as 409 "this record changed
+    since you loaded it" on an edit nobody else was touching.
+
+    It needs two revisions: the first balance is what writes the journal the
+    second one has to reverse. And it needs a session that does not autoflush,
+    because autoflush writes the UPDATE while the row still exists and repairs
+    the ordering by accident.
+    """
+    factory = _request_like_session_factory()
+    session = factory()
+    firm = _firm(session, "REVISE")
+    actor_id = uuid4()
+    service = CustomerService(session)
+
+    customer = service.create(
+        CustomerCreate.model_validate(
+            {**_customer_data().model_dump(mode="json"), "opening_balance": "5000.00"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    posted = session.scalar(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.customer_id == customer.id
+        )
+    )
+    assert (
+        posted is not None and posted.journal_entry_id is not None
+    ), "the first balance must post, or the collision cannot arise"
+
+    for amount in ("7500.00", "9000.00"):
+        service.update(
+            customer.id,
+            CustomerUpdate.model_validate(
+                {
+                    **_customer_data().model_dump(mode="json"),
+                    "opening_balance": amount,
+                }
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
+    session.refresh(customer)
+    assert customer.opening_balance == Decimal("9000.00")
+    assert customer.current_outstanding == Decimal("9000.00")
+    # One live opening-balance row, carrying the journal that backs the figure.
+    live = session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.customer_id == customer.id,
+            CustomerReceivableTransaction.transaction_type
+            == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+        )
+    ).all()
+    assert len(live) == 1
+    assert live[0].amount == Decimal("9000.00")
+    assert live[0].journal_entry_id is not None
+
+
+def test_editing_a_customer_does_not_discard_what_they_owe() -> None:
+    """An edit used to reset ``current_outstanding`` to the opening balance.
+
+    ``update`` recomputed both balances from ``opening_balance`` on every call,
+    so changing a phone number threw away every invoice, receipt and credit
+    note the customer had accumulated since. The receivable control account was
+    then out by the difference, silently and permanently.
+
+    Found on the seeded WHOLE01 firm, where one edit moved a customer from
+    84,901.23 outstanding to 25,000.00 and put the store 59,901.23 out --
+    reported by ``scripts/verify_sample_data.py`` as "a balance moved without a
+    journal", which is exactly what had happened.
+    """
+    factory = _request_like_session_factory()
+    session = factory()
+    firm = _firm(session, "TRADED")
+    actor_id = uuid4()
+    service = CustomerService(session)
+
+    customer = service.create(
+        CustomerCreate.model_validate(
+            {**_customer_data().model_dump(mode="json"), "opening_balance": "1000.00"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    # The customer trades: an invoice puts them 4,000 further into debt.
+    service.post_receivable_transaction(
+        customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.INVOICE,
+            amount=Decimal("4000.00"),
+            reference_number="INV-1",
+            transaction_date=date(2026, 8, 1),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    session.refresh(customer)
+    assert customer.current_outstanding == Decimal("5000.00")
+
+    service.update(
+        customer.id,
+        CustomerUpdate.model_validate(
+            {
+                **_customer_data().model_dump(mode="json"),
+                "opening_balance": "1000.00",
+                "phone": "+919000000001",
+            }
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    session.refresh(customer)
+    assert customer.phone == "+919000000001", "the edit must still be applied"
+    assert customer.current_outstanding == Decimal(
+        "5000.00"
+    ), "editing an unrelated field must not discard what the customer owes"

@@ -1024,6 +1024,52 @@ because the API returned no ETag to send back; that gap is closed below. **All t
 
 ## Also open
 
+- **`PUT /customers/{id}` works again**, as of 2026-08-15. It answered 409
+  "This record changed since you loaded it" for **any customer whose opening
+  balance had posted**, with nobody else touching the record -- so on a seeded
+  firm, every customer edit failed.
+
+  `_reverse_opening_balance_postings` sets `journal_entry_id = None` on the
+  opening-balance rows, and `_reset_opening_balance_transaction` then removed
+  those same rows with a bulk `delete(synchronize_session=False)`. The dirty
+  objects stayed in the session, so their `UPDATE` fired against rows that were
+  already gone and SQLAlchemy raised `StaleDataError`, which the handler maps
+  to 409. They are deleted through the ORM now, so the unit of work knows.
+
+  **The unit suite could not have caught it**, and that is the reusable part.
+  Every fixture here builds a session with SQLAlchemy's default autoflush,
+  while `app/core/database/engine.py` passes `autoflush=False` -- and autoflush
+  writes the pending UPDATE while the row still exists, repairing the ordering
+  by accident. `_request_like_session_factory` in
+  `tests/unit/test_customer_management.py` builds a session shaped like a
+  request's; reach for it whenever a service mixes ORM mutation with bulk
+  statements. It is the same difference that hid the adjustment that returned
+  201 and wrote no journal.
+
+  Found by driving the endpoint over HTTP after the ETag work made it possible
+  to send a precondition, and reproduced against `main` on a second server to
+  be sure it was not introduced by that change.
+
+- **An edit no longer discards what a customer owes**, as of 2026-08-15, and
+  this is the larger of the two. `CustomerService.update` recomputed
+  `current_outstanding` and `unapplied_advance_balance` from `opening_balance`
+  on **every** call, so changing a phone number threw away every invoice,
+  receipt and credit note the customer had accumulated since -- and the
+  receivable control account was then out by the difference, silently and
+  permanently.
+
+  The balance work now runs only when the opening balance actually moved, which
+  the existing guard already restricts to customers with no receivable
+  activity. There, recomputing from the opening figure is the whole truth about
+  the balances; everywhere else it is a lie.
+
+  **Found by `scripts/verify_sample_data.py` catching damage this session
+  caused.** Three probe edits to one WHOLE01 customer -- notes only, opening
+  balance untouched -- moved them from 84,901.23 outstanding to 25,000.00 and
+  put the store 59,901.23 out. The verifier named it as "a balance moved
+  without a journal", which is exactly what had happened. It is the second time
+  that script has paid for itself within minutes.
+
 - **A record now tells you which version to send back**, as of 2026-08-15.
   `If-Match` had been accepted by five routers since it was written, and **no
   response carried the version anywhere** -- not as a header, not as a body
