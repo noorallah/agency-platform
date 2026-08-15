@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
@@ -476,6 +476,20 @@ class SalesTerritoryService:
             )
         ]
 
+    def _salesman_ids_matching(self, term: str) -> list[UUID]:
+        """Find users whose name matches, reading the platform store.
+
+        `users` lives only in the platform schema, so a tenant session cannot
+        see it -- the same shape as `FirmMetadataReader`, and the same defect
+        this codebase has now hit three times.
+        """
+        statement = select(User.id).where(User.full_name.ilike(term))
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            return list(self._session.scalars(statement).all())
+        with platform_reader() as reader:
+            return list(reader.scalars(statement).all())
+
     def search_territories(
         self,
         *,
@@ -505,16 +519,19 @@ class SalesTerritoryService:
                         Customer.name.ilike(term),
                     )
                     .exists(),
-                    select(User.id)
-                    .join(
-                        TerritorySalesmanAssignment,
-                        TerritorySalesmanAssignment.user_id == User.id,
-                    )
+                    # Salesman ids are resolved from the platform store first
+                    # and matched here by id. `users` exists **only** in the
+                    # platform schema, so joining it on this tenant session
+                    # raised `relation "<firm schema>.users" does not exist`
+                    # and territory search answered 503 for every firm.
+                    TerritorySalesmanAssignment.__table__.select()
                     .where(
                         TerritorySalesmanAssignment.territory_id
                         == SalesTerritoryNode.id,
                         TerritorySalesmanAssignment.is_deleted.is_(False),
-                        User.full_name.ilike(term),
+                        TerritorySalesmanAssignment.user_id.in_(
+                            self._salesman_ids_matching(term)
+                        ),
                     )
                     .exists(),
                     select(TerritoryRouteProfile.id)
