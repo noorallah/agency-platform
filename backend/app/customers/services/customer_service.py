@@ -150,18 +150,32 @@ class CustomerService:
                 "Opening balance cannot be changed after receivable activity exists."
             )
         before = self._audit_snapshot(customer)
+        # Read before the field loop below overwrites it: whether the opening
+        # balance moved is what decides if any of the balance work runs at all.
+        balance_changed = customer.opening_balance != data.opening_balance
         for field, value in self._customer_values(data).items():
             setattr(customer, field, value)
         customer.display_name = data.display_name or data.name
-        (
-            customer.current_outstanding,
-            customer.unapplied_advance_balance,
-        ) = self._normalize_customer_balances(data.opening_balance)
-        self._reset_opening_balance_transaction(
-            customer=customer,
-            amount=data.opening_balance,
-            actor_id=actor_id,
-        )
+        if balance_changed:
+            # Only reachable when the customer has no receivable activity --
+            # the guard above refuses it otherwise -- so recomputing the
+            # balances from the opening figure is the whole truth about them.
+            #
+            # It used to run on every update, which silently discarded
+            # everything the customer had traded: an edit to a phone number
+            # reset `current_outstanding` to the opening balance, and the
+            # receivable control account was then out by the difference. On the
+            # seeded WHOLE01 firm one such edit moved a customer from 84,901.23
+            # to 25,000.00 and put the store 59,901.23 out.
+            (
+                customer.current_outstanding,
+                customer.unapplied_advance_balance,
+            ) = self._normalize_customer_balances(data.opening_balance)
+            self._reset_opening_balance_transaction(
+                customer=customer,
+                amount=data.opening_balance,
+                actor_id=actor_id,
+            )
         customer.updated_by = actor_id
         self._reconcile_addresses(customer, data.addresses, actor_id)
         self._reconcile_contacts(customer, data.contacts, actor_id)

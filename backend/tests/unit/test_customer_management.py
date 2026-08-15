@@ -949,3 +949,64 @@ def test_revising_a_balance_twice_does_not_collide_with_its_own_reversal() -> No
     assert len(live) == 1
     assert live[0].amount == Decimal("9000.00")
     assert live[0].journal_entry_id is not None
+
+
+def test_editing_a_customer_does_not_discard_what_they_owe() -> None:
+    """An edit used to reset ``current_outstanding`` to the opening balance.
+
+    ``update`` recomputed both balances from ``opening_balance`` on every call,
+    so changing a phone number threw away every invoice, receipt and credit
+    note the customer had accumulated since. The receivable control account was
+    then out by the difference, silently and permanently.
+
+    Found on the seeded WHOLE01 firm, where one edit moved a customer from
+    84,901.23 outstanding to 25,000.00 and put the store 59,901.23 out --
+    reported by ``scripts/verify_sample_data.py`` as "a balance moved without a
+    journal", which is exactly what had happened.
+    """
+    factory = _request_like_session_factory()
+    session = factory()
+    firm = _firm(session, "TRADED")
+    actor_id = uuid4()
+    service = CustomerService(session)
+
+    customer = service.create(
+        CustomerCreate.model_validate(
+            {**_customer_data().model_dump(mode="json"), "opening_balance": "1000.00"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    # The customer trades: an invoice puts them 4,000 further into debt.
+    service.post_receivable_transaction(
+        customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.INVOICE,
+            amount=Decimal("4000.00"),
+            reference_number="INV-1",
+            transaction_date=date(2026, 8, 1),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    session.refresh(customer)
+    assert customer.current_outstanding == Decimal("5000.00")
+
+    service.update(
+        customer.id,
+        CustomerUpdate.model_validate(
+            {
+                **_customer_data().model_dump(mode="json"),
+                "opening_balance": "1000.00",
+                "phone": "+919000000001",
+            }
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    session.refresh(customer)
+    assert customer.phone == "+919000000001", "the edit must still be applied"
+    assert customer.current_outstanding == Decimal(
+        "5000.00"
+    ), "editing an unrelated field must not discard what the customer owes"

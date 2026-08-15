@@ -1051,6 +1051,26 @@ gap. **All three stores hold together** after a full reset and re-seed.
   to send a precondition, and reproduced against `main` on a second server to
   be sure it was not introduced by that change.
 
+- **An edit no longer discards what a customer owes**, as of 2026-08-15, and
+  this is the larger of the two. `CustomerService.update` recomputed
+  `current_outstanding` and `unapplied_advance_balance` from `opening_balance`
+  on **every** call, so changing a phone number threw away every invoice,
+  receipt and credit note the customer had accumulated since -- and the
+  receivable control account was then out by the difference, silently and
+  permanently.
+
+  The balance work now runs only when the opening balance actually moved, which
+  the existing guard already restricts to customers with no receivable
+  activity. There, recomputing from the opening figure is the whole truth about
+  the balances; everywhere else it is a lie.
+
+  **Found by `scripts/verify_sample_data.py` catching damage this session
+  caused.** Three probe edits to one WHOLE01 customer -- notes only, opening
+  balance untouched -- moved them from 84,901.23 outstanding to 25,000.00 and
+  put the store 59,901.23 out. The verifier named it as "a balance moved
+  without a journal", which is exactly what had happened. It is the second time
+  that script has paid for itself within minutes.
+
 - **The audit trail has a screen** as of 2026-08-14, under Settings. Every
   mutation has written a row since the platform started and a trigger makes the
   table append-only in every store, with nothing in the client able to read one.
