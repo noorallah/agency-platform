@@ -94,6 +94,15 @@ from app.products.schemas import (
 )
 from app.products.schemas.product import ProductStatus, ProductType
 from app.products.services.product_service import ProductService
+from app.sales.models import SalesTerritoryNode
+from app.sales.schemas import (
+    RouteProfileInput,
+    RouteTypeWrite,
+    TerritoryAssignCustomersRequest,
+    TerritoryCreate,
+)
+from app.sales.schemas.territory import VisitFrequency
+from app.sales.services import SalesTerritoryService
 from app.tax.models import TaxProfile, TaxSystem
 from app.uom.models import ConversionRule, Uom
 from app.uom.schemas import ConversionRuleCreate
@@ -580,6 +589,7 @@ def main() -> int:
                 _seed_branching(tenant_session, firm, blueprint, actor_id)
                 _seed_vendors(tenant_session, firm, blueprint, actor_id)
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
+                _seed_territories(tenant_session, firm, blueprint, actor_id)
                 _seed_products(tenant_session, firm, blueprint, actor_id)
                 # Clear the old trading history *before* laying down opening
                 # stock, not after. `reset_history` counts opening stock as
@@ -1593,6 +1603,129 @@ def _product_attributes_for_profile(
             value="India",
         )
     ]
+
+
+def _seed_territories(
+    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
+    """Give the firm a region, two territories and a route under each.
+
+    The territory module has been complete on the server since it was written
+    -- hierarchy, route types, route profiles, customer and salesman
+    assignment, beat plans -- and every one of its tables was empty in the
+    demo. So Sales -> Geography opened on an empty grid and the whole feature
+    looked unbuilt.
+
+    The hierarchy defaults to Region -> Territory -> Route, so a route is the
+    leaf of the tree rather than a separate record: the territory *is* the
+    round, and its route profile says what kind of round and how often.
+    """
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor_id)
+    levels = {level.level_code: level.id for level in hierarchy.levels}
+    if not {"REGION", "TERRITORY", "ROUTE"} <= levels.keys():
+        return
+
+    # Two kinds of round, which is the distinction the module exists to carry:
+    # a van going out to sell, and someone going out to collect what is owed.
+    route_types: dict[str, UUID] = {
+        item.code: item.id for item in service.list_route_types(firm_scope=firm.id)
+    }
+    for code, name in (
+        ("SALES", "Sales Route"),
+        ("COLLECTION", "Collection Route"),
+    ):
+        if code in route_types:
+            continue
+        created = service.create_route_type(
+            RouteTypeWrite(code=code, name=name),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+        route_types[code] = created.id
+
+    def _node(
+        code: str,
+        name: str,
+        level: str,
+        parent_id: UUID | None,
+        route: RouteProfileInput | None = None,
+    ) -> UUID | None:
+        existing = session.scalar(
+            select(SalesTerritoryNode.id).where(
+                SalesTerritoryNode.firm_id == firm.id,
+                SalesTerritoryNode.code == code,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        if existing is not None:
+            return existing
+        return service.create_territory(
+            TerritoryCreate(
+                code=code,
+                name=name,
+                hierarchy_level_id=levels[level],
+                parent_id=parent_id,
+                route_profile=route,
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        ).id
+
+    region_id = _node(f"{firm.code}-RGN", f"{blueprint.city} Region", "REGION", None)
+    if region_id is None:
+        return
+    north = _node(f"{firm.code}-T-N", "North Zone", "TERRITORY", region_id)
+    south = _node(f"{firm.code}-T-S", "South Zone", "TERRITORY", region_id)
+
+    routes: list[UUID] = []
+    for parent, suffix, label, kind, frequency, days in (
+        (north, "R-N1", "North Sales Beat", "SALES", VisitFrequency.WEEKLY, [1, 3, 5]),
+        (
+            north,
+            "R-N2",
+            "North Collections",
+            "COLLECTION",
+            VisitFrequency.FORTNIGHTLY,
+            [2, 4],
+        ),
+        (south, "R-S1", "South Sales Beat", "SALES", VisitFrequency.WEEKLY, [2, 4]),
+    ):
+        if parent is None:
+            continue
+        made = _node(
+            f"{firm.code}-{suffix}",
+            label,
+            "ROUTE",
+            parent,
+            RouteProfileInput(
+                route_type_id=route_types.get(kind),
+                visit_frequency=frequency,
+                working_days=days,
+            ),
+        )
+        if made is not None:
+            routes.append(made)
+
+    # Put the firm's customers on the rounds, so "customers without a route" on
+    # the Geography dashboard reports something real rather than everyone.
+    customer_ids = list(
+        session.scalars(
+            select(Customer.id)
+            .where(Customer.firm_id == firm.id, Customer.is_deleted.is_(False))
+            .order_by(Customer.code.asc())
+        ).all()
+    )
+    for index, route_id in enumerate(routes):
+        assigned = customer_ids[index :: max(len(routes), 1)]
+        if not assigned:
+            continue
+        service.set_customers(
+            route_id,
+            TerritoryAssignCustomersRequest(customer_ids=assigned),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
 
 
 def _seed_products(

@@ -12,7 +12,8 @@ lives in a different database entirely, where no such schema exists. The lookup
 has to go to the platform connection.
 """
 
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -38,6 +39,24 @@ def _platform_manager() -> DatabaseManager:
     if _platform is None:
         _platform = DatabaseManager.from_settings(Settings())
     return _platform
+
+
+@contextmanager
+def platform_reader() -> Generator[Session]:
+    """Open a read session against the **platform** store.
+
+    Some tables exist only there -- `firms`, `user_firms`, `users` -- while a
+    firm-owned service runs on a tenant session whose `search_path` cannot see
+    them. Querying one from that session raises
+    `relation "<firm schema>.users" does not exist`, and this codebase has now
+    hit that three times: every firm-owned router before 2026-08-09, the
+    business-profile assignment endpoints, and territory search.
+
+    Reach for this whenever a firm-owned service needs a platform fact.
+    """
+    manager = _platform_manager()
+    with manager.sessions(schema=manager.config.default_schema).session() as reader:
+        yield reader
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,8 +108,7 @@ class FirmMetadataReader:
         bind = self._session.get_bind()
         if bind.dialect.name != "postgresql":
             return self._materialise(self._session.execute(statement).first())
-        manager = _platform_manager()
-        with manager.sessions(schema=manager.config.default_schema).session() as reader:
+        with platform_reader() as reader:
             return self._materialise(reader.execute(statement).first())
 
     @staticmethod

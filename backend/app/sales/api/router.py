@@ -405,21 +405,6 @@ def create_territory(
     return ApiResponse(data=row)
 
 
-@router.get("/{territory_id}", response_model=ApiResponse[TerritoryDetailResponse])
-def get_territory(
-    territory_id: UUID,
-    scope: TerritoryViewScope,
-    include_deleted: bool = False,
-    db: Session = Depends(get_db),
-) -> ApiResponse[TerritoryDetailResponse]:
-    data = _service(db).territory_details(
-        territory_id,
-        firm_scope=scope.firm_id,
-        include_deleted=include_deleted,
-    )
-    return ApiResponse(data=data)
-
-
 @router.put("/{territory_id}", response_model=ApiResponse[TerritoryResponse])
 def update_territory(
     territory_id: UUID,
@@ -765,3 +750,24 @@ async def import_territories(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=rows)
+
+
+# Declared after every literal path above, deliberately. FastAPI matches in
+# declaration order, so while this sat higher in the file it swallowed
+# `/dashboard`, `/search`, `/beat-plans` and `/export` — each was read as a
+# territory id and answered 422 "Input should be a valid UUID". All four were
+# unreachable, which is why the Geography dashboard line had never shown a
+# number and beat plans could not be listed at all.
+@router.get("/{territory_id}", response_model=ApiResponse[TerritoryDetailResponse])
+def get_territory(
+    territory_id: UUID,
+    scope: TerritoryViewScope,
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TerritoryDetailResponse]:
+    data = _service(db).territory_details(
+        territory_id,
+        firm_scope=scope.firm_id,
+        include_deleted=include_deleted,
+    )
+    return ApiResponse(data=data)
