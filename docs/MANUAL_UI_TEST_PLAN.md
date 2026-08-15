@@ -352,16 +352,20 @@ accepted, so existing clients keep working. The server publishes the version to
 send back as an `ETag` on every response that returns one versioned record, and
 refuses a write aimed at a superseded version.
 
-**The desktop sends neither.** `api_client.dart` does not read the header or
-send it, so between two desktop clients the second save wins and the first
-user's edit is gone with no message. That is the current behaviour, not a bug
-to be raised against these cases — the gap is recorded under **Also open** in
-`docs/BACKLOG.md`. 9.1 is therefore written twice: what the server guarantees,
-and what two desktops actually do today.
+**The desktop sends it for customers**, as of 2026-08-15. The version rides in
+the response body as well as the ETag header — a list carries many records and
+a header carries one, and this client edits from list rows — so the save
+carries the version of the record the user opened.
+
+**Every other screen still saves without a precondition**, which is accepted
+and means last-one-wins. So 9.1 is the real two-machine case and 9.1e is the
+control: the same race on a screen that does not send the header yet, where the
+second save is still expected to win silently.
 
 | ID | Case | Steps | Expected |
 | --- | --- | --- | --- |
-| 9.1 | Two users edit one record — **what the desktop does today** | Open the same customer on two machines, save on A, then save on B | B **succeeds and overwrites A**. Record it and move on; this is the known gap, not a defect to file |
+| 9.1 | Two users edit one customer | Open the same customer on two machines, save on A, then save on B | **B is refused**, and the message says somebody else saved it, that B's changes are still in the form and have not been sent, and to copy anything needed before closing |
+| 9.1e | The same race where the header is not sent yet | Repeat 9.1 on **vendors** or **products** | B **succeeds and overwrites A**, silently. That is the current behaviour for every screen except customers — record it, do not file it |
 | 9.1a | The precondition the server owes **(HTTP)** | `GET /api/v1/customers/{id}` and note the `ETag`. `PUT` the same customer twice, sending `If-Match: <that etag>` both times | The first `PUT` returns 200 with a **new** `ETag`; the second is refused **409** with "This record changed since you loaded it" |
 | 9.1b | The published version is the one that works **(HTTP)** | Repeat 9.1a's second `PUT`, this time sending the `ETag` the first `PUT` returned | 200. A client that echoes the header it was last given is never wrongly refused — it must not compute the next version itself |
 | 9.1c | No precondition is still accepted **(HTTP)** | `PUT` the same customer with no `If-Match`, then again with `If-Match: *` | Both 200. `*` means "any version", which is the same as sending nothing |

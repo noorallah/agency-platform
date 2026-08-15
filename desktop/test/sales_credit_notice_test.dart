@@ -56,6 +56,7 @@ class _CreditApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     calls.add('$method $path');
     if (path.contains('/credit-status')) {

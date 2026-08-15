@@ -125,6 +125,7 @@ class _InventoryApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     requested.add(path);
     if (path == '/api/v1/inventory') return _paged([_inventoryRow]);

@@ -25,6 +25,7 @@ class _PagedApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     final int page = int.parse(query!['page']!);
     final int pageSize = int.parse(query['page_size']!);
@@ -109,6 +110,7 @@ class _CategorisedApi extends ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async =>
       {
         'data': [

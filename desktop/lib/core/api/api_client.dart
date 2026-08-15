@@ -31,6 +31,13 @@ class ApiException implements Exception {
   final int? statusCode;
   final Object? details;
   bool get isForbidden => statusCode == HttpStatus.forbidden;
+
+  /// Somebody else saved this record after we loaded it.
+  ///
+  /// Only reachable when the request carried an `If-Match` precondition — the
+  /// server accepts a write without one, so a caller that does not send the
+  /// version it read never sees this and silently overwrites instead.
+  bool get isConflict => statusCode == HttpStatus.conflict;
   @override
   String toString() => message;
 }
@@ -677,9 +684,25 @@ class ApiClient {
         await request('POST', '/api/v1/customers', body: data),
       ));
 
-  Future<Customer> updateCustomer(String id, Json data) async =>
+  /// Replace one customer.
+  ///
+  /// [expectedVersion] is the `version` of the record the user opened. Sent as
+  /// `If-Match`, it turns a concurrent edit into a refusal instead of a silent
+  /// overwrite — which matters most here, because this update replaces the
+  /// whole address and contact collection, so the loser of a race does not
+  /// merge badly, they lose every row they entered.
+  Future<Customer> updateCustomer(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       Customer.fromJson(_unwrapMap(
-        await request('PUT', '/api/v1/customers/$id', body: data),
+        await request(
+          'PUT',
+          '/api/v1/customers/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        ),
       ));
 
   Future<void> deleteCustomer(String id) =>
@@ -2959,6 +2982,13 @@ class ApiClient {
     }
   }
 
+  /// Issue one API request.
+  ///
+  /// [expectedVersion] sends the optimistic-concurrency precondition. Pass the
+  /// `version` of the record the user actually loaded and the server refuses
+  /// the write if it has moved on, rather than letting this client overwrite
+  /// somebody else's edit. Omitting it is accepted and means "no precondition",
+  /// which is what every call did before 2026-08-15.
   Future<Json> request(
     String method,
     String path, {
@@ -2966,6 +2996,7 @@ class ApiClient {
     Map<String, String>? query,
     bool authenticated = true,
     bool retrying = false,
+    int? expectedVersion,
   }) async {
     final Uri uri = _uri(path, query);
     onRequest?.call();
@@ -2995,6 +3026,12 @@ class ApiClient {
       if (authenticated && firmId?.isNotEmpty == true) {
         httpRequest.headers.set('X-Firm-ID', firmId!);
       }
+      if (expectedVersion != null) {
+        // Quoted, which is what an entity tag is. `parse_if_match` on the
+        // server tolerates a bare number too, but sending a well-formed tag
+        // means anything else in the path — a proxy, a cache — reads it.
+        httpRequest.headers.set(HttpHeaders.ifMatchHeader, '"$expectedVersion"');
+      }
       if (body != null) {
         httpRequest.headers.contentType = ContentType.json;
         httpRequest.write(jsonEncode(body));
@@ -3021,6 +3058,11 @@ class ApiClient {
           query: query,
           authenticated: authenticated,
           retrying: true,
+          // Carried through the refresh-retry deliberately. Dropping it would
+          // turn a protected write into an unprotected one at exactly the
+          // moment the request is replayed, which is the last place anybody
+          // would look for a lost edit.
+          expectedVersion: expectedVersion,
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {

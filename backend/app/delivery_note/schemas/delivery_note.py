@@ -192,6 +192,11 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     """Return one delivery note."""
 
     id: UUID
+    #: The optimistic-concurrency version, published so a client can send
+    #: it back as ``If-Match``. It rides in the body as well as the ETag
+    #: header because a list carries many records and a header carries
+    #: one — and this desktop edits from list rows.
+    version: int
     firm_id: UUID
     sales_order_id: UUID
     customer_id: UUID
