@@ -327,6 +327,18 @@ quotation that has **not** lapsed — an expired one cannot be sent, accepted or
 converted, and the workspace badges `EXPIRED` separately from the status because
 `SENT` reads identically the day before and the day after.
 
+### 8.70–8.72 A branch or warehouse can say what type it is
+
+Raised from testing on 2026-08-16: the New Branch form had no type field, so
+the Branch Types and Warehouse Types screens were lists you could curate and
+never apply. Every branch and warehouse in the demo carried no type.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.70 | The field is there and offers the firm's types | Masters → Branches → **New**, look at the form | A **Branch Type** dropdown listing the types defined under Branch Types, plus **None**. Same on the warehouse form |
+| 8.71 | The choice is saved | Pick a type, save, reopen the record | The type is still selected. Set it back to **None**, save, reopen — it is cleared, not left on the old value |
+| 8.72 | A firm with no types can still save | Delete or ignore all types, then create a branch | The dropdown says "None defined — add one under Branch Types" and the branch saves. A type is optional; being unable to classify must never block creating a branch |
+
 ### 8.60–8.63 Sub-tabs load their own data
 
 Reported from testing on 2026-08-15 and fixed the same day. Every module whose

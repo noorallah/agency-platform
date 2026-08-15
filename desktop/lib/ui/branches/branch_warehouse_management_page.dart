@@ -800,9 +800,14 @@ class _BranchWarehouseManagementPageState
   }
 
   Future<void> _openBranchEdit(BranchRecord? current) async {
+    // Fetched here rather than reused from `_types`: that field belongs to
+    // whichever type section was last open, and on the Branches tab it is
+    // empty.
+    final List<TypeRecord> types = await widget.api.branchTypes();
+    if (!mounted) return;
     final payload = await showDialog<Json>(
       context: context,
-      builder: (context) => _BranchDialog(current: current),
+      builder: (context) => _BranchDialog(current: current, types: types),
     );
     if (payload == null || !mounted) return;
     try {
@@ -827,12 +832,14 @@ class _BranchWarehouseManagementPageState
 
   Future<void> _openWarehouseEdit(WarehouseRecord? current) async {
     final branches = await widget.api.branches(page: 1);
+    final List<TypeRecord> types = await widget.api.warehouseTypes();
     if (!mounted) return;
     final payload = await showDialog<Json>(
       context: context,
       builder: (context) => _WarehouseDialog(
         current: current,
         branches: branches.items,
+        types: types,
       ),
     );
     if (payload == null || !mounted) return;
@@ -947,8 +954,12 @@ class _BranchWarehouseManagementPageState
 }
 
 class _BranchDialog extends StatefulWidget {
-  const _BranchDialog({this.current});
+  const _BranchDialog({required this.types, this.current});
   final BranchRecord? current;
+
+  /// What this firm classifies its branches as. Empty is normal — a type is
+  /// optional, and a firm that has defined none must still be able to save.
+  final List<TypeRecord> types;
 
   @override
   State<_BranchDialog> createState() => _BranchDialogState();
@@ -970,6 +981,7 @@ class _BranchDialogState extends State<_BranchDialog> {
   late final TextEditingController _currency =
       TextEditingController(text: widget.current?.currencyCode ?? 'INR');
   String _status = 'ACTIVE';
+  String? _typeId;
 
   @override
   void initState() {
@@ -977,6 +989,10 @@ class _BranchDialogState extends State<_BranchDialog> {
     _status = widget.current?.status.isNotEmpty == true
         ? widget.current!.status
         : 'ACTIVE';
+    // Only pre-select a type the list still offers: a removed one would leave
+    // the dropdown holding a value with no matching item, which asserts.
+    final String existing = widget.current?.branchTypeId ?? '';
+    _typeId = widget.types.any((type) => type.id == existing) ? existing : null;
   }
 
   @override
@@ -1025,15 +1041,23 @@ class _BranchDialogState extends State<_BranchDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _status = value ?? 'ACTIVE'),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _status,
+                      decoration: const InputDecoration(labelText: 'Status'),
+                      items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+                          .map((item) =>
+                              DropdownMenuItem(value: item, child: Text(item)))
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => _status = value ?? 'ACTIVE'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: _typeDropdown()),
+                ],
               ),
             ],
           ),
@@ -1054,6 +1078,9 @@ class _BranchDialogState extends State<_BranchDialog> {
               'mobile': _mobile.text.trim(),
               'currency_code': _currency.text.trim().toUpperCase(),
               'status': _status,
+              // Null when nothing is chosen, so clearing a type on an edit
+              // actually clears it rather than leaving the old one behind.
+              'branch_type_id': _typeId,
               'working_hours': const {'start': '09:00', 'end': '18:00'},
               'gst_registration': false,
               'is_default': false,
@@ -1061,6 +1088,30 @@ class _BranchDialogState extends State<_BranchDialog> {
             child: const Text('Save'),
           ),
         ],
+      );
+
+  Widget _typeDropdown() => DropdownButtonFormField<String?>(
+        initialValue: _typeId,
+        // Without this the selected value lays out at its natural width inside
+        // a Row and overflows — a type's code and name together are longer
+        // than the half-width the field gets.
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: 'Branch Type',
+          helperText: widget.types.isEmpty
+              ? 'None defined — add one under Branch Types'
+              : 'Optional',
+        ),
+        items: <DropdownMenuItem<String?>>[
+          const DropdownMenuItem<String?>(child: Text('None')),
+          for (final TypeRecord type in widget.types)
+            DropdownMenuItem<String?>(
+              value: type.id,
+              child: Text('${type.code}  ${type.name}',
+                  overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (value) => setState(() => _typeId = value),
       );
 
   Widget _field(TextEditingController controller, String label) => TextField(
@@ -1073,9 +1124,14 @@ class _WarehouseDialog extends StatefulWidget {
   const _WarehouseDialog({
     required this.current,
     required this.branches,
+    required this.types,
   });
   final WarehouseRecord? current;
   final List<BranchRecord> branches;
+
+  /// What this firm classifies its warehouses as. Empty is normal — a type is
+  /// optional, and a firm that has defined none must still be able to save.
+  final List<TypeRecord> types;
 
   @override
   State<_WarehouseDialog> createState() => _WarehouseDialogState();
@@ -1094,6 +1150,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
       TextEditingController(text: widget.current?.capacityUnit ?? 'KG');
   String _status = 'ACTIVE';
   String? _branchId;
+  String? _typeId;
 
   @override
   void initState() {
@@ -1103,6 +1160,10 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
         : 'ACTIVE';
     _branchId = widget.current?.branchId ??
         (widget.branches.isNotEmpty ? widget.branches.first.id : null);
+    // Only pre-select a type the list still offers: a removed one would leave
+    // the dropdown holding a value with no matching item, which asserts.
+    final String existing = widget.current?.warehouseTypeId ?? '';
+    _typeId = widget.types.any((type) => type.id == existing) ? existing : null;
   }
 
   @override
@@ -1156,15 +1217,44 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _status,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
-                    .map((item) =>
-                        DropdownMenuItem(value: item, child: Text(item)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _status = value ?? 'ACTIVE'),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _status,
+                      decoration: const InputDecoration(labelText: 'Status'),
+                      items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+                          .map((item) =>
+                              DropdownMenuItem(value: item, child: Text(item)))
+                          .toList(),
+                      onChanged: (value) =>
+                          setState(() => _status = value ?? 'ACTIVE'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String?>(
+                      initialValue: _typeId,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'Warehouse Type',
+                        helperText: widget.types.isEmpty
+                            ? 'None defined — add one under Warehouse Types'
+                            : 'Optional',
+                      ),
+                      items: <DropdownMenuItem<String?>>[
+                        const DropdownMenuItem<String?>(child: Text('None')),
+                        for (final TypeRecord type in widget.types)
+                          DropdownMenuItem<String?>(
+                            value: type.id,
+                            child: Text('${type.code}  ${type.name}',
+                                overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (value) => setState(() => _typeId = value),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -1186,6 +1276,9 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                       'capacity': _capacity.text.trim(),
                       'capacity_unit': _capacityUnit.text.trim().toUpperCase(),
                       'status': _status,
+                      // Null when nothing is chosen, so clearing a type on an
+                      // edit clears it rather than leaving the old one.
+                      'warehouse_type_id': _typeId,
                       'is_default': false,
                       'temperature_controlled': false,
                       'cold_storage': false,
