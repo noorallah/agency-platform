@@ -324,6 +324,43 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   }
 
   @override
+  void didUpdateWidget(covariant ResourceManagementPage<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Most administration tabs built from this class are safe by accident:
+    // Dart's runtime type includes the type argument, so
+    // `ResourceManagementPage<Role>` cannot be reused as
+    // `ResourceManagementPage<Permission>`. **Users and User-Firm Assignments
+    // are both `<PlatformUser>`**, so those two do collide — same runtimeType,
+    // same slot, no key — and the second tab opened would show the first one's
+    // rows until Refresh.
+    //
+    // Compared on a stable scalar, never on the definition object: definitions
+    // are built by a function call inside `build`, so a fresh instance exists
+    // on every rebuild and comparing identity would reload forever.
+    if (widget.definition.title == oldWidget.definition.title &&
+        widget.definition.resource == oldWidget.definition.resource) {
+      return;
+    }
+    _resetForResource();
+    _load();
+  }
+
+  /// Drop what belonged to the resource being left.
+  void _resetForResource() {
+    _searchTimer?.cancel();
+    _search.clear();
+    _filterValues.clear();
+    _selectedIds = {};
+    _selected = null;
+    _items = const [];
+    _total = 0;
+    _page = 1;
+    _sortBy = 'created_at';
+    _descending = true;
+    _error = null;
+  }
+
+  @override
   void dispose() {
     _searchTimer?.cancel();
     _search.dispose();

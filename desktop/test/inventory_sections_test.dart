@@ -248,6 +248,43 @@ void main() {
     });
   }
 
+  testWidgets('switching section in place loads the new section',
+      (tester) async {
+    // Every test above pumps a fresh tree, so `initState` always runs and the
+    // bug this covers is invisible to them. The user does not get a fresh
+    // tree: the shell rebuilds the same class in the same slot with a new
+    // section, Flutter keeps the State, and nothing refetched until Refresh.
+    final _InventoryApi api = _InventoryApi();
+    await _pump(
+      tester,
+      InventoryManagementPage(
+        api: api,
+        preferences: DesktopPreferencesService(),
+        permissions: _permissions(),
+        hasActiveFirm: true,
+        section: InventorySection.inventory,
+      ),
+    );
+    expect(find.textContaining('AMOX500'), findsWidgets);
+    final int before = api.requested.length;
+
+    await _pump(
+      tester,
+      InventoryManagementPage(
+        api: api,
+        preferences: DesktopPreferencesService(),
+        permissions: _permissions(),
+        hasActiveFirm: true,
+        section: InventorySection.transactions,
+      ),
+    );
+
+    expect(api.requested.length, greaterThan(before),
+        reason: 'the new section was never fetched');
+    expect(find.textContaining('GRN-MEDI01-0001'), findsWidgets,
+        reason: 'the movements never reached the grid');
+  });
+
   for (final BatchSerialSection section in BatchSerialSection.values) {
     testWidgets('the ${section.name} section opens with data in it',
         (tester) async {

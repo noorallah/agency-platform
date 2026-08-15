@@ -78,6 +78,32 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant BatchManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Four sub-tabs build this class in the same slot with no key, so Flutter
+    // keeps this State and `initState` never runs again.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    _load();
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// `_statusFilter` is the one that bites: its options come from a per-section
+  /// list, so a status that is valid for batches survives onto serials and is
+  /// sent as a filter the new tab has no way to show or clear.
+  void _resetForSection() {
+    _search.clear();
+    _page = 1;
+    _total = 0;
+    _error = null;
+    _statusFilter = null;
+    _selectedBatch = null;
+    _selectedLot = null;
+    _selectedSerial = null;
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();

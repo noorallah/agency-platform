@@ -327,6 +327,20 @@ quotation that has **not** lapsed — an expired one cannot be sent, accepted or
 converted, and the workspace badges `EXPIRED` separately from the status because
 `SENT` reads identically the day before and the day after.
 
+### 8.60–8.63 Sub-tabs load their own data
+
+Reported from testing on 2026-08-15 and fixed the same day. Every module whose
+sub-tabs are served by one page class was affected — clicking a sub-tab kept
+the previous tab's `State`, so nothing was fetched and the grid showed "no
+records" until Refresh. Worth re-running after any change to those pages.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.60 | Every UOM sub-tab loads on the first click | Administration → UOM & Packaging → click **Units**, **UOM Groups**, **Packaging Types**, **Conversion Rules**, **Industry Templates** in turn | Each shows its own rows on arrival. **No Refresh.** This is the case that was reported |
+| 8.61 | A search does not follow you | Type a term in the search box on Units, then switch to Packaging Types | The box is empty and the grid unfiltered. On Tax the same case matters more: the search there is sent to the server, so a stale term silently filters the next tab |
+| 8.62 | A selection does not follow you | Purchases → tick some rows on **Draft Orders**, then switch to **Open Orders** | Nothing is selected, and the bulk-action bar is gone. A selection that survived could put a bulk close or cancel through against orders that are no longer on screen |
+| 8.63 | The two type lists are not each other | Masters → Branches → **Warehouse Types**, then **Branch Types** | Each shows its own list. They share one field internally, so this pair showed the wrong list rather than an empty one |
+
 ### 8.50–8.54 Editing a customer who has traded
 
 **Run these on a seeded firm, not a fresh one.** They are about a customer with
