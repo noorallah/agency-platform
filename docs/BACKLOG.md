@@ -1088,6 +1088,26 @@ because the API returned no ETag to send back; that gap is closed below. **All t
 
 ## Also open
 
+- **A soft-deleted profile assignment no longer reserves its firm**
+  (`20260815_0089`). `firm_business_profiles` carried a table-wide
+  `UNIQUE (firm_id)`, so a removed assignment would have locked that firm out
+  of ever having another: every query in `app/business` filters `is_deleted`,
+  making the row invisible to all of them while it still held the key, and the
+  re-assignment would fail on the constraint with nothing on screen to explain
+  it.
+
+  **Nothing sets `is_deleted` on that table today** -- all four references only
+  filter on it -- so this was a trap rather than a defect, closed before the
+  first "unassign" action opens it rather than after. The index is partial now,
+  matching `UQ_firms_code_active` and `UQ_users_email_active`; PostgreSQL only,
+  so on MySQL the service check stays authoritative, and it updates the firm's
+  row in place rather than inserting a second.
+
+  Proven on the deployed schema in a rolled-back transaction, before and after:
+  with a soft-deleted row present a new live assignment was refused, and is now
+  accepted, while **two live assignments are still refused**.
+
+
 - **A platform screen administering firm-owned data must open that firm's
   store**, decided 2026-08-15 after the business-profile assignment endpoints
   were found doing the opposite.
