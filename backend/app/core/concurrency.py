@@ -12,12 +12,21 @@ document a user is editing.
 
 Sending no ``If-Match`` is still accepted, so existing clients keep working; a
 client that wants protection opts in by sending the version it last read.
+
+**The version has to be readable, or the precondition cannot be used.** Five
+routers accepted ``If-Match`` from the day it was written while no response
+carried the version anywhere -- not as a header, not as a body field -- so the
+only value a client could honestly send was ``*``, which means "no
+precondition". ``set_etag`` publishes it on every response that returns one
+versioned record, which is what makes the header something a client can fill in
+rather than a documented parameter nobody can use.
 """
 
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Response
 
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ValidationError
 
 
@@ -65,6 +74,21 @@ def assert_version(current: int, expected: int | None) -> None:
         raise ConflictError(
             "This record changed since you loaded it. Reload and try again."
         )
+
+
+def set_etag(response: Response, entity: BaseEntity) -> None:
+    """Publish the version a client must send back to update this record.
+
+    The tag is the entity version in quotes, which is what ``parse_if_match``
+    reads back, so a client can echo the header it was given without
+    understanding what is inside it.
+
+    Args:
+        response: The response being returned to the caller.
+        entity: The record whose version is being published.
+
+    """
+    response.headers["ETag"] = f'"{entity.version}"'
 
 
 ExpectedVersion = Annotated[int | None, Depends(parse_if_match)]

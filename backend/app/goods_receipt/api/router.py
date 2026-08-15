@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
-from app.core.concurrency import ExpectedVersion, assert_version
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -181,6 +181,7 @@ def update_goods_receipt(
     receipt_id: UUID,
     data: GoodsReceiptUpdate,
     scope: GoodsReceiptUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GoodsReceiptResponse]:
@@ -193,6 +194,7 @@ def update_goods_receipt(
     row = service.update_receipt(
         receipt_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.receipt_response(row))
 
 
@@ -250,15 +252,14 @@ def close_goods_receipt(
 def get_goods_receipt(
     receipt_id: UUID,
     scope: GoodsReceiptViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GoodsReceiptResponse]:
     """Return goods receipt."""
     service = GoodsReceiptService(db)
-    return ApiResponse(
-        data=service.receipt_response(
-            service.get_receipt(receipt_id, firm_scope=scope.firm_id)
-        )
-    )
+    row = service.get_receipt(receipt_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.receipt_response(row))
 
 
 @router.get(

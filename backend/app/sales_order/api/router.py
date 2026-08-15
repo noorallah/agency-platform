@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
-from app.core.concurrency import ExpectedVersion, assert_version
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -190,6 +190,7 @@ def update_sales_order(
     order_id: UUID,
     data: SalesOrderCreate,
     scope: SalesOrderUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesOrderResponse]:
@@ -201,6 +202,7 @@ def update_sales_order(
     row = service.update_order(
         order_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.order_response(row))
 
 
@@ -258,15 +260,14 @@ def close_sales_order(
 def get_sales_order(
     order_id: UUID,
     scope: SalesOrderViewScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesOrderResponse]:
     """Return one sales order."""
     service = SalesOrderService(db)
-    return ApiResponse(
-        data=service.order_response(
-            service.get_order(order_id, firm_scope=scope.firm_id)
-        )
-    )
+    row = service.get_order(order_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.order_response(row))
 
 
 @router.get(

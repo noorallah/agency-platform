@@ -96,11 +96,24 @@ profile and unit factors.
 
 ## Checking the result
 
-`scripts/verify_sample_data.py` **does not work** and should not be offered. It
-belongs to `generate_sample_data.py`'s single-firm `NAVK_CPL` dataset, predates
-multi-tenancy, and reads platform and firm tables from one schema. It fails at
-import on a model dropped in `20260812_0068`, and fixing that only moves the
-failure to `relation "platform.uoms" does not exist`.
+**Run `scripts/verify_sample_data.py` first.** It was rewritten on 2026-08-14
+and is the fastest answer to whether the books hold:
+
+```bash
+./.venv/Scripts/python.exe scripts/verify_sample_data.py
+```
+
+It enumerates every firm store from the registry the way `migrate_all_stores.py`
+does, reports all of them rather than stopping at the first failure, and exits
+non-zero if any check failed. The five checks are the defects that actually
+shipped: stock value against the inventory control account, every accounting
+period balancing, customer outstanding against the receivable control account,
+every settlement carrying its journal, and every approved invoice having
+posted. It found a valuation leak in sales returns within minutes of existing.
+
+This paragraph used to say the script did not work and should not be offered,
+which was true of the version that predated multi-tenancy and had not been
+updated since.
 
 These checks do work, and each has caught something real:
 

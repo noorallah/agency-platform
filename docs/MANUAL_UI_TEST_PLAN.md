@@ -5,9 +5,14 @@ Written to exercise the things automated tests cannot: a human switching firms,
 two machines pointing at one server, and the behaviour a low-specification
 Windows box actually gives you.
 
-Every case is written from the code as it stands on 2026-08-10. Where a case
+Every case is written from the code as it stands on 2026-08-15. Where a case
 covers something **not yet built** it says so and is not executable — those are
 drafted so the feature arrives with its tests rather than after them.
+
+A case that needs a request the desktop cannot make is marked **(HTTP)** and
+gives the `curl`. Those are still manual tests — they check a guarantee the
+server owes, and marking them keeps the plan honest about what clicking can and
+cannot prove.
 
 ---
 
@@ -299,17 +304,66 @@ The batch is `POST /api/v1/{sales-returns,quotations}/import` with
 | 8.36 | Quotation export names what lapsed | `GET /api/v1/quotations/export` with one live and one expired quotation, **both still `DRAFT`** | An `is_expired` column reading `false` and `true`. The `status` column reads `DRAFT` for both — which is the point: expiry is derived from `valid_until`, so status alone cannot answer it |
 | 8.37 | Export respects the firm | Export quotations as `food01.admin`, then as `medi01.admin` | Each sees only its own. These two share one schema, so this is the isolation case that matters |
 
+### 8.50–8.54 Editing a customer who has traded
+
+**Run these on a seeded firm, not a fresh one.** They are about a customer with
+history behind them, and on a customer created five minutes ago every one of
+them passes for the wrong reason. `WHOLE01` after a demo seed is the right
+subject: pick the customer with the largest outstanding.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.50 | An edit keeps what the customer owes | Note the customer's outstanding, edit an unrelated field — a phone number will do — and save. Re-open them | The outstanding is **exactly** what it was. Until 2026-08-15 it was reset to the opening balance, so every invoice, receipt and credit note since was discarded by an edit nobody thought was financial |
+| 8.51 | The books agree afterwards | Run `scripts/verify_sample_data.py` after 8.50 | Every store holds together. If it reports "customers owe X against receivable account Y ... a balance moved without a journal", 8.50 has regressed — that is the exact wording this defect produced |
+| 8.52 | The edit is not refused | Save the same customer twice in a row | Both succeed. It answered 409 "This record changed since you loaded it" for any customer whose opening balance had posted, with nobody else touching the record |
+| 8.53 | An opening balance still cannot be rewritten after trading | Edit the customer and change the **opening balance** | Refused, saying it cannot change after receivable activity exists. That guard is what makes 8.50 safe: the balances are only ever recomputed where there is nothing else to lose |
+| 8.54 | A new customer's opening balance still reaches the ledger | Create a customer with an opening balance of 25,000, then open the trial balance | Trade Receivables and Opening Balance Equity have each moved by 25,000. Delete the customer and both move back |
 ---
 
 ## 9. Concurrency and two-machine cases
 
+**Read this before running 9.1.** The precondition that makes a concurrent edit
+refusable is `If-Match`, and it is **opt-in**: a request that omits it is
+accepted, so existing clients keep working. The server publishes the version to
+send back as an `ETag` on every response that returns one versioned record, and
+refuses a write aimed at a superseded version.
+
+**The desktop sends neither.** `api_client.dart` does not read the header or
+send it, so between two desktop clients the second save wins and the first
+user's edit is gone with no message. That is the current behaviour, not a bug
+to be raised against these cases — the gap is recorded under **Also open** in
+`docs/BACKLOG.md`. 9.1 is therefore written twice: what the server guarantees,
+and what two desktops actually do today.
+
 | ID | Case | Steps | Expected |
 | --- | --- | --- | --- |
-| 9.1 | Two users edit one record | Open the same customer on two machines, save on A, then save on B | B is refused with a conflict message telling the user to reload — B must **not** silently overwrite A |
-| 9.2 | Reload after a conflict | Continue 9.1: reload on B and save again | Succeeds |
+| 9.1 | Two users edit one record — **what the desktop does today** | Open the same customer on two machines, save on A, then save on B | B **succeeds and overwrites A**. Record it and move on; this is the known gap, not a defect to file |
+| 9.1a | The precondition the server owes **(HTTP)** | `GET /api/v1/customers/{id}` and note the `ETag`. `PUT` the same customer twice, sending `If-Match: <that etag>` both times | The first `PUT` returns 200 with a **new** `ETag`; the second is refused **409** with "This record changed since you loaded it" |
+| 9.1b | The published version is the one that works **(HTTP)** | Repeat 9.1a's second `PUT`, this time sending the `ETag` the first `PUT` returned | 200. A client that echoes the header it was last given is never wrongly refused — it must not compute the next version itself |
+| 9.1c | No precondition is still accepted **(HTTP)** | `PUT` the same customer with no `If-Match`, then again with `If-Match: *` | Both 200. `*` means "any version", which is the same as sending nothing |
+| 9.1d | A malformed precondition is rejected, not ignored **(HTTP)** | `PUT` with `If-Match: banana` | 422. Silently ignoring it would give a client the protection it asked for in name only |
+| 9.2 | Reload after a conflict **(HTTP)** | Continue 9.1a: `GET` the customer again, take the new `ETag`, and `PUT` with it | Succeeds |
 | 9.3 | Same document, two approvals | Approve the same order on both machines at once | One succeeds, one is refused clearly. Never approved twice, never double stock movement |
 | 9.4 | Stock race | Two machines dispatch the same stock simultaneously | Stock never goes negative without an explicit allowance |
 | 9.5 | List refresh | Create a record on A; refresh the same list on B | It appears |
+
+The six endpoints carrying an `ETag` are the `GET` and `PUT` pair for firms,
+purchase orders, sales orders, delivery notes, goods receipts and customers.
+9.1a–9.2 are written against customers because that update replaces the whole
+address and contact collection, so the loser of a race does not merge badly —
+they lose every row they entered.
+
+```bash
+# 9.1a, against the seeded WHOLE01 firm. See .claude/skills/run-app for $TOKEN.
+ETAG=$(curl -s -D - -o /dev/null "$BASE/api/v1/customers/$ID" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Firm-ID: $FIRM" \
+  | grep -i '^etag' | cut -d' ' -f2 | tr -d '\r')
+
+curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$BASE/api/v1/customers/$ID" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Firm-ID: $FIRM" \
+  -H "Content-Type: application/json" -H "If-Match: $ETAG" -d @customer.json
+# first call 200, same command again 409
+```
 
 ---
 
