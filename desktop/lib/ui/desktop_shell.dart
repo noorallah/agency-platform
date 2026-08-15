@@ -3033,6 +3033,13 @@ ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
       resource: 'users',
       showFrame: false,
       description: 'Assign users to one or more firms using the current API.',
+      // Same blindness as the profile assignment: the form is a firm picker
+      // and nothing in it says whose access is being changed.
+      dialogSubtitle: (user) => <String>[
+        if (user.fullName.isNotEmpty) user.fullName,
+        user.email,
+        user.isActive ? 'Active' : 'Inactive',
+      ].join('  ·  '),
       headers: const ['Email', 'Name', 'Status'],
       sortFields: const ['email', 'full_name', null],
       cells: (user) => [
@@ -3088,6 +3095,12 @@ ResourceDefinition<Role> _roleDefinition(
       resource: 'roles',
       showFrame: showFrame,
       description: 'Manage access role definitions and permissions.',
+      // The permission picker is long enough to scroll the role's own name
+      // out of view, and granting the wrong role is not visible afterwards.
+      dialogSubtitle: (role) => <String>[
+        '${role.code} — ${role.name}',
+        role.isSystem ? 'System role' : 'Custom role',
+      ].join('  ·  '),
       headers: const ['Code', 'Name', 'Assignments', 'Status'],
       sortFields: const ['code', 'name', null, null],
       cells: (role) => [
@@ -3645,6 +3658,18 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
       resource: 'firms',
       showFrame: false,
       description: 'Assign one active business profile to each firm.',
+      // The form is a profile dropdown, a switch and a notes box — nothing in
+      // it names the firm being assigned to. Without this the dialog reads
+      // "Profile Assignment / Edit existing record" and the user has to
+      // remember which row they opened, which is exactly the moment to get it
+      // wrong: a profile decides which features and modules a firm operates.
+      dialogSubtitle: (firm) => <String>[
+        '${firm.code} — ${firm.name}',
+        if (firm.city.isNotEmpty) firm.city,
+        if (firm.country.isNotEmpty) firm.country,
+        if (firm.currencyCode.isNotEmpty) firm.currencyCode,
+        firm.isActive ? 'Active' : 'Inactive',
+      ].join('  ·  '),
       headers: const ['Code', 'Name', 'Country', 'Status'],
       sortFields: const ['code', 'name', null, null],
       cells: (firm) => [
