@@ -5,7 +5,9 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/customer.dart';
 import '../../models/sales_territory.dart';
+import 'assignment_picker_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
@@ -121,6 +123,11 @@ class _SalesTerritoryManagementPageState
   Future<void> _openEditor({SalesTerritory? current, String? parentId}) async {
     if (!_canCreate && current == null) return;
     if (!_canEdit && current != null) return;
+    // Fetched here rather than held on the page: the editor is the only
+    // place that needs them, and a firm defines these once and rarely.
+    final List<TerritoryRouteTypeRecord> routeTypes =
+        await widget.api.territoryRouteTypes();
+    if (!mounted) return;
     final result = await showDialog<Json>(
       context: context,
       builder: (context) => _TerritoryEditorDialog(
@@ -128,6 +135,7 @@ class _SalesTerritoryManagementPageState
         hierarchy: _hierarchy,
         items: _items,
         initialParentId: parentId,
+        routeTypes: routeTypes,
       ),
     );
     if (!mounted || result == null) return;
@@ -186,44 +194,67 @@ class _SalesTerritoryManagementPageState
     }
   }
 
+  /// The API caps a page at 100, and the picker needs the whole list: a
+  /// customer on page three is one you can neither find nor take off a round.
+  static const int _pickerPageSize = 100;
+
+  /// Reads every page of a list endpoint. Bounded so a firm with a very large
+  /// book cannot turn opening a dialog into a hundred requests — the search
+  /// box inside the picker is the answer beyond this, not more paging.
+  Future<List<T>> _allPages<T>(
+    Future<PagedResult<T>> Function(int page) fetch, {
+    int maxPages = 20,
+  }) async {
+    final List<T> collected = <T>[];
+    for (int page = 1; page <= maxPages; page++) {
+      final PagedResult<T> result = await fetch(page);
+      collected.addAll(result.items);
+      if (result.items.isEmpty || collected.length >= result.total) break;
+    }
+    return collected;
+  }
+
   Future<void> _assignCustomers(SalesTerritory territory) async {
     if (!_canAssignCustomers) return;
-    final TextEditingController input = TextEditingController(
-      text: (await widget.api.territoryCustomers(territory.id)).join(','),
+    // Replaces a text box that asked for comma-separated customer UUIDs.
+    // Nobody knows a customer's id, and pasting the wrong one assigns a
+    // different customer with nothing on screen to notice it by.
+    final List<String> current =
+        await widget.api.territoryCustomers(territory.id);
+    final List<Customer> customers = await _allPages<Customer>(
+      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
     );
     if (!mounted) return;
-    final bool? submitted = await showDialog<bool>(
+    final List<String>? chosen = await showDialog<List<String>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Assign customers to ${territory.name}'),
-        content: TextField(
-          controller: input,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: 'Customer IDs (comma separated)',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save'),
-          ),
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Customers on ${territory.name}',
+        searchHint: 'Search customers by name or code',
+        emptyMessage: 'This firm has no customers yet. Add one under '
+            'Masters before putting anybody on a round.',
+        selectedIds: current.toSet(),
+        options: [
+          for (final Customer customer in customers)
+            AssignableOption(
+              id: customer.id,
+              label: customer.displayName.isEmpty
+                  ? customer.name
+                  : customer.displayName,
+              secondary: customer.code,
+            ),
         ],
       ),
     );
-    if (submitted != true || !mounted) return;
-    final ids = input.text
-        .split(',')
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toList();
+    if (chosen == null || !mounted) return;
     try {
-      await widget.api.setTerritoryCustomers(territory.id, ids);
+      await widget.api.setTerritoryCustomers(territory.id, chosen);
       await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${chosen.length} customer(s) on ${territory.name}.',
+        kind: AppNotificationKind.success,
+      );
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
@@ -231,56 +262,60 @@ class _SalesTerritoryManagementPageState
         exception.message,
         kind: AppNotificationKind.error,
       );
-    } finally {
-      input.dispose();
     }
   }
 
   Future<void> _assignSalesmen(SalesTerritory territory) async {
     if (!_canAssignSalesmen) return;
-    final TextEditingController input = TextEditingController(
-      text: (await widget.api.territorySalesmen(territory.id))
-          .map((value) => value['user_id'].toString())
-          .join(','),
-    );
+    final List<Json> current = await widget.api.territorySalesmen(territory.id);
+    final List<TerritorySalesmanCandidate> users =
+        await widget.api.territorySalesmanCandidates();
     if (!mounted) return;
-    final bool? submitted = await showDialog<bool>(
+    // An existing assignment carries more than a user id. Re-sending only the
+    // id would quietly clear whoever was the primary and whoever covered the
+    // child territories, because the API replaces the whole list.
+    final Map<String, Json> existing = <String, Json>{
+      for (final Json entry in current) stringValue(entry['user_id']): entry,
+    };
+    final List<String>? chosen = await showDialog<List<String>>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Assign salesmen to ${territory.name}'),
-        content: TextField(
-          controller: input,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: 'User IDs (comma separated)',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Save'),
-          ),
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Salespeople on ${territory.name}',
+        searchHint: 'Search people by name or email',
+        emptyMessage: 'No users to assign. Add one under Administration.',
+        selectedIds: {
+          for (final Json entry in current) stringValue(entry['user_id']),
+        }..removeWhere((id) => id.isEmpty),
+        options: [
+          for (final TerritorySalesmanCandidate user in users)
+            AssignableOption(
+              id: user.userId,
+              label: user.fullName.isEmpty ? user.email : user.fullName,
+              secondary: user.email,
+            ),
         ],
       ),
     );
-    if (submitted != true || !mounted) return;
-    final assignments = input.text
-        .split(',')
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .map((id) => {
-              'user_id': id,
-              'include_children': false,
-              'is_primary': false,
-            })
-        .toList();
+    if (chosen == null || !mounted) return;
     try {
-      await widget.api.setTerritorySalesmen(territory.id, assignments);
+      await widget.api.setTerritorySalesmen(
+        territory.id,
+        [
+          for (final String userId in chosen)
+            <String, dynamic>{
+              'user_id': userId,
+              'is_primary': existing[userId]?['is_primary'] == true,
+              'include_children': existing[userId]?['include_children'] == true,
+            },
+        ],
+      );
       await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${chosen.length} salesperson(s) on ${territory.name}.',
+        kind: AppNotificationKind.success,
+      );
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
@@ -288,8 +323,6 @@ class _SalesTerritoryManagementPageState
         exception.message,
         kind: AppNotificationKind.error,
       );
-    } finally {
-      input.dispose();
     }
   }
 
@@ -714,6 +747,7 @@ class _TerritoryEditorDialog extends StatefulWidget {
     required this.territory,
     required this.hierarchy,
     required this.items,
+    required this.routeTypes,
     this.initialParentId,
   });
 
@@ -721,6 +755,10 @@ class _TerritoryEditorDialog extends StatefulWidget {
   final TerritoryHierarchyRecord? hierarchy;
   final List<SalesTerritory> items;
   final String? initialParentId;
+
+  /// The kinds of round this firm runs. A territory that is not a round
+  /// leaves these blank — the API takes no route profile then.
+  final List<TerritoryRouteTypeRecord> routeTypes;
 
   @override
   State<_TerritoryEditorDialog> createState() => _TerritoryEditorDialogState();
@@ -735,6 +773,34 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   late final TextEditingController _description =
       TextEditingController(text: widget.territory?.description ?? '');
   late String _status = widget.territory?.status ?? 'ACTIVE';
+
+  /// Whether this node is a round a salesperson walks, rather than a region or
+  /// a zone. Held as an explicit switch, not inferred from whether the fields
+  /// below happen to be filled: the API deletes the route profile when the
+  /// payload omits it, so a route whose type was never chosen would lose its
+  /// frequency and working days the next time somebody renamed it.
+  late bool _isRoute = widget.territory?.routeProfile != null;
+  late String? _routeTypeId = _initialRouteTypeId();
+  late String _visitFrequency = _initialVisitFrequency();
+  late final Set<int> _workingDays = <int>{
+    ...?widget.territory?.routeProfile?.workingDays,
+  };
+
+  /// Only pre-select a type the list still offers — a removed one would leave
+  /// the dropdown holding a value with no matching item, which asserts.
+  String? _initialRouteTypeId() {
+    final String existing = widget.territory?.routeProfile?.routeTypeId ?? '';
+    return widget.routeTypes.any((type) => type.id == existing)
+        ? existing
+        : null;
+  }
+
+  String _initialVisitFrequency() {
+    final String existing =
+        widget.territory?.routeProfile?.visitFrequency ?? '';
+    return _frequencies.contains(existing) ? existing : 'ON_DEMAND';
+  }
+
   late String? _levelId = widget.territory?.hierarchyLevelId;
   late String? _parentId = widget.territory?.parentId.isEmpty == true
       ? (widget.initialParentId?.isEmpty == true
@@ -750,92 +816,235 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
     super.dispose();
   }
 
+  static const List<String> _frequencies = <String>[
+    'DAILY',
+    'WEEKLY',
+    'FORTNIGHTLY',
+    'MONTHLY',
+    'QUARTERLY',
+    'ON_DEMAND',
+  ];
+
+  /// ISO weekday numbering, which is what the API validates against (1-7).
+  static const List<String> _weekdayNames = <String>[
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ];
+
+  List<Widget> _routeFields(BuildContext context) => <Widget>[
+        DropdownButtonFormField<String?>(
+          isExpanded: true,
+          initialValue: _routeTypeId,
+          decoration: InputDecoration(
+            labelText: 'Route type',
+            // No screen creates route types yet — the API has a POST but
+            // nothing in this client calls it — so the message says the route
+            // still saves rather than pointing at a door that is not there.
+            helperText: widget.routeTypes.isEmpty
+                ? 'None defined for this firm — a route saves without one'
+                : null,
+          ),
+          items: <DropdownMenuItem<String?>>[
+            const DropdownMenuItem<String?>(value: null, child: Text('None')),
+            for (final TerritoryRouteTypeRecord type in widget.routeTypes)
+              DropdownMenuItem<String?>(
+                value: type.id,
+                child: Text('${type.code} - ${type.name}'),
+              ),
+          ],
+          onChanged: (value) => setState(() => _routeTypeId = value),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          initialValue: _visitFrequency,
+          decoration: const InputDecoration(labelText: 'Visit frequency'),
+          items: <DropdownMenuItem<String>>[
+            for (final String frequency in _frequencies)
+              DropdownMenuItem<String>(
+                value: frequency,
+                child: Text(_titleCase(frequency)),
+              ),
+          ],
+          onChanged: (value) =>
+              setState(() => _visitFrequency = value ?? 'ON_DEMAND'),
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            'Working days',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 6,
+          children: <Widget>[
+            for (int weekday = 1; weekday <= 7; weekday++)
+              FilterChip(
+                label: Text(_weekdayNames[weekday - 1]),
+                selected: _workingDays.contains(weekday),
+                onSelected: (selected) => setState(() {
+                  if (selected) {
+                    _workingDays.add(weekday);
+                  } else {
+                    _workingDays.remove(weekday);
+                  }
+                }),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            _workingDays.isEmpty
+                ? 'No days chosen — the route runs on no fixed day.'
+                : 'Runs on ${_workingDays.length} day(s) a week.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      ];
+
+  /// The profile is replaced whole, so the fields this form does not show
+  /// have to be carried back or they are cleared. Effective dates and the
+  /// city/postal/locality links are set elsewhere and would otherwise be lost
+  /// the first time somebody changed a route's working days.
+  Json _routeProfilePayload() {
+    final TerritoryRouteProfileRecord? existing =
+        widget.territory?.routeProfile;
+    return <String, dynamic>{
+      'route_type_id': _routeTypeId,
+      'visit_frequency': _visitFrequency,
+      'working_days': _workingDays.toList()..sort(),
+      'effective_from': _orNull(existing?.effectiveFrom),
+      'effective_to': _orNull(existing?.effectiveTo),
+      'city_id': _orNull(existing?.cityId),
+      'postal_code_id': _orNull(existing?.postalCodeId),
+      'locality_id': _orNull(existing?.localityId),
+    };
+  }
+
+  static String? _orNull(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
+
+  static String _titleCase(String code) => code
+      .split('_')
+      .map((word) =>
+          word.isEmpty ? word : '${word[0]}${word.substring(1).toLowerCase()}')
+      .join(' ');
+
   @override
   Widget build(BuildContext context) => AlertDialog(
         title:
             Text(widget.territory == null ? 'New territory' : 'Edit territory'),
         content: SizedBox(
           width: 560,
+          // Scrolls because the route fields push this past the height of a
+          // 1366x768 screen once they are showing.
+          height: 520,
           child: Form(
             key: _form,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: _code,
-                  decoration: const InputDecoration(labelText: 'Code'),
-                  validator: (value) => (value == null || value.trim().isEmpty)
-                      ? 'Code is required'
-                      : null,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _name,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                  validator: (value) => (value == null || value.trim().isEmpty)
-                      ? 'Name is required'
-                      : null,
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _levelId,
-                  decoration:
-                      const InputDecoration(labelText: 'Hierarchy level'),
-                  items: (widget.hierarchy?.levels ?? const [])
-                      .map(
-                        (level) => DropdownMenuItem(
-                          value: level.id,
-                          child: Text(level.displayName),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => _levelId = value),
-                  validator: (value) => value == null || value.isEmpty
-                      ? 'Level is required'
-                      : null,
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _parentId,
-                  decoration: const InputDecoration(labelText: 'Parent'),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: '',
-                      child: Text('No parent (root)'),
-                    ),
-                    ...widget.items.map(
-                      (item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text('${item.code} - ${item.name}'),
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) => setState(
-                    () => _parentId =
-                        (value == null || value.isEmpty) ? null : value,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: _code,
+                    decoration: const InputDecoration(labelText: 'Code'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'Code is required'
+                            : null,
                   ),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  initialValue: _status,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const [
-                    DropdownMenuItem(value: 'ACTIVE', child: Text('Active')),
-                    DropdownMenuItem(
-                        value: 'INACTIVE', child: Text('Inactive')),
-                    DropdownMenuItem(
-                        value: 'ARCHIVED', child: Text('Archived')),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => _status = value ?? 'ACTIVE'),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _description,
-                  maxLines: 3,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    validator: (value) =>
+                        (value == null || value.trim().isEmpty)
+                            ? 'Name is required'
+                            : null,
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: _levelId,
+                    decoration:
+                        const InputDecoration(labelText: 'Hierarchy level'),
+                    items: (widget.hierarchy?.levels ?? const [])
+                        .map(
+                          (level) => DropdownMenuItem(
+                            value: level.id,
+                            child: Text(level.displayName),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) => setState(() => _levelId = value),
+                    validator: (value) => value == null || value.isEmpty
+                        ? 'Level is required'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: _parentId,
+                    decoration: const InputDecoration(labelText: 'Parent'),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('No parent (root)'),
+                      ),
+                      ...widget.items.map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item.id,
+                          child: Text('${item.code} - ${item.name}'),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) => setState(
+                      () => _parentId =
+                          (value == null || value.isEmpty) ? null : value,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    initialValue: _status,
+                    decoration: const InputDecoration(labelText: 'Status'),
+                    items: const [
+                      DropdownMenuItem(value: 'ACTIVE', child: Text('Active')),
+                      DropdownMenuItem(
+                          value: 'INACTIVE', child: Text('Inactive')),
+                      DropdownMenuItem(
+                          value: 'ARCHIVED', child: Text('Archived')),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _status = value ?? 'ACTIVE'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _description,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                  ),
+                  const Divider(height: 32),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _isRoute,
+                    title: const Text('This is a route'),
+                    subtitle: const Text(
+                      'A round somebody walks — sales or collection. Regions and '
+                      'zones leave this off.',
+                    ),
+                    onChanged: (value) => setState(() => _isRoute = value),
+                  ),
+                  if (_isRoute) ..._routeFields(context),
+                ],
+              ),
             ),
           ),
         ),
@@ -859,6 +1068,9 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                       : _description.text.trim(),
                   'status': _status,
                   'sort_order': 0,
+                  // Omitted for a region or a zone, which the API reads as
+                  // "this is not a round" and retires any profile it had.
+                  if (_isRoute) 'route_profile': _routeProfilePayload(),
                 },
               );
             },

@@ -939,6 +939,7 @@ class _CustomerApi extends ApiClient {
   @override
   Future<PagedResult<Customer>> customers({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,

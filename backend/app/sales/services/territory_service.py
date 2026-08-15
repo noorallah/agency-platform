@@ -77,6 +77,7 @@ from app.sales.schemas import (
     TerritoryDetailResponse,
     TerritoryListFilters,
     TerritoryResponse,
+    TerritorySalesmanCandidate,
     TerritorySalesmanCoverage,
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
@@ -1069,6 +1070,24 @@ class SalesTerritoryService:
                 "is_primary": item.is_primary,
             }
             for item in rows
+        ]
+
+    def salesman_candidates(
+        self, *, firm_scope: UUID
+    ) -> list[TerritorySalesmanCandidate]:
+        """List the firm's active members, in name order.
+
+        Delegated to `FirmMetadataReader`, which is the one module allowed to
+        touch `users` and `user_firms` -- they exist only in the platform
+        schema, and a tenant session cannot see either.
+        """
+        return [
+            TerritorySalesmanCandidate(
+                user_id=member.user_id,
+                full_name=member.full_name,
+                email=member.email,
+            )
+            for member in FirmMetadataReader(self._session).active_members(firm_scope)
         ]
 
     def create_beat_plan(

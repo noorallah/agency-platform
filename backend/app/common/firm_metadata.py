@@ -67,6 +67,15 @@ class FirmMetadata:
     financial_year_start: date | None
 
 
+@dataclass(frozen=True, slots=True)
+class FirmMember:
+    """One person who belongs to a firm."""
+
+    user_id: UUID
+    full_name: str
+    email: str
+
+
 class FirmMetadataReader:
     """Resolve firm facts from wherever ``firms`` actually is."""
 
@@ -121,6 +130,45 @@ class FirmMetadataReader:
     def exists(self, firm_id: UUID) -> bool:
         """Return whether the firm is present and not soft-deleted."""
         return self.get(firm_id).code is not None
+
+    def active_members(self, firm_id: UUID) -> list["FirmMember"]:
+        """List a firm's active members, in name order.
+
+        Territory assignment needs the firm's people **by name**: the only
+        endpoint that lists users is guarded by `USER_VIEW`, a platform-admin
+        permission the roles that run territories do not hold, so the desktop
+        was left asking for a raw user id. The query lives here rather than in
+        the sales service because `users` and `user_firms` are platform tables
+        and this module is the one place allowed to read them.
+
+        Args:
+            firm_id: The firm whose members to list.
+
+        Returns:
+            The active, undeleted members.
+
+        """
+        statement = (
+            select(User.id, User.full_name, User.email)
+            .join(UserFirm, UserFirm.user_id == User.id)
+            .where(
+                UserFirm.firm_id == firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+                User.is_deleted.is_(False),
+            )
+            .order_by(User.full_name, User.email)
+        )
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            rows = list(self._session.execute(statement))
+        else:
+            with platform_reader() as reader:
+                rows = list(reader.execute(statement))
+        return [
+            FirmMember(user_id=row[0], full_name=row[1] or "", email=row[2] or "")
+            for row in rows
+        ]
 
     def active_member_count(self, firm_id: UUID, user_ids: Sequence[UUID]) -> int:
         """Count how many of ``user_ids`` are active members of the firm.

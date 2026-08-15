@@ -152,6 +152,51 @@ class SalesTerritory {
       );
 }
 
+/// A kind of round the firm runs: a sales beat, a collection round.
+class TerritoryRouteTypeRecord {
+  const TerritoryRouteTypeRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.isActive,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final bool isActive;
+
+  String get label => '$code  $name';
+
+  factory TerritoryRouteTypeRecord.fromJson(Json json) =>
+      TerritoryRouteTypeRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        isActive: json['is_active'] as bool? ?? true,
+      );
+}
+
+/// Somebody the firm can put on a route.
+class TerritorySalesmanCandidate {
+  const TerritorySalesmanCandidate({
+    required this.userId,
+    required this.fullName,
+    required this.email,
+  });
+
+  final String userId;
+  final String fullName;
+  final String email;
+
+  factory TerritorySalesmanCandidate.fromJson(Json json) =>
+      TerritorySalesmanCandidate(
+        userId: stringValue(json['user_id']),
+        fullName: stringValue(json['full_name']),
+        email: stringValue(json['email']),
+      );
+}
+
 class TerritoryRouteProfileRecord {
   const TerritoryRouteProfileRecord({
     required this.routeTypeId,

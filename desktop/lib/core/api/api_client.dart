@@ -222,12 +222,13 @@ class ApiClient {
 
   Future<PagedResult<PlatformUser>> users({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
   }) =>
       _list('/api/v1/users', PlatformUser.fromJson, page, search,
-          sortBy: sortBy, descending: descending);
+          pageSize: pageSize, sortBy: sortBy, descending: descending);
   Future<PagedResult<Role>> roles({
     int page = 1,
     String search = '',
@@ -664,6 +665,7 @@ class ApiClient {
 
   Future<PagedResult<Customer>> customers({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -674,6 +676,7 @@ class ApiClient {
         Customer.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
         additionalQuery: filters.toQuery(),
@@ -1384,8 +1387,7 @@ class ApiClient {
     );
     final dynamic data = response['data'];
     if (data is! Map) return null;
-    return BusinessProfileUomDefaults.fromJson(
-        Map<String, dynamic>.from(data));
+    return BusinessProfileUomDefaults.fromJson(Map<String, dynamic>.from(data));
   }
 
   /// Store default units for a business profile.
@@ -1668,7 +1670,8 @@ class ApiClient {
   /// Open a sheet. Naming no lines draws it up from the whole warehouse.
   Future<PhysicalCountSheet> openPhysicalCount(Json data) async =>
       PhysicalCountSheet.fromJson(
-        _unwrapMap(await request('POST', '/api/v1/inventory/counts', body: data)),
+        _unwrapMap(
+            await request('POST', '/api/v1/inventory/counts', body: data)),
       );
 
   /// Save what has been counted so far, on a sheet nobody has posted.
@@ -1928,6 +1931,19 @@ class ApiClient {
         await request('PUT', '/api/v1/sales-territories/$id', body: data),
       ));
 
+  /// The kinds of round this firm runs — a sales beat, a collection round.
+  Future<List<TerritoryRouteTypeRecord>> territoryRouteTypes() async {
+    final Json response =
+        await request('GET', '/api/v1/sales-territories/route-types');
+    final dynamic data = response['data'];
+    if (data is! List) return const <TerritoryRouteTypeRecord>[];
+    return <TerritoryRouteTypeRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritoryRouteTypeRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
   Future<void> deleteTerritory(String id) =>
       request('DELETE', '/api/v1/sales-territories/$id');
 
@@ -1952,6 +1968,24 @@ class ApiClient {
       body: {'customer_ids': customerIds},
     );
     return stringList(response['data']);
+  }
+
+  /// The people this firm can put on a route.
+  ///
+  /// Not `/api/v1/users`: that endpoint is guarded by `USER_VIEW`, a
+  /// platform-admin permission, so the roles that actually run territories get
+  /// a 403 from it. This one is scoped to the firm and guarded by the assign
+  /// permission.
+  Future<List<TerritorySalesmanCandidate>> territorySalesmanCandidates() async {
+    final Json response =
+        await request('GET', '/api/v1/sales-territories/salesman-candidates');
+    final dynamic data = response['data'];
+    if (data is! List) return const <TerritorySalesmanCandidate>[];
+    return <TerritorySalesmanCandidate>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritorySalesmanCandidate.fromJson(Map<String, dynamic>.from(row)),
+    ];
   }
 
   Future<List<Json>> territorySalesmen(String territoryId) async {
@@ -2033,9 +2067,8 @@ class ApiClient {
         (json) => AssignmentOption(
           id: stringValue(json['id']),
           label: stringValue(json['code'] ?? json['name'] ?? json['email']),
-          group: json['category'] == null
-              ? null
-              : stringValue(json['category']),
+          group:
+              json['category'] == null ? null : stringValue(json['category']),
         ),
         page,
         '',
@@ -2391,7 +2424,8 @@ class ApiClient {
           await request(
             'POST',
             '/api/v1/quotations/$id/$action',
-            body: reason == null ? const <String, dynamic>{} : {'reason': reason},
+            body:
+                reason == null ? const <String, dynamic>{} : {'reason': reason},
           ),
         ),
       );
@@ -2453,7 +2487,8 @@ class ApiClient {
           await request(
             'POST',
             '/api/v1/sales-returns/$id/$action',
-            body: reason == null ? const <String, dynamic>{} : {'reason': reason},
+            body:
+                reason == null ? const <String, dynamic>{} : {'reason': reason},
           ),
         ),
       );
@@ -2467,10 +2502,10 @@ class ApiClient {
   /// return be raised.
   Future<List<ReturnableDocument>> returnableDocuments({int limit = 50}) async {
     final List<List<ReturnableDocument>> both = await Future.wait([
-      _returnable('/api/v1/delivery-notes', ReturnableDocument.fromDeliveryNote,
-          limit),
-      _returnable('/api/v1/sales-invoices', ReturnableDocument.fromSalesInvoice,
-          limit),
+      _returnable(
+          '/api/v1/delivery-notes', ReturnableDocument.fromDeliveryNote, limit),
+      _returnable(
+          '/api/v1/sales-invoices', ReturnableDocument.fromSalesInvoice, limit),
     ]);
     return [...both[0], ...both[1]];
   }
@@ -2615,8 +2650,8 @@ class ApiClient {
   /// assignments live in each firm's own store, so the server iterates them.
   /// Keyed by firm id for the grid to read.
   Future<Map<String, FirmProfileAssignment>> firmProfileAssignments() async {
-    final Json response =
-        await request('GET', '/api/v1/business-framework/firm-profile-assignments');
+    final Json response = await request(
+        'GET', '/api/v1/business-framework/firm-profile-assignments');
     final dynamic data = response['data'];
     if (data is! List) return <String, FirmProfileAssignment>{};
     return <String, FirmProfileAssignment>{
@@ -2813,19 +2848,22 @@ class ApiClient {
         if (isActive != null) 'is_active': '$isActive',
       },
     );
-    final List<LedgerAccount> items = _unwrapList(response, LedgerAccount.fromJson);
+    final List<LedgerAccount> items =
+        _unwrapList(response, LedgerAccount.fromJson);
     return PagedResult<LedgerAccount>(items: items, total: items.length);
   }
 
   Future<LedgerAccount> createLedgerAccount(Json data) async =>
       LedgerAccount.fromJson(
-        _unwrapMap(await request('POST', '/api/v1/finance/ledger-accounts', body: data)),
+        _unwrapMap(await request('POST', '/api/v1/finance/ledger-accounts',
+            body: data)),
       );
 
   Future<LedgerAccount> updateLedgerAccount(String id, Json data) async =>
       LedgerAccount.fromJson(
         _unwrapMap(
-          await request('PATCH', '/api/v1/finance/ledger-accounts/$id', body: data),
+          await request('PATCH', '/api/v1/finance/ledger-accounts/$id',
+              body: data),
         ),
       );
 
@@ -2834,7 +2872,8 @@ class ApiClient {
         AccountGroup.fromJson,
       );
 
-  Future<List<AccountingPeriod>> accountingPeriods({String? financialYearId}) async =>
+  Future<List<AccountingPeriod>> accountingPeriods(
+          {String? financialYearId}) async =>
       _unwrapList(
         await request(
           'GET',
@@ -3004,7 +3043,8 @@ class ApiClient {
         pageSize: pageSize,
         descending: descending,
         additionalQuery: {
-          if (accountingPeriodId != null) 'accounting_period_id': accountingPeriodId,
+          if (accountingPeriodId != null)
+            'accounting_period_id': accountingPeriodId,
           if (status != null) 'status': status,
         },
       );
@@ -3013,7 +3053,8 @@ class ApiClient {
         _unwrapMap(await request('GET', '/api/v1/finance/journal-entries/$id')),
       );
 
-  Future<JournalEntry> createJournalEntry(Json data) async => JournalEntry.fromJson(
+  Future<JournalEntry> createJournalEntry(Json data) async =>
+      JournalEntry.fromJson(
         _unwrapMap(
           await request('POST', '/api/v1/finance/journal-entries', body: data),
         ),
@@ -3021,7 +3062,8 @@ class ApiClient {
 
   /// Post a draft to the general ledger. There is no unposting: a posted entry
   /// is reversed by another entry, which is what `reverseJournalEntry` raises.
-  Future<JournalEntry> postJournalEntry(String id) async => JournalEntry.fromJson(
+  Future<JournalEntry> postJournalEntry(String id) async =>
+      JournalEntry.fromJson(
         _unwrapMap(
           await request('POST', '/api/v1/finance/journal-entries/$id/post'),
         ),
@@ -3124,7 +3166,8 @@ class ApiClient {
         // Quoted, which is what an entity tag is. `parse_if_match` on the
         // server tolerates a bare number too, but sending a well-formed tag
         // means anything else in the path — a proxy, a cache — reads it.
-        httpRequest.headers.set(HttpHeaders.ifMatchHeader, '"$expectedVersion"');
+        httpRequest.headers
+            .set(HttpHeaders.ifMatchHeader, '"$expectedVersion"');
       }
       if (body != null) {
         httpRequest.headers.contentType = ContentType.json;
