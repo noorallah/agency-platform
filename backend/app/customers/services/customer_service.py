@@ -150,18 +150,32 @@ class CustomerService:
                 "Opening balance cannot be changed after receivable activity exists."
             )
         before = self._audit_snapshot(customer)
+        # Read before the field loop below overwrites it: whether the opening
+        # balance moved is what decides if any of the balance work runs at all.
+        balance_changed = customer.opening_balance != data.opening_balance
         for field, value in self._customer_values(data).items():
             setattr(customer, field, value)
         customer.display_name = data.display_name or data.name
-        (
-            customer.current_outstanding,
-            customer.unapplied_advance_balance,
-        ) = self._normalize_customer_balances(data.opening_balance)
-        self._reset_opening_balance_transaction(
-            customer=customer,
-            amount=data.opening_balance,
-            actor_id=actor_id,
-        )
+        if balance_changed:
+            # Only reachable when the customer has no receivable activity --
+            # the guard above refuses it otherwise -- so recomputing the
+            # balances from the opening figure is the whole truth about them.
+            #
+            # It used to run on every update, which silently discarded
+            # everything the customer had traded: an edit to a phone number
+            # reset `current_outstanding` to the opening balance, and the
+            # receivable control account was then out by the difference. On the
+            # seeded WHOLE01 firm one such edit moved a customer from 84,901.23
+            # to 25,000.00 and put the store 59,901.23 out.
+            (
+                customer.current_outstanding,
+                customer.unapplied_advance_balance,
+            ) = self._normalize_customer_balances(data.opening_balance)
+            self._reset_opening_balance_transaction(
+                customer=customer,
+                amount=data.opening_balance,
+                actor_id=actor_id,
+            )
         customer.updated_by = actor_id
         self._reconcile_addresses(customer, data.addresses, actor_id)
         self._reconcile_contacts(customer, data.contacts, actor_id)
@@ -828,11 +842,23 @@ class CustomerService:
         # points at it. Deleting the transaction alone would leave the journal
         # asserting a figure the customer no longer carries.
         self._reverse_opening_balance_postings(customer, actor_id=actor_id)
-        self._session.query(CustomerReceivableTransaction).filter(
-            CustomerReceivableTransaction.customer_id == customer.id,
-            CustomerReceivableTransaction.transaction_type
-            == CustomerReceivableTransactionType.OPENING_BALANCE.value,
-        ).delete(synchronize_session=False)
+        # Deleted through the ORM, one row at a time, and not with a bulk
+        # ``query().delete(synchronize_session=False)``. The reversal above
+        # sets ``journal_entry_id = None`` on these very rows, so a bulk delete
+        # removes them in the database while leaving the dirty objects in the
+        # session: the pending UPDATE then fires against a row that is gone and
+        # raises StaleDataError, which the handler reports as 409 "this record
+        # changed since you loaded it". It only bites where the session does
+        # not autoflush -- which is every request, and no unit test.
+        for stale in self._session.scalars(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.customer_id == customer.id,
+                CustomerReceivableTransaction.transaction_type
+                == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+            )
+        ).all():
+            self._session.delete(stale)
+        self._session.flush()
         self._record_opening_balance_transaction(
             customer=customer,
             amount=amount,
