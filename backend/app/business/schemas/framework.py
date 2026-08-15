@@ -235,6 +235,32 @@ class FirmBusinessProfileResponse(BusinessFrameworkSchema):
     updated_at: datetime
 
 
+class FirmProfileAssignmentRow(BusinessFrameworkSchema):
+    """One firm and the profile it is assigned, for an administration list.
+
+    Answered by reading **each firm's own store**, because that is where the
+    assignment lives. A single query cannot produce this list: the firms are
+    spread across the shared schema, dedicated schemas and dedicated
+    databases, which is the same reason `scripts/migrate_all_stores.py`
+    iterates rather than joining.
+    """
+
+    firm_id: UUID
+    firm_code: str
+    firm_name: str
+    #: Null when the firm has no assignment, or when its store could not be
+    #: read — `unavailable_reason` tells the two apart, because "no profile"
+    #: and "we could not look" must not render identically.
+    business_profile_id: UUID | None = None
+    business_profile_code: str | None = None
+    business_profile_name: str | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+    #: Why this firm's assignment is unknown, if it is. An unprovisioned or
+    #: unreachable firm is a fact worth showing rather than a blank cell.
+    unavailable_reason: str | None = None
+
+
 class ActiveFeatureResponse(BusinessFrameworkSchema):
     """One active feature resolved for a firm/profile context."""
 

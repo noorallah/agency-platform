@@ -2597,6 +2597,24 @@ class ApiClient {
         body: {'ids': ids},
       );
 
+  /// Every firm with the business profile it is assigned.
+  ///
+  /// One call rather than one per row, and it does **not** take `X-Firm-ID`:
+  /// assignments live in each firm's own store, so the server iterates them.
+  /// Keyed by firm id for the grid to read.
+  Future<Map<String, FirmProfileAssignment>> firmProfileAssignments() async {
+    final Json response =
+        await request('GET', '/api/v1/business-framework/firm-profile-assignments');
+    final dynamic data = response['data'];
+    if (data is! List) return <String, FirmProfileAssignment>{};
+    return <String, FirmProfileAssignment>{
+      for (final dynamic row in data)
+        if (row is Map)
+          stringValue(Map<String, dynamic>.from(row)['firm_id']):
+              FirmProfileAssignment.fromJson(Map<String, dynamic>.from(row)),
+    };
+  }
+
   Future<Map<String, dynamic>> firmBusinessProfileAssignmentValues(
     String firmId,
   ) async {

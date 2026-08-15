@@ -1088,6 +1088,33 @@ because the API returned no ETag to send back; that gap is closed below. **All t
 
 ## Also open
 
+- **A platform screen administering firm-owned data must open that firm's
+  store**, decided 2026-08-15 after the business-profile assignment endpoints
+  were found doing the opposite.
+
+  They took their session from `get_db`, which routes on the caller's
+  `X-Firm-ID`. So an administrator on a platform screen read and wrote
+  assignments in **whichever firm they happened to have selected**, not the
+  firm named in the URL. Reading answered `none` for any firm in a different
+  store; writing **returned success** while the firm kept its old profile and
+  a row claiming otherwise landed in the caller's store. Proven on the seeded
+  demo: assigning a profile to ELEC01 with WHOLE01 selected left ELEC01
+  untouched and put the row in `wholesale_hub`. MEDI01 and FOOD01 appeared to
+  work only because they share `firm_shared`.
+
+  `firm_store_session(request, firm_id)` in
+  `app/core/database/dependencies.py` is the fix, built on a new
+  `FirmRegistryTenantResolver.resolve_firm` split out of the header parsing.
+  Use it for **any** platform endpoint touching firm-owned data.
+
+  `GET /business-framework/firm-profile-assignments` returns every firm with
+  its profile by iterating the stores, the way `migrate_all_stores.py` does. A
+  firm whose store cannot be read carries `unavailable_reason` rather than
+  being blanked or dropped: an unprovisioned firm and an unassigned one are
+  different facts, and a grid that renders them identically invites the
+  administrator to fix the wrong one.
+
+
 - **`PUT /customers/{id}` works again**, as of 2026-08-15. It answered 409
   "This record changed since you loaded it" for **any customer whose opening
   balance had posted**, with nobody else touching the record -- so on a seeded

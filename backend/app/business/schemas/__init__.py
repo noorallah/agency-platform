@@ -21,6 +21,7 @@ from app.business.schemas.framework import (
     CategoryAttributeRuleUpdate,
     FirmBusinessProfileAssign,
     FirmBusinessProfileResponse,
+    FirmProfileAssignmentRow,
     IdentifierList,
 )
 
@@ -45,5 +46,6 @@ __all__ = [
     "CategoryAttributeRuleUpdate",
     "FirmBusinessProfileAssign",
     "FirmBusinessProfileResponse",
+    "FirmProfileAssignmentRow",
     "IdentifierList",
 ]
