@@ -3652,8 +3652,14 @@ Object? _blankToNull(Object? value) {
 ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
   ApiClient api,
   PermissionService permissions,
-) =>
-    ResourceDefinition(
+) {
+  // Filled by `load` on every fetch, including the refresh that follows a
+  // save, so the column cannot show what was true before the assignment
+  // changed. `cells` is synchronous, so the join has to be prepared first
+  // rather than awaited per row.
+  final Map<String, FirmProfileAssignment> assigned =
+      <String, FirmProfileAssignment>{};
+  return ResourceDefinition(
       title: 'Profile Assignment',
       resource: 'firms',
       showFrame: false,
@@ -3670,16 +3676,43 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
         if (firm.currencyCode.isNotEmpty) firm.currencyCode,
         firm.isActive ? 'Active' : 'Inactive',
       ].join('  ·  '),
-      headers: const ['Code', 'Name', 'Country', 'Status'],
-      sortFields: const ['code', 'name', null, null],
+      headers: const ['Code', 'Name', 'Business profile', 'Country', 'Status'],
+      sortFields: const ['code', 'name', null, null, null],
       cells: (firm) => [
         firm.code,
         firm.name,
+        // Never blank. An unassigned firm, one whose store cannot be read and
+        // one that simply has not loaded are three different situations, and
+        // an empty cell reads as "nothing to do here" for all of them.
+        assigned[firm.id]?.label ?? 'Not assigned',
         firm.country,
         firm.isActive ? 'Active' : 'Inactive',
       ],
       id: (firm) => firm.id,
-      load: api.firms,
+      load: ({
+        int page = 1,
+        String search = '',
+        String sortBy = 'created_at',
+        bool descending = true,
+      }) async {
+        final PagedResult<Firm> firms = await api.firms(
+          page: page,
+          search: search,
+          sortBy: sortBy,
+          descending: descending,
+        );
+        // A failure here must not take the whole grid down: the firms are the
+        // record being administered and the profile is a column on them, so a
+        // store that cannot be reached should cost that cell, not the page.
+        try {
+          assigned
+            ..clear()
+            ..addAll(await api.firmProfileAssignments());
+        } on ApiException {
+          assigned.clear();
+        }
+        return firms;
+      },
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
         action,
@@ -3712,3 +3745,4 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
         notes: values['notes'].toString(),
       ),
     );
+}

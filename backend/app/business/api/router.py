@@ -5,10 +5,12 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.business.models import BusinessProfile
 from app.business.schemas import (
     ActiveFeatureResponse,
     ActiveModuleResponse,
@@ -30,11 +32,20 @@ from app.business.schemas import (
     CategoryAttributeRuleUpdate,
     FirmBusinessProfileAssign,
     FirmBusinessProfileResponse,
+    FirmProfileAssignmentRow,
     IdentifierList,
 )
 from app.business.services import BusinessProfileFrameworkService
-from app.core.database.dependencies import get_db, get_platform_db
-from app.core.exceptions import AuthorizationError
+from app.core.database.dependencies import (
+    firm_store_session,
+    get_db,
+    get_platform_db,
+)
+from app.core.exceptions import (
+    AuthorizationError,
+    BusinessRuleError,
+    ResourceNotFoundError,
+)
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -420,10 +431,21 @@ def assign_profile_to_firm(
     firm_id: UUID,
     data: FirmBusinessProfileAssign,
     principal: PlatformPrincipal,
-    db: Session = Depends(get_db),
+    request: Request,
 ) -> ApiResponse[FirmBusinessProfileResponse]:
-    row = _service(db).assign_profile_to_firm(firm_id, data, _actor_id(principal))
-    return ApiResponse(data=FirmBusinessProfileResponse.model_validate(row))
+    """Assign one business profile to a firm, in **that firm's** store.
+
+    Deliberately not `get_db`. This is a platform screen administering a
+    firm-owned record, so routing by the caller's `X-Firm-ID` wrote the
+    assignment into whichever firm the administrator happened to have
+    selected -- and returned success. The firm named in the URL kept its old
+    profile, and a row claiming otherwise sat in a store that firm never
+    reads. Proven against the seeded demo: assigning to ELEC01 while WHOLE01
+    was selected left ELEC01 untouched and put the row in `wholesale_hub`.
+    """
+    with firm_store_session(request, firm_id) as db:
+        row = _service(db).assign_profile_to_firm(firm_id, data, _actor_id(principal))
+        return ApiResponse(data=FirmBusinessProfileResponse.model_validate(row))
 
 
 @router.get(
@@ -433,14 +455,77 @@ def assign_profile_to_firm(
 def get_firm_profile_assignment(
     firm_id: UUID,
     principal: PlatformPrincipal,
-    db: Session = Depends(get_db),
+    request: Request,
 ) -> ApiResponse[FirmBusinessProfileResponse | None]:
-    row = _service(db).get_firm_assignment(firm_id)
-    return ApiResponse(
-        data=(
-            FirmBusinessProfileResponse.model_validate(row) if row is not None else None
+    """Return one firm's assignment, read from that firm's own store."""
+    with firm_store_session(request, firm_id) as db:
+        row = _service(db).get_firm_assignment(firm_id)
+        return ApiResponse(
+            data=(
+                FirmBusinessProfileResponse.model_validate(row)
+                if row is not None
+                else None
+            )
         )
+
+
+@router.get(
+    "/firm-profile-assignments",
+    response_model=ApiResponse[list[FirmProfileAssignmentRow]],
+)
+def list_firm_profile_assignments(
+    principal: PlatformPrincipal,
+    request: Request,
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[FirmProfileAssignmentRow]]:
+    """List every firm with the profile it is assigned.
+
+    There is no single query for this. Assignments live in each firm's own
+    store, and the firms are spread across the shared schema, dedicated
+    schemas and dedicated databases -- so this iterates, the same way
+    `scripts/migrate_all_stores.py` does, and for the same reason.
+
+    A firm whose store cannot be read is reported with `unavailable_reason`
+    rather than dropped or blanked: an unprovisioned firm and a firm with no
+    profile are different facts, and a grid that renders them identically
+    invites the administrator to "fix" the wrong one.
+    """
+    firms = list(
+        platform_db.scalars(
+            select(Firm).where(Firm.is_deleted.is_(False)).order_by(Firm.code.asc())
+        ).all()
     )
+    rows: list[FirmProfileAssignmentRow] = []
+    for firm in firms:
+        base = {
+            "firm_id": firm.id,
+            "firm_code": firm.code,
+            "firm_name": firm.name,
+        }
+        try:
+            with firm_store_session(request, firm.id) as firm_db:
+                assignment = _service(firm_db).get_firm_assignment(firm.id)
+                if assignment is None:
+                    rows.append(FirmProfileAssignmentRow(**base))
+                    continue
+                # Named from the same session that answered the assignment.
+                # The profile catalogue lives in every firm store too, so a
+                # lookup against the platform store would resolve some ids and
+                # not others depending on which firms were seeded there.
+                profile = firm_db.get(BusinessProfile, assignment.business_profile_id)
+                rows.append(
+                    FirmProfileAssignmentRow(
+                        **base,
+                        business_profile_id=assignment.business_profile_id,
+                        business_profile_code=None if profile is None else profile.code,
+                        business_profile_name=None if profile is None else profile.name,
+                        is_active=assignment.is_active,
+                        notes=assignment.notes,
+                    )
+                )
+        except (BusinessRuleError, ResourceNotFoundError, SQLAlchemyError) as error:
+            rows.append(FirmProfileAssignmentRow(**base, unavailable_reason=str(error)))
+    return ApiResponse(data=rows)
 
 
 @router.get("/active-features", response_model=ApiResponse[list[ActiveFeatureResponse]])

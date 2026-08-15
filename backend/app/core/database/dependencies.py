@@ -1,7 +1,9 @@
 """FastAPI dependencies that provide request-scoped database sessions."""
 
 from collections.abc import Generator
+from contextlib import contextmanager
 from typing import cast
+from uuid import UUID
 
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -34,6 +36,37 @@ def get_db(request: Request) -> Generator[Session]:
         with sessions.session() as session:
             yield session
         return
+    manager = provider.manager_for(tenant)
+    schema = provider.schema_for(tenant)
+    with manager.sessions(schema=schema).session() as session:
+        yield session
+
+
+@contextmanager
+def firm_store_session(request: Request, firm_id: UUID) -> Generator[Session]:
+    """Open a session against **one named firm's** store.
+
+    `get_db` routes by the caller's `X-Firm-ID`, which is right for a
+    firm-scoped request and wrong for a platform screen administering another
+    firm: the session lands in the caller's store, so a read answers for the
+    wrong firm and a write puts the row somewhere its owner will never see it.
+    That is not hypothetical — the business-profile assignment endpoints did
+    exactly this, reporting success while changing nothing for the firm named
+    in the URL.
+
+    Use it wherever a platform endpoint touches firm-owned data.
+
+    Args:
+        request: The live request, for the application's tenancy services.
+        firm_id: The firm whose store is wanted.
+
+    Yields:
+        A session bound to that firm's database and schema.
+
+    """
+    provider = cast(MultiTenantDatabaseProvider, request.app.state.database_provider)
+    resolver = cast(FirmRegistryTenantResolver, request.app.state.tenant_resolver)
+    tenant = resolver.resolve_firm(firm_id)
     manager = provider.manager_for(tenant)
     schema = provider.schema_for(tenant)
     with manager.sessions(schema=schema).session() as session:

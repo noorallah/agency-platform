@@ -53,6 +53,30 @@ class FirmRegistryTenantResolver(TenantResolver):
             raise AuthorizationError(
                 "X-Firm-ID must be a valid firm identifier."
             ) from error
+        return self.resolve_firm(firm_id)
+
+    def resolve_firm(self, firm_id: UUID) -> TenantContext:
+        """Resolve one firm's storage, whoever is asking and from where.
+
+        Split out of :meth:`resolve` so a **platform** endpoint can reach a
+        firm's own store rather than whichever store the caller's `X-Firm-ID`
+        happens to name. Anything owned by a firm but administered from a
+        platform screen needs this: a business profile assignment lives in the
+        firm's store, so reading it on the caller's session answered for the
+        wrong firm, and writing it put the row in the wrong store while
+        reporting success.
+
+        Args:
+            firm_id: The firm whose storage is wanted.
+
+        Returns:
+            The tenant context for that firm.
+
+        Raises:
+            ResourceNotFoundError: If no active firm has that id.
+            BusinessRuleError: If dedicated storage is unusable or unprovisioned.
+
+        """
         with self._platform_database.sessions(
             schema=self._platform_database.config.default_schema
         ).session() as session:

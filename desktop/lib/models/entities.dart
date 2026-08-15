@@ -331,6 +331,49 @@ class Permission {
       };
 }
 
+/// One firm and the business profile it is assigned.
+///
+/// Assignments live in each firm's own store, so this cannot be read with a
+/// single query — the server iterates the stores and returns one row per firm.
+class FirmProfileAssignment {
+  const FirmProfileAssignment({
+    required this.firmId,
+    required this.profileCode,
+    required this.profileName,
+    required this.isActive,
+    required this.unavailableReason,
+  });
+
+  final String firmId;
+  final String profileCode;
+  final String profileName;
+  final bool isActive;
+
+  /// Why this firm's assignment could not be read, if it could not be. An
+  /// unprovisioned firm and a firm with no profile are different facts and
+  /// must not render identically — one is a setup step, the other a choice.
+  final String unavailableReason;
+
+  bool get isUnavailable => unavailableReason.isNotEmpty;
+  bool get hasProfile => profileCode.isNotEmpty;
+
+  /// What the grid shows: the profile, why it is unknown, or that there is
+  /// none. Never an empty cell, which reads as "nothing here to do".
+  String get label {
+    if (isUnavailable) return 'Unavailable';
+    if (!hasProfile) return 'Not assigned';
+    return isActive ? profileCode : '$profileCode (inactive)';
+  }
+
+  factory FirmProfileAssignment.fromJson(Json json) => FirmProfileAssignment(
+        firmId: stringValue(json['firm_id']),
+        profileCode: stringValue(json['business_profile_code']),
+        profileName: stringValue(json['business_profile_name']),
+        isActive: json['is_active'] as bool? ?? false,
+        unavailableReason: stringValue(json['unavailable_reason']),
+      );
+}
+
 class BusinessProfileRecord {
   const BusinessProfileRecord({
     required this.id,
