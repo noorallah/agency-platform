@@ -56,6 +56,34 @@ class _UomManagementPageState extends State<UomManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant UomManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // All five sub-tabs build this same class in the same slot with no key, so
+    // Flutter reuses the Element and keeps this State: `initState` does not run
+    // again and the new section is never fetched. The grid then shows the new
+    // section's still-empty list as "no records", which reads as data failing
+    // to load — and clicking Refresh appeared to fix it because `_load` reads
+    // the section that has, by then, already changed.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    _load();
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// Lookups and permissions are tab-agnostic and deliberately survive —
+  /// re-fetching those on every sub-tab click is what keying the whole page
+  /// would have cost. A search typed for Units means nothing on Packaging
+  /// Types, so it goes.
+  void _resetForSection() {
+    _search.clear();
+    _page = 1;
+    _total = 0;
+    _selectedId = null;
+    _error = null;
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     super.dispose();

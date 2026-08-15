@@ -142,6 +142,46 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant PurchaseManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Eleven sub-tabs build this class in the same slot with no key, so
+    // Flutter keeps this State and `initState` never runs again. `_load` is
+    // called rather than `_bootstrap`: the lookups and saved views it fetched
+    // are tab-agnostic, and re-reading seven of them on every sub-tab click is
+    // the cost that ruled out keying the whole page.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    unawaited(_load());
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// `_selectedIds` is the important one. It drives the bulk actions, and
+  /// carrying it across a sub-tab switch means a bulk close or cancel could
+  /// operate on orders selected on the tab the user just left — rows that are
+  /// no longer even on screen. The status and sort come from
+  /// `_statusForSection`, so leaving them would show the previous tab's rows
+  /// under the new heading, which is worse than an empty grid because it looks
+  /// right.
+  void _resetForSection() {
+    _search.clear();
+    _createdFrom.clear();
+    _createdTo.clear();
+    _page = 1;
+    _total = 0;
+    _error = null;
+    _includeDeleted = false;
+    _vendorId = null;
+    _branchId = null;
+    _warehouseId = null;
+    _buyerId = null;
+    _purchaseType = null;
+    _selected = null;
+    _selectedIds = <String>{};
+    _selectedHistory = const [];
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();

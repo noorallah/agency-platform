@@ -95,6 +95,37 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant TaxManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Both tax sub-tabs served by this class build it in the same slot with no
+    // key, so Flutter keeps this State and `initState` never runs again.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    _load();
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// The search box matters more here than elsewhere: `_load` sends
+  /// `_search.text` to the server, so a term typed on one tab would silently
+  /// filter the next one. The selections matter for the same reason —
+  /// `ruleConditions` loads with `ruleId: _selectedRule?.id`, which would be a
+  /// rule picked on a different tab.
+  void _resetForSection() {
+    _search.clear();
+    _page = 1;
+    _total = 0;
+    _error = null;
+    _selectedSystem = null;
+    _selectedComponent = null;
+    _selectedProfile = null;
+    _selectedCountryMapping = null;
+    _selectedMigrationMapping = null;
+    _selectedRule = null;
+    _simulationResult = null;
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     super.dispose();

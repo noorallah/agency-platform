@@ -109,6 +109,45 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   }
 
   @override
+  void didUpdateWidget(covariant InventoryManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Nine sub-tabs build this class in the same slot with no key, so Flutter
+    // keeps this State and `initState` never runs again. `_load` rather than
+    // `_bootstrap`: the preferences and the branch/warehouse/product lookups
+    // are tab-agnostic, and re-reading them on every sub-tab click is the cost
+    // that ruled out keying the whole page.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    _load();
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// The filters go because they are section-shaped: a transaction type means
+  /// nothing on the stock summary, and `_lowStockOnly` means nothing on the
+  /// ledger. The lookups and the two saved defaults stay — they describe the
+  /// firm and the user, not the tab.
+  void _resetForSection() {
+    _search.clear();
+    _page = 1;
+    _total = 0;
+    _error = null;
+    _status = null;
+    _transactionType = null;
+    _branchId = null;
+    _warehouseId = null;
+    _productId = null;
+    _includeDeleted = false;
+    _lowStockOnly = false;
+    _outOfStockOnly = false;
+    _negativeOnly = false;
+    _selectedInventory = null;
+    _selectedTransaction = null;
+    _selectedLedger = null;
+    _selectedOpeningStock = null;
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();

@@ -101,6 +101,38 @@ class _BranchWarehouseManagementPageState
   }
 
   @override
+  void didUpdateWidget(covariant BranchWarehouseManagementPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Six sub-tabs build this class in the same slot with no key, so Flutter
+    // keeps this State and `initState` never runs again.
+    if (widget.section == oldWidget.section) return;
+    _resetForSection();
+    _load();
+  }
+
+  /// Drop what belonged to the tab being left.
+  ///
+  /// `_types` is the one to notice: the warehouse-types and branch-types
+  /// sections share that single field, so without clearing it, switching
+  /// between those two shows the other one's list — populated, plausible and
+  /// wrong.
+  void _resetForSection() {
+    _search.clear();
+    _page = 1;
+    _total = 0;
+    _error = null;
+    _status = null;
+    _includeDeleted = false;
+    _sortBy = 'created_at';
+    _descending = true;
+    _types = const [];
+    _selectedBranch = null;
+    _selectedWarehouse = null;
+    _selectedType = null;
+    _selectedStorageNode = null;
+  }
+
+  @override
   void dispose() {
     _search.dispose();
     _searchFocus.dispose();
