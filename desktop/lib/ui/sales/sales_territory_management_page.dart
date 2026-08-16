@@ -12,6 +12,7 @@ import 'assignment_picker_dialog.dart';
 import 'bulk_territory_actions_dialog.dart';
 import 'call_order_dialog.dart';
 import 'territory_detail_dialog.dart';
+import 'territory_import_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
@@ -65,6 +66,7 @@ class _SalesTerritoryManagementPageState
   bool get _canDelete => widget.permissions.hasPermission('TERRITORY_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('TERRITORY_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('TERRITORY_EXPORT');
+  bool get _canImport => widget.permissions.hasPermission('TERRITORY_IMPORT');
   bool get _canAssignCustomers =>
       widget.permissions.hasPermission('TERRITORY_ASSIGN_CUSTOMERS');
   bool get _canAssignSalesmen =>
@@ -576,6 +578,17 @@ class _SalesTerritoryManagementPageState
     await _loadAll();
   }
 
+  /// Load a hierarchy from CSV. The whole file is one transaction server-side.
+  Future<void> _import() async {
+    if (!_canImport) return;
+    final bool? imported = await showDialog<bool>(
+      context: context,
+      builder: (context) => TerritoryImportDialog(api: widget.api),
+    );
+    if (imported != true || !mounted) return;
+    await _loadAll();
+  }
+
   Future<void> _export() async {
     if (!_canExport) return;
     try {
@@ -681,12 +694,14 @@ class _SalesTerritoryManagementPageState
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
+        ToolbarAction.import,
         ToolbarAction.export,
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
         ToolbarAction.edit => _canEdit,
         ToolbarAction.delete => _canDelete || _canRestore,
+        ToolbarAction.import => _canImport,
         ToolbarAction.export => _canExport,
         _ => true,
       },
@@ -698,6 +713,7 @@ class _SalesTerritoryManagementPageState
             ToolbarAction.edit => _selected != null,
             ToolbarAction.delete => _selected != null,
             ToolbarAction.refresh => true,
+            ToolbarAction.import => _canImport,
             ToolbarAction.export => _items.isNotEmpty,
             _ => false,
           },
@@ -725,10 +741,12 @@ class _SalesTerritoryManagementPageState
           case ToolbarAction.refresh:
             _loadAll();
             break;
+          case ToolbarAction.import:
+            _import();
+            break;
           case ToolbarAction.export:
             _export();
             break;
-          case ToolbarAction.import:
           case ToolbarAction.print:
           case ToolbarAction.settings:
             break;

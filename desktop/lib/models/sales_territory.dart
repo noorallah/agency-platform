@@ -475,6 +475,76 @@ class AssignableCustomerRecord {
       );
 }
 
+/// How much of the firm's ground one salesperson covers.
+class TerritoryCoverageRecord {
+  const TerritoryCoverageRecord({
+    required this.userId,
+    required this.assignedTerritories,
+    required this.assignedRoutes,
+    required this.customerCount,
+    required this.coveragePercent,
+  });
+
+  final String userId;
+  final int assignedTerritories;
+  final int assignedRoutes;
+  final int customerCount;
+
+  /// Share of the firm's assigned customers this person is responsible for.
+  final double coveragePercent;
+
+  factory TerritoryCoverageRecord.fromJson(Json json) => TerritoryCoverageRecord(
+        userId: stringValue(json['user_id']),
+        assignedTerritories: json['assigned_territories'] is num
+            ? (json['assigned_territories'] as num).toInt()
+            : 0,
+        assignedRoutes: json['assigned_routes'] is num
+            ? (json['assigned_routes'] as num).toInt()
+            : 0,
+        customerCount: json['customer_count'] is num
+            ? (json['customer_count'] as num).toInt()
+            : 0,
+        coveragePercent: json['coverage_percent'] is num
+            ? (json['coverage_percent'] as num).toDouble()
+            : 0,
+      );
+}
+
+/// One round that calls a given shop, and where in it.
+class CustomerRouteRecord {
+  const CustomerRouteRecord({
+    required this.territoryId,
+    required this.code,
+    required this.name,
+    required this.path,
+    required this.isRoute,
+    required this.isPrimary,
+    required this.visitSequence,
+  });
+
+  final String territoryId;
+  final String code;
+  final String name;
+  final String path;
+  final bool isRoute;
+
+  /// The round a sale for this shop is filed under.
+  final bool isPrimary;
+  final int? visitSequence;
+
+  factory CustomerRouteRecord.fromJson(Json json) => CustomerRouteRecord(
+        territoryId: stringValue(json['territory_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        path: stringValue(json['path']),
+        isRoute: json['is_route'] == true,
+        isPrimary: json['is_primary'] == true,
+        visitSequence: json['visit_sequence'] is num
+            ? (json['visit_sequence'] as num).toInt()
+            : null,
+      );
+}
+
 /// Somebody the firm can put on a route.
 class TerritorySalesmanCandidate {
   const TerritorySalesmanCandidate({

@@ -2147,6 +2147,62 @@ class ApiClient {
         },
       );
 
+  /// Import a territory hierarchy from CSV.
+  ///
+  /// The whole file is one transaction server-side, so a row refused anywhere
+  /// leaves the firm exactly as it was — which is what lets the dialog say
+  /// nothing was written and be telling the truth.
+  Future<List<SalesTerritory>> importTerritories({
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/sales-territories/import',
+      fields: {'format': 'csv'},
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: 'text/csv',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <SalesTerritory>[];
+    return data
+        .whereType<Map>()
+        .map((item) => SalesTerritory.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  /// How much ground each salesperson covers.
+  Future<List<TerritoryCoverageRecord>> territoryCoverage() async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/coverage/salesmen',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <TerritoryCoverageRecord>[];
+    return <TerritoryCoverageRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritoryCoverageRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  /// The rounds that call one shop, primary first.
+  Future<List<CustomerRouteRecord>> customerRoutes(String customerId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/customers/$customerId/routes',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <CustomerRouteRecord>[];
+    return <CustomerRouteRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          CustomerRouteRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
   /// The shared geography masters: country > state > district > city >
   /// postal code > locality.
   ///

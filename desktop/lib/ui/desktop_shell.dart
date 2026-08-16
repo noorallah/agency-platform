@@ -28,6 +28,7 @@ import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
 import 'sales/geography_master_page.dart';
 import 'sales/route_builder_page.dart';
+import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'products/product_management_page.dart';
@@ -1816,6 +1817,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'coverage' => TerritoryCoveragePage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'route-builder' => RouteBuilderPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1848,6 +1853,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
       'call-lists' => (
           'Call Lists',
           'Who is called on a given day, in the order the round walks them.',
+        ),
+      'coverage' => (
+          'Coverage',
+          'How much ground each salesperson carries, and who carries none.',
         ),
       'route-builder' => (
           'Route Builder',
