@@ -487,8 +487,16 @@ class TerritoryCopyRequest(TerritorySchema):
 
 
 class TerritoryBulkCustomerAssignment(TerritorySchema):
+    """One territory's customer list, for a batch that applies several at once."""
+
     territory_id: UUID
     customer_ids: list[UUID] = Field(default_factory=list, max_length=5000)
+    #: Carried so a bulk assignment can set the call order and the primary
+    #: flag. The bulk path used to forward only `customer_ids`, which made it a
+    #: strictly weaker version of the single-row endpoint for no reason.
+    entries: list[TerritoryCustomerAssignmentInput] = Field(
+        default_factory=list, max_length=5000
+    )
 
 
 class TerritoryBulkSalesmanAssignment(TerritorySchema):
@@ -496,6 +504,24 @@ class TerritoryBulkSalesmanAssignment(TerritorySchema):
     assignments: list[SalesmanAssignmentInput] = Field(
         default_factory=list, max_length=5000
     )
+
+
+class TerritoryBulkCustomerRequest(TerritorySchema):
+    """A batch of per-territory customer lists.
+
+    Wrapped in an object rather than posted as a bare JSON array so that all
+    four bulk endpoints take the same shape -- the status and move endpoints
+    always did, and a bare array cannot be sent by the desktop client, whose
+    request body is a map.
+    """
+
+    items: list[TerritoryBulkCustomerAssignment] = Field(min_length=1, max_length=5000)
+
+
+class TerritoryBulkSalesmanRequest(TerritorySchema):
+    """A batch of per-territory salesperson lists."""
+
+    items: list[TerritoryBulkSalesmanAssignment] = Field(min_length=1, max_length=5000)
 
 
 class TerritoryBulkStatusRequest(TerritorySchema):

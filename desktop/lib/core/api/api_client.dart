@@ -2127,6 +2127,31 @@ class ApiClient {
     return (data['affected'] as num?)?.toInt() ?? 0;
   }
 
+  /// Apply one customer list to several territories.
+  ///
+  /// The whole batch commits once server-side, so a run refused on its fifth
+  /// territory leaves the first four unwritten — worth knowing, because it is
+  /// what lets the dialog say "nothing was changed" and be telling the truth.
+  Future<int> bulkTerritoryCustomers(List<Json> items) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/customers',
+      body: {'items': items},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkTerritorySalesmen(List<Json> items) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/salesmen',
+      body: {'items': items},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
   Future<String> exportTerritories({
     String search = '',
     String format = 'csv',

@@ -56,9 +56,9 @@ from app.sales.schemas import (
     RouteTypeWrite,
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
-    TerritoryBulkCustomerAssignment,
+    TerritoryBulkCustomerRequest,
     TerritoryBulkMoveRequest,
-    TerritoryBulkSalesmanAssignment,
+    TerritoryBulkSalesmanRequest,
     TerritoryBulkStatusRequest,
     TerritoryCopyRequest,
     TerritoryCreate,
@@ -612,12 +612,12 @@ def set_territory_salesmen(
 
 @router.post("/bulk/customers", response_model=ApiResponse[BulkOperationResult])
 def bulk_set_customers(
-    payload: list[TerritoryBulkCustomerAssignment],
+    payload: TerritoryBulkCustomerRequest,
     scope: TerritoryAssignCustomersScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BulkOperationResult]:
     data = _service(db).bulk_set_customers(
-        payload,
+        payload.items,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
@@ -626,12 +626,12 @@ def bulk_set_customers(
 
 @router.post("/bulk/salesmen", response_model=ApiResponse[BulkOperationResult])
 def bulk_set_salesmen(
-    payload: list[TerritoryBulkSalesmanAssignment],
+    payload: TerritoryBulkSalesmanRequest,
     scope: TerritoryAssignSalesmenScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BulkOperationResult]:
     data = _service(db).bulk_set_salesmen(
-        payload,
+        payload.items,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )

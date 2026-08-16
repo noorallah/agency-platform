@@ -1007,6 +1007,7 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        commit: bool = True,
     ) -> list[TerritoryCustomerAssignmentResponse]:
         territory = self._territory(territory_id, firm_scope)
         entries = payload.entries
@@ -1101,7 +1102,12 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"customer_count": len(customer_ids)},
         )
-        self._commit()
+        # A bulk caller commits once for the whole batch instead, so a run that
+        # fails on its fifth territory does not leave the first four written.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.customers(territory_id, firm_scope=firm_scope)
 
     def customers(
@@ -1155,6 +1161,7 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        commit: bool = True,
     ) -> list[dict[str, object]]:
         territory = self._territory(territory_id, firm_scope)
         requested_user_ids = [item.user_id for item in payload.assignments]
@@ -1213,7 +1220,12 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"salesman_count": len(requested_user_ids)},
         )
-        self._commit()
+        # See `set_customers`: a bulk caller owns the transaction so the batch
+        # is all-or-nothing.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.salesmen(territory_id, firm_scope=firm_scope)
 
     def salesmen(
@@ -1899,15 +1911,31 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> BulkOperationResult:
+        """Replace the customer list on several territories in one transaction.
+
+        `set_customers` commits, so looping over it wrote each territory as it
+        went: a batch that failed on its fifth left the first four applied and
+        told the caller only that it had failed. The whole batch now commits
+        once, which is the shape `import_customers` already had and the shape
+        the branch/warehouse imports had to be repaired into.
+
+        `entries` is forwarded rather than only `customer_ids`, so a bulk
+        assignment can carry the call order and the primary flag the single-row
+        path accepts.
+        """
         affected = 0
         for item in items:
             self.set_customers(
                 item.territory_id,
-                TerritoryAssignCustomersRequest(customer_ids=item.customer_ids),
+                TerritoryAssignCustomersRequest(
+                    customer_ids=item.customer_ids, entries=item.entries
+                ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             affected += 1
+        self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
     def bulk_set_salesmen(
@@ -1917,6 +1945,11 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> BulkOperationResult:
+        """Replace the salesperson list on several territories in one transaction.
+
+        Same reasoning as `bulk_set_customers`: one commit for the batch, so a
+        refusal partway through leaves nothing behind.
+        """
         affected = 0
         for item in items:
             self.set_salesmen(
@@ -1924,8 +1957,10 @@ class SalesTerritoryService:
                 TerritoryAssignSalesmenRequest(assignments=item.assignments),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             affected += 1
+        self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
     def bulk_status_change(

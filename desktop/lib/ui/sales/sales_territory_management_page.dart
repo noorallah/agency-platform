@@ -8,6 +8,7 @@ import '../../models/entities.dart';
 import '../../models/customer.dart';
 import '../../models/sales_territory.dart';
 import 'assignment_picker_dialog.dart';
+import 'bulk_territory_actions_dialog.dart';
 import 'call_order_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -49,6 +50,11 @@ class _SalesTerritoryManagementPageState
   bool _expandTree = false;
   int _treeEpoch = 0;
 
+  /// Rows ticked for a bulk action. Distinct from `_selected`, which is the one
+  /// row the detail panel and the Edit button follow — ticking twenty rows to
+  /// restatus them should not also change what the panel is describing.
+  Set<String> _bulkIds = <String>{};
+
   bool get _canView => widget.permissions.hasPermission('TERRITORY_VIEW');
   bool get _canCreate => widget.permissions.hasPermission('TERRITORY_CREATE');
   bool get _canEdit => widget.permissions.hasPermission('TERRITORY_UPDATE');
@@ -59,6 +65,12 @@ class _SalesTerritoryManagementPageState
       widget.permissions.hasPermission('TERRITORY_ASSIGN_CUSTOMERS');
   bool get _canAssignSalesmen =>
       widget.permissions.hasPermission('TERRITORY_ASSIGN_SALESMEN');
+
+  /// Whether any bulk operation is open to this user at all.
+  ///
+  /// The checkbox column only appears when it is: offering people rows to tick
+  /// and then no action to take on them is worse than not offering it.
+  bool get _canBulk => _canEdit || _canAssignCustomers || _canAssignSalesmen;
 
   @override
   void initState() {
@@ -388,6 +400,147 @@ class _SalesTerritoryManagementPageState
     }
   }
 
+  /// Run one operation over every ticked territory.
+  ///
+  /// Each of the four is a single request that the server applies in one
+  /// transaction, so a batch refused on its fifth territory leaves the first
+  /// four unchanged — which is what lets the failure message say nothing was
+  /// applied without lying.
+  Future<void> _bulkActions() async {
+    final List<SalesTerritory> targets =
+        _items.where((item) => _bulkIds.contains(item.id)).toList();
+    if (targets.isEmpty || !_canBulk) return;
+    final BulkTerritoryChoice? choice = await showDialog<BulkTerritoryChoice>(
+      context: context,
+      builder: (context) => BulkTerritoryActionsDialog(
+        count: targets.length,
+        canUpdate: _canEdit,
+        canAssignCustomers: _canAssignCustomers,
+        canAssignSalesmen: _canAssignSalesmen,
+        parents: [
+          for (final SalesTerritory item in _items)
+            if (!_bulkIds.contains(item.id))
+              BulkParentOption(id: item.id, label: '${item.code} - ${item.name}'),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    // The two assignment actions need a second dialog to say *who*, and both
+    // replace rather than extend, so they are confirmed before anything runs.
+    List<String>? chosenIds;
+    if (choice.action == BulkTerritoryAction.customers) {
+      chosenIds = await _pickCustomersForBulk(targets.length);
+    } else if (choice.action == BulkTerritoryAction.salesmen) {
+      chosenIds = await _pickSalesmenForBulk(targets.length);
+    }
+    if (!mounted) return;
+    if (choice.action == BulkTerritoryAction.customers ||
+        choice.action == BulkTerritoryAction.salesmen) {
+      if (chosenIds == null) return;
+    }
+
+    try {
+      final int affected = switch (choice.action) {
+        BulkTerritoryAction.status => await widget.api.bulkTerritoryStatus({
+            'territory_ids': [for (final item in targets) item.id],
+            'status': choice.status,
+          }),
+        BulkTerritoryAction.move => await widget.api.bulkTerritoryMove({
+            'territory_ids': [for (final item in targets) item.id],
+            if (choice.parentId?.isNotEmpty == true)
+              'new_parent_id': choice.parentId,
+          }),
+        BulkTerritoryAction.customers =>
+          await widget.api.bulkTerritoryCustomers([
+            for (final item in targets)
+              <String, dynamic>{
+                'territory_id': item.id,
+                'customer_ids': chosenIds ?? const <String>[],
+              },
+          ]),
+        BulkTerritoryAction.salesmen =>
+          await widget.api.bulkTerritorySalesmen([
+            for (final item in targets)
+              <String, dynamic>{
+                'territory_id': item.id,
+                'assignments': [
+                  for (final String userId in chosenIds ?? const <String>[])
+                    <String, dynamic>{'user_id': userId},
+                ],
+              },
+          ]),
+      };
+      setState(() => _bulkIds = <String>{});
+      await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '$affected territor${affected == 1 ? 'y' : 'ies'} updated.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${exception.message} Nothing was changed.',
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<List<String>?> _pickCustomersForBulk(int count) async {
+    final List<Customer> customers = await _allPages<Customer>(
+      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+    );
+    if (!mounted) return null;
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Customers for $count territories',
+        searchHint: 'Search customers by name or code',
+        emptyMessage: 'This firm has no customers yet.',
+        // Deliberately empty rather than pre-ticked from any one territory:
+        // the list applies to all of them, so seeding it from one would put
+        // that territory's customers onto the other nineteen by default.
+        selectedIds: const <String>{},
+        options: [
+          for (final Customer customer in customers)
+            AssignableOption(
+              id: customer.id,
+              label: customer.displayName.isEmpty
+                  ? customer.name
+                  : customer.displayName,
+              secondary: customer.code,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<String>?> _pickSalesmenForBulk(int count) async {
+    final List<TerritorySalesmanCandidate> users =
+        await widget.api.territorySalesmanCandidates();
+    if (!mounted) return null;
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Salespeople for $count territories',
+        searchHint: 'Search people by name or email',
+        emptyMessage: 'No users to assign. Add one under Administration.',
+        selectedIds: const <String>{},
+        options: [
+          for (final TerritorySalesmanCandidate user in users)
+            AssignableOption(
+              id: user.userId,
+              label: user.fullName.isEmpty ? user.email : user.fullName,
+              secondary: user.email,
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _export() async {
     if (!_canExport) return;
     try {
@@ -544,6 +697,29 @@ class _SalesTerritoryManagementPageState
       },
     );
 
+    final Widget? bulkBar = _bulkIds.isEmpty
+        ? null
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('${_bulkIds.length} ticked'),
+                FilledButton.icon(
+                  onPressed: _bulkActions,
+                  icon: const Icon(Icons.playlist_add_check),
+                  label: const Text('Bulk actions'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _bulkIds = <String>{}),
+                  child: const Text('Clear selection'),
+                ),
+              ],
+            ),
+          );
+
     final searchPanel = SearchFilterPanel(
       controller: _search,
       focusNode: _searchFocus,
@@ -619,6 +795,10 @@ class _SalesTerritoryManagementPageState
                         item.salesmanCount.toString(),
                       ],
                       selectedId: _selected?.id,
+                      selectedIds: _bulkIds,
+                      onSelectionChanged: _canBulk
+                          ? (ids) => setState(() => _bulkIds = ids)
+                          : null,
                       onSelect: (item) => setState(() => _selected = item),
                       onOpen: (item) => _openEditor(current: item),
                       onPageChanged: (offset) =>
@@ -637,6 +817,9 @@ class _SalesTerritoryManagementPageState
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
         searchPanel: searchPanel,
+        // Sits between the filters and the grid so the count and the action are
+        // next to the rows they apply to, and vanishes when nothing is ticked.
+        filterPanel: bulkBar,
         primaryContent: primaryContent,
         detailsPanel: _selected == null ? null : _detailsPanel(),
         statusBar: WorkspaceStatusBar(
