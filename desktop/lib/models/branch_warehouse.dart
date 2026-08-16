@@ -15,10 +15,16 @@ class BranchRecord {
     required this.email,
     required this.phone,
     required this.mobile,
-    required this.cityId,
-    required this.stateId,
-    required this.countryId,
+    this.addressLine1 = '',
+    this.addressLine2 = '',
+    this.countryId = '',
+    this.stateId = '',
+    this.districtId = '',
+    this.cityId = '',
+    this.postalCodeId = '',
+    this.localityId = '',
     required this.currencyCode,
+    this.gstRegistration = false,
     required this.status,
     required this.isDefault,
     required this.isDeleted,
@@ -44,10 +50,19 @@ class BranchRecord {
   final String email;
   final String phone;
   final String mobile;
-  final String cityId;
-  final String stateId;
+  final String addressLine1;
+  final String addressLine2;
+
+  /// Where the branch is, as ids into the shared geography masters. There is
+  /// no free-text city on this table — these keys are the only way to say it.
   final String countryId;
+  final String stateId;
+  final String districtId;
+  final String cityId;
+  final String postalCodeId;
+  final String localityId;
   final String currencyCode;
+  final bool gstRegistration;
   final String status;
   final bool isDefault;
   final bool isDeleted;
@@ -68,10 +83,16 @@ class BranchRecord {
         email: stringValue(json['email']),
         phone: stringValue(json['phone']),
         mobile: stringValue(json['mobile']),
-        cityId: stringValue(json['city_id']),
-        stateId: stringValue(json['state_id']),
+        addressLine1: stringValue(json['address_line1']),
+        addressLine2: stringValue(json['address_line2']),
         countryId: stringValue(json['country_id']),
+        stateId: stringValue(json['state_id']),
+        districtId: stringValue(json['district_id']),
+        cityId: stringValue(json['city_id']),
+        postalCodeId: stringValue(json['postal_code_id']),
+        localityId: stringValue(json['locality_id']),
         currencyCode: stringValue(json['currency_code']),
+        gstRegistration: boolValue(json['gst_registration']),
         status: stringValue(json['status']),
         isDefault: boolValue(json['is_default']),
         isDeleted: boolValue(json['is_deleted']),
@@ -91,6 +112,14 @@ class WarehouseRecord {
     required this.displayName,
     required this.warehouseTypeId,
     required this.businessProfileId,
+    this.addressLine1 = '',
+    this.addressLine2 = '',
+    this.countryId = '',
+    this.stateId = '',
+    this.districtId = '',
+    this.cityId = '',
+    this.postalCodeId = '',
+    this.localityId = '',
     required this.capacity,
     required this.capacityUnit,
     required this.status,
@@ -98,6 +127,12 @@ class WarehouseRecord {
     required this.temperatureControlled,
     required this.coldStorage,
     required this.hazardousStorage,
+    this.hasReceivingArea = false,
+    this.hasDispatchArea = false,
+    this.hasReturnsArea = false,
+    this.hasInspectionArea = false,
+    this.hasPackingArea = false,
+    this.hasLoadingDock = false,
     required this.isDeleted,
     required this.createdAt,
   });
@@ -116,6 +151,16 @@ class WarehouseRecord {
   final String displayName;
   final String warehouseTypeId;
   final String businessProfileId;
+  final String addressLine1;
+  final String addressLine2;
+
+  /// Where the warehouse is. Same geography masters the branch uses.
+  final String countryId;
+  final String stateId;
+  final String districtId;
+  final String cityId;
+  final String postalCodeId;
+  final String localityId;
   final String capacity;
   final String capacityUnit;
   final String status;
@@ -123,6 +168,12 @@ class WarehouseRecord {
   final bool temperatureControlled;
   final bool coldStorage;
   final bool hazardousStorage;
+  final bool hasReceivingArea;
+  final bool hasDispatchArea;
+  final bool hasReturnsArea;
+  final bool hasInspectionArea;
+  final bool hasPackingArea;
+  final bool hasLoadingDock;
   final bool isDeleted;
   final String createdAt;
 
@@ -136,6 +187,14 @@ class WarehouseRecord {
         displayName: stringValue(json['display_name']),
         warehouseTypeId: stringValue(json['warehouse_type_id']),
         businessProfileId: stringValue(json['business_profile_id']),
+        addressLine1: stringValue(json['address_line1']),
+        addressLine2: stringValue(json['address_line2']),
+        countryId: stringValue(json['country_id']),
+        stateId: stringValue(json['state_id']),
+        districtId: stringValue(json['district_id']),
+        cityId: stringValue(json['city_id']),
+        postalCodeId: stringValue(json['postal_code_id']),
+        localityId: stringValue(json['locality_id']),
         capacity: stringValue(json['capacity']),
         capacityUnit: stringValue(json['capacity_unit']),
         status: stringValue(json['status']),
@@ -143,6 +202,12 @@ class WarehouseRecord {
         temperatureControlled: boolValue(json['temperature_controlled']),
         coldStorage: boolValue(json['cold_storage']),
         hazardousStorage: boolValue(json['hazardous_storage']),
+        hasReceivingArea: boolValue(json['has_receiving_area']),
+        hasDispatchArea: boolValue(json['has_dispatch_area']),
+        hasReturnsArea: boolValue(json['has_returns_area']),
+        hasInspectionArea: boolValue(json['has_inspection_area']),
+        hasPackingArea: boolValue(json['has_packing_area']),
+        hasLoadingDock: boolValue(json['has_loading_dock']),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
       );

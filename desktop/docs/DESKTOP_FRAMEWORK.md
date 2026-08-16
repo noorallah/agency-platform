@@ -40,6 +40,7 @@ The library provides:
 | `WorkspaceShortcuts` | Permission-safe module shortcut registration |
 | `showWorkspaceContextMenu` | Extendable View/Edit/Delete/Copy/Refresh/Export menu |
 | `showGlobalSearch` | Ctrl+K search UI contract; no API dependency |
+| `GeoAreaPicker` | Where something is, chosen from the shared geography masters: country → state → district → city → postal code → locality, each rung loading when its parent is chosen. `levels` selects which rungs to show. **Use this rather than a fourth copy of the cascade** — customers, vendors, branches and warehouses all carry an address, and the point of structured geography is that they land on the same masters instead of four spellings of "Parrys". It keeps a stored id that is not in the loaded list as an item of its own, because `DropdownButtonFormField` asserts when its value matches no item, and without that a record pointing at a retired place would break the whole form and save as blank |
 | `fetchAllPages` / `maxApiPageSize` | Reads every page of a list endpoint, 100 at a time. **Never ask a list endpoint for a larger page**: the cap is enforced, not clamped, and on the routers that build their pagination by hand it comes back as a 500 rather than a message naming the limit. Two screens shipped asking for 500 and were broken against every real backend while their tests, whose fakes ignore `pageSize`, stayed green |
 
 Core services and infrastructure remain separately injectable:

@@ -7,6 +7,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
+import '../../models/geography.dart';
 import '../workspace/desktop_framework.dart';
 import 'branch_warehouse_import_dialog.dart';
 
@@ -807,7 +808,8 @@ class _BranchWarehouseManagementPageState
     if (!mounted) return;
     final payload = await showDialog<Json>(
       context: context,
-      builder: (context) => _BranchDialog(current: current, types: types),
+      builder: (context) =>
+          _BranchDialog(api: widget.api, current: current, types: types),
     );
     if (payload == null || !mounted) return;
     try {
@@ -837,6 +839,7 @@ class _BranchWarehouseManagementPageState
     final payload = await showDialog<Json>(
       context: context,
       builder: (context) => _WarehouseDialog(
+        api: widget.api,
         current: current,
         branches: branches.items,
         types: types,
@@ -954,7 +957,10 @@ class _BranchWarehouseManagementPageState
 }
 
 class _BranchDialog extends StatefulWidget {
-  const _BranchDialog({required this.types, this.current});
+  const _BranchDialog({required this.api, required this.types, this.current});
+
+  /// Needed for the geography ladder behind the branch address.
+  final ApiClient api;
   final BranchRecord? current;
 
   /// What this firm classifies its branches as. Empty is normal — a type is
@@ -980,8 +986,19 @@ class _BranchDialogState extends State<_BranchDialog> {
       TextEditingController(text: widget.current?.mobile ?? '');
   late final TextEditingController _currency =
       TextEditingController(text: widget.current?.currencyCode ?? 'INR');
+  late final TextEditingController _line1 =
+      TextEditingController(text: widget.current?.addressLine1 ?? '');
+  late final TextEditingController _line2 =
+      TextEditingController(text: widget.current?.addressLine2 ?? '');
   String _status = 'ACTIVE';
   String? _typeId;
+
+  /// Where the branch is, keyed by level. `branches` has no free-text city
+  /// column at all, so these ids are the only way to record it — and until
+  /// this form grew them, nothing in the client ever set one.
+  Map<GeoLevel, String> _place = const <GeoLevel, String>{};
+  bool _isDefault = false;
+  bool _gstRegistration = false;
 
   @override
   void initState() {
@@ -989,6 +1006,22 @@ class _BranchDialogState extends State<_BranchDialog> {
     _status = widget.current?.status.isNotEmpty == true
         ? widget.current!.status
         : 'ACTIVE';
+    final BranchRecord? current = widget.current;
+    if (current != null) {
+      _isDefault = current.isDefault;
+      _gstRegistration = current.gstRegistration;
+      _place = <GeoLevel, String>{
+        if (current.countryId.isNotEmpty) GeoLevel.country: current.countryId,
+        if (current.stateId.isNotEmpty) GeoLevel.state: current.stateId,
+        if (current.districtId.isNotEmpty)
+          GeoLevel.district: current.districtId,
+        if (current.cityId.isNotEmpty) GeoLevel.city: current.cityId,
+        if (current.postalCodeId.isNotEmpty)
+          GeoLevel.postalCode: current.postalCodeId,
+        if (current.localityId.isNotEmpty)
+          GeoLevel.locality: current.localityId,
+      };
+    }
     // Only pre-select a type the list still offers: a removed one would leave
     // the dropdown holding a value with no matching item, which asserts.
     final String existing = widget.current?.branchTypeId ?? '';
@@ -1004,7 +1037,20 @@ class _BranchDialogState extends State<_BranchDialog> {
     _phone.dispose();
     _mobile.dispose();
     _currency.dispose();
+    _line1.dispose();
+    _line2.dispose();
     super.dispose();
+  }
+
+  /// A blank field means "no value", not an empty string.
+  String? _text(TextEditingController controller) {
+    final String value = controller.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  String? _at(GeoLevel level) {
+    final String value = _place[level] ?? '';
+    return value.isEmpty ? null : value;
   }
 
   @override
@@ -1012,54 +1058,97 @@ class _BranchDialogState extends State<_BranchDialog> {
         title: Text(widget.current == null ? 'Create Branch' : 'Edit Branch'),
         content: SizedBox(
           width: 700,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: _field(_code, 'Branch Code')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_name, 'Branch Name')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _field(_displayName, 'Display Name')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_currency, 'Currency')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _field(_email, 'Email')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_phone, 'Phone')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_mobile, 'Mobile')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _status,
-                      decoration: const InputDecoration(labelText: 'Status'),
-                      items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
-                          .map((item) =>
-                              DropdownMenuItem(value: item, child: Text(item)))
-                          .toList(),
-                      onChanged: (value) =>
-                          setState(() => _status = value ?? 'ACTIVE'),
+          // Scrollable since the address and its place ladder were added: the
+          // dialog is now taller than a 768-high screen leaves room for.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: _field(_code, 'Branch Code')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_name, 'Branch Name')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _field(_displayName, 'Display Name')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_currency, 'Currency')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _field(_email, 'Email')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_phone, 'Phone')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_mobile, 'Mobile')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _status,
+                        decoration: const InputDecoration(labelText: 'Status'),
+                        items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+                            .map((item) =>
+                                DropdownMenuItem(value: item, child: Text(item)))
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _status = value ?? 'ACTIVE'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: _typeDropdown()),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 12),
+                    Expanded(child: _typeDropdown()),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _isDefault,
+                        title: const Text('Default branch'),
+                        onChanged: (value) =>
+                            setState(() => _isDefault = value ?? false),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _gstRegistration,
+                        title: const Text('GST registered'),
+                        onChanged: (value) =>
+                            setState(() => _gstRegistration = value ?? false),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Address'),
+                ),
+                const SizedBox(height: 8),
+                _field(_line1, 'Address line 1'),
+                const SizedBox(height: 12),
+                _field(_line2, 'Address line 2'),
+                const SizedBox(height: 12),
+                GeoAreaPicker(
+                  api: widget.api,
+                  value: _place,
+                  onChanged: (value) => setState(() => _place = value),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -1081,9 +1170,19 @@ class _BranchDialogState extends State<_BranchDialog> {
               // Null when nothing is chosen, so clearing a type on an edit
               // actually clears it rather than leaving the old one behind.
               'branch_type_id': _typeId,
-              'working_hours': const {'start': '09:00', 'end': '18:00'},
-              'gst_registration': false,
-              'is_default': false,
+              'address_line1': _text(_line1),
+              'address_line2': _text(_line2),
+              'country_id': _at(GeoLevel.country),
+              'state_id': _at(GeoLevel.state),
+              'district_id': _at(GeoLevel.district),
+              'city_id': _at(GeoLevel.city),
+              'postal_code_id': _at(GeoLevel.postalCode),
+              'locality_id': _at(GeoLevel.locality),
+              'gst_registration': _gstRegistration,
+              'is_default': _isDefault,
+              // `working_hours` is deliberately absent: this form does not
+              // edit it, and it used to send a fixed 09:00–18:00 that
+              // overwrote whatever the firm had set.
             }),
             child: const Text('Save'),
           ),
@@ -1122,10 +1221,14 @@ class _BranchDialogState extends State<_BranchDialog> {
 
 class _WarehouseDialog extends StatefulWidget {
   const _WarehouseDialog({
+    required this.api,
     required this.current,
     required this.branches,
     required this.types,
   });
+
+  /// Needed for the geography ladder behind the warehouse address.
+  final ApiClient api;
   final WarehouseRecord? current;
   final List<BranchRecord> branches;
 
@@ -1148,9 +1251,42 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
       TextEditingController(text: widget.current?.capacity ?? '');
   late final TextEditingController _capacityUnit =
       TextEditingController(text: widget.current?.capacityUnit ?? 'KG');
+  late final TextEditingController _line1 =
+      TextEditingController(text: widget.current?.addressLine1 ?? '');
+  late final TextEditingController _line2 =
+      TextEditingController(text: widget.current?.addressLine2 ?? '');
   String _status = 'ACTIVE';
   String? _branchId;
   String? _typeId;
+  Map<GeoLevel, String> _place = const <GeoLevel, String>{};
+
+  /// What the warehouse can do, keyed by the payload field. Ten booleans the
+  /// form used to hardcode, so every save reset them.
+  final Map<String, bool> _flags = <String, bool>{
+    'is_default': false,
+    'temperature_controlled': false,
+    'cold_storage': false,
+    'hazardous_storage': false,
+    'has_receiving_area': false,
+    'has_dispatch_area': false,
+    'has_returns_area': false,
+    'has_inspection_area': false,
+    'has_packing_area': false,
+    'has_loading_dock': false,
+  };
+
+  static const Map<String, String> _flagLabels = <String, String>{
+    'is_default': 'Default warehouse',
+    'temperature_controlled': 'Temperature controlled',
+    'cold_storage': 'Cold storage',
+    'hazardous_storage': 'Hazardous storage',
+    'has_receiving_area': 'Receiving area',
+    'has_dispatch_area': 'Dispatch area',
+    'has_returns_area': 'Returns area',
+    'has_inspection_area': 'Inspection area',
+    'has_packing_area': 'Packing area',
+    'has_loading_dock': 'Loading dock',
+  };
 
   @override
   void initState() {
@@ -1158,6 +1294,35 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
     _status = widget.current?.status.isNotEmpty == true
         ? widget.current!.status
         : 'ACTIVE';
+    final WarehouseRecord? current = widget.current;
+    if (current == null) {
+      // A new warehouse receives and dispatches unless told otherwise, which
+      // is what the form used to send for every warehouse, new or not.
+      _flags['has_receiving_area'] = true;
+      _flags['has_dispatch_area'] = true;
+    } else {
+      _flags['is_default'] = current.isDefault;
+      _flags['temperature_controlled'] = current.temperatureControlled;
+      _flags['cold_storage'] = current.coldStorage;
+      _flags['hazardous_storage'] = current.hazardousStorage;
+      _flags['has_receiving_area'] = current.hasReceivingArea;
+      _flags['has_dispatch_area'] = current.hasDispatchArea;
+      _flags['has_returns_area'] = current.hasReturnsArea;
+      _flags['has_inspection_area'] = current.hasInspectionArea;
+      _flags['has_packing_area'] = current.hasPackingArea;
+      _flags['has_loading_dock'] = current.hasLoadingDock;
+      _place = <GeoLevel, String>{
+        if (current.countryId.isNotEmpty) GeoLevel.country: current.countryId,
+        if (current.stateId.isNotEmpty) GeoLevel.state: current.stateId,
+        if (current.districtId.isNotEmpty)
+          GeoLevel.district: current.districtId,
+        if (current.cityId.isNotEmpty) GeoLevel.city: current.cityId,
+        if (current.postalCodeId.isNotEmpty)
+          GeoLevel.postalCode: current.postalCodeId,
+        if (current.localityId.isNotEmpty)
+          GeoLevel.locality: current.localityId,
+      };
+    }
     _branchId = widget.current?.branchId ??
         (widget.branches.isNotEmpty ? widget.branches.first.id : null);
     // Only pre-select a type the list still offers: a removed one would leave
@@ -1173,7 +1338,20 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
     _displayName.dispose();
     _capacity.dispose();
     _capacityUnit.dispose();
+    _line1.dispose();
+    _line2.dispose();
     super.dispose();
+  }
+
+  /// A blank field means "no value", not an empty string.
+  String? _text(TextEditingController controller) {
+    final String value = controller.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  String? _at(GeoLevel level) {
+    final String value = _place[level] ?? '';
+    return value.isEmpty ? null : value;
   }
 
   @override
@@ -1182,81 +1360,124 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
             widget.current == null ? 'Create Warehouse' : 'Edit Warehouse'),
         content: SizedBox(
           width: 760,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: _branchId,
-                decoration: const InputDecoration(labelText: 'Branch'),
-                items: widget.branches
-                    .map(
-                      (item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text('${item.code} - ${item.displayName}'),
+          // Scrollable since the address, its place ladder and the capability
+          // flags were added: taller than a 768-high screen leaves room for.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  initialValue: _branchId,
+                  decoration: const InputDecoration(labelText: 'Branch'),
+                  items: widget.branches
+                      .map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item.id,
+                          child: Text('${item.code} - ${item.displayName}'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() => _branchId = value),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _field(_code, 'Warehouse Code')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_name, 'Warehouse Name')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: _field(_displayName, 'Display Name')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_capacity, 'Capacity')),
+                    const SizedBox(width: 12),
+                    Expanded(child: _field(_capacityUnit, 'Capacity Unit')),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        initialValue: _status,
+                        decoration: const InputDecoration(labelText: 'Status'),
+                        items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
+                            .map((item) =>
+                                DropdownMenuItem(value: item, child: Text(item)))
+                            .toList(),
+                        onChanged: (value) =>
+                            setState(() => _status = value ?? 'ACTIVE'),
                       ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _branchId = value),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _field(_code, 'Warehouse Code')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_name, 'Warehouse Name')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: _field(_displayName, 'Display Name')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_capacity, 'Capacity')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _field(_capacityUnit, 'Capacity Unit')),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _status,
-                      decoration: const InputDecoration(labelText: 'Status'),
-                      items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
-                          .map((item) =>
-                              DropdownMenuItem(value: item, child: Text(item)))
-                          .toList(),
-                      onChanged: (value) =>
-                          setState(() => _status = value ?? 'ACTIVE'),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String?>(
-                      initialValue: _typeId,
-                      isExpanded: true,
-                      decoration: InputDecoration(
-                        labelText: 'Warehouse Type',
-                        helperText: widget.types.isEmpty
-                            ? 'None defined — add one under Warehouse Types'
-                            : 'Optional',
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<String?>(
+                        initialValue: _typeId,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: 'Warehouse Type',
+                          helperText: widget.types.isEmpty
+                              ? 'None defined — add one under Warehouse Types'
+                              : 'Optional',
+                        ),
+                        items: <DropdownMenuItem<String?>>[
+                          const DropdownMenuItem<String?>(child: Text('None')),
+                          for (final TypeRecord type in widget.types)
+                            DropdownMenuItem<String?>(
+                              value: type.id,
+                              child: Text('${type.code}  ${type.name}',
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                        ],
+                        onChanged: (value) => setState(() => _typeId = value),
                       ),
-                      items: <DropdownMenuItem<String?>>[
-                        const DropdownMenuItem<String?>(child: Text('None')),
-                        for (final TypeRecord type in widget.types)
-                          DropdownMenuItem<String?>(
-                            value: type.id,
-                            child: Text('${type.code}  ${type.name}',
-                                overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Address'),
+                ),
+                const SizedBox(height: 8),
+                _field(_line1, 'Address line 1'),
+                const SizedBox(height: 12),
+                _field(_line2, 'Address line 2'),
+                const SizedBox(height: 12),
+                GeoAreaPicker(
+                  api: widget.api,
+                  value: _place,
+                  onChanged: (value) => setState(() => _place = value),
+                ),
+                const Divider(height: 24),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Capabilities'),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final MapEntry<String, String> flag
+                        in _flagLabels.entries)
+                      SizedBox(
+                        width: 230,
+                        child: CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _flags[flag.key] ?? false,
+                          title: Text(flag.value),
+                          onChanged: (value) => setState(
+                            () => _flags[flag.key] = value ?? false,
                           ),
-                      ],
-                      onChanged: (value) => setState(() => _typeId = value),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -1279,16 +1500,15 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                       // Null when nothing is chosen, so clearing a type on an
                       // edit clears it rather than leaving the old one.
                       'warehouse_type_id': _typeId,
-                      'is_default': false,
-                      'temperature_controlled': false,
-                      'cold_storage': false,
-                      'hazardous_storage': false,
-                      'has_receiving_area': true,
-                      'has_dispatch_area': true,
-                      'has_returns_area': false,
-                      'has_inspection_area': false,
-                      'has_packing_area': false,
-                      'has_loading_dock': false,
+                      'address_line1': _text(_line1),
+                      'address_line2': _text(_line2),
+                      'country_id': _at(GeoLevel.country),
+                      'state_id': _at(GeoLevel.state),
+                      'district_id': _at(GeoLevel.district),
+                      'city_id': _at(GeoLevel.city),
+                      'postal_code_id': _at(GeoLevel.postalCode),
+                      'locality_id': _at(GeoLevel.locality),
+                      ..._flags,
                     }),
             child: const Text('Save'),
           ),
