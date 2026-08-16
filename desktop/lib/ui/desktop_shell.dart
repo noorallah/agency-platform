@@ -1933,8 +1933,21 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         widget.router.current.module == AppModule.purchases.name
             ? widget.router.current.tab
             : null;
-    final String tabId = visibleTabs.any((tab) => tab.id == requestedTab)
-        ? requestedTab!
+    // A stored workspace may still name a tab that became a status view.
+    // Resolve it to Purchase Orders on that view rather than letting the
+    // fallback below drop the user on the Dashboard with no explanation.
+    final String? aliased = ModuleCatalog.purchaseTabAliases[requestedTab];
+    final PurchaseOrderView initialView = switch (requestedTab) {
+      'draft-orders' => PurchaseOrderView.draft,
+      'open-orders' => PurchaseOrderView.open,
+      'cancelled-orders' => PurchaseOrderView.cancelled,
+      'closed-orders' => PurchaseOrderView.closed,
+      'purchase-history' => PurchaseOrderView.history,
+      _ => PurchaseOrderView.all,
+    };
+    final String? resolvedTab = aliased ?? requestedTab;
+    final String tabId = visibleTabs.any((tab) => tab.id == resolvedTab)
+        ? resolvedTab!
         : visibleTabs.first.id;
     final bool hasActiveFirm =
         widget.api.activeFirmId?.call()?.isNotEmpty == true;
@@ -1944,11 +1957,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         PurchaseSection.purchaseOrders => 'purchase-orders',
         PurchaseSection.rfqs => 'purchase-rfqs',
         PurchaseSection.vendorQuotations => 'vendor-quotations',
-        PurchaseSection.draftOrders => 'draft-orders',
-        PurchaseSection.openOrders => 'open-orders',
-        PurchaseSection.cancelledOrders => 'cancelled-orders',
-        PurchaseSection.closedOrders => 'closed-orders',
-        PurchaseSection.history => 'purchase-history',
         PurchaseSection.analytics => 'purchase-analytics',
         PurchaseSection.settings => 'purchase-settings',
       };
@@ -1971,6 +1979,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
           section: PurchaseSection.purchaseOrders,
+          initialView: initialView,
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
@@ -1989,51 +1998,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
           section: PurchaseSection.vendorQuotations,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'draft-orders' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.draftOrders,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'open-orders' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.openOrders,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'cancelled-orders' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.cancelledOrders,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'closed-orders' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.closedOrders,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'purchase-history' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.history,
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
@@ -2067,11 +2031,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
         'purchase-orders' => 'Purchase Orders',
         'purchase-rfqs' => 'Request for Quotations',
         'vendor-quotations' => 'Vendor Quotations',
-        'draft-orders' => 'Draft Purchase Orders',
-        'open-orders' => 'Open Purchase Orders',
-        'cancelled-orders' => 'Cancelled Purchase Orders',
-        'closed-orders' => 'Closed Purchase Orders',
-        'purchase-history' => 'Purchase History',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
         _ => module.label,
@@ -2085,15 +2044,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'RFQ extension point reserved for the next backend purchase phase.',
         'vendor-quotations' =>
           'Vendor quotation extension point reserved for the next backend purchase phase.',
-        'draft-orders' =>
-          'Review and complete purchase orders that remain in draft state.',
-        'open-orders' =>
-          'Monitor active purchase orders pending execution and delivery.',
-        'cancelled-orders' =>
-          'Audit cancelled purchase orders and restoration candidates.',
-        'closed-orders' => 'Review completed and closed purchase lifecycles.',
-        'purchase-history' =>
-          'Inspect history timelines from the purchase history backend API.',
         'purchase-analytics' =>
           'Analytics shell ready for backend reporting expansion.',
         'purchase-settings' =>

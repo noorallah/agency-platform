@@ -24,18 +24,53 @@ import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
 import '../../models/document_framework.dart';
 
+/// A destination in the Purchases module -- one sidebar entry each.
 enum PurchaseSection {
   dashboard,
   purchaseOrders,
   rfqs,
   vendorQuotations,
-  draftOrders,
-  openOrders,
-  cancelledOrders,
-  closedOrders,
-  history,
   analytics,
   settings,
+}
+
+/// A named view over the one purchase order list.
+///
+/// These were five sidebar entries of their own -- Draft, Open, Cancelled and
+/// Closed Orders plus History -- and every one of them opened this same
+/// workspace with a filter preset. They are views, not modules, and the
+/// navigation now says so.
+enum PurchaseOrderView {
+  all,
+  draft,
+  open,
+  cancelled,
+  closed,
+  history;
+
+  /// The status this view filters on, or null for every status.
+  String? get status => switch (this) {
+        PurchaseOrderView.draft => 'DRAFT',
+        PurchaseOrderView.open => 'SUBMITTED',
+        PurchaseOrderView.cancelled => 'CANCELLED',
+        PurchaseOrderView.closed => 'CLOSED',
+        PurchaseOrderView.all || PurchaseOrderView.history => null,
+      };
+
+  /// History is a **sort**, not a status: every order, oldest document first.
+  /// It is the one view here that does not narrow the list, and keeping its
+  /// own ordering is what makes it worth a segment at all.
+  String get sortBy =>
+      this == PurchaseOrderView.history ? 'purchase_date' : 'created_at';
+
+  String get label => switch (this) {
+        PurchaseOrderView.all => 'All',
+        PurchaseOrderView.draft => 'Draft',
+        PurchaseOrderView.open => 'Open',
+        PurchaseOrderView.cancelled => 'Cancelled',
+        PurchaseOrderView.closed => 'Closed',
+        PurchaseOrderView.history => 'History',
+      };
 }
 
 class PurchaseManagementPage extends StatefulWidget {
@@ -46,6 +81,7 @@ class PurchaseManagementPage extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     required this.section,
+    this.initialView = PurchaseOrderView.all,
     this.onNavigateToSection,
     this.onOpenGlobalSearch,
   });
@@ -55,6 +91,14 @@ class PurchaseManagementPage extends StatefulWidget {
   final PermissionService permissions;
   final bool hasActiveFirm;
   final PurchaseSection section;
+
+  /// Which segment of the status bar to open on.
+  ///
+  /// Normally `all`. It is a parameter so the shell can honour a stored
+  /// workspace of `draft-orders` -- a tab id that no longer exists -- by
+  /// opening Purchase Orders on Draft rather than dropping the user on the
+  /// Dashboard.
+  final PurchaseOrderView initialView;
   final ValueChanged<PurchaseSection>? onNavigateToSection;
   final Future<void> Function()? onOpenGlobalSearch;
 
@@ -87,7 +131,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   bool _filtersExpanded = false;
   bool _includeDeleted = false;
   String? _vendorId;
+
+  /// The status chosen in the advanced filter panel. It still wins over the
+  /// view's own status, which is the behaviour the section presets had.
   String? _status;
+
+  /// Which segment of the status bar is showing.
+  late PurchaseOrderView _view = widget.initialView;
   String? _branchId;
   String? _warehouseId;
   String? _buyerId;
@@ -144,8 +194,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   @override
   void didUpdateWidget(covariant PurchaseManagementPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Eleven sub-tabs build this class in the same slot with no key, so
-    // Flutter keeps this State and `initState` never runs again. `_load` is
+    // The sub-tabs build this class in the same slot with no key, so Flutter
+    // keeps this State and `initState` never runs again. `_load` is
     // called rather than `_bootstrap`: the lookups and saved views it fetched
     // are tab-agnostic, and re-reading seven of them on every sub-tab click is
     // the cost that ruled out keying the whole page.
@@ -154,13 +204,31 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     unawaited(_load());
   }
 
+  /// Switch the list to another view of itself.
+  ///
+  /// Deliberately not `_resetForSection`: the user is looking at one screen
+  /// and narrowing it, so their search term and filters stay. The selection
+  /// does not -- it drives the bulk actions, and a bulk close carried over
+  /// from All could act on orders no longer on screen.
+  void _selectView(PurchaseOrderView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _page = 1;
+      _selected = null;
+      _selectedIds = <String>{};
+      _selectedHistory = const [];
+    });
+    unawaited(_load(requestedPage: 1));
+  }
+
   /// Drop what belonged to the tab being left.
   ///
   /// `_selectedIds` is the important one. It drives the bulk actions, and
   /// carrying it across a sub-tab switch means a bulk close or cancel could
   /// operate on orders selected on the tab the user just left — rows that are
   /// no longer even on screen. The status and sort come from
-  /// `_statusForSection`, so leaving them would show the previous tab's rows
+  /// `_statusForView`, so leaving them would show the previous tab's rows
   /// under the new heading, which is worse than an empty grid because it looks
   /// right.
   void _resetForSection() {
@@ -290,7 +358,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           page: _page,
           pageSize: _rowsPerPage,
           search: _search.text.trim(),
-          sortBy: _sortByForSection(),
+          sortBy: _sortByForView(),
           descending: true,
           filters: filters,
         ),
@@ -349,7 +417,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
 
   PurchaseQuery _effectiveFilters() => PurchaseQuery(
         vendorId: _vendorId,
-        status: _status ?? _statusForSection(),
+        status: _status ?? _statusForView(),
         branchId: _branchId,
         warehouseId: _warehouseId,
         buyerId: _buyerId,
@@ -359,19 +427,20 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         includeDeleted: _includeDeleted,
       );
 
-  String? _statusForSection() => switch (widget.section) {
-        PurchaseSection.draftOrders => 'DRAFT',
-        PurchaseSection.openOrders => 'SUBMITTED',
-        PurchaseSection.cancelledOrders => 'CANCELLED',
-        PurchaseSection.closedOrders => 'CLOSED',
-        _ => null,
-      };
+  /// The status the current view asks for. The advanced filter panel's own
+  /// Status still overrides it, which is what the old section presets did.
+  ///
+  /// Only the Purchase Orders workspace has views; every other section reads
+  /// the whole list.
+  String? _statusForView() =>
+      widget.section == PurchaseSection.purchaseOrders ? _view.status : null;
 
-  String _sortByForSection() => switch (widget.section) {
-        PurchaseSection.history => 'purchase_date',
-        PurchaseSection.dashboard => 'purchase_date',
-        _ => 'created_at',
-      };
+  String _sortByForView() {
+    if (widget.section == PurchaseSection.dashboard) return 'purchase_date';
+    return widget.section == PurchaseSection.purchaseOrders
+        ? _view.sortBy
+        : 'created_at';
+  }
 
   Future<void> _runSearch([String? value]) async {
     final String query = (value ?? _search.text).trim();
@@ -1001,6 +1070,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         toolbar: _buildToolbar(),
         searchPanel: _buildSearchPanel(),
         filterPanel: _buildFilterPanel(),
+        viewBar: widget.section == PurchaseSection.purchaseOrders
+            ? _buildViewBar()
+            : null,
         primaryContent: _loading
             ? const Center(child: CircularProgressIndicator())
             : _orders.isEmpty
@@ -1016,6 +1088,27 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           selected: _selected != null || _selectedIds.isNotEmpty,
           selectedCount: _selectedIds.isNotEmpty ? _selectedIds.length : null,
           message: _statusBarMessage,
+        ),
+      );
+
+  /// The status bar: All / Draft / Open / Cancelled / Closed / History.
+  ///
+  /// Scrollable because six segments do not fit a narrow window, and a
+  /// segmented button clips rather than wraps.
+  Widget _buildViewBar() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<PurchaseOrderView>(
+          segments: [
+            for (final PurchaseOrderView view in PurchaseOrderView.values)
+              ButtonSegment<PurchaseOrderView>(
+                value: view,
+                label: Text(view.label),
+              ),
+          ],
+          selected: <PurchaseOrderView>{_view},
+          onSelectionChanged:
+              _loading ? null : (selection) => _selectView(selection.first),
+          showSelectedIcon: false,
         ),
       );
 
@@ -1702,15 +1795,23 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         if (_includeDeleted) 'deleted',
       ].where((value) => value != null && value.toString().isNotEmpty).length;
 
-  String get _statusBarMessage => switch (widget.section) {
-        PurchaseSection.purchaseOrders => 'Enterprise purchase workspace ready',
-        PurchaseSection.draftOrders => 'Showing draft orders',
-        PurchaseSection.openOrders => 'Showing open orders',
-        PurchaseSection.cancelledOrders => 'Showing cancelled orders',
-        PurchaseSection.closedOrders => 'Showing closed orders',
-        PurchaseSection.history => 'History panel uses purchase history API',
-        _ => 'Purchase workspace',
-      };
+  String get _statusBarMessage {
+    if (widget.section != PurchaseSection.purchaseOrders) {
+      return 'Purchase workspace';
+    }
+    return switch (_view) {
+      PurchaseOrderView.all => 'Showing all purchase orders',
+      PurchaseOrderView.draft => 'Showing draft orders',
+      // Named for what it filters rather than for the segment: the Dashboard's
+      // "Open Orders" card counts five statuses, and the list endpoint takes
+      // one, so the two figures do not agree. Saying SUBMITTED here is the
+      // only honest thing this screen can do until the API accepts a set.
+      PurchaseOrderView.open => 'Showing orders awaiting approval (SUBMITTED)',
+      PurchaseOrderView.cancelled => 'Showing cancelled orders',
+      PurchaseOrderView.closed => 'Showing closed orders',
+      PurchaseOrderView.history => 'Showing every order, oldest document first',
+    };
+  }
 
   Widget _buildOptionField({
     required String label,

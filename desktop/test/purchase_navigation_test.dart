@@ -1,0 +1,406 @@
+// Purchase order statuses are views of one screen, not modules of their own.
+//
+// Purchases declared eleven sidebar entries for six destinations. Draft, Open,
+// Cancelled and Closed Orders each opened this same workspace with a `status`
+// preset, and History opened it with a different sort — five menu items leading
+// to one screen, grouped under a node labelled "Orders", which says nothing
+// about whose orders in an application that also sells.
+//
+// These pin the shape that replaced it: five entries, a status bar inside
+// Purchase Orders that drives the existing filter, and a Sourcing group that
+// RFQs and Vendor Quotations plug into when they exist.
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
+import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/branch_warehouse.dart';
+import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/purchase.dart';
+import 'package:agency_desktop/models/tax_framework.dart';
+import 'package:agency_desktop/models/vendor.dart';
+import 'package:agency_desktop/ui/purchases/purchase_management_page.dart';
+import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/workspace_templates.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+String _accessToken(List<String> permissions) {
+  final String claims = base64Url
+      .encode(utf8.encode(jsonEncode(<String, dynamic>{
+        'roles': <String>['user'],
+        'permissions': permissions,
+      })))
+      .replaceAll('=', '');
+  return 'header.$claims.sig';
+}
+
+/// One row, so the grid renders instead of the empty state.
+///
+/// `StandardEmptyState` animates, and `pumpAndSettle` waits for animations to
+/// stop — an empty list hangs the test rather than failing it.
+final PurchaseOrder _order = PurchaseOrder.fromJson(<String, dynamic>{
+  'id': 'po-1',
+  'firm_id': 'firm-1',
+  'po_number': 'PO-0001',
+  'purchase_date': '2026-08-02',
+  'status': 'DRAFT',
+  'currency_code': 'INR',
+  'grand_total': '590.00',
+  'lines': <Json>[],
+});
+
+/// Every tab id Purchases still declares, plus the retired ones.
+Set<String> _tabIds() =>
+    ModuleCatalog.byId(AppModule.purchases).tabs.map((tab) => tab.id).toSet();
+
+/// Flatten the sidebar tree so a leaf can be found at any depth.
+Iterable<WorkspaceNavigationNode> _flatten(
+  List<WorkspaceNavigationNode> nodes,
+) sync* {
+  for (final WorkspaceNavigationNode node in nodes) {
+    yield node;
+    yield* _flatten(node.children);
+  }
+}
+
+class _RecordingApi extends ApiClient {
+  _RecordingApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  /// Every list request, so a segment can be checked against what it asked for.
+  final List<({String? status, String sortBy})> requests =
+      <({String? status, String sortBy})>[];
+
+  @override
+  Future<PurchaseSummaryRecord> purchaseSummary() async =>
+      const PurchaseSummaryRecord(
+        total: 0,
+        draft: 0,
+        open: 0,
+        cancelled: 0,
+        closed: 0,
+        totalValue: '0',
+        overdueDelivery: 0,
+      );
+
+  @override
+  Future<PagedResult<PurchaseOrder>> purchases({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    PurchaseQuery filters = const PurchaseQuery(),
+  }) async {
+    requests.add((status: filters.status, sortBy: sortBy));
+    return PagedResult<PurchaseOrder>(items: <PurchaseOrder>[_order], total: 1);
+  }
+
+  // The workspace loads six lookups before its first list. Unstubbed they
+  // reach for a real server and the test hangs on `pumpAndSettle` rather than
+  // failing, so every one of them answers empty here.
+  @override
+  Future<PagedResult<Vendor>> vendors({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    VendorQuery filters = const VendorQuery(),
+  }) async =>
+      const PagedResult<Vendor>(items: <Vendor>[], total: 0);
+
+  @override
+  Future<PagedResult<BranchRecord>> branches({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    BranchQuery filters = const BranchQuery(),
+  }) async =>
+      const PagedResult<BranchRecord>(items: <BranchRecord>[], total: 0);
+
+  @override
+  Future<PagedResult<WarehouseRecord>> warehouses({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    WarehouseQuery filters = const WarehouseQuery(),
+  }) async =>
+      const PagedResult<WarehouseRecord>(items: <WarehouseRecord>[], total: 0);
+
+  @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async =>
+      const PagedResult<Product>(items: <Product>[], total: 0);
+
+  @override
+  Future<PagedResult<PlatformUser>> users({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) async =>
+      const PagedResult<PlatformUser>(items: <PlatformUser>[], total: 0);
+
+  @override
+  Future<PagedResult<TaxProfileRecord>> taxProfiles({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    String? taxSystemId,
+  }) async =>
+      const PagedResult<TaxProfileRecord>(
+          items: <TaxProfileRecord>[], total: 0);
+}
+
+PermissionService _permissions() => PermissionService()
+  ..applyAccessToken(_accessToken(const <String>[
+    'PURCHASE_VIEW',
+    'PURCHASE_CREATE',
+    'PURCHASE_UPDATE',
+  ]));
+
+Future<_RecordingApi> _openOrders(
+  WidgetTester tester, {
+  PurchaseOrderView initialView = PurchaseOrderView.all,
+}) async {
+  tester.view.physicalSize = const Size(1600, 1000);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final Directory temp =
+      Directory.systemTemp.createTempSync('purchase-navigation-test');
+  addTearDown(() => temp.deleteSync(recursive: true));
+  final DesktopPreferencesService preferences =
+      DesktopPreferencesService(directory: temp);
+  final _RecordingApi api = _RecordingApi();
+
+  await tester.pumpWidget(MaterialApp(
+    home: Scaffold(
+      body: PurchaseManagementPage(
+        api: api,
+        preferences: preferences,
+        permissions: _permissions(),
+        hasActiveFirm: true,
+        section: PurchaseSection.purchaseOrders,
+        initialView: initialView,
+      ),
+    ),
+  ));
+  await tester.pumpAndSettle();
+  return api;
+}
+
+void main() {
+  group('the navigation says what it means', () {
+    test('a status is not a module', () {
+      final Set<String> ids = _tabIds();
+      for (final String retired in <String>[
+        'draft-orders',
+        'open-orders',
+        'cancelled-orders',
+        'closed-orders',
+        'purchase-history',
+      ]) {
+        expect(
+          ids,
+          isNot(contains(retired)),
+          reason: '$retired opened the same workspace with a filter preset',
+        );
+      }
+      expect(ids, contains('purchase-orders'));
+    });
+
+    test('five entries, and no group called Orders', () {
+      final List<WorkspaceNavigationNode> nodes =
+          ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
+
+      expect(
+        nodes.map((node) => node.label),
+        <String>[
+          'Dashboard',
+          'Purchase Orders',
+          'Sourcing',
+          'Analytics',
+          'Settings'
+        ],
+      );
+      expect(
+          _flatten(nodes).map((node) => node.label), isNot(contains('Orders')));
+    });
+
+    test('Sourcing is a group, and holds what comes before a purchase order',
+        () {
+      final List<WorkspaceNavigationNode> nodes =
+          ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
+      final WorkspaceNavigationNode sourcing =
+          nodes.firstWhere((node) => node.label == 'Sourcing');
+
+      // No path of its own: it expands, it does not navigate.
+      expect(sourcing.path, isNull);
+      expect(sourcing.isLeaf, isFalse);
+      expect(
+        sourcing.children.map((node) => node.path),
+        <String>['purchase-rfqs', 'vendor-quotations'],
+      );
+    });
+
+    test('Sourcing disappears when the user may see neither child', () {
+      final List<WorkspaceNavigationNode> nodes =
+          ModuleCatalog.navigationChildren(
+        AppModule.purchases,
+        <String>{'purchase-dashboard', 'purchase-orders'},
+      );
+
+      expect(nodes.map((node) => node.label), isNot(contains('Sourcing')));
+      expect(nodes.map((node) => node.label), contains('Purchase Orders'));
+    });
+
+    test('a retired tab id still resolves somewhere real', () {
+      // The last workspace is persisted, so an upgrade must not strand a user
+      // who left the app on Draft Orders.
+      for (final String retired in ModuleCatalog.purchaseTabAliases.keys) {
+        expect(
+          ModuleCatalog.purchaseTabAliases[retired],
+          'purchase-orders',
+          reason: '$retired must lead to the workspace that absorbed it',
+        );
+      }
+    });
+  });
+
+  group('the status bar drives the existing filter', () {
+    testWidgets('every segment is offered', (tester) async {
+      await _openOrders(tester);
+
+      for (final String label in <String>[
+        'All',
+        'Draft',
+        'Open',
+        'Cancelled',
+        'Closed',
+        'History',
+      ]) {
+        expect(find.widgetWithText(SegmentedButton<PurchaseOrderView>, label),
+            findsOneWidget);
+      }
+    });
+
+    testWidgets('choosing one asks the server for it', (tester) async {
+      final _RecordingApi api = await _openOrders(tester);
+      expect(api.requests.last.status, isNull, reason: 'All filters nothing');
+
+      await tester.tap(find.text('Draft'));
+      await tester.pumpAndSettle();
+      expect(api.requests.last.status, 'DRAFT');
+
+      await tester.tap(find.text('Cancelled'));
+      await tester.pumpAndSettle();
+      expect(api.requests.last.status, 'CANCELLED');
+    });
+
+    testWidgets('History is a sort, not a status', (tester) async {
+      final _RecordingApi api = await _openOrders(tester);
+
+      await tester.tap(find.text('History'));
+      await tester.pumpAndSettle();
+
+      // It narrows nothing — it reorders. That is what makes it worth a
+      // segment beside All rather than a duplicate of it.
+      expect(api.requests.last.status, isNull);
+      expect(api.requests.last.sortBy, 'purchase_date');
+    });
+
+    testWidgets('a workspace restored on Draft opens on Draft', (tester) async {
+      final _RecordingApi api =
+          await _openOrders(tester, initialView: PurchaseOrderView.draft);
+
+      expect(api.requests.first.status, 'DRAFT');
+    });
+
+    testWidgets('no other section shows the bar', (tester) async {
+      // Taller than the others: the dashboard stacks seven metric cards, two
+      // summary panels and an embedded grid.
+      tester.view.physicalSize = const Size(1600, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final Directory temp =
+          Directory.systemTemp.createTempSync('purchase-navigation-dash');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final DesktopPreferencesService preferences =
+          DesktopPreferencesService(directory: temp);
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: PurchaseManagementPage(
+            api: _RecordingApi(),
+            preferences: preferences,
+            permissions: _permissions(),
+            hasActiveFirm: true,
+            section: PurchaseSection.dashboard,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SegmentedButton<PurchaseOrderView>), findsNothing);
+    });
+  });
+
+  group('what is not built stays not built', () {
+    for (final (PurchaseSection section, String label)
+        in <(PurchaseSection, String)>[
+      (PurchaseSection.rfqs, 'RFQs'),
+      (PurchaseSection.vendorQuotations, 'Vendor Quotations'),
+    ]) {
+      testWidgets('$label says so rather than inventing a screen',
+          (tester) async {
+        tester.view.physicalSize = const Size(1600, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final Directory temp =
+            Directory.systemTemp.createTempSync('purchase-navigation-soon');
+        addTearDown(() => temp.deleteSync(recursive: true));
+        final DesktopPreferencesService preferences =
+            DesktopPreferencesService(directory: temp);
+
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: PurchaseManagementPage(
+              api: _RecordingApi(),
+              preferences: preferences,
+              permissions: _permissions(),
+              hasActiveFirm: true,
+              section: section,
+            ),
+          ),
+        ));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining(label), findsWidgets);
+        expect(find.byType(SegmentedButton<PurchaseOrderView>), findsNothing);
+      });
+    }
+  });
+}

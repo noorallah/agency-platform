@@ -19,6 +19,7 @@ beside it would have meant two of everything. These are the parts:
 | Layout (toolbar / search / grid / details / status) | `ManagementWorkspaceLayout` | `workspace_components.dart` |
 | Toolbar | `WorkspaceToolbar` (+ `trailing`) | `workspace_components.dart` |
 | Search and filter bar | `SearchFilterPanel`, `FilterPanel` | `workspace_components.dart` |
+| Named views over one list | `ManagementWorkspaceLayout.viewBar` | `workspace_components.dart` |
 | Grid, paging, selection, row actions | `EnterpriseDataGrid<T>` | `workspace_components.dart` |
 | Row overflow menu | `_RowActions` (internal to the grid) | `workspace_components.dart` |
 | Bulk bar | `WorkspaceBulkActionBar`, `WorkspaceBulkAction` | `workspace_components.dart` |
@@ -67,6 +68,28 @@ searchHint: 'Search permissions by name or code',
 Typing is debounced 350 ms into a single request; the clear (✕) appears only
 once there is text. Search always resets to page 1. `Ctrl+F` focuses the field
 via `WorkspaceShortcuts`.
+
+## 3a. Views over one list
+
+A list whose records fall into a handful of states somebody switches between all
+day gets a `viewBar` — a `SegmentedButton` between the filters and the grid:
+
+```
+[ All ] [ Draft ] [ Open ] [ Cancelled ] [ Closed ] [ History ]
+```
+
+`ManagementWorkspaceLayout.viewBar` is the slot. Purchase Orders is the
+reference (`PurchaseOrderView` in `ui/purchases/purchase_management_page.dart`).
+
+**A view is not a module.** Purchases had a sidebar entry per status — five menu
+items that opened the same workspace with one filter preset — and this slot is
+what replaced them. Before adding a nav entry for a state, ask whether it is a
+different screen or the same screen filtered; if the answer is "same screen",
+it belongs here. See `PURCHASE_NAVIGATION_UX.md`.
+
+A view is one click and always visible. A **filter** is a form behind the
+advanced panel, and it overrides the view. Keep at most six or so — a segmented
+button clips rather than wraps, and anything longer is a second navigation.
 
 ## 4. Filters
 

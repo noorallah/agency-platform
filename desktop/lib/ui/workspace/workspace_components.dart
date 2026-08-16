@@ -936,6 +936,7 @@ class ManagementWorkspaceLayout extends StatelessWidget {
     required this.statusBar,
     this.detailsWidth = 300,
     this.filterPanel,
+    this.viewBar,
   });
 
   final Widget toolbar;
@@ -945,6 +946,18 @@ class ManagementWorkspaceLayout extends StatelessWidget {
   final Widget statusBar;
   final double detailsWidth;
   final Widget? filterPanel;
+
+  /// A row of named views over the same list, above the grid.
+  ///
+  /// For a list whose records fall into a handful of states somebody switches
+  /// between all day — a purchase order being draft, open, cancelled or
+  /// closed. Those are *views of one screen*, and the alternative to a slot
+  /// here was a sidebar entry each, which is what Purchases had: five menu
+  /// items that opened the same workspace with one filter preset.
+  ///
+  /// Distinct from [filterPanel], which is the collapsible advanced filters. A
+  /// view is one click and always visible; a filter is a form.
+  final Widget? viewBar;
 
   @override
   Widget build(BuildContext context) => Column(children: [
@@ -971,6 +984,11 @@ class ManagementWorkspaceLayout extends StatelessWidget {
           ),
         ),
         if (filterPanel != null) filterPanel!,
+        if (viewBar != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            child: Align(alignment: Alignment.centerLeft, child: viewBar!),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child: Padding(
@@ -1707,10 +1725,23 @@ class SummaryMetricCard extends StatelessWidget {
               Icon(icon,
                   size: 32, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 16),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(value, style: Theme.of(context).textTheme.headlineSmall),
-                Text(label),
-              ]),
+              // Bounded, because the card is a fixed width and the text is
+              // not: a long label — or a purchase value with enough digits —
+              // overflowed the row rather than eliding inside it.
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
+                ),
+              ),
             ]),
           ),
         ),

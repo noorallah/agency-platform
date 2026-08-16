@@ -513,31 +513,12 @@ abstract final class ModuleCatalog {
           label: 'Vendor Quotations',
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
-        ModuleTabDefinition(
-          id: 'draft-orders',
-          label: 'Draft Orders',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'open-orders',
-          label: 'Open Orders',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'cancelled-orders',
-          label: 'Cancelled Orders',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'closed-orders',
-          label: 'Closed Orders',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'purchase-history',
-          label: 'History',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
+        // `draft-orders`, `open-orders`, `cancelled-orders`, `closed-orders`
+        // and `purchase-history` used to be tabs of their own. Each opened the
+        // same workspace with one filter preset, so five sidebar entries led to
+        // one screen. They are now the status bar inside Purchase Orders --
+        // see `PurchaseOrderView`. `purchaseTabAliases` keeps their ids
+        // resolvable so a stored workspace still opens where it left off.
         ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
@@ -745,8 +726,7 @@ abstract final class ModuleCatalog {
       tabs: [
         ModuleTabDefinition(
             id: 'chart-of-accounts', label: 'Chart of Accounts'),
-        ModuleTabDefinition(
-            id: 'journal-entries', label: 'Journal Entries'),
+        ModuleTabDefinition(id: 'journal-entries', label: 'Journal Entries'),
         ModuleTabDefinition(id: 'receipts', label: 'Receipts'),
         ModuleTabDefinition(id: 'payments', label: 'Payments'),
         ModuleTabDefinition(id: 'refunds', label: 'Refunds'),
@@ -775,8 +755,7 @@ abstract final class ModuleCatalog {
       description: 'Licensing workspace.',
       workspaceTemplate: WorkspaceTemplateType.configuration,
       requiredPermissions: ['LICENSE_MANAGE'],
-      tabs: [
-      ],
+      tabs: [],
     ),
     ModuleDefinition(
       id: AppModule.settings,
@@ -793,6 +772,21 @@ abstract final class ModuleCatalog {
 
   static ModuleDefinition byId(AppModule id) =>
       modules.firstWhere((module) => module.id == id);
+
+  /// Purchase tab ids that no longer exist, and where they now live.
+  ///
+  /// Draft, Open, Cancelled, Closed and History were separate tabs until they
+  /// became the status bar inside Purchase Orders. The last workspace a user
+  /// was on is persisted (`session.saveLastWorkspace`), so without this an
+  /// upgrade would drop anybody who left the app on Draft Orders back to the
+  /// Dashboard, with nothing to explain why.
+  static const Map<String, String> purchaseTabAliases = <String, String>{
+    'draft-orders': 'purchase-orders',
+    'open-orders': 'purchase-orders',
+    'cancelled-orders': 'purchase-orders',
+    'closed-orders': 'purchase-orders',
+    'purchase-history': 'purchase-orders',
+  };
 
   /// Builds the hierarchical sub-navigation nodes for [id], filtered to the
   /// tab ids the current user can access ([visibleTabIds]).
@@ -1112,24 +1106,24 @@ abstract final class ModuleCatalog {
           path: 'purchase-dashboard',
           icon: Icons.dashboard_outlined,
         ),
-      if (hasAny([
-        'purchase-orders',
-        'purchase-rfqs',
-        'vendor-quotations',
-        'draft-orders',
-        'open-orders',
-        'cancelled-orders',
-        'closed-orders',
-      ]))
-        WorkspaceNavigationNode(
-          label: 'Orders',
+      // One entry, not seven. The group this replaces was labelled "Orders",
+      // which in an application that also sells says nothing about whose
+      // orders; and five of its children were this same workspace with a
+      // status preset.
+      if (visibleTabIds.contains('purchase-orders'))
+        const WorkspaceNavigationNode(
+          label: 'Purchase Orders',
+          path: 'purchase-orders',
           icon: Icons.receipt_long_outlined,
+        ),
+      // The procurement lifecycle begins before a purchase order. Neither
+      // child has a backend yet, so both open the placeholder — the group
+      // exists so that when they arrive the navigation does not change again.
+      if (hasAny(['purchase-rfqs', 'vendor-quotations']))
+        WorkspaceNavigationNode(
+          label: 'Sourcing',
+          icon: Icons.request_quote_outlined,
           children: [
-            if (visibleTabIds.contains('purchase-orders'))
-              const WorkspaceNavigationNode(
-                label: 'Purchase Orders',
-                path: 'purchase-orders',
-              ),
             if (visibleTabIds.contains('purchase-rfqs'))
               const WorkspaceNavigationNode(
                 label: 'RFQs',
@@ -1140,33 +1134,7 @@ abstract final class ModuleCatalog {
                 label: 'Vendor Quotations',
                 path: 'vendor-quotations',
               ),
-            if (visibleTabIds.contains('draft-orders'))
-              const WorkspaceNavigationNode(
-                label: 'Draft Orders',
-                path: 'draft-orders',
-              ),
-            if (visibleTabIds.contains('open-orders'))
-              const WorkspaceNavigationNode(
-                label: 'Open Orders',
-                path: 'open-orders',
-              ),
-            if (visibleTabIds.contains('cancelled-orders'))
-              const WorkspaceNavigationNode(
-                label: 'Cancelled Orders',
-                path: 'cancelled-orders',
-              ),
-            if (visibleTabIds.contains('closed-orders'))
-              const WorkspaceNavigationNode(
-                label: 'Closed Orders',
-                path: 'closed-orders',
-              ),
           ],
-        ),
-      if (visibleTabIds.contains('purchase-history'))
-        const WorkspaceNavigationNode(
-          label: 'History',
-          path: 'purchase-history',
-          icon: Icons.history_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(
