@@ -1,5 +1,6 @@
 """Cross-module global search service with permission and firm awareness."""
 
+from contextlib import ExitStack
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessFeature, BusinessProfile
+from app.common.firm_metadata import platform_reader
 from app.core.database.entity import BaseEntity
 from app.core.security.authorization import Principal
 from app.customers.models import Customer
@@ -55,6 +57,16 @@ class SearchDefinition:
     status_column: str | None = None
     badge_columns: tuple[str, ...] = ()
     category: SearchCategory = "all"
+    #: The table exists **only in the platform schema**, so it has to be read
+    #: on the platform connection rather than on the request's session.
+    #:
+    #: Not the same question as `firm_column is None`: `geo_countries` and its
+    #: siblings have no firm column either, and they live in every firm store.
+    #: The authority is `_PLATFORM_TABLES` in `app/core/tenancy/lifecycle.py`,
+    #: which is the list provisioning drops from a firm store, and
+    #: `test_search_reads_platform_tables_on_the_platform_store` compares this
+    #: flag against it.
+    platform_store: bool = False
 
 
 _DEFINITIONS: tuple[SearchDefinition, ...] = (
@@ -69,6 +81,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         None,
         ("full_name", "email"),
         category="organization",
+        platform_store=True,
     ),
     SearchDefinition(
         "roles",
@@ -81,6 +94,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "firm_id",
         ("name", "code"),
         category="organization",
+        platform_store=True,
     ),
     SearchDefinition(
         "permissions",
@@ -93,6 +107,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         None,
         ("name", "code"),
         category="organization",
+        platform_store=True,
     ),
     SearchDefinition(
         "firms",
@@ -107,6 +122,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         subtitle_columns=("city", "state"),
         status_column="is_active",
         category="organization",
+        platform_store=True,
     ),
     SearchDefinition(
         "business_profiles",
@@ -669,20 +685,37 @@ class SearchService:
             allowed_types = allowed_types.intersection(entity_types)
         per_entity_limit = max(page_size, 20)
         hits: list[SearchResultItem] = []
-        for definition in _DEFINITIONS:
-            if definition.entity_type not in allowed_types:
-                continue
-            if not self._is_accessible(definition, principal):
-                continue
-            hits.extend(
-                self._search_definition(
-                    definition=definition,
-                    query=normalized_query,
-                    principal=principal,
-                    include_deleted=include_deleted,
-                    limit=per_entity_limit,
+        # Opened once, and only when it is both needed and unavoidable:
+        #
+        #   * a platform-owned entity has to be in scope -- a search narrowed
+        #     to customers costs no second connection;
+        #   * and the request has to be firm-scoped. With no `X-Firm-ID`,
+        #     `get_db` resolves no tenant and hands over the platform session
+        #     already, so reaching for a second one would open a connection to
+        #     read a table the caller can see anyway.
+        with ExitStack() as stack:
+            platform: Session | None = None
+            for definition in _DEFINITIONS:
+                if definition.entity_type not in allowed_types:
+                    continue
+                if not self._is_accessible(definition, principal):
+                    continue
+                if (
+                    definition.platform_store
+                    and platform is None
+                    and principal.firm_id is not None
+                ):
+                    platform = stack.enter_context(platform_reader())
+                hits.extend(
+                    self._search_definition(
+                        definition=definition,
+                        query=normalized_query,
+                        principal=principal,
+                        include_deleted=include_deleted,
+                        limit=per_entity_limit,
+                        platform=platform,
+                    )
                 )
-            )
         total = len(hits)
         start = (page - 1) * page_size
         end = start + page_size
@@ -712,6 +745,7 @@ class SearchService:
         principal: Principal,
         include_deleted: bool,
         limit: int,
+        platform: Session | None = None,
     ) -> list[SearchResultItem]:
         model = definition.model
         statement: Select[tuple[Any]] = select(model)
@@ -751,7 +785,17 @@ class SearchService:
         if hasattr(model, "id"):
             statement = statement.order_by(model.id.desc())
         statement = statement.limit(limit)
-        rows = self._session.scalars(statement).all()
+        # `users`, `roles`, `permissions` and `firms` exist only in the
+        # platform schema. A request carrying `X-Firm-ID` runs on a tenant
+        # session whose `search_path` is that firm's schema and nothing else,
+        # so reading them there raised `relation "<firm schema>.users" does
+        # not exist` -- and because one definition failing aborts the whole
+        # search, **every** global search from inside a firm answered 503.
+        # Fourth occurrence of this shape; see `platform_reader`.
+        # `platform` is None when the request carries no firm, and then the
+        # session in hand is the platform store already.
+        reader = platform if definition.platform_store and platform else self._session
+        rows = reader.scalars(statement).all()
         return [
             self._to_item(definition=definition, row=row, query=query)
             for row in rows
