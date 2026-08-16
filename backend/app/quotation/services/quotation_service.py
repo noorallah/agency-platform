@@ -59,6 +59,7 @@ from app.quotation.schemas import (
     QuotationStatus,
     QuotationSummary,
 )
+from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -285,11 +286,18 @@ class QuotationService(TransactionalDocumentService):
             document_date=data.quotation_date,
             actor_id=actor_id,
         )
+        scope = resolve_sales_scope(
+            self._session,
+            firm_id=firm_id,
+            customer_id=data.customer_id,
+            territory_id=data.territory_id,
+            salesman_id=data.salesman_id,
+        )
         row = SalesQuotation(
             firm_id=firm_id,
             customer_id=data.customer_id,
-            salesman_id=data.salesman_id,
-            territory_id=data.territory_id,
+            salesman_id=scope.salesman_id,
+            territory_id=scope.territory_id,
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             business_profile_id=data.business_profile_id,
@@ -372,9 +380,16 @@ class QuotationService(TransactionalDocumentService):
             "grand_total": str(row.grand_total),
             "valid_until": row.valid_until.isoformat(),
         }
+        scope = resolve_sales_scope(
+            self._session,
+            firm_id=firm_scope,
+            customer_id=data.customer_id,
+            territory_id=data.territory_id,
+            salesman_id=data.salesman_id,
+        )
         row.customer_id = data.customer_id
-        row.salesman_id = data.salesman_id
-        row.territory_id = data.territory_id
+        row.salesman_id = scope.salesman_id
+        row.territory_id = scope.territory_id
         row.branch_id = data.branch_id
         row.warehouse_id = data.warehouse_id
         row.business_profile_id = data.business_profile_id

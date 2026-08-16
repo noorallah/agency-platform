@@ -2,6 +2,7 @@
 
 # ruff: noqa: D102, D103, D107
 
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -28,6 +29,7 @@ from app.core.security.authorization import (
     Principal,
     require_platform_admin,
 )
+from app.core.utils.dates import utc_now
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
@@ -35,6 +37,7 @@ from app.sales.schemas import (
     BeatPlanResponse,
     BeatPlanUpdate,
     BulkOperationResult,
+    CallListResponse,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -738,6 +741,46 @@ def delete_beat_plan(
         beat_plan_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/beat-plans/{beat_plan_id}/call-list")
+def beat_plan_call_list(
+    beat_plan_id: UUID,
+    scope: TerritoryViewScope,
+    on_date: Annotated[date | None, Query(alias="date")] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CallListResponse]:
+    """Answer who one plan calls on a date, defaulting to today."""
+    return ApiResponse(
+        data=_service(db).call_list(
+            firm_scope=scope.firm_id,
+            # `utc_now()`, never `date.today()`: everything persisted here is
+            # UTC, so the server's local clock is a different day for part of
+            # every day on any non-UTC deployment.
+            on_date=on_date or utc_now().date(),
+            beat_plan_id=beat_plan_id,
+        )
+    )
+
+
+# Literal path, so it must be declared above the trailing `GET /{territory_id}`.
+# FastAPI matches in declaration order and that route is deliberately last;
+# four paths on this router have already been read as a territory id once.
+@router.get("/call-lists")
+def call_lists(
+    scope: TerritoryViewScope,
+    on_date: Annotated[date | None, Query(alias="date")] = None,
+    salesman_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CallListResponse]:
+    """Answer who is called on a date across every active plan."""
+    return ApiResponse(
+        data=_service(db).call_list(
+            firm_scope=scope.firm_id,
+            on_date=on_date or utc_now().date(),
+            salesman_id=salesman_id,
+        )
+    )
 
 
 @router.get("/export")

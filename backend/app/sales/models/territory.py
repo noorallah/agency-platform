@@ -250,6 +250,52 @@ class BeatPlanStop(BaseEntity):
     planned_duration_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
+class BeatPlanCustomerStop(BaseEntity):
+    """Store one ordered outlet belonging to a beat plan.
+
+    `BeatPlanStop` names a *sub-territory*, which only works when the hierarchy
+    has a level below the route to act as a day bucket. The demo firms run
+    `Region > Territory > Route`, so a plan's territory is already the leaf and
+    its territory stops have nothing to point at -- that table is unusable for
+    them.
+
+    This one names outlets directly, so a route that splits into several
+    day-beats can say which shops belong to which. It is additive: a plan that
+    lists none falls back to the customers on its territory, in
+    `visit_sequence` order, which is the ordinary case and needs no rows here
+    at all.
+    """
+
+    __tablename__ = "sales_beat_plan_customer_stops"
+    __table_args__ = (
+        UniqueConstraint(
+            "beat_plan_id",
+            "stop_order",
+            name="UQ_sales_beat_plan_customer_stops_plan_order",
+        ),
+        UniqueConstraint(
+            "beat_plan_id",
+            "customer_id",
+            name="UQ_sales_beat_plan_customer_stops_plan_customer",
+        ),
+    )
+
+    beat_plan_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_beat_plans.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    customer_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    stop_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    planned_duration_minutes: Mapped[int | None] = mapped_column(Integer)
+
+
 class GeoCountry(BaseEntity):
     """Reusable geographical master for countries."""
 

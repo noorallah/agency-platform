@@ -307,6 +307,99 @@ class BeatPlanStopRecord {
       );
 }
 
+/// One outlet on a call list, in the order the round walks it.
+class CallListStopRecord {
+  const CallListStopRecord({
+    required this.customerId,
+    required this.customerCode,
+    required this.customerName,
+    required this.stopOrder,
+    required this.plannedDurationMinutes,
+  });
+
+  final String customerId;
+  final String customerCode;
+  final String customerName;
+  final int stopOrder;
+  final int? plannedDurationMinutes;
+
+  factory CallListStopRecord.fromJson(Json json) => CallListStopRecord(
+        customerId: stringValue(json['customer_id']),
+        customerCode: stringValue(json['customer_code']),
+        customerName: stringValue(json['customer_name']),
+        stopOrder:
+            json['stop_order'] is num ? (json['stop_order'] as num).toInt() : 0,
+        plannedDurationMinutes: json['planned_duration_minutes'] is num
+            ? (json['planned_duration_minutes'] as num).toInt()
+            : null,
+      );
+}
+
+/// What one beat plan asks for on one date.
+///
+/// [occurs] is answered even when false and [reason] says why, because "this
+/// round does not run today" and "this plan cannot be computed" are different
+/// answers — a screen that shows an empty list for both misreports one of them.
+class CallListEntryRecord {
+  const CallListEntryRecord({
+    required this.beatPlanId,
+    required this.beatPlanCode,
+    required this.beatPlanName,
+    required this.territoryId,
+    required this.territoryCode,
+    required this.territoryName,
+    required this.salesmanId,
+    required this.occurs,
+    required this.reason,
+    required this.stops,
+  });
+
+  final String beatPlanId;
+  final String beatPlanCode;
+  final String beatPlanName;
+  final String territoryId;
+  final String territoryCode;
+  final String territoryName;
+  final String salesmanId;
+  final bool occurs;
+  final String reason;
+  final List<CallListStopRecord> stops;
+
+  factory CallListEntryRecord.fromJson(Json json) => CallListEntryRecord(
+        beatPlanId: stringValue(json['beat_plan_id']),
+        beatPlanCode: stringValue(json['beat_plan_code']),
+        beatPlanName: stringValue(json['beat_plan_name']),
+        territoryId: stringValue(json['territory_id']),
+        territoryCode: stringValue(json['territory_code']),
+        territoryName: stringValue(json['territory_name']),
+        salesmanId: stringValue(json['salesman_id']),
+        occurs: json['occurs'] == true,
+        reason: stringValue(json['reason']),
+        stops: <CallListStopRecord>[
+          for (final dynamic row in (json['stops'] as List? ?? const []))
+            if (row is Map)
+              CallListStopRecord.fromJson(Map<String, dynamic>.from(row)),
+        ],
+      );
+}
+
+/// Every plan's call list for one date.
+class CallListRecord {
+  const CallListRecord({required this.onDate, required this.entries});
+
+  final String onDate;
+  final List<CallListEntryRecord> entries;
+
+  factory CallListRecord.fromJson(Json json) => CallListRecord(
+        onDate: stringValue(json['on_date']),
+        entries: <CallListEntryRecord>[
+          for (final dynamic row in (json['entries'] as List? ?? const []))
+            if (row is Map)
+              CallListEntryRecord.fromJson(Map<String, dynamic>.from(row)),
+        ],
+      );
+}
+
 /// Somebody the firm can put on a route.
 class TerritorySalesmanCandidate {
   const TerritorySalesmanCandidate({

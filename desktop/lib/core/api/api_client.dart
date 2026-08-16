@@ -2023,6 +2023,35 @@ class ApiClient {
             body: data),
       ));
 
+  /// Who should be called on [date] (`yyyy-MM-dd`), across every active plan.
+  ///
+  /// Computed by the server from the recurrence rule and the assignments, so
+  /// it is always current — there are no stored occurrences to go stale.
+  Future<CallListRecord> callLists({
+    required String date,
+    String salesmanId = '',
+  }) async =>
+      CallListRecord.fromJson(_unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/sales-territories/call-lists',
+          query: {
+            'date': date,
+            if (salesmanId.isNotEmpty) 'salesman_id': salesmanId,
+          },
+        ),
+      ));
+
+  /// The same answer for one plan, used by the preview on the plan editor.
+  Future<CallListRecord> beatPlanCallList(String id, String date) async =>
+      CallListRecord.fromJson(_unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/sales-territories/beat-plans/$id/call-list',
+          query: {'date': date},
+        ),
+      ));
+
   Future<BeatPlanRecord> updateBeatPlan(String id, Json data) async =>
       BeatPlanRecord.fromJson(_unwrapMap(
         await request('PUT', '/api/v1/sales-territories/beat-plans/$id',

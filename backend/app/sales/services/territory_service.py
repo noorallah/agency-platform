@@ -3,7 +3,7 @@
 # ruff: noqa: D102, D107
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from io import BytesIO
 from uuid import UUID
 
@@ -21,6 +21,7 @@ from app.identity.models import User
 from app.sales.models import (
     AddressMaster,
     BeatPlan,
+    BeatPlanCustomerStop,
     BeatPlanStop,
     GeoCity,
     GeoCountry,
@@ -41,10 +42,15 @@ from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
     BeatPlanCreate,
+    BeatPlanCustomerStopInput,
     BeatPlanResponse,
     BeatPlanStopInput,
+    BeatPlanType,
     BeatPlanUpdate,
     BulkOperationResult,
+    CallListEntry,
+    CallListResponse,
+    CallListStop,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -1057,7 +1063,11 @@ class SalesTerritoryService:
                     TerritoryCustomerAssignment(
                         territory_id=territory.id,
                         customer_id=customer_id,
-                        is_primary=True,
+                        is_primary=(
+                            entry.is_primary
+                            if entry is not None and entry.is_primary is not None
+                            else True
+                        ),
                         visit_sequence=(
                             entry.visit_sequence if entry is not None else None
                         ),
@@ -1074,6 +1084,8 @@ class SalesTerritoryService:
             if row is not None and entry is not None:
                 row.visit_sequence = entry.visit_sequence
                 row.is_potential = entry.is_potential
+                if entry.is_primary is not None:
+                    row.is_primary = entry.is_primary
         for customer_id, row in existing.items():
             if customer_id not in requested and not row.is_deleted:
                 row.is_deleted = True
@@ -1268,6 +1280,9 @@ class SalesTerritoryService:
         self._session.add(row)
         self._session.flush()
         self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
+        self._replace_beat_customer_stops(
+            row.id, data.customer_stops, firm_scope, actor_id
+        )
         record_audit(
             self._session,
             action="sales_territory.beat_plan.created",
@@ -1351,6 +1366,9 @@ class SalesTerritoryService:
         row.notes = data.notes
         row.updated_by = actor_id
         self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
+        self._replace_beat_customer_stops(
+            row.id, data.customer_stops, firm_scope, actor_id
+        )
         record_audit(
             self._session,
             action="sales_territory.beat_plan.updated",
@@ -1379,6 +1397,184 @@ class SalesTerritoryService:
             firm_id=firm_scope,
         )
         self._commit()
+
+    def call_list(
+        self,
+        *,
+        firm_scope: UUID,
+        on_date: date,
+        beat_plan_id: UUID | None = None,
+        salesman_id: UUID | None = None,
+    ) -> CallListResponse:
+        """Answer who should be called on one date.
+
+        Computed from the recurrence rule and the assignment tables, never
+        stored. Materialising occurrences would need a regeneration story every
+        time a plan, a route or a customer assignment changed, and a stale
+        materialised list is a list that sends someone to the wrong shop.
+
+        This says who *should* be called. It is not visit execution and records
+        nothing about what happened.
+        """
+        statement = select(BeatPlan).where(
+            BeatPlan.firm_id == firm_scope,
+            BeatPlan.is_deleted.is_(False),
+            BeatPlan.is_active.is_(True),
+        )
+        if beat_plan_id is not None:
+            statement = statement.where(BeatPlan.id == beat_plan_id)
+        plans = list(self._session.scalars(statement.order_by(BeatPlan.code.asc())))
+        if beat_plan_id is not None and not plans:
+            raise ResourceNotFoundError("Beat plan not found.")
+        entries: list[CallListEntry] = []
+        for plan in plans:
+            territory = self._session.scalar(
+                select(SalesTerritoryNode).where(
+                    SalesTerritoryNode.id == plan.territory_id
+                )
+            )
+            if territory is None:
+                continue
+            plan_salesman = self._primary_salesman(plan.territory_id)
+            if salesman_id is not None and plan_salesman != salesman_id:
+                continue
+            occurs, reason = self._occurs_on(plan, on_date)
+            entries.append(
+                CallListEntry(
+                    beat_plan_id=plan.id,
+                    beat_plan_code=plan.code,
+                    beat_plan_name=plan.name,
+                    territory_id=territory.id,
+                    territory_code=territory.code,
+                    territory_name=territory.name,
+                    salesman_id=plan_salesman,
+                    occurs=occurs,
+                    reason=reason,
+                    stops=self._call_list_stops(plan) if occurs else [],
+                )
+            )
+        return CallListResponse(on_date=on_date, entries=entries)
+
+    def _occurs_on(self, plan: BeatPlan, on_date: date) -> tuple[bool, str | None]:
+        """Decide whether a plan runs on a date, and say why when it does not.
+
+        A plan that cannot be computed reports that rather than quietly
+        returning nothing: an empty list means "nobody to call today", and a
+        CUSTOM plan means "this system cannot tell you". Showing the same blank
+        screen for both would misreport one of them every time.
+        """
+        if plan.starts_on is not None and on_date < plan.starts_on:
+            return False, "The plan has not started yet."
+        if plan.ends_on is not None and on_date > plan.ends_on:
+            return False, "The plan has ended."
+        plan_type = plan.plan_type
+        # `isoweekday()` is 1..7 Monday..Sunday, which is what `weekday` stores.
+        if plan_type == BeatPlanType.WEEKLY.value:
+            if plan.weekday is None:
+                return False, "This weekly plan has no weekday set."
+            return (
+                (True, None) if plan.weekday == on_date.isoweekday() else (False, None)
+            )
+        if plan_type == BeatPlanType.FORTNIGHTLY.value:
+            if plan.weekday is None:
+                return False, "This fortnightly plan has no weekday set."
+            if plan.weekday != on_date.isoweekday():
+                return False, None
+            if plan.starts_on is None:
+                # Every other week counted from what? Guessing an anchor would
+                # put half of these rounds on the wrong week, so it says so.
+                return False, "A fortnightly plan needs a start date to count from."
+            return (on_date - plan.starts_on).days // 7 % 2 == 0, None
+        if plan_type == BeatPlanType.MONTHLY.value:
+            if plan.weekday is None or plan.week_of_month is None:
+                return False, "This monthly plan has no weekday or week set."
+            if plan.weekday != on_date.isoweekday():
+                return False, None
+            return (on_date.day - 1) // 7 + 1 == plan.week_of_month, None
+        return False, "A custom plan's dates are not computed."
+
+    def _call_list_stops(self, plan: BeatPlan) -> list[CallListStop]:
+        """Resolve the outlets a plan calls, in the order it calls them.
+
+        Outlet stops on the plan win; failing those, the customers assigned to
+        the plan's territory in `visit_sequence` order. The territory stops on
+        `sales_beat_plan_stops` are deliberately not expanded here -- they name a
+        sub-territory, and no firm on this platform has a level below the route
+        for them to name.
+        """
+        stops = self._beat_customer_stops(plan.id)
+        if stops:
+            ordered = [(item.customer_id, item) for item in stops]
+            customers = self._customers_by_id(
+                [customer_id for customer_id, _ in ordered]
+            )
+            return [
+                CallListStop(
+                    customer_id=customer_id,
+                    customer_code=customers[customer_id].code,
+                    customer_name=customers[customer_id].display_name,
+                    stop_order=item.stop_order,
+                    planned_duration_minutes=item.planned_duration_minutes,
+                )
+                for customer_id, item in ordered
+                if customer_id in customers
+            ]
+        assignments = self._session.scalars(
+            select(TerritoryCustomerAssignment)
+            .where(
+                TerritoryCustomerAssignment.territory_id == plan.territory_id,
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+            )
+            .order_by(
+                case(
+                    (TerritoryCustomerAssignment.visit_sequence.is_(None), 1),
+                    else_=0,
+                ),
+                TerritoryCustomerAssignment.visit_sequence.asc(),
+                TerritoryCustomerAssignment.created_at.asc(),
+            )
+        )
+        rows = list(assignments)
+        customers = self._customers_by_id([row.customer_id for row in rows])
+        return [
+            CallListStop(
+                customer_id=row.customer_id,
+                customer_code=customers[row.customer_id].code,
+                customer_name=customers[row.customer_id].display_name,
+                stop_order=index,
+                planned_duration_minutes=None,
+            )
+            for index, row in enumerate(rows, start=1)
+            if row.customer_id in customers
+        ]
+
+    def _customers_by_id(self, customer_ids: list[UUID]) -> dict[UUID, Customer]:
+        if not customer_ids:
+            return {}
+        return {
+            row.id: row
+            for row in self._session.scalars(
+                select(Customer).where(
+                    Customer.id.in_(customer_ids),
+                    Customer.is_deleted.is_(False),
+                )
+            )
+        }
+
+    def _primary_salesman(self, territory_id: UUID) -> UUID | None:
+        """Name the person a call list belongs to, preferring the primary."""
+        rows = list(
+            self._session.scalars(
+                select(TerritorySalesmanAssignment).where(
+                    TerritorySalesmanAssignment.territory_id == territory_id,
+                    TerritorySalesmanAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+        for row in rows:
+            if row.is_primary:
+                return row.user_id
+        return rows[0].user_id if len(rows) == 1 else None
 
     def export_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
         rows, _ = self.list_territories(
@@ -2698,6 +2894,63 @@ class SalesTerritoryService:
                 )
             )
 
+    def _replace_beat_customer_stops(
+        self,
+        beat_plan_id: UUID,
+        stops: list[BeatPlanCustomerStopInput],
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Replace the outlets a plan calls, refusing any from another firm."""
+        for row in self._session.scalars(
+            select(BeatPlanCustomerStop).where(
+                BeatPlanCustomerStop.beat_plan_id == beat_plan_id
+            )
+        ):
+            row.is_deleted = True
+            row.deleted_at = utc_now()
+            row.deleted_by = actor_id
+            row.updated_by = actor_id
+        if not stops:
+            return
+        customer_ids = {item.customer_id for item in stops}
+        owned = set(
+            self._session.scalars(
+                select(Customer.id).where(
+                    Customer.id.in_(customer_ids),
+                    Customer.firm_id == firm_scope,
+                    Customer.is_deleted.is_(False),
+                )
+            )
+        )
+        if owned != customer_ids:
+            raise ValidationError(
+                "One or more customers do not belong to the active firm."
+            )
+        for item in stops:
+            self._session.add(
+                BeatPlanCustomerStop(
+                    beat_plan_id=beat_plan_id,
+                    customer_id=item.customer_id,
+                    stop_order=item.stop_order,
+                    planned_duration_minutes=item.planned_duration_minutes,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+
+    def _beat_customer_stops(self, beat_plan_id: UUID) -> list[BeatPlanCustomerStop]:
+        return list(
+            self._session.scalars(
+                select(BeatPlanCustomerStop)
+                .where(
+                    BeatPlanCustomerStop.beat_plan_id == beat_plan_id,
+                    BeatPlanCustomerStop.is_deleted.is_(False),
+                )
+                .order_by(BeatPlanCustomerStop.stop_order.asc())
+            )
+        )
+
     def _beat_plan_response(self, row: BeatPlan) -> BeatPlanResponse:
         stops = list(
             self._session.scalars(
@@ -2733,6 +2986,15 @@ class SalesTerritoryService:
                     "planned_duration_minutes": item.planned_duration_minutes,
                 }
                 for item in stops
+            ],
+            customer_stops=[
+                {
+                    "id": item.id,
+                    "customer_id": item.customer_id,
+                    "stop_order": item.stop_order,
+                    "planned_duration_minutes": item.planned_duration_minutes,
+                }
+                for item in self._beat_customer_stops(row.id)
             ],
         )
 

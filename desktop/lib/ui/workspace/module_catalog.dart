@@ -298,6 +298,11 @@ abstract final class ModuleCatalog {
           label: 'Beat Plans',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
+        ModuleTabDefinition(
+          id: 'call-lists',
+          label: 'Call Lists',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
       ],
     ),
     ModuleDefinition(

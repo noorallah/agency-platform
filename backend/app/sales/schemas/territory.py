@@ -412,6 +412,17 @@ class TerritoryCustomerAssignmentInput(TerritorySchema):
     customer_id: UUID
     visit_sequence: int | None = Field(default=None, ge=1, le=100000)
     is_potential: bool = False
+    #: Which round a document for this customer belongs to. Every assignment
+    #: was written `is_primary = True` with no way for a caller to say
+    #: otherwise, so once a shop could be on two rounds the flag could not
+    #: settle which one a sale counts against.
+    #:
+    #: `None` means "leave it alone" rather than `False`: a new assignment
+    #: still defaults to primary, matching what every existing caller wrote,
+    #: and re-saving a round from the customer picker -- which sends no flag --
+    #: cannot silently demote the round someone chose. The salesman list was
+    #: demoted exactly that way once already.
+    is_primary: bool | None = None
 
 
 class TerritoryCustomerAssignmentResponse(TerritorySchema):
@@ -510,6 +521,19 @@ class BeatPlanStopInput(TerritorySchema):
     planned_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
+class BeatPlanCustomerStopInput(TerritorySchema):
+    """One ordered outlet on a beat plan.
+
+    Optional: a plan that lists none calls every customer on its territory, in
+    `visit_sequence` order. These rows exist for a route that splits into
+    several day-beats calling different shops.
+    """
+
+    customer_id: UUID
+    stop_order: int = Field(ge=1, le=1000)
+    planned_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
 class BeatPlanWrite(TerritorySchema):
     """Shared writable beat-plan fields for create and update operations."""
 
@@ -524,6 +548,9 @@ class BeatPlanWrite(TerritorySchema):
     is_active: bool = True
     notes: str | None = None
     stops: list[BeatPlanStopInput] = Field(default_factory=list, max_length=300)
+    customer_stops: list[BeatPlanCustomerStopInput] = Field(
+        default_factory=list, max_length=1000
+    )
 
     @field_validator("code", mode="before")
     @classmethod
@@ -560,6 +587,53 @@ class BeatPlanStopResponse(TerritorySchema):
     planned_duration_minutes: int | None
 
 
+class BeatPlanCustomerStopResponse(TerritorySchema):
+    """Persisted outlet stop representation."""
+
+    id: UUID
+    customer_id: UUID
+    stop_order: int
+    planned_duration_minutes: int | None
+
+
+class CallListStop(TerritorySchema):
+    """One outlet to be called, in the order the round walks it."""
+
+    customer_id: UUID
+    customer_code: str
+    customer_name: str
+    stop_order: int
+    planned_duration_minutes: int | None
+
+
+class CallListEntry(TerritorySchema):
+    """What one beat plan asks for on one date.
+
+    `occurs` is answered even when it is false, and `reason` says why, because
+    "this plan does not run today" and "this plan cannot be computed" are
+    different answers and a screen that shows an empty list for both is lying
+    about one of them.
+    """
+
+    beat_plan_id: UUID
+    beat_plan_code: str
+    beat_plan_name: str
+    territory_id: UUID
+    territory_code: str
+    territory_name: str
+    salesman_id: UUID | None
+    occurs: bool
+    reason: str | None
+    stops: list[CallListStop] = Field(default_factory=list)
+
+
+class CallListResponse(TerritorySchema):
+    """Every plan's call list for one date."""
+
+    on_date: date
+    entries: list[CallListEntry] = Field(default_factory=list)
+
+
 class BeatPlanResponse(TerritorySchema):
     """Persisted beat-plan response envelope."""
 
@@ -579,3 +653,4 @@ class BeatPlanResponse(TerritorySchema):
     created_at: datetime
     updated_at: datetime
     stops: list[BeatPlanStopResponse]
+    customer_stops: list[BeatPlanCustomerStopResponse] = Field(default_factory=list)
