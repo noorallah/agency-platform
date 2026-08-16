@@ -304,6 +304,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'route-builder',
+          label: 'Route Builder',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'geography-masters',
           label: 'Places',
           requiredPermissions: ['TERRITORY_VIEW'],

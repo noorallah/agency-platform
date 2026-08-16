@@ -3,6 +3,8 @@
 from app.sales.schemas.territory import (
     AddressMasterResponse,
     AddressMasterWrite,
+    AssignableCustomer,
+    AssignableCustomerFilters,
     BeatPlanCreate,
     BeatPlanCustomerStopInput,
     BeatPlanCustomerStopResponse,
@@ -57,6 +59,8 @@ from app.sales.schemas.territory import (
 )
 
 __all__ = [
+    "AssignableCustomer",
+    "AssignableCustomerFilters",
     "AddressMasterResponse",
     "AddressMasterWrite",
     "BeatPlanCreate",

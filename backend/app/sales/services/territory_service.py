@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import TypeVar
 from uuid import UUID
 
-from sqlalchemy import Select, case, func, or_, select
+from sqlalchemy import Select, case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -19,7 +19,7 @@ from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerAddress
 from app.identity.models import User
 from app.sales.models import (
     AddressMaster,
@@ -44,6 +44,8 @@ from app.sales.models import (
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
+    AssignableCustomer,
+    AssignableCustomerFilters,
     BeatPlanCreate,
     BeatPlanCustomerStopInput,
     BeatPlanResponse,
@@ -1479,6 +1481,154 @@ class SalesTerritoryService:
             )
             for row in rows
         ]
+
+    def assignable_customers(
+        self,
+        *,
+        firm_scope: UUID,
+        territory_id: UUID | None,
+        filters: AssignableCustomerFilters,
+        search: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[AssignableCustomer], int]:
+        """Find the outlets a round could call, by where they are.
+
+        The customer list cannot answer this. It filters on city and state and
+        nothing finer -- no pin code, no street -- and it knows nothing about
+        territory assignment, so "which shops on this pin code are not on a
+        round yet" had no query behind it and a beat had to be built by
+        recognising names in an alphabetical list.
+
+        Address matching goes through `EXISTS` rather than a join: a customer
+        with three addresses would otherwise come back three times, and the
+        page count with them.
+        """
+        conditions = [
+            Customer.firm_id == firm_scope,
+            Customer.is_deleted.is_(False),
+        ]
+        if search:
+            token = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Customer.name.ilike(token),
+                    Customer.display_name.ilike(token),
+                    Customer.code.ilike(token),
+                )
+            )
+        for column, value in (
+            (CustomerAddress.postal_code, filters.postal_code),
+            (CustomerAddress.area, filters.area),
+            (CustomerAddress.city, filters.city),
+        ):
+            if not value:
+                continue
+            conditions.append(
+                exists(
+                    select(CustomerAddress.id).where(
+                        CustomerAddress.customer_id == Customer.id,
+                        CustomerAddress.is_deleted.is_(False),
+                        column.ilike(f"%{value.strip()}%"),
+                    )
+                )
+            )
+        if filters.unassigned_only:
+            conditions.append(
+                ~exists(
+                    select(TerritoryCustomerAssignment.id).where(
+                        TerritoryCustomerAssignment.customer_id == Customer.id,
+                        TerritoryCustomerAssignment.is_deleted.is_(False),
+                    )
+                )
+            )
+        total = int(
+            self._session.scalar(
+                select(func.count()).select_from(Customer).where(*conditions)
+            )
+            or 0
+        )
+        rows = list(
+            self._session.scalars(
+                select(Customer)
+                .where(*conditions)
+                .order_by(Customer.name.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return self._assignable_rows(rows, territory_id), total
+
+    def _assignable_rows(
+        self, rows: list[Customer], territory_id: UUID | None
+    ) -> list[AssignableCustomer]:
+        """Decorate each customer with its address and its rounds.
+
+        Read for the whole page at once rather than per row: a fifty-row page
+        would otherwise be a hundred and fifty queries, which is the shape the
+        attribute framework has a rule against for exactly this reason.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        addresses: dict[UUID, CustomerAddress] = {}
+        for address in self._session.scalars(
+            select(CustomerAddress)
+            .where(
+                CustomerAddress.customer_id.in_(ids),
+                CustomerAddress.is_deleted.is_(False),
+            )
+            .order_by(CustomerAddress.is_default_shipping.desc())
+        ):
+            addresses.setdefault(address.customer_id, address)
+
+        assignments = list(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment).where(
+                    TerritoryCustomerAssignment.customer_id.in_(ids),
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+        node_ids = {row.territory_id for row in assignments}
+        codes = {
+            node.id: node.code
+            for node in self._session.scalars(
+                select(SalesTerritoryNode).where(SalesTerritoryNode.id.in_(node_ids))
+            )
+        }
+        by_customer: dict[UUID, list[TerritoryCustomerAssignment]] = defaultdict(list)
+        for row in assignments:
+            by_customer[row.customer_id].append(row)
+
+        result: list[AssignableCustomer] = []
+        for customer in rows:
+            mine = [
+                item
+                for item in by_customer[customer.id]
+                if territory_id is not None and item.territory_id == territory_id
+            ]
+            best = addresses.get(customer.id)
+            result.append(
+                AssignableCustomer(
+                    customer_id=customer.id,
+                    code=customer.code,
+                    name=customer.display_name or customer.name,
+                    address_line=best.address_line1 if best else "",
+                    area=best.area if best else None,
+                    city=best.city if best else "",
+                    postal_code=best.postal_code if best else "",
+                    on_this_route=bool(mine),
+                    visit_sequence=mine[0].visit_sequence if mine else None,
+                    other_routes=sorted(
+                        codes[item.territory_id]
+                        for item in by_customer[customer.id]
+                        if item.territory_id != territory_id
+                        and item.territory_id in codes
+                    ),
+                )
+            )
+        return result
 
     def set_salesmen(
         self,

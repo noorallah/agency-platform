@@ -37,6 +37,8 @@ from app.core.utils.dates import utc_now
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
+    AssignableCustomer,
+    AssignableCustomerFilters,
     BeatPlanCreate,
     BeatPlanResponse,
     BeatPlanUpdate,
@@ -969,6 +971,44 @@ def call_lists(
             salesman_id=salesman_id,
         )
     )
+
+
+@router.get(
+    "/assignable-customers",
+    response_model=PaginatedResponse[AssignableCustomer],
+)
+def assignable_customers(
+    scope: TerritoryViewScope,
+    page: int = 1,
+    page_size: int = 20,
+    territory_id: UUID | None = None,
+    search: str | None = None,
+    postal_code: str | None = None,
+    area: str | None = None,
+    city: str | None = None,
+    unassigned_only: bool = False,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[AssignableCustomer]:
+    """Find outlets for a round by pin code, street or town.
+
+    A literal path, so it is declared above the trailing `GET /{territory_id}`
+    that FastAPI would otherwise match it against.
+    """
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = _service(db).assignable_customers(
+        firm_scope=scope.firm_id,
+        territory_id=territory_id,
+        filters=AssignableCustomerFilters(
+            postal_code=postal_code,
+            area=area,
+            city=city,
+            unassigned_only=unassigned_only,
+        ),
+        search=search,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    return PaginatedResponse(data=rows, pagination=params.metadata(total))
 
 
 @router.get("/export")

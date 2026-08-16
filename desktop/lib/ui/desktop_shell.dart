@@ -27,6 +27,7 @@ import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
 import 'sales/geography_master_page.dart';
+import 'sales/route_builder_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'products/product_management_page.dart';
@@ -1815,6 +1816,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'route-builder' => RouteBuilderPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       'geography-masters' => GeographyMasterPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1843,6 +1848,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
       'call-lists' => (
           'Call Lists',
           'Who is called on a given day, in the order the round walks them.',
+        ),
+      'route-builder' => (
+          'Route Builder',
+          'Find outlets by pin code or street, put them on a round, and set '
+              'the order they are called in.',
         ),
       'geography-masters' => (
           'Places',

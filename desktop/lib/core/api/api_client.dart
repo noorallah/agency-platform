@@ -2108,6 +2108,36 @@ class ApiClient {
         .toList();
   }
 
+  /// Outlets a round could call, narrowed by pin code, street or town.
+  ///
+  /// Lives on the territory router rather than under customers because it
+  /// answers a territory question — who is already on a round — and the
+  /// customer module knows nothing about assignments.
+  Future<PagedResult<AssignableCustomerRecord>> assignableCustomers({
+    int page = 1,
+    int pageSize = 50,
+    String territoryId = '',
+    String search = '',
+    String postalCode = '',
+    String area = '',
+    String city = '',
+    bool unassignedOnly = false,
+  }) =>
+      _list(
+        '/api/v1/sales-territories/assignable-customers',
+        AssignableCustomerRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (territoryId.isNotEmpty) 'territory_id': territoryId,
+          if (postalCode.isNotEmpty) 'postal_code': postalCode,
+          if (area.isNotEmpty) 'area': area,
+          if (city.isNotEmpty) 'city': city,
+          if (unassignedOnly) 'unassigned_only': 'true',
+        },
+      );
+
   /// The shared geography masters: country > state > district > city >
   /// postal code > locality.
   ///

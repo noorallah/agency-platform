@@ -486,6 +486,43 @@ class TerritoryCopyRequest(TerritorySchema):
         return value.strip().upper()
 
 
+class AssignableCustomer(TerritorySchema):
+    """One shop a round could call, with enough address to find it by.
+
+    Built for the question a supervisor actually asks -- "which outlets on this
+    pin code are not on a round yet" -- which the customer list could not
+    answer: it filters on city and state and nothing finer, and it knows
+    nothing about territory assignment at all.
+    """
+
+    customer_id: UUID
+    code: str
+    name: str
+    address_line: str
+    area: str | None
+    city: str
+    postal_code: str
+    #: Already on the route being built, and where in its order.
+    on_this_route: bool
+    visit_sequence: int | None
+    #: Other rounds that already call this shop, by code. A distributor calling
+    #: the same outlet on a sales beat and a collection round is ordinary, so
+    #: this is information rather than a warning.
+    other_routes: list[str] = Field(default_factory=list)
+
+
+class AssignableCustomerFilters(TerritorySchema):
+    """How to narrow the outlets offered to a round."""
+
+    postal_code: str | None = Field(default=None, max_length=24)
+    area: str | None = Field(default=None, max_length=100)
+    city: str | None = Field(default=None, max_length=100)
+    #: Only shops no live route assignment names. The default is False, because
+    #: hiding a shop already on another round would make it impossible to put
+    #: one outlet on both.
+    unassigned_only: bool = False
+
+
 class TerritoryBulkCustomerAssignment(TerritorySchema):
     """One territory's customer list, for a batch that applies several at once."""
 

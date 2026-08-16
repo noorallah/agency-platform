@@ -400,6 +400,61 @@ class CallListRecord {
       );
 }
 
+/// One outlet a round could call, with enough address to find it by.
+///
+/// The customer list cannot answer "which shops on this pin code are not on a
+/// round yet" — it filters on city and state and nothing finer, and knows
+/// nothing about territory assignment.
+class AssignableCustomerRecord {
+  const AssignableCustomerRecord({
+    required this.customerId,
+    required this.code,
+    required this.name,
+    required this.addressLine,
+    required this.area,
+    required this.city,
+    required this.postalCode,
+    required this.onThisRoute,
+    required this.visitSequence,
+    required this.otherRoutes,
+  });
+
+  final String customerId;
+  final String code;
+  final String name;
+  final String addressLine;
+  final String area;
+  final String city;
+  final String postalCode;
+
+  /// Already on the round being built, and where in its order.
+  final bool onThisRoute;
+  final int? visitSequence;
+
+  /// Other rounds already calling this shop. Information, not a warning — a
+  /// distributor calls the same outlet on a sales beat and a collection round.
+  final List<String> otherRoutes;
+
+  factory AssignableCustomerRecord.fromJson(Json json) =>
+      AssignableCustomerRecord(
+        customerId: stringValue(json['customer_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        addressLine: stringValue(json['address_line']),
+        area: stringValue(json['area']),
+        city: stringValue(json['city']),
+        postalCode: stringValue(json['postal_code']),
+        onThisRoute: json['on_this_route'] == true,
+        visitSequence: json['visit_sequence'] is num
+            ? (json['visit_sequence'] as num).toInt()
+            : null,
+        otherRoutes: <String>[
+          for (final dynamic row in (json['other_routes'] as List? ?? const []))
+            stringValue(row),
+        ],
+      );
+}
+
 /// Somebody the firm can put on a route.
 class TerritorySalesmanCandidate {
   const TerritorySalesmanCandidate({
