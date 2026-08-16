@@ -303,6 +303,11 @@ abstract final class ModuleCatalog {
           label: 'Call Lists',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
+        ModuleTabDefinition(
+          id: 'geography-masters',
+          label: 'Places',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
       ],
     ),
     ModuleDefinition(

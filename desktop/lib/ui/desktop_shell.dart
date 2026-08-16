@@ -26,6 +26,7 @@ import 'purchase_invoices/purchase_invoice_management_page.dart';
 import 'purchase_returns/purchase_return_management_page.dart';
 import 'sales/beat_plan_management_page.dart';
 import 'sales/call_list_page.dart';
+import 'sales/geography_master_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'products/product_management_page.dart';
@@ -1814,6 +1815,10 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'geography-masters' => GeographyMasterPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1838,6 +1843,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
       'call-lists' => (
           'Call Lists',
           'Who is called on a given day, in the order the round walks them.',
+        ),
+      'geography-masters' => (
+          'Places',
+          'The shared geography every address and route hangs off: country to '
+              'locality.',
         ),
       _ => (module.label, module.description),
     };

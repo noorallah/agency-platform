@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 /// a user actions they only hold elsewhere, and the API would then reject them.
 class PermissionService extends ChangeNotifier {
   Set<String> _global = const {};
+  Set<String> _roles = const {};
   Map<String, Set<String>> _byFirm = const {};
   String? _activeFirmId;
   Set<String> _effective = const {};
@@ -30,6 +31,7 @@ class PermissionService extends ChangeNotifier {
   void applyAccessToken(String? token, {String? activeFirmId}) {
     final Map<String, dynamic>? claims = _decodePayload(token);
     _global = _stringClaims(claims?['permissions']).toSet();
+    _roles = _stringClaims(claims?['roles']).toSet();
 
     final Object? firmClaims = claims?['firm_permissions'];
     final Map<String, Set<String>> byFirm = {};
@@ -59,6 +61,15 @@ class PermissionService extends ChangeNotifier {
     _effective = next;
     notifyListeners();
   }
+
+  /// Whether the user carries the immutable platform-admin designation.
+  ///
+  /// A role rather than a permission, matching the backend: `platform_admin`
+  /// short-circuits every permission check there, and a handful of endpoints —
+  /// the shared geography masters among them — are guarded by the designation
+  /// itself and by no permission code at all. Without this a screen has no
+  /// honest way to tell whether to offer those actions.
+  bool get isPlatformAdmin => _roles.contains('platform_admin');
 
   bool hasPermission(String permission) => _effective.contains(permission);
 

@@ -5,15 +5,18 @@
 from collections import defaultdict
 from datetime import date, timedelta
 from io import BytesIO
+from typing import TypeVar
 from uuid import UUID
 
 from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
+from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
@@ -89,6 +92,10 @@ from app.sales.schemas import (
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
 )
+
+#: Any geography master row. The lookup helper is shared by all six levels
+#: and must hand back the concrete type it was asked for.
+_GeoRowT = TypeVar("_GeoRowT", bound=BaseEntity)
 
 
 class SalesTerritoryService:
@@ -511,6 +518,325 @@ class SalesTerritoryService:
             postal_code_id=row.postal_code_id,
             name=row.name,
             is_active=row.is_active,
+        )
+
+    # ---- geography masters: edit and retire ----------------------------
+    #
+    # Every foreign key into these tables is `ondelete="RESTRICT"`, which
+    # sounds like the guard is already there. It is not: these rows are
+    # soft-deleted, and a soft delete never reaches the database's referential
+    # check. A "deleted" country stays wired to every branch that names it and
+    # simply vanishes from the list, so the address panel goes blank with
+    # nothing to say why -- the same shape as deleting a route type in use.
+    #
+    # So the guard lives here, and it looks in two directions: at the level
+    # below (a state under a country) and at everything outside geography that
+    # points at the row.
+
+    def update_country(
+        self, country_id: UUID, payload: GeoCountryWrite, *, actor_id: UUID
+    ) -> GeoCountryResponse:
+        """Rename a country, or retire it by clearing its active flag."""
+        row = self._geo_row(GeoCountry, country_id, "Country")
+        self._assert_geo_code_free(GeoCountry, payload.code, current_id=row.id)
+        row.code = payload.code
+        row.name = payload.name
+        row.iso2 = payload.iso2
+        row.iso3 = payload.iso3
+        row.phone_code = payload.phone_code
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("country", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return self._country_response(row)
+
+    def delete_country(self, country_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a country nothing still refers to."""
+        row = self._geo_row(GeoCountry, country_id, "Country")
+        self._assert_geo_unused(
+            "country",
+            [
+                (GeoState, GeoState.country_id),
+                (AddressMaster, AddressMaster.country_id),
+                (Branch, Branch.country_id),
+                (Warehouse, Warehouse.country_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("country", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_state(
+        self, state_id: UUID, payload: GeoStateWrite, *, actor_id: UUID
+    ) -> GeoStateResponse:
+        """Replace one state's editable fields."""
+        row = self._geo_row(GeoState, state_id, "State")
+        self._geo_row(GeoCountry, payload.country_id, "Country")
+        self._assert_geo_code_free(GeoState, payload.code, current_id=row.id)
+        row.country_id = payload.country_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("state", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoStateResponse(
+            id=row.id,
+            country_id=row.country_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_state(self, state_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a state nothing still refers to."""
+        row = self._geo_row(GeoState, state_id, "State")
+        self._assert_geo_unused(
+            "state",
+            [
+                (GeoDistrict, GeoDistrict.state_id),
+                (AddressMaster, AddressMaster.state_id),
+                (Branch, Branch.state_id),
+                (Warehouse, Warehouse.state_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("state", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_district(
+        self, district_id: UUID, payload: GeoDistrictWrite, *, actor_id: UUID
+    ) -> GeoDistrictResponse:
+        """Replace one district's editable fields."""
+        row = self._geo_row(GeoDistrict, district_id, "District")
+        self._geo_row(GeoState, payload.state_id, "State")
+        self._assert_geo_code_free(GeoDistrict, payload.code, current_id=row.id)
+        row.state_id = payload.state_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("district", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoDistrictResponse(
+            id=row.id,
+            state_id=row.state_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_district(self, district_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a district nothing still refers to."""
+        row = self._geo_row(GeoDistrict, district_id, "District")
+        self._assert_geo_unused(
+            "district",
+            [
+                (GeoCity, GeoCity.district_id),
+                (AddressMaster, AddressMaster.district_id),
+                (Branch, Branch.district_id),
+                (Warehouse, Warehouse.district_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("district", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_city(
+        self, city_id: UUID, payload: GeoCityWrite, *, actor_id: UUID
+    ) -> GeoCityResponse:
+        """Replace one city's editable fields."""
+        row = self._geo_row(GeoCity, city_id, "City")
+        self._geo_row(GeoDistrict, payload.district_id, "District")
+        self._assert_geo_code_free(GeoCity, payload.code, current_id=row.id)
+        row.district_id = payload.district_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("city", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoCityResponse(
+            id=row.id,
+            district_id=row.district_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_city(self, city_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a city nothing still refers to."""
+        row = self._geo_row(GeoCity, city_id, "City")
+        self._assert_geo_unused(
+            "city",
+            [
+                (GeoPostalCode, GeoPostalCode.city_id),
+                (AddressMaster, AddressMaster.city_id),
+                (Branch, Branch.city_id),
+                (Warehouse, Warehouse.city_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.city_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("city", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_postal_code(
+        self, postal_code_id: UUID, payload: GeoPostalCodeWrite, *, actor_id: UUID
+    ) -> GeoPostalCodeResponse:
+        """Replace one postal code's editable fields."""
+        row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
+        self._geo_row(GeoCity, payload.city_id, "City")
+        row.city_id = payload.city_id
+        row.postal_code = payload.postal_code
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("postal_code", "updated", row.id, actor_id, row.postal_code)
+        self._commit()
+        return GeoPostalCodeResponse(
+            id=row.id,
+            city_id=row.city_id,
+            postal_code=row.postal_code,
+            is_active=row.is_active,
+        )
+
+    def delete_postal_code(self, postal_code_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a postal code nothing still refers to."""
+        row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
+        self._assert_geo_unused(
+            "postal code",
+            [
+                (GeoLocality, GeoLocality.postal_code_id),
+                (AddressMaster, AddressMaster.postal_code_id),
+                (Branch, Branch.postal_code_id),
+                (Warehouse, Warehouse.postal_code_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.postal_code_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("postal_code", "deleted", row.id, actor_id, row.postal_code)
+        self._commit()
+
+    def update_locality(
+        self, locality_id: UUID, payload: GeoLocalityWrite, *, actor_id: UUID
+    ) -> GeoLocalityResponse:
+        """Replace one locality's editable fields."""
+        row = self._geo_row(GeoLocality, locality_id, "Locality")
+        self._geo_row(GeoPostalCode, payload.postal_code_id, "Postal code")
+        row.postal_code_id = payload.postal_code_id
+        row.name = payload.name.strip()
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("locality", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoLocalityResponse(
+            id=row.id,
+            postal_code_id=row.postal_code_id,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_locality(self, locality_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a locality nothing still refers to."""
+        row = self._geo_row(GeoLocality, locality_id, "Locality")
+        self._assert_geo_unused(
+            "locality",
+            [
+                (AddressMaster, AddressMaster.locality_id),
+                (Branch, Branch.locality_id),
+                (Warehouse, Warehouse.locality_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.locality_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("locality", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    @staticmethod
+    def _country_response(row: GeoCountry) -> GeoCountryResponse:
+        return GeoCountryResponse(
+            id=row.id,
+            code=row.code,
+            name=row.name,
+            iso2=row.iso2,
+            iso3=row.iso3,
+            phone_code=row.phone_code,
+            is_active=row.is_active,
+        )
+
+    def _geo_row(self, model: type[_GeoRowT], row_id: UUID, label: str) -> _GeoRowT:
+        row = self._session.scalar(
+            select(model).where(model.id == row_id, model.is_deleted.is_(False))
+        )
+        if row is None:
+            raise ResourceNotFoundError(f"{label} not found.")
+        return row
+
+    def _assert_geo_code_free(
+        self, model: type[BaseEntity], code: str, *, current_id: UUID
+    ) -> None:
+        """Keep a geography code unique among the live rows of its own kind."""
+        # `code` is not on `BaseEntity`, so it is read off the mapper rather
+        # than the class: the four levels that carry one all spell it the same,
+        # and postal codes -- which do not -- never reach here.
+        code_column = model.__table__.c["code"]
+        existing = self._session.scalar(
+            select(model.id).where(
+                code_column == code,
+                model.id != current_id,
+                model.is_deleted.is_(False),
+            )
+        )
+        if existing is not None:
+            raise ConflictError(f"Another record already uses the code {code}.")
+
+    def _assert_geo_unused(
+        self,
+        label: str,
+        references: list[tuple[type[BaseEntity], InstrumentedAttribute[UUID | None]]],
+        row_id: UUID,
+    ) -> None:
+        """Refuse to retire a geography row anything still points at."""
+        for model, column in references:
+            count = self._session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(column == row_id, model.is_deleted.is_(False))
+            )
+            if int(count or 0) > 0:
+                raise ConflictError(
+                    f"{count} record(s) still use this {label}. "
+                    "Reassign them before deleting it."
+                )
+
+    def _retire_geo(self, row: BaseEntity, actor_id: UUID) -> None:
+        row.is_deleted = True
+        row.deleted_at = utc_now()
+        row.deleted_by = actor_id
+        row.updated_by = actor_id
+
+    def _audit_geo(
+        self, kind: str, action: str, row_id: UUID, actor_id: UUID, name: str
+    ) -> None:
+        """Record a geography change.
+
+        Geography is reference data every firm reads, so a change to it is
+        exactly the sort of thing somebody has to be able to trace later.
+        Creating one of these wrote no audit row at all.
+        """
+        record_audit(
+            self._session,
+            action=f"sales_territory.geo.{kind}.{action}",
+            entity_type=f"geo_{kind}",
+            entity_id=row_id,
+            actor_id=actor_id,
+            after_data={"name": name},
         )
 
     def upsert_addresses(

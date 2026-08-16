@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
 import '../../models/finance.dart';
@@ -2106,6 +2107,58 @@ class ApiClient {
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
   }
+
+  /// The shared geography masters: country > state > district > city >
+  /// postal code > locality.
+  ///
+  /// Reference data rather than firm data — every firm reads the same rows —
+  /// but it is served from the firm store, so these still carry `X-Firm-ID`
+  /// like every other call here. Writes are platform-admin only.
+  Future<List<GeoPlaceRecord>> geoPlaces(
+    GeoLevel level, {
+    String parentId = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/geo/${level.path}',
+      query: {
+        if (parentId.isNotEmpty && level.parentQuery != null)
+          level.parentQuery!: parentId,
+      },
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <GeoPlaceRecord>[];
+    return <GeoPlaceRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          GeoPlaceRecord.fromJson(level, Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  Future<GeoPlaceRecord> createGeoPlace(GeoLevel level, Json body) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/geo/${level.path}',
+      body: body,
+    );
+    return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
+  }
+
+  Future<GeoPlaceRecord> updateGeoPlace(
+    GeoLevel level,
+    String id,
+    Json body,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/sales-territories/geo/${level.path}/$id',
+      body: body,
+    );
+    return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
+  }
+
+  Future<void> deleteGeoPlace(GeoLevel level, String id) =>
+      request('DELETE', '/api/v1/sales-territories/geo/${level.path}/$id');
 
   Future<int> bulkTerritoryStatus(Json body) async {
     final Json response = await request(

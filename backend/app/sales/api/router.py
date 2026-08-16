@@ -19,7 +19,11 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    RequiredFirmScope,
+    ResolvedFirmScope,
+    firm_permission_scope,
+)
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -127,7 +131,7 @@ def get_hierarchy(
 def update_hierarchy(
     payload: HierarchyUpdateRequest,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[HierarchyResponse]:
     data = _service(db).update_hierarchy(
@@ -191,6 +195,7 @@ def delete_route_type(
 
 @router.get("/geo/countries", response_model=ApiResponse[list[GeoCountryResponse]])
 def list_geo_countries(
+    scope: TerritoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoCountryResponse]]:
     return ApiResponse(data=_service(db).list_countries())
@@ -204,7 +209,7 @@ def list_geo_countries(
 def create_geo_country(
     payload: GeoCountryWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCountryResponse]:
     return ApiResponse(
@@ -214,6 +219,7 @@ def create_geo_country(
 
 @router.get("/geo/states", response_model=ApiResponse[list[GeoStateResponse]])
 def list_geo_states(
+    scope: TerritoryViewScope,
     country_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoStateResponse]]:
@@ -228,7 +234,7 @@ def list_geo_states(
 def create_geo_state(
     payload: GeoStateWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoStateResponse]:
     return ApiResponse(data=_service(db).create_state(payload, actor_id=scope.actor_id))
@@ -236,6 +242,7 @@ def create_geo_state(
 
 @router.get("/geo/districts", response_model=ApiResponse[list[GeoDistrictResponse]])
 def list_geo_districts(
+    scope: TerritoryViewScope,
     state_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoDistrictResponse]]:
@@ -250,7 +257,7 @@ def list_geo_districts(
 def create_geo_district(
     payload: GeoDistrictWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoDistrictResponse]:
     return ApiResponse(
@@ -260,6 +267,7 @@ def create_geo_district(
 
 @router.get("/geo/cities", response_model=ApiResponse[list[GeoCityResponse]])
 def list_geo_cities(
+    scope: TerritoryViewScope,
     district_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoCityResponse]]:
@@ -274,7 +282,7 @@ def list_geo_cities(
 def create_geo_city(
     payload: GeoCityWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCityResponse]:
     return ApiResponse(data=_service(db).create_city(payload, actor_id=scope.actor_id))
@@ -284,6 +292,7 @@ def create_geo_city(
     "/geo/postal-codes", response_model=ApiResponse[list[GeoPostalCodeResponse]]
 )
 def list_geo_postal_codes(
+    scope: TerritoryViewScope,
     city_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoPostalCodeResponse]]:
@@ -298,7 +307,7 @@ def list_geo_postal_codes(
 def create_geo_postal_code(
     payload: GeoPostalCodeWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoPostalCodeResponse]:
     return ApiResponse(
@@ -308,6 +317,7 @@ def create_geo_postal_code(
 
 @router.get("/geo/localities", response_model=ApiResponse[list[GeoLocalityResponse]])
 def list_geo_localities(
+    scope: TerritoryViewScope,
     postal_code_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoLocalityResponse]]:
@@ -322,7 +332,7 @@ def list_geo_localities(
 def create_geo_locality(
     payload: GeoLocalityWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoLocalityResponse]:
     return ApiResponse(
@@ -367,6 +377,184 @@ def upsert_addresses(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=data)
+
+
+@router.put(
+    "/geo/countries/{country_id}",
+    response_model=ApiResponse[GeoCountryResponse],
+)
+def update_geo_country(
+    country_id: UUID,
+    payload: GeoCountryWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoCountryResponse]:
+    """Replace one country's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_country(country_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/countries/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_country(
+    country_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one country nothing still refers to."""
+    _service(db).delete_country(country_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/states/{state_id}",
+    response_model=ApiResponse[GeoStateResponse],
+)
+def update_geo_state(
+    state_id: UUID,
+    payload: GeoStateWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoStateResponse]:
+    """Replace one state's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_state(state_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/states/{state_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_state(
+    state_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one state nothing still refers to."""
+    _service(db).delete_state(state_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/districts/{district_id}",
+    response_model=ApiResponse[GeoDistrictResponse],
+)
+def update_geo_district(
+    district_id: UUID,
+    payload: GeoDistrictWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoDistrictResponse]:
+    """Replace one district's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_district(district_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/districts/{district_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_district(
+    district_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one district nothing still refers to."""
+    _service(db).delete_district(district_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/cities/{city_id}",
+    response_model=ApiResponse[GeoCityResponse],
+)
+def update_geo_city(
+    city_id: UUID,
+    payload: GeoCityWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoCityResponse]:
+    """Replace one city's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_city(city_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/cities/{city_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_city(
+    city_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one city nothing still refers to."""
+    _service(db).delete_city(city_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/postal-codes/{postal_code_id}",
+    response_model=ApiResponse[GeoPostalCodeResponse],
+)
+def update_geo_postal_code(
+    postal_code_id: UUID,
+    payload: GeoPostalCodeWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoPostalCodeResponse]:
+    """Replace one postal code's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_postal_code(
+            postal_code_id, payload, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete(
+    "/geo/postal-codes/{postal_code_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_geo_postal_code(
+    postal_code_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one postal code nothing still refers to."""
+    _service(db).delete_postal_code(postal_code_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/localities/{locality_id}",
+    response_model=ApiResponse[GeoLocalityResponse],
+)
+def update_geo_locality(
+    locality_id: UUID,
+    payload: GeoLocalityWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoLocalityResponse]:
+    """Replace one locality's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_locality(locality_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/localities/{locality_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_locality(
+    locality_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one locality nothing still refers to."""
+    _service(db).delete_locality(locality_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("", response_model=PaginatedResponse[TerritoryResponse])

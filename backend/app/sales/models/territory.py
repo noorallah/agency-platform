@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -301,8 +302,25 @@ class GeoCountry(BaseEntity):
 
     __tablename__ = "geo_countries"
     __table_args__ = (
-        UniqueConstraint("code", name="UQ_geo_countries_code"),
-        UniqueConstraint("name", name="UQ_geo_countries_name"),
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_countries_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_geo_countries_name_active",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     code: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -320,8 +338,27 @@ class GeoState(BaseEntity):
 
     __tablename__ = "geo_states"
     __table_args__ = (
-        UniqueConstraint("country_id", "code", name="UQ_geo_states_country_code"),
-        UniqueConstraint("country_id", "name", name="UQ_geo_states_country_name"),
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_states_country_code_active",
+            "country_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_geo_states_country_name_active",
+            "country_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_geo_states_country_active", "country_id", "is_active"),
     )
 
@@ -340,8 +377,27 @@ class GeoDistrict(BaseEntity):
 
     __tablename__ = "geo_districts"
     __table_args__ = (
-        UniqueConstraint("state_id", "code", name="UQ_geo_districts_state_code"),
-        UniqueConstraint("state_id", "name", name="UQ_geo_districts_state_name"),
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_districts_state_code_active",
+            "state_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_geo_districts_state_name_active",
+            "state_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_geo_districts_state_active", "state_id", "is_active"),
     )
 
@@ -360,8 +416,27 @@ class GeoCity(BaseEntity):
 
     __tablename__ = "geo_cities"
     __table_args__ = (
-        UniqueConstraint("district_id", "code", name="UQ_geo_cities_district_code"),
-        UniqueConstraint("district_id", "name", name="UQ_geo_cities_district_name"),
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_cities_district_code_active",
+            "district_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_geo_cities_district_name_active",
+            "district_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_geo_cities_district_active", "district_id", "is_active"),
     )
 
@@ -380,8 +455,18 @@ class GeoPostalCode(BaseEntity):
 
     __tablename__ = "geo_postal_codes"
     __table_args__ = (
-        UniqueConstraint(
-            "city_id", "postal_code", name="UQ_geo_postal_codes_city_postal_code"
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_postal_codes_city_code_active",
+            "city_id",
+            "postal_code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
         ),
         Index("IX_geo_postal_codes_city_active", "city_id", "is_active"),
     )
@@ -400,8 +485,18 @@ class GeoLocality(BaseEntity):
 
     __tablename__ = "geo_localities"
     __table_args__ = (
-        UniqueConstraint(
-            "postal_code_id", "name", name="UQ_geo_localities_postal_code_name"
+        # Scoped to live rows: these are soft-deleted, so a table-wide key
+        # would let a retired place hold its code and name forever and
+        # refuse the re-creation with nothing on screen to explain it.
+        # Mirrors UQ_firms_code_active; MySQL ignores the predicate, so
+        # SalesTerritoryService stays the authoritative check.
+        Index(
+            "UQ_geo_localities_postal_name_active",
+            "postal_code_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
         ),
         Index("IX_geo_localities_postal_active", "postal_code_id", "is_active"),
     )
