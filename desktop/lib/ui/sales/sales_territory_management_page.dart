@@ -10,6 +10,7 @@ import '../../models/sales_territory.dart';
 import 'assignment_picker_dialog.dart';
 import 'bulk_territory_actions_dialog.dart';
 import 'call_order_dialog.dart';
+import 'territory_detail_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
@@ -541,6 +542,26 @@ class _SalesTerritoryManagementPageState
     );
   }
 
+  /// Show everything about one territory, full screen.
+  ///
+  /// The right-hand card had 300 pixels for a summary, the tree controls and
+  /// the tree itself. This is where the summary went, and where a round's
+  /// outlets are laid out in the order they are called.
+  Future<void> _openDetail(SalesTerritory territory) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => TerritoryDetailDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        territory: territory,
+      ),
+    );
+    if (saved != true || !mounted) return;
+    // Customer and salesman counts live on the grid row, so they go stale the
+    // moment the dialog saves.
+    await _loadAll();
+  }
+
   Future<void> _export() async {
     if (!_canExport) return;
     try {
@@ -642,6 +663,7 @@ class _SalesTerritoryManagementPageState
     final toolbar = WorkspaceToolbar(
       actions: const [
         ToolbarAction.newItem,
+        ToolbarAction.view,
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
@@ -658,6 +680,7 @@ class _SalesTerritoryManagementPageState
           !_loading &&
           switch (action) {
             ToolbarAction.newItem => _canCreate,
+            ToolbarAction.view => _selected != null,
             ToolbarAction.edit => _selected != null,
             ToolbarAction.delete => _selected != null,
             ToolbarAction.refresh => true,
@@ -668,6 +691,9 @@ class _SalesTerritoryManagementPageState
         switch (action) {
           case ToolbarAction.newItem:
             _openEditor();
+            break;
+          case ToolbarAction.view:
+            if (_selected != null) _openDetail(_selected!);
             break;
           case ToolbarAction.edit:
             if (_selected != null) _openEditor(current: _selected);
@@ -688,7 +714,6 @@ class _SalesTerritoryManagementPageState
           case ToolbarAction.export:
             _export();
             break;
-          case ToolbarAction.view:
           case ToolbarAction.import:
           case ToolbarAction.print:
           case ToolbarAction.settings:
@@ -800,7 +825,7 @@ class _SalesTerritoryManagementPageState
                           ? (ids) => setState(() => _bulkIds = ids)
                           : null,
                       onSelect: (item) => setState(() => _selected = item),
-                      onOpen: (item) => _openEditor(current: item),
+                      onOpen: _openDetail,
                       onPageChanged: (offset) =>
                           _loadAll(requestedPage: offset ~/ _rowsPerPage + 1),
                     ),
@@ -851,21 +876,18 @@ class _SalesTerritoryManagementPageState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _selected == null ? 'Territory tree' : _selected!.name,
+                    'Territory tree',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
-                  if (_selected != null) ...[
-                    Text('Code: ${_selected!.code}'),
-                    Text('Level: ${_selected!.hierarchyLevelName}'),
-                    Text(
-                        'Status: ${_selected!.isDeleted ? 'DELETED' : _selected!.status}'),
-                    Text('Customers: ${_selected!.customerCount}'),
-                    Text('Salesmen: ${_selected!.salesmanCount}'),
-                    Text(
-                      'Coverage: A:${_selected!.activeCustomerCount} / I:${_selected!.inactiveCustomerCount} / N:${_selected!.newCustomerCount} / P:${_selected!.potentialCustomerCount}',
+                  // The selected node's summary moved to the detail dialog,
+                  // which has room for it. This panel is the tree.
+                  if (_selected != null)
+                    OutlinedButton.icon(
+                      onPressed: () => _openDetail(_selected!),
+                      icon: const Icon(Icons.open_in_full),
+                      label: Text('Open ${_selected!.code}'),
                     ),
-                  ],
                   const SizedBox(height: 8),
                   Text(
                     'Dashboard • Territories ${_dashboard['total_territories'] ?? 0} • Routes ${_dashboard['total_routes'] ?? 0} • Customers w/o route ${_dashboard['customers_without_route'] ?? 0}',

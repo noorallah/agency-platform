@@ -27,6 +27,7 @@ import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/sales_territory_management_page.dart';
+import 'package:agency_desktop/ui/sales/territory_detail_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -588,5 +589,32 @@ void main() {
     final Json profile = api.updated!['route_profile'] as Json;
     expect(profile['effective_from'], '2026-01-01');
     expect(profile['effective_to'], '2026-06-30');
+  });
+
+  testWidgets('the View action opens the territory full screen', (tester) async {
+    // Selecting a row used to fill a 300px card on the right. The summary
+    // moved into a dialog with room for it, plus the customers and the round.
+    final api = _TerritoryApi(
+      territory: _territoryJson(
+        id: 't-1',
+        code: 'RT01',
+        name: 'North Beat',
+        routeProfile: <String, dynamic>{
+          'route_type_name': 'Sales Route',
+          'visit_frequency': 'WEEKLY',
+          'working_days': <int>[1],
+        },
+      ),
+    );
+    await _pump(tester, api);
+    await _selectRow(tester, 'RT01');
+
+    // Two: the toolbar button and the grid's row-action column, which offers
+    // View whenever a row can be opened. The toolbar comes first in the tree.
+    await tester.tap(find.byTooltip('View').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TerritoryDetailDialog), findsOneWidget);
+    expect(find.text('RT01 — North Beat'), findsOneWidget);
   });
 }
