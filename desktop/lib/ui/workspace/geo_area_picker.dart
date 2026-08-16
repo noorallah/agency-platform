@@ -3,6 +3,16 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../models/geography.dart';
 
+/// Reads one rung of the geography ladder.
+///
+/// A function rather than the API client itself, so a form can take this
+/// picker without taking a dependency on the whole client -- the shape the
+/// customer dialog already uses for the rounds that call a shop.
+typedef GeoPlaceLoader = Future<List<GeoPlaceRecord>> Function(
+  GeoLevel level, {
+  String parentId,
+});
+
 /// Where something is, chosen from the shared geography masters.
 ///
 /// Four things carry an address on this platform — customers, vendors,
@@ -17,19 +27,29 @@ import '../../models/geography.dart';
 class GeoAreaPicker extends StatefulWidget {
   const GeoAreaPicker({
     super.key,
-    required this.api,
+    required this.loadPlaces,
     required this.value,
     required this.onChanged,
+    this.onNames,
     this.levels = GeoLevel.values,
     this.enabled = true,
   });
 
-  final ApiClient api;
+  final GeoPlaceLoader loadPlaces;
 
   /// The ids currently chosen, keyed by level. Absent means unset.
   final Map<GeoLevel, String> value;
 
   final ValueChanged<Map<GeoLevel, String>> onChanged;
+
+  /// The display text of whatever is now chosen, reported alongside the ids.
+  ///
+  /// Customers keep a free-text city, state and postal code beside these keys
+  /// — the columns are NOT NULL and every report reads them — so the form has
+  /// to show the user the text its choice will save. Only rungs whose list is
+  /// loaded appear here; a stored id the picker could not name is left out
+  /// rather than guessed at.
+  final ValueChanged<Map<GeoLevel, String>>? onNames;
 
   /// Which rungs to show. A route profile only carries city, postal code and
   /// locality; an address carries the whole ladder.
@@ -57,16 +77,25 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
   /// Best effort throughout: geography is reference data a platform
   /// administrator maintains, and a firm whose Places are empty should get an
   /// empty dropdown and a saveable form, not an error.
-  Future<void> _loadFrom(GeoLevel level) async {
+  /// [selection] is the choice to read parents from. It is passed explicitly
+  /// by `_pick`, because the parent owns `value` and has not rebuilt this
+  /// widget yet in the frame where the choice was made -- reading
+  /// `widget.value` there sees the *previous* selection, finds the parent
+  /// still blank, and stops. Choosing a country then loaded no states at all.
+  Future<void> _loadFrom(
+    GeoLevel level, {
+    Map<GeoLevel, String>? selection,
+  }) async {
+    final Map<GeoLevel, String> chosen = selection ?? widget.value;
     setState(() => _loading = true);
     GeoLevel? current = level;
     while (current != null && widget.levels.contains(current)) {
       final GeoLevel rung = current;
-      final String parentId = _parentIdFor(rung);
+      final String parentId = _parentIdFor(rung, chosen);
       if (rung.parentQuery != null && parentId.isEmpty) break;
       try {
         final List<GeoPlaceRecord> rows =
-            await widget.api.geoPlaces(rung, parentId: parentId);
+            await widget.loadPlaces(rung, parentId: parentId);
         if (!mounted) return;
         setState(() => _options[rung] = rows);
       } on ApiException {
@@ -74,15 +103,16 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
         setState(() => _options[rung] = const <GeoPlaceRecord>[]);
         break;
       }
-      if (widget.value[rung]?.isEmpty ?? true) break;
+      if (chosen[rung]?.isEmpty ?? true) break;
       current = rung.child;
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  String _parentIdFor(GeoLevel level) {
+  String _parentIdFor(GeoLevel level, [Map<GeoLevel, String>? selection]) {
     final GeoLevel? parent = level.parent;
-    return parent == null ? '' : (widget.value[parent] ?? '');
+    final Map<GeoLevel, String> chosen = selection ?? widget.value;
+    return parent == null ? '' : (chosen[parent] ?? '');
   }
 
   Future<void> _pick(GeoLevel level, String? id) async {
@@ -96,16 +126,33 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
       _options.remove(below);
     }
     widget.onChanged(next);
+    widget.onNames?.call(_namesFor(next));
     if ((id ?? '').isEmpty) {
       setState(() {});
       return;
     }
     final GeoLevel? child = level.child;
     if (child != null && widget.levels.contains(child)) {
-      await _loadFrom(child);
+      await _loadFrom(child, selection: next);
     } else {
       setState(() {});
     }
+  }
+
+  /// The display text of each chosen rung whose list this picker has loaded.
+  Map<GeoLevel, String> _namesFor(Map<GeoLevel, String> selection) {
+    final Map<GeoLevel, String> names = <GeoLevel, String>{};
+    for (final MapEntry<GeoLevel, String> entry in selection.entries) {
+      if (entry.value.isEmpty) continue;
+      for (final GeoPlaceRecord row
+          in _options[entry.key] ?? const <GeoPlaceRecord>[]) {
+        if (row.id != entry.value) continue;
+        names[entry.key] =
+            entry.key == GeoLevel.postalCode ? row.code : row.name;
+        break;
+      }
+    }
+    return names;
   }
 
   /// Options for one rung, keeping any stored id that is not in the list.

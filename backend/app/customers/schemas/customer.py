@@ -86,6 +86,16 @@ class CustomerAddressInput(CustomerSchema):
     state: str = Field(min_length=1, max_length=100)
     country: str = Field(min_length=2, max_length=2)
     postal_code: str = Field(min_length=1, max_length=24)
+    # Where the address is, in the shared geography masters. Optional: a firm
+    # with no masters must still be able to record an address, and an older
+    # client sends none of these. Where they are given the service derives the
+    # text above from them, so the two cannot drift apart.
+    country_id: UUID | None = None
+    state_id: UUID | None = None
+    district_id: UUID | None = None
+    city_id: UUID | None = None
+    postal_code_id: UUID | None = None
+    locality_id: UUID | None = None
     is_default_billing: bool = False
     is_default_shipping: bool = False
 

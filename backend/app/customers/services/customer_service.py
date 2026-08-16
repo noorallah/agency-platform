@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import select
@@ -32,6 +33,19 @@ from app.customers.schemas.customer import CustomerListFilters
 from app.finance.models import JournalEntry
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
+from app.sales.models.territory import (
+    GeoCity,
+    GeoCountry,
+    GeoDistrict,
+    GeoLocality,
+    GeoPostalCode,
+    GeoState,
+)
+
+#: Any of the six geography masters. They share `BaseEntity` and a `name` (a
+#: postal code calls its own column `postal_code`), which is all this module
+#: reads off them.
+GeoRow = GeoCountry | GeoState | GeoDistrict | GeoCity | GeoPostalCode | GeoLocality
 
 
 class CustomerService:
@@ -478,10 +492,66 @@ class CustomerService:
         values["display_name"] = data.display_name or data.name
         return values
 
-    @staticmethod
-    def _new_address(data: CustomerAddressInput, actor_id: UUID) -> CustomerAddress:
+    #: Which geography level fills which free-text column, and what to read
+    #: off the master row. The text stays NOT NULL and every report reads it,
+    #: so it is derived rather than left to disagree with the key beside it.
+    _PLACE_TEXT: ClassVar[
+        tuple[tuple[str, type[GeoRow], str, tuple[str, ...], str], ...]
+    ] = (
+        # A country's text column is two characters, so it takes `iso2` and
+        # falls back to `code` for a row that never had one.
+        ("country_id", GeoCountry, "country", ("iso2", "code"), ""),
+        ("state_id", GeoState, "state", ("name",), "country_id"),
+        ("district_id", GeoDistrict, "district", ("name",), "state_id"),
+        ("city_id", GeoCity, "city", ("name",), "district_id"),
+        ("postal_code_id", GeoPostalCode, "postal_code", ("postal_code",), "city_id"),
+        ("locality_id", GeoLocality, "area", ("name",), "postal_code_id"),
+    )
+
+    def _apply_place(
+        self, values: dict[str, object], data: CustomerAddressInput
+    ) -> None:
+        """Fill the free-text columns from whichever geography keys were sent.
+
+        Blank keys change nothing, so a firm with no masters -- and every
+        client written before these columns existed -- keeps working on the
+        text alone. Where a key is given it wins: the alternative is a row
+        whose ``city`` says one thing and whose ``city_id`` says another, and
+        nothing to say which a report should believe.
+        """
+        chosen: dict[str, UUID] = {}
+        for field, model, text_field, attributes, parent_field in self._PLACE_TEXT:
+            place_id: UUID | None = getattr(data, field)
+            if place_id is None:
+                continue
+            row = self._session.get(model, place_id)
+            if row is None or row.is_deleted:
+                raise ValidationError(
+                    f"That {text_field.replace('_', ' ')} is unknown."
+                )
+            parent_id = chosen.get(parent_field) if parent_field else None
+            if parent_id is not None and getattr(row, parent_field) != parent_id:
+                raise ValidationError(
+                    "That address names places that do not belong together."
+                )
+            text: str | None = None
+            for attribute in attributes:
+                text = getattr(row, attribute, None)
+                if text:
+                    break
+            if not text:
+                raise ValidationError(
+                    f"That {text_field.replace('_', ' ')} has no name."
+                )
+            chosen[field] = place_id
+            values[text_field] = text[:100]
+
+    def _new_address(
+        self, data: CustomerAddressInput, actor_id: UUID
+    ) -> CustomerAddress:
         values = data.model_dump(exclude={"id"}, mode="python")
         values["address_type"] = data.address_type.value
+        self._apply_place(values, data)
         return CustomerAddress(**values, created_by=actor_id, updated_by=actor_id)
 
     @staticmethod
@@ -510,6 +580,7 @@ class CustomerService:
             else:
                 values = item.model_dump(exclude={"id"}, mode="python")
                 values["address_type"] = item.address_type.value
+                self._apply_place(values, item)
                 for field, value in values.items():
                     setattr(address, field, value)
                 address.updated_by = actor_id

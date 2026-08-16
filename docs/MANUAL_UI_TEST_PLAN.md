@@ -436,6 +436,32 @@ records" until Refresh. Worth re-running after any change to those pages.
 | 8.62 | A selection does not follow you | Purchases → tick some rows on **Draft Orders**, then switch to **Open Orders** | Nothing is selected, and the bulk-action bar is gone. A selection that survived could put a bulk close or cancel through against orders that are no longer on screen |
 | 8.63 | The two type lists are not each other | Masters → Branches → **Warehouse Types**, then **Branch Types** | Each shows its own list. They share one field internally, so this pair showed the wrong list rather than an empty one |
 
+### 8.55–8.59 A customer address names a real place
+
+Built on 2026-08-16. `customer_addresses` held city, area, district, state and
+postal code as plain strings with no link to the geography masters, so "Parrys"
+and "Parry's Corner" never grouped and the Route Builder's pin-code search was a
+string match. Vendors, branches and warehouses had the keys and no form;
+customers had the text and no keys, which is why they needed a migration
+(`20260816_0094`).
+
+**The keys are the truth and the free text is derived from them.** That is what
+8.56 checks, and it is the case most likely to look like a bug if you have not
+read this: choosing a place *overwrites* what you typed.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.55 | The ladder is on the address | Customers → edit → **Address** | Below the existing fields, a **Place** section: Country → State → District → City → Pin code → Locality, each rung loading only after its parent is chosen |
+| 8.56 | **Choosing a place rewrites the text** | Type nonsense in City, then choose a real City from the ladder | The City field changes to the master's name. The server derives these columns from the keys, so a form still showing your typing would be showing something it is not about to save |
+| 8.57 | The place survives a save | Choose down to a pin code, save, reopen | Every rung is still chosen, and the text matches it |
+| 8.58 | An address with no place still saves | Leave the whole ladder on **None** and save | Accepted, with the text exactly as typed. Every client written before these columns did this, and a firm with no Places must still be able to record an address |
+| 8.59 | Existing addresses were matched, not invented | Open a seeded customer in `WHOLE01`, then one in `FOOD01` | WHOLE01's are filled down to the pin code; FOOD01's name only a country. That is correct — FOOD01's only state master is "Andera Pradesh" while its addresses are in Telangana, and the migration fills nothing it is not sure of |
+
+**(HTTP)** The refusal that has no screen: send an address whose rungs do not
+belong together — a district id under a different state — and the save is
+refused naming the level. The picker cannot produce that combination, but
+another client can.
+
 ### 8.50–8.54 Editing a customer who has traded
 
 **Run these on a seeded firm, not a fresh one.** They are about a customer with
