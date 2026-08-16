@@ -87,6 +87,9 @@ class _BuilderApi extends ApiClient {
   final bool failRoundLoad;
 
   final List<Json> queries = <Json>[];
+
+  /// Page sizes asked for. The server refuses anything above 100.
+  final List<int> requestedPageSizes = <int>[];
   List<TerritoryCustomerAssignmentRecord>? saved;
   String? savedTerritoryId;
 
@@ -117,7 +120,8 @@ class _BuilderApi extends ApiClient {
     String city = '',
     bool unassignedOnly = false,
   }) async {
-    if (failRoundLoad && pageSize == 500) {
+    requestedPageSizes.add(pageSize);
+    if (failRoundLoad) {
       throw const ApiException('The round could not be read.');
     }
     queries.add(<String, dynamic>{
@@ -304,5 +308,15 @@ void main() {
     );
     expect(save.onPressed, isNull);
     expect(api.saved, isNull);
+  });
+
+  testWidgets('the round is read in pages the server will serve',
+      (tester) async {
+    final api = _BuilderApi(outlets: <Json>[_outletJson(id: 'c1', code: 'C1')]);
+    await _pump(tester, api);
+    await _pickRoute(tester);
+
+    expect(api.requestedPageSizes, isNotEmpty);
+    expect(api.requestedPageSizes.every((size) => size <= 100), isTrue);
   });
 }

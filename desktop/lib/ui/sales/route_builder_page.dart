@@ -121,14 +121,20 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
       _loading = true;
     });
     try {
-      final PagedResult<AssignableCustomerRecord> page =
-          await widget.api.assignableCustomers(
-        page: 1,
-        pageSize: 500,
-        territoryId: id,
+      // Paged, not one oversized request: the server refuses anything above
+      // `maxApiPageSize`, so asking for 500 failed every time and left the
+      // panel unloaded -- which the save guard then correctly refused to
+      // write over.
+      final List<AssignableCustomerRecord> rows =
+          await fetchAllPages<AssignableCustomerRecord>(
+        (page) => widget.api.assignableCustomers(
+          page: page,
+          pageSize: maxApiPageSize,
+          territoryId: id,
+        ),
       );
       if (!mounted) return;
-      final List<AssignableCustomerRecord> current = page.items
+      final List<AssignableCustomerRecord> current = rows
           .where((row) => row.onThisRoute)
           .toList()
         // The server orders unplaced customers last; within the placed ones the

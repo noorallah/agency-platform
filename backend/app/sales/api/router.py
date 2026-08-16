@@ -24,6 +24,7 @@ from app.common.scope import (
     ResolvedFirmScope,
     firm_permission_scope,
 )
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -563,7 +564,7 @@ def delete_geo_locality(
 def list_territories(
     scope: TerritoryViewScope,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "status", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -860,7 +861,7 @@ def bulk_move(
 def list_beat_plans(
     scope: TerritoryViewScope,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
@@ -980,7 +981,7 @@ def call_lists(
 def assignable_customers(
     scope: TerritoryViewScope,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     territory_id: UUID | None = None,
     search: str | None = None,
     postal_code: str | None = None,

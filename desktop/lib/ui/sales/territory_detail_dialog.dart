@@ -88,19 +88,24 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
       _error = null;
     });
     try {
-      final PagedResult<AssignableCustomerRecord> page =
-          await widget.api.assignableCustomers(
-        page: 1,
-        pageSize: 500,
-        territoryId: widget.territory.id,
+      // Paged, not one oversized request: the server refuses anything above
+      // `maxApiPageSize` and this asked for 500, so the tab failed every time
+      // it was opened against a real backend.
+      final List<AssignableCustomerRecord> rows =
+          await fetchAllPages<AssignableCustomerRecord>(
+        (page) => widget.api.assignableCustomers(
+          page: page,
+          pageSize: maxApiPageSize,
+          territoryId: widget.territory.id,
+        ),
       );
       if (!mounted) return;
       final List<AssignableCustomerRecord> current =
-          page.items.where((row) => row.onThisRoute).toList()
+          rows.where((row) => row.onThisRoute).toList()
             ..sort((a, b) => (a.visitSequence ?? 1 << 30)
                 .compareTo(b.visitSequence ?? 1 << 30));
       setState(() {
-        _outlets = page.items;
+        _outlets = rows;
         _path
           ..clear()
           ..addAll(current);

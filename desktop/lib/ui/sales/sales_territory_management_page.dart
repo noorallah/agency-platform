@@ -210,23 +210,14 @@ class _SalesTerritoryManagementPageState
 
   /// The API caps a page at 100, and the picker needs the whole list: a
   /// customer on page three is one you can neither find nor take off a round.
-  static const int _pickerPageSize = 100;
 
   /// Reads every page of a list endpoint. Bounded so a firm with a very large
   /// book cannot turn opening a dialog into a hundred requests — the search
   /// box inside the picker is the answer beyond this, not more paging.
   Future<List<T>> _allPages<T>(
-    Future<PagedResult<T>> Function(int page) fetch, {
-    int maxPages = 20,
-  }) async {
-    final List<T> collected = <T>[];
-    for (int page = 1; page <= maxPages; page++) {
-      final PagedResult<T> result = await fetch(page);
-      collected.addAll(result.items);
-      if (result.items.isEmpty || collected.length >= result.total) break;
-    }
-    return collected;
-  }
+    Future<PagedResult<T>> Function(int page) fetch,
+  ) =>
+      fetchAllPages<T>(fetch);
 
   Future<void> _assignCustomers(SalesTerritory territory) async {
     if (!_canAssignCustomers) return;
@@ -236,7 +227,7 @@ class _SalesTerritoryManagementPageState
     final List<TerritoryCustomerAssignmentRecord> current =
         await widget.api.territoryCustomers(territory.id);
     final List<Customer> customers = await _allPages<Customer>(
-      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
     );
     if (!mounted) return;
     final List<String>? chosen = await showDialog<List<String>>(
@@ -299,7 +290,7 @@ class _SalesTerritoryManagementPageState
     final List<TerritoryCustomerAssignmentRecord> current =
         await widget.api.territoryCustomers(territory.id);
     final List<Customer> customers = await _allPages<Customer>(
-      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
     );
     if (!mounted) return;
     final Map<String, Customer> byId = {
@@ -492,7 +483,7 @@ class _SalesTerritoryManagementPageState
 
   Future<List<String>?> _pickCustomersForBulk(int count) async {
     final List<Customer> customers = await _allPages<Customer>(
-      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
     );
     if (!mounted) return null;
     return showDialog<List<String>>(

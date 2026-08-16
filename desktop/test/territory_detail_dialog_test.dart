@@ -87,6 +87,11 @@ class _DetailApi extends ApiClient {
   final List<Json> outlets;
   final bool failRead;
 
+  /// Every page size the screen asked for. The server refuses anything above
+  /// 100, so a fake that ignores this would hide a screen that is broken
+  /// against a real backend — which is exactly what happened.
+  final List<int> requestedPageSizes = <int>[];
+
   List<TerritoryCustomerAssignmentRecord>? saved;
   String? savedTerritoryId;
 
@@ -101,6 +106,7 @@ class _DetailApi extends ApiClient {
     String city = '',
     bool unassignedOnly = false,
   }) async {
+    requestedPageSizes.add(pageSize);
     if (failRead) throw const ApiException('The round could not be read.');
     return PagedResult<AssignableCustomerRecord>(
       items: <AssignableCustomerRecord>[
@@ -296,5 +302,18 @@ void main() {
       findsOneWidget,
     );
     expect(api.saved, isNull);
+  });
+
+  testWidgets('the outlets are read in pages the server will serve',
+      (tester) async {
+    // `MAX_PAGE_SIZE` is 100 and the routers that build their pagination by
+    // hand answer 500 rather than a message naming the limit, so asking for
+    // 500 broke this tab against every real backend while the fakes stayed
+    // green.
+    final api = _DetailApi(outlets: <Json>[_outlet(id: 'c1', code: 'C1')]);
+    await _pump(tester, api);
+
+    expect(api.requestedPageSizes, isNotEmpty);
+    expect(api.requestedPageSizes.every((size) => size <= 100), isTrue);
   });
 }
