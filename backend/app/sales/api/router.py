@@ -45,6 +45,7 @@ from app.sales.schemas import (
     BeatPlanUpdate,
     BulkOperationResult,
     CallListResponse,
+    CustomerRoute,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -971,6 +972,24 @@ def call_lists(
             on_date=on_date or utc_now().date(),
             salesman_id=salesman_id,
         )
+    )
+
+
+@router.get(
+    "/customers/{customer_id}/routes",
+    response_model=ApiResponse[list[CustomerRoute]],
+)
+def customer_routes(
+    customer_id: UUID,
+    scope: TerritoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerRoute]]:
+    """List the rounds that call one shop.
+
+    A literal path, so it is declared above the trailing `GET /{territory_id}`.
+    """
+    return ApiResponse(
+        data=_service(db).customer_routes(customer_id, firm_scope=scope.firm_id)
     )
 
 

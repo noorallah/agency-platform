@@ -474,3 +474,64 @@ def test_a_route_before_it_starts_calls_nobody() -> None:
 
     assert entry.occurs is False
     assert entry.reason == "The route is not in force on this date."
+
+
+def test_a_route_is_not_called_on_a_day_it_does_not_work() -> None:
+    """Working days decided nothing until now.
+
+    They were written by the editor and read only to display themselves back,
+    so a round marked "Mon" was called on a Tuesday without complaint -- two
+    answers to one question, and the visible one meant nothing.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "WD1")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="RT01",
+            name="RT01 node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY,
+                working_days=[3],
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        node.id,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    # A Monday plan on a route that only works Wednesdays.
+    _plan(service, firm.id, actor, node.id, "MON")
+
+    entry = service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0]
+
+    assert entry.occurs is False
+    assert entry.reason == "The route does not work on this day."
+    assert entry.stops == []
+
+
+def test_a_route_with_no_working_days_runs_whenever_its_plan_says() -> None:
+    """Turning this on must not silently stop a round somebody relies on."""
+    session = _session_factory()()
+    firm = _firm(session, "WD2")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        route,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _plan(service, firm.id, actor, route, "MON")
+
+    assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0].occurs

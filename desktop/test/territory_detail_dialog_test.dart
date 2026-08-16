@@ -59,6 +59,7 @@ Json _outlet({
   required String id,
   required String code,
   bool onThisRoute = false,
+  bool isPotential = false,
   int? sequence,
   List<String> otherRoutes = const <String>[],
 }) =>
@@ -71,6 +72,7 @@ Json _outlet({
       'city': 'Chennai',
       'postal_code': '600001',
       'on_this_route': onThisRoute,
+      'is_potential': isPotential,
       'visit_sequence': sequence,
       'other_routes': otherRoutes,
     };
@@ -94,6 +96,7 @@ class _DetailApi extends ApiClient {
 
   List<TerritoryCustomerAssignmentRecord>? saved;
   String? savedTerritoryId;
+  bool? savedIncludedPotential;
 
   @override
   Future<PagedResult<AssignableCustomerRecord>> assignableCustomers({
@@ -119,10 +122,12 @@ class _DetailApi extends ApiClient {
   @override
   Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<TerritoryCustomerAssignmentRecord> assignments,
-  ) async {
+    List<TerritoryCustomerAssignmentRecord> assignments, {
+    bool includePotential = false,
+  }) async {
     savedTerritoryId = territoryId;
     saved = assignments;
+    savedIncludedPotential = includePotential;
     return assignments;
   }
 
@@ -344,5 +349,32 @@ void main() {
 
     expect(api.saved, isNotNull);
     expect(api.saved!.first.customerId, isNot('c1'));
+  });
+
+  testWidgets('a stop can be marked a prospect, and it survives', (tester) async {
+    // The flag is counted on the grid and shown on the call order dialog, and
+    // nothing could set it: three screens sent a hardcoded `false`, so the
+    // count could only ever read zero.
+    final api = _DetailApi(outlets: <Json>[
+      _outlet(id: 'c1', code: 'C1', onThisRoute: true, sequence: 1),
+      _outlet(id: 'c2', code: 'C2', onThisRoute: true, sequence: 2,
+          isPotential: true),
+    ]);
+    await _pump(tester, api);
+    await _openCustomers(tester);
+
+    // C2 arrives already marked; mark C1 too.
+    await tester.tap(find.byTooltip('Mark as a prospect').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save round and order'));
+    await tester.pumpAndSettle();
+
+    // Only a screen that offers the toggle may send the flag at all.
+    expect(api.savedIncludedPotential, isTrue);
+    expect(
+      {for (final row in api.saved!) row.customerId: row.isPotential},
+      <String, bool>{'c1': true, 'c2': true},
+    );
   });
 }

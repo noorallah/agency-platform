@@ -47,6 +47,13 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
   /// The round in the order it is walked. Position is the stop number.
   final List<AssignableCustomerRecord> _path = <AssignableCustomerRecord>[];
 
+  /// Stops marked as prospects rather than buyers.
+  ///
+  /// The flag is counted on the grid and shown on the call order dialog, and
+  /// until now nothing could set it — every screen sent a hardcoded `false`,
+  /// so the count could only ever read zero.
+  final Set<String> _potential = <String>{};
+
   /// The territory whose round `_path` actually holds.
   ///
   /// Saving **replaces** the whole list, so the pane has to be the truth about
@@ -109,6 +116,9 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
         _path
           ..clear()
           ..addAll(current);
+        _potential
+          ..clear()
+          ..addAll(rows.where((row) => row.isPotential).map((r) => r.customerId));
         _loadedFor = widget.territory.id;
         _loading = false;
       });
@@ -201,9 +211,9 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
             customerId: _path[index].customerId,
             isPrimary: true,
             visitSequence: index + 1,
-            isPotential: false,
+            isPotential: _potential.contains(_path[index].customerId),
           ),
-      ]);
+      ], includePotential: true);
       if (!mounted) return;
       setState(() => _saving = false);
       NotificationService.show(
@@ -523,6 +533,24 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            tooltip: _potential.contains(row.customerId)
+                                ? 'A prospect — tap to mark as buying'
+                                : 'Mark as a prospect',
+                            icon: Icon(
+                              _potential.contains(row.customerId)
+                                  ? Icons.star
+                                  : Icons.star_border,
+                              size: 18,
+                            ),
+                            onPressed: _canAssignCustomers
+                                ? () => setState(() {
+                                      if (!_potential.remove(row.customerId)) {
+                                        _potential.add(row.customerId);
+                                      }
+                                    })
+                                : null,
+                          ),
                           IconButton(
                             tooltip: 'Remove from path',
                             icon: const Icon(Icons.close, size: 18),

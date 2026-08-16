@@ -142,8 +142,9 @@ class _BuilderApi extends ApiClient {
   @override
   Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<TerritoryCustomerAssignmentRecord> assignments,
-  ) async {
+    List<TerritoryCustomerAssignmentRecord> assignments, {
+    bool includePotential = false,
+  }) async {
     savedTerritoryId = territoryId;
     saved = assignments;
     return assignments;

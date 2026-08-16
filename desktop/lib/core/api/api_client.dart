@@ -1968,15 +1968,24 @@ class ApiClient {
     return _assignments(response['data']);
   }
 
+  /// Replace the customers on a round, in call order.
+  ///
+  /// [includePotential] is opt-in: only a screen that actually offers the
+  /// potential toggle should send the flag, because the server treats it as
+  /// absent-means-unchanged and a screen that cannot set it must not clear it.
   Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<TerritoryCustomerAssignmentRecord> assignments,
-  ) async {
+    List<TerritoryCustomerAssignmentRecord> assignments, {
+    bool includePotential = false,
+  }) async {
     final Json response = await request(
       'PUT',
       '/api/v1/sales-territories/$territoryId/customers',
       body: {
-        'entries': [for (final row in assignments) row.toJson()],
+        'entries': [
+          for (final row in assignments)
+            row.toJson(includePotential: includePotential),
+        ],
       },
     );
     return _assignments(response['data']);

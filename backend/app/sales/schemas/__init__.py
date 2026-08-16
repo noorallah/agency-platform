@@ -15,6 +15,7 @@ from app.sales.schemas.territory import (
     CallListEntry,
     CallListResponse,
     CallListStop,
+    CustomerRoute,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -59,6 +60,7 @@ from app.sales.schemas.territory import (
 
 __all__ = [
     "AssignableCustomer",
+    "CustomerRoute",
     "AssignableCustomerFilters",
     "AddressMasterResponse",
     "AddressMasterWrite",

@@ -411,7 +411,13 @@ class TerritoryListFilters(TerritorySchema):
 class TerritoryCustomerAssignmentInput(TerritorySchema):
     customer_id: UUID
     visit_sequence: int | None = Field(default=None, ge=1, le=100000)
-    is_potential: bool = False
+    #: A shop the round calls on but does not yet sell to.
+    #:
+    #: `None` means "leave it alone", for the same reason `is_primary` does:
+    #: every client used to send a hardcoded `False` on every save, so the flag
+    #: was wiped by the next round save and `potential_customer_count` -- shown
+    #: on the grid and the coverage line -- could only ever read zero.
+    is_potential: bool | None = None
     #: Which round a document for this customer belongs to. Every assignment
     #: was written `is_primary = True` with no way for a caller to say
     #: otherwise, so once a shop could be on two rounds the flag could not
@@ -509,6 +515,22 @@ class TerritoryCopyRequest(TerritorySchema):
         return value.strip().upper()
 
 
+class CustomerRoute(TerritorySchema):
+    """One round that calls a given shop, and where in it.
+
+    The relationship was one-directional everywhere: from a territory you could
+    list its customers, and from a customer you could see nothing at all.
+    """
+
+    territory_id: UUID
+    code: str
+    name: str
+    path: str
+    is_route: bool
+    is_primary: bool
+    visit_sequence: int | None
+
+
 class AssignableCustomer(TerritorySchema):
     """One shop a round could call, with enough address to find it by.
 
@@ -528,6 +550,9 @@ class AssignableCustomer(TerritorySchema):
     #: Already on the route being built, and where in its order.
     on_this_route: bool
     visit_sequence: int | None
+    #: A prospect on this round rather than a buyer. Carried so the screen that
+    #: offers the toggle knows the current state before it saves.
+    is_potential: bool = False
     #: Other rounds that already call this shop, by code. A distributor calling
     #: the same outlet on a sales beat and a collection round is ordinary, so
     #: this is information rather than a warning.

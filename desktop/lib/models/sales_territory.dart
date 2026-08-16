@@ -214,10 +214,18 @@ class TerritoryCustomerAssignmentRecord {
   /// primary round is the one a sale is filed under. Sending it back would
   /// also collide with the one-primary-per-customer key the moment a shop is
   /// put on a second round, which is exactly what the Route Builder does.
-  Json toJson() => <String, dynamic>{
+  /// Deliberately without `is_primary`, and `is_potential` only when it is
+  /// being changed.
+  ///
+  /// The server treats an absent flag as "leave it alone". That is what keeps
+  /// a re-save from demoting the round somebody chose as primary — and what
+  /// stops every save wiping the potential flag, which is displayed on the
+  /// call order dialog and counted on the grid and could only ever read zero
+  /// while three screens sent a hardcoded `false`.
+  Json toJson({bool includePotential = false}) => <String, dynamic>{
         'customer_id': customerId,
         'visit_sequence': visitSequence,
-        'is_potential': isPotential,
+        if (includePotential) 'is_potential': isPotential,
       };
 
   TerritoryCustomerAssignmentRecord withSequence(int? sequence) =>
@@ -424,6 +432,7 @@ class AssignableCustomerRecord {
     required this.onThisRoute,
     required this.visitSequence,
     required this.otherRoutes,
+    this.isPotential = false,
   });
 
   final String customerId;
@@ -442,6 +451,9 @@ class AssignableCustomerRecord {
   /// distributor calls the same outlet on a sales beat and a collection round.
   final List<String> otherRoutes;
 
+  /// A prospect on this round rather than a buyer.
+  final bool isPotential;
+
   factory AssignableCustomerRecord.fromJson(Json json) =>
       AssignableCustomerRecord(
         customerId: stringValue(json['customer_id']),
@@ -459,6 +471,7 @@ class AssignableCustomerRecord {
           for (final dynamic row in (json['other_routes'] as List? ?? const []))
             stringValue(row),
         ],
+        isPotential: json['is_potential'] == true,
       );
 }
 

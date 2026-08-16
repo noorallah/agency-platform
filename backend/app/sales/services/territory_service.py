@@ -54,6 +54,7 @@ from app.sales.schemas import (
     CallListEntry,
     CallListResponse,
     CallListStop,
+    CustomerRoute,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -1115,7 +1116,12 @@ class SalesTerritoryService:
         return [convert(item) for item in children.get(None, [])]
 
     def create_territory(
-        self, data: TerritoryCreate, *, firm_scope: UUID, actor_id: UUID
+        self,
+        data: TerritoryCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        commit: bool = True,
     ) -> TerritoryResponse:
         self._assert_unique_code(firm_scope, data.code)
         self._assert_unique_name_under_parent(
@@ -1127,6 +1133,7 @@ class SalesTerritoryService:
         level = self._level(data.hierarchy_level_id)
         parent = self._parent(firm_scope, data.parent_id)
         self._validate_level_parent(level, parent)
+        self._assert_room_under_parent(firm_scope, level, parent)
         path = data.code if parent is None else f"{parent.path}/{data.code}"
         row = SalesTerritoryNode(
             firm_id=firm_scope,
@@ -1158,7 +1165,12 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"code": row.code, "name": row.name},
         )
-        self._commit()
+        # An import owns the transaction for the whole file instead, so a CSV
+        # refused on its fifth row leaves none of the first four behind.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.get_territory(row.id, firm_scope=firm_scope)
 
     def get_territory(
@@ -1355,6 +1367,8 @@ class SalesTerritoryService:
                 raise ValidationError(
                     "One or more customers do not belong to the active firm."
                 )
+        if customer_ids:
+            self._assert_customer_leaf_policy(firm_scope, territory)
         # Scoped to this territory. Without the `territory_id` filter this
         # cleared a customer's assignment to *every* territory, so putting a
         # shop on the collection round silently took it off the sales round --
@@ -1427,7 +1441,11 @@ class SalesTerritoryService:
                         visit_sequence=(
                             entry.visit_sequence if entry is not None else None
                         ),
-                        is_potential=entry.is_potential if entry is not None else False,
+                        is_potential=(
+                            entry.is_potential
+                            if entry is not None and entry.is_potential is not None
+                            else False
+                        ),
                         created_by=actor_id,
                         updated_by=actor_id,
                     )
@@ -1439,7 +1457,8 @@ class SalesTerritoryService:
                 row.updated_by = actor_id
             if row is not None and entry is not None:
                 row.visit_sequence = entry.visit_sequence
-                row.is_potential = entry.is_potential
+                if entry.is_potential is not None:
+                    row.is_potential = entry.is_potential
                 if entry.is_primary is not None:
                     row.is_primary = entry.is_primary
         for customer_id, row in existing.items():
@@ -1522,6 +1541,56 @@ class SalesTerritoryService:
             )
             for row in rows
         ]
+
+    def customer_routes(
+        self, customer_id: UUID, *, firm_scope: UUID
+    ) -> list[CustomerRoute]:
+        """List the rounds that call one shop, primary first."""
+        rows = list(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment).where(
+                    TerritoryCustomerAssignment.customer_id == customer_id,
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+        if not rows:
+            return []
+        nodes = {
+            node.id: node
+            for node in self._session.scalars(
+                select(SalesTerritoryNode).where(
+                    SalesTerritoryNode.id.in_([row.territory_id for row in rows]),
+                    SalesTerritoryNode.firm_id == firm_scope,
+                    SalesTerritoryNode.is_deleted.is_(False),
+                )
+            )
+        }
+        routes = set(
+            self._session.scalars(
+                select(TerritoryRouteProfile.territory_id).where(
+                    TerritoryRouteProfile.territory_id.in_(nodes),
+                    TerritoryRouteProfile.is_deleted.is_(False),
+                )
+            )
+        )
+        result = [
+            CustomerRoute(
+                territory_id=node.id,
+                code=node.code,
+                name=node.name,
+                path=node.path,
+                is_route=node.id in routes,
+                is_primary=row.is_primary,
+                visit_sequence=row.visit_sequence,
+            )
+            for row in rows
+            if (node := nodes.get(row.territory_id)) is not None
+        ]
+        # Primary first: it is the round a sale for this shop is filed under,
+        # which is the thing somebody looking at the customer wants to know.
+        result.sort(key=lambda item: (not item.is_primary, item.code))
+        return result
 
     def assignable_customers(
         self,
@@ -1661,6 +1730,7 @@ class SalesTerritoryService:
                     postal_code=best.postal_code if best else "",
                     on_this_route=bool(mine),
                     visit_sequence=mine[0].visit_sequence if mine else None,
+                    is_potential=bool(mine) and mine[0].is_potential,
                     other_routes=sorted(
                         codes[item.territory_id]
                         for item in by_customer[customer.id]
@@ -1692,6 +1762,7 @@ class SalesTerritoryService:
                 raise ValidationError(
                     "One or more salesmen are not active firm members."
                 )
+        self._assert_salesman_policy(firm_scope, territory, requested_user_ids)
         existing = {
             row.user_id: row
             for row in self._session.scalars(
@@ -1972,6 +2043,14 @@ class SalesTerritoryService:
                 # all, and a seasonal route out of season calls nobody.
                 occurs = False
                 reason = "The route is not in force on this date."
+            if occurs and not self._route_works_on(plan.territory_id, on_date):
+                # The route's own working days. They were written by the
+                # editor and read only to display themselves back, so a round
+                # marked "Mon, Thu" was called on a Tuesday without complaint
+                # -- two answers to one question, and the visible one meant
+                # nothing.
+                occurs = False
+                reason = "The route does not work on this day."
             entries.append(
                 CallListEntry(
                     beat_plan_id=plan.id,
@@ -1987,6 +2066,32 @@ class SalesTerritoryService:
                 )
             )
         return CallListResponse(on_date=on_date, entries=entries)
+
+    def _route_works_on(self, territory_id: UUID, on_date: date) -> bool:
+        """Report whether the round works the weekday of this date.
+
+        A route that names no working days works every day its plan says, so
+        turning this on cannot silently stop a round somebody already relies
+        on. `isoweekday()` is 1..7 Monday..Sunday, which is what the column
+        stores.
+        """
+        profile_id = self._session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == territory_id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if profile_id is None:
+            return True
+        days = list(
+            self._session.scalars(
+                select(TerritoryWorkingDay.weekday).where(
+                    TerritoryWorkingDay.route_profile_id == profile_id,
+                    TerritoryWorkingDay.is_deleted.is_(False),
+                )
+            )
+        )
+        return not days or on_date.isoweekday() in days
 
     def _route_in_force(self, territory_id: UUID, on_date: date) -> bool:
         """Report whether the round behind a plan was operating on this date."""
@@ -2310,6 +2415,7 @@ class SalesTerritoryService:
                 ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             territory_by_code[created_row.code] = self._territory(
                 created_row.id, firm_scope
@@ -2329,8 +2435,14 @@ class SalesTerritoryService:
                     TerritoryAssignCustomersRequest(customer_ids=customer_ids),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
             created.append(created_row)
+        # One commit for the file. Every row was staged, so a refusal anywhere
+        # leaves the firm exactly as it was -- the shape
+        # `CustomerService.import_customers` has always had, and the one the
+        # branch and warehouse imports had to be repaired into.
+        self._commit()
         return created
 
     def copy_hierarchy(
@@ -2781,6 +2893,118 @@ class SalesTerritoryService:
                 )
             )
         return result
+
+    def _assert_salesman_policy(
+        self,
+        firm_scope: UUID,
+        territory: SalesTerritoryNode,
+        user_ids: list[UUID],
+    ) -> None:
+        """Apply the two multi-assignment settings the firm recorded.
+
+        Both were stored and returned by the API and checked nowhere, so a firm
+        that had turned either off went on assigning freely.
+        """
+        config = self._hierarchy_settings(firm_scope)
+        if config is None:
+            return
+        if not config.allow_multi_salesman_per_route and len(set(user_ids)) > 1:
+            raise ValidationError(
+                f"{territory.code} may have only one salesperson. "
+                "Change the hierarchy settings to allow more."
+            )
+        if config.allow_multi_route_per_salesman or not user_ids:
+            return
+        clash = self._session.scalar(
+            select(SalesTerritoryNode.code)
+            .select_from(TerritorySalesmanAssignment)
+            .join(
+                SalesTerritoryNode,
+                SalesTerritoryNode.id == TerritorySalesmanAssignment.territory_id,
+            )
+            .where(
+                TerritorySalesmanAssignment.user_id.in_(user_ids),
+                TerritorySalesmanAssignment.territory_id != territory.id,
+                TerritorySalesmanAssignment.is_deleted.is_(False),
+                SalesTerritoryNode.firm_id == firm_scope,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        if clash is not None:
+            raise ValidationError(
+                f"A salesperson here is already on {clash}, and this firm "
+                "allows one route per salesperson. Take them off it first."
+            )
+
+    def _assert_customer_leaf_policy(
+        self, firm_scope: UUID, territory: SalesTerritoryNode
+    ) -> None:
+        """Keep customers on leaf nodes when the firm asks for that.
+
+        `enforce_customer_leaf_assignment` existed to stop a shop being hung
+        off a Region -- where a beat plan can never call it, because a plan
+        resolves to the customers of its own territory.
+        """
+        config = self._hierarchy_settings(firm_scope)
+        if config is None or not config.enforce_customer_leaf_assignment:
+            return
+        child = self._session.scalar(
+            select(SalesTerritoryNode.code).where(
+                SalesTerritoryNode.parent_id == territory.id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        if child is not None:
+            raise ValidationError(
+                f"{territory.code} has territories beneath it, and this firm "
+                "assigns customers only to the lowest level. Put them on a "
+                "route instead."
+            )
+
+    def _assert_room_under_parent(
+        self,
+        firm_scope: UUID,
+        level: SalesHierarchyLevel,
+        parent: SalesTerritoryNode | None,
+    ) -> None:
+        """Honour the level's `max_nodes_per_parent`, which nothing read."""
+        limit = level.max_nodes_per_parent
+        if limit is None:
+            return
+        statement = (
+            select(func.count())
+            .select_from(SalesTerritoryNode)
+            .where(
+                SalesTerritoryNode.firm_id == firm_scope,
+                SalesTerritoryNode.hierarchy_level_id == level.id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        statement = statement.where(
+            SalesTerritoryNode.parent_id == parent.id
+            if parent is not None
+            else SalesTerritoryNode.parent_id.is_(None)
+        )
+        if int(self._session.scalar(statement) or 0) >= limit:
+            where = "at the top level" if parent is None else f"under {parent.code}"
+            raise ValidationError(
+                f"{level.display_name} allows at most {limit} node(s) {where}."
+            )
+
+    def _hierarchy_settings(self, firm_id: UUID) -> SalesHierarchyConfig | None:
+        """Read the firm's hierarchy settings without creating them.
+
+        The four flags below were stored, returned by the API and checked
+        nowhere, so a platform administrator could turn any of them on and
+        nothing changed. A firm with no config row yet keeps the permissive
+        defaults -- a configuration gap is not a decision.
+        """
+        return self._session.scalar(
+            select(SalesHierarchyConfig).where(
+                SalesHierarchyConfig.firm_id == firm_id,
+                SalesHierarchyConfig.is_deleted.is_(False),
+            )
+        )
 
     def _ensure_hierarchy_config(
         self, firm_id: UUID, actor_id: UUID
