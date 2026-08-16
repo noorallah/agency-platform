@@ -292,6 +292,7 @@ class QuotationService(TransactionalDocumentService):
             customer_id=data.customer_id,
             territory_id=data.territory_id,
             salesman_id=data.salesman_id,
+            on_date=data.quotation_date,
         )
         row = SalesQuotation(
             firm_id=firm_id,
@@ -386,6 +387,7 @@ class QuotationService(TransactionalDocumentService):
             customer_id=data.customer_id,
             territory_id=data.territory_id,
             salesman_id=data.salesman_id,
+            on_date=data.quotation_date,
         )
         row.customer_id = data.customer_id
         row.salesman_id = scope.salesman_id

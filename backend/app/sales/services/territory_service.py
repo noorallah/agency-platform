@@ -92,6 +92,7 @@ from app.sales.schemas import (
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
 )
+from app.sales.services.scope_resolution import route_profile_in_force
 
 #: Any geography master row. The lookup helper is shared by all six levels
 #: and must hand back the concrete type it was asked for.
@@ -1945,6 +1946,12 @@ class SalesTerritoryService:
             if salesman_id is not None and plan_salesman != salesman_id:
                 continue
             occurs, reason = self._occurs_on(plan, on_date)
+            if occurs and not self._route_in_force(plan.territory_id, on_date):
+                # The plan may recur today, but the round itself was not
+                # operating: the effective window says when it runs at
+                # all, and a seasonal route out of season calls nobody.
+                occurs = False
+                reason = "The route is not in force on this date."
             entries.append(
                 CallListEntry(
                     beat_plan_id=plan.id,
@@ -1960,6 +1967,18 @@ class SalesTerritoryService:
                 )
             )
         return CallListResponse(on_date=on_date, entries=entries)
+
+    def _route_in_force(self, territory_id: UUID, on_date: date) -> bool:
+        """Report whether the round behind a plan was operating on this date."""
+        profile = self._session.scalar(
+            select(TerritoryRouteProfile).where(
+                TerritoryRouteProfile.territory_id == territory_id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        # A plan can only target a route, so a missing profile means the route
+        # was retired underneath it rather than that the window is open.
+        return profile is not None and route_profile_in_force(profile, on_date)
 
     def _occurs_on(self, plan: BeatPlan, on_date: date) -> tuple[bool, str | None]:
         """Decide whether a plan runs on a date, and say why when it does not.

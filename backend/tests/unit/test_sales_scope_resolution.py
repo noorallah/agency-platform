@@ -412,3 +412,78 @@ def test_a_sales_order_saves_the_scope_the_reports_read() -> None:
     assert order.territory_id == route
     assert order.salesman_id == salesman
     assert order.route_id is not None
+
+
+def test_a_document_is_not_tagged_with_a_route_that_had_ended() -> None:
+    """The effective window decides document tagging too, not only call lists.
+
+    A sale dated after the round closed used to be filed against it, which is
+    the kind of row that makes `/reports/by-route` look right and be wrong.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="RT01",
+            name="RT01 node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY,
+                effective_to=date(2026, 6, 30),
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    customer = _customer(session, firm.id)
+    _assign_customer(service, node.id, customer.id, firm.id, actor)
+
+    after = resolve_sales_scope(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        on_date=date(2026, 8, 16),
+    )
+    during = resolve_sales_scope(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        on_date=date(2026, 5, 1),
+    )
+
+    # The territory still applies -- the shop is on it either way. Only the
+    # route, which is what the window describes, drops out.
+    assert after.territory_id == node.id
+    assert after.route_id is None
+    assert during.route_id is not None
+
+
+def test_with_no_date_the_route_still_applies() -> None:
+    """A caller that cannot say when is not evidence the round had closed."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="RT01",
+            name="RT01 node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY,
+                effective_to=date(2026, 6, 30),
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    customer = _customer(session, firm.id)
+    _assign_customer(service, node.id, customer.id, firm.id, actor)
+
+    scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+
+    assert scope.route_id is not None

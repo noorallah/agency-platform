@@ -373,3 +373,104 @@ def test_an_inactive_plan_is_not_on_any_call_list() -> None:
     )
 
     assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries == []
+
+
+def _route_with_window(
+    service: SalesTerritoryService,
+    firm_id: UUID,
+    actor: UUID,
+    code: str,
+    *,
+    effective_from: date | None = None,
+    effective_to: date | None = None,
+) -> UUID:
+    hierarchy = service.get_hierarchy(firm_scope=firm_id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code=code,
+            name=f"{code} node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY,
+                effective_from=effective_from,
+                effective_to=effective_to,
+            ),
+        ),
+        firm_scope=firm_id,
+        actor_id=actor,
+    )
+    return node.id
+
+
+def test_a_route_out_of_its_window_calls_nobody() -> None:
+    """The effective dates decide something now.
+
+    They were written from the first migration and read nowhere, so a route
+    "effective until June" still ran in August -- unlike UOM conversion rules
+    and tax profiles, both of which filter on theirs.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "WIN1")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_with_window(
+        service, firm.id, actor, "RT01", effective_to=date(2026, 6, 30)
+    )
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        route,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _plan(service, firm.id, actor, route, "MON")
+
+    entry = service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0]
+
+    assert entry.occurs is False
+    assert entry.reason == "The route is not in force on this date."
+    assert entry.stops == []
+
+
+def test_a_route_inside_its_window_still_runs() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "WIN2")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_with_window(
+        service,
+        firm.id,
+        actor,
+        "RT01",
+        effective_from=date(2026, 1, 1),
+        effective_to=date(2026, 12, 31),
+    )
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        route,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _plan(service, firm.id, actor, route, "MON")
+
+    entry = service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0]
+
+    assert entry.occurs is True
+    assert [stop.customer_code for stop in entry.stops] == ["C1"]
+
+
+def test_a_route_before_it_starts_calls_nobody() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "WIN3")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_with_window(
+        service, firm.id, actor, "RT01", effective_from=date(2026, 12, 1)
+    )
+    _plan(service, firm.id, actor, route, "MON")
+
+    entry = service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0]
+
+    assert entry.occurs is False
+    assert entry.reason == "The route is not in force on this date."

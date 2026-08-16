@@ -303,6 +303,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             salesman_id=salesman_id,
             territory_id=territory_id,
             route_id=route_id,
+            on_date=data.invoice_date,
         )
         self._validate_customer_invoice_number(
             firm_id=firm_id,
@@ -440,6 +441,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             salesman_id=data.salesman_id or header.get("salesman_id"),
             territory_id=data.territory_id or header.get("territory_id"),
             route_id=data.route_id or header.get("route_id"),
+            on_date=data.invoice_date,
         )
         row.salesman_id = salesman_id
         row.territory_id = territory_id
@@ -1588,6 +1590,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         salesman_id: UUID | None,
         territory_id: UUID | None,
         route_id: UUID | None,
+        on_date: date,
     ) -> tuple[UUID | None, UUID | None, UUID | None]:
         """Derive the territory, route and salesman this invoice never got.
 
@@ -1602,7 +1605,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         if territory_id is not None and salesman_id is not None:
             return salesman_id, territory_id, route_id
         derived = resolve_sales_scope(
-            self._session, firm_id=firm_id, customer_id=customer_id
+            self._session, firm_id=firm_id, customer_id=customer_id, on_date=on_date
         )
         return (
             salesman_id if salesman_id is not None else derived.salesman_id,

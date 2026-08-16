@@ -555,4 +555,38 @@ void main() {
         reason: 'the primary salesperson was silently demoted');
     expect(api.sentSalesmen!.single['include_children'], isTrue);
   });
+
+  testWidgets('a route can say when it runs, and keeps it on a re-save',
+      (tester) async {
+    // The effective window used to be carried through the payload and never
+    // shown, so nobody could set it — and the server read it nowhere anyway.
+    // It now decides whether a round is called at all, so it has to be
+    // visible and editable.
+    final api = _TerritoryApi(
+      territory: _territoryJson(
+        id: 't-1',
+        code: 'RT01',
+        name: 'North Beat',
+        routeProfile: <String, dynamic>{
+          'visit_frequency': 'WEEKLY',
+          'working_days': <int>[1],
+          'effective_from': '2026-01-01',
+          'effective_to': '2026-06-30',
+        },
+      ),
+    );
+    await _pump(tester, api);
+    await _selectRow(tester, 'RT01');
+    await _openEdit(tester);
+
+    expect(_inDialog(find.text('2026-01-01')), findsOneWidget);
+    expect(_inDialog(find.text('2026-06-30')), findsOneWidget);
+
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    final Json profile = api.updated!['route_profile'] as Json;
+    expect(profile['effective_from'], '2026-01-01');
+    expect(profile['effective_to'], '2026-06-30');
+  });
 }

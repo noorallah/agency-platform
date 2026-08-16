@@ -1031,6 +1031,11 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   /// payload omits it, so a route whose type was never chosen would lose its
   /// frequency and working days the next time somebody renamed it.
   late bool _isRoute = widget.territory?.routeProfile != null;
+  // Shown and editable now that the server reads them: a round is only called
+  // between these dates, so a window nobody could see would silently stop a
+  // route running.
+  late String _effectiveFrom = widget.territory?.routeProfile?.effectiveFrom ?? '';
+  late String _effectiveTo = widget.territory?.routeProfile?.effectiveTo ?? '';
   late String? _routeTypeId = _initialRouteTypeId();
   late String _visitFrequency = _initialVisitFrequency();
   late final Set<int> _workingDays = <int>{
@@ -1125,6 +1130,28 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
           onChanged: (value) =>
               setState(() => _visitFrequency = value ?? 'ON_DEMAND'),
         ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _DateField(
+                label: 'Runs from',
+                value: _effectiveFrom,
+                helperText: 'Blank means it has always run.',
+                onChanged: (value) => setState(() => _effectiveFrom = value),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _DateField(
+                label: 'Runs until',
+                value: _effectiveTo,
+                helperText: 'Blank means it has no end.',
+                onChanged: (value) => setState(() => _effectiveTo = value),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerLeft,
@@ -1174,8 +1201,8 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
       'route_type_id': _routeTypeId,
       'visit_frequency': _visitFrequency,
       'working_days': _workingDays.toList()..sort(),
-      'effective_from': _orNull(existing?.effectiveFrom),
-      'effective_to': _orNull(existing?.effectiveTo),
+      'effective_from': _orNull(_effectiveFrom),
+      'effective_to': _orNull(_effectiveTo),
       'city_id': _orNull(existing?.cityId),
       'postal_code_id': _orNull(existing?.postalCodeId),
       'locality_id': _orNull(existing?.localityId),
@@ -1328,5 +1355,58 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
             child: const Text('Save'),
           ),
         ],
+      );
+}
+
+/// One end of a route's effective window.
+///
+/// A plain read-only field with a picker rather than a text box: the API takes
+/// an ISO date and a typo is refused with a validation error that names a
+/// field, not a format.
+class _DateField extends StatelessWidget {
+  const _DateField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.helperText,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String? helperText;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: () async {
+          final DateTime initial =
+              DateTime.tryParse(value) ?? DateTime.now();
+          final DateTime? picked = await showDatePicker(
+            context: context,
+            initialDate: initial,
+            firstDate: DateTime(initial.year - 5),
+            lastDate: DateTime(initial.year + 5),
+          );
+          if (picked == null) return;
+          onChanged(
+            '${picked.year.toString().padLeft(4, '0')}-'
+            '${picked.month.toString().padLeft(2, '0')}-'
+            '${picked.day.toString().padLeft(2, '0')}',
+          );
+        },
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helperText,
+            suffixIcon: value.isEmpty
+                ? const Icon(Icons.event, size: 18)
+                : IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => onChanged(''),
+                  ),
+          ),
+          child: Text(value.isEmpty ? 'Any date' : value),
+        ),
       );
 }

@@ -323,6 +323,7 @@ class SalesReturnService(TransactionalDocumentService):
             customer_id=customer_id,
             salesman_id=header.get("salesman_id"),
             territory_id=header.get("territory_id"),
+            on_date=data.return_date,
         )
         row = SalesReturn(
             firm_id=firm_id,
@@ -417,6 +418,7 @@ class SalesReturnService(TransactionalDocumentService):
             customer_id=row.customer_id,
             salesman_id=header.get("salesman_id"),
             territory_id=header.get("territory_id"),
+            on_date=data.return_date,
         )
         row.business_profile_id = data.business_profile_id
         row.return_date = data.return_date
@@ -1083,6 +1085,7 @@ class SalesReturnService(TransactionalDocumentService):
         customer_id: UUID,
         salesman_id: UUID | None,
         territory_id: UUID | None,
+        on_date: date,
     ) -> tuple[UUID | None, UUID | None]:
         """Derive the territory and salesman this return never inherited.
 
@@ -1095,7 +1098,7 @@ class SalesReturnService(TransactionalDocumentService):
         if territory_id is not None and salesman_id is not None:
             return salesman_id, territory_id
         derived = resolve_sales_scope(
-            self._session, firm_id=firm_id, customer_id=customer_id
+            self._session, firm_id=firm_id, customer_id=customer_id, on_date=on_date
         )
         return (
             salesman_id if salesman_id is not None else derived.salesman_id,

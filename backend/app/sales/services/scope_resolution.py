@@ -18,6 +18,7 @@ add a sixth caller's entry point.
 """
 
 from dataclasses import dataclass
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -54,6 +55,7 @@ def resolve_sales_scope(
     territory_id: UUID | None = None,
     salesman_id: UUID | None = None,
     route_id: UUID | None = None,
+    on_date: date | None = None,
 ) -> ResolvedSalesScope:
     """Resolve the territory, route and salesman for one document.
 
@@ -85,7 +87,7 @@ def resolve_sales_scope(
         route_id=(
             route_id
             if route_id is not None
-            else _route_profile_for(session, resolved_territory)
+            else _route_profile_for(session, resolved_territory, on_date)
         ),
         salesman_id=resolved_salesman,
     )
@@ -233,24 +235,51 @@ def _covers(session: Session, territory_id: UUID, user_id: UUID) -> bool:
     return False
 
 
-def _route_profile_for(session: Session, territory_id: UUID | None) -> UUID | None:
+def _route_profile_for(
+    session: Session, territory_id: UUID | None, on_date: date | None
+) -> UUID | None:
     """Find the route profile on this node, or the nearest ancestor that is a route.
 
     A firm whose hierarchy puts the round above the leaf still gets a route on
     its documents, which is what `/reports/by-route` reads.
+
+    A round that was not running on the document's date is skipped. The
+    effective window says when the round operates, and tagging a sale with a
+    route that had already ended is the kind of row that makes a report look
+    right and be wrong. With no date to judge by, the profile stands: a caller
+    that cannot say when the document is dated is not evidence the route was
+    closed.
     """
     if territory_id is None:
         return None
     for node_id in (territory_id, *_ancestors(session, territory_id)):
-        profile_id = session.scalar(
-            select(TerritoryRouteProfile.id).where(
+        profile = session.scalar(
+            select(TerritoryRouteProfile).where(
                 TerritoryRouteProfile.territory_id == node_id,
                 TerritoryRouteProfile.is_deleted.is_(False),
             )
         )
-        if profile_id is not None:
-            return profile_id
+        if profile is not None and route_profile_in_force(profile, on_date):
+            return profile.id
     return None
+
+
+def route_profile_in_force(
+    profile: TerritoryRouteProfile, on_date: date | None
+) -> bool:
+    """Report whether a round was operating on a date.
+
+    `effective_from` / `effective_to` were stored and returned from the first
+    migration and read nowhere -- unlike UOM conversion rules and tax profiles,
+    which both filter on theirs. A route "effective until June" still appeared
+    everywhere and was still called by a beat plan. This is the one place that
+    decides it, so both the call list and document tagging agree.
+    """
+    if on_date is None:
+        return True
+    if profile.effective_from is not None and on_date < profile.effective_from:
+        return False
+    return not (profile.effective_to is not None and on_date > profile.effective_to)
 
 
 def _ancestors(session: Session, territory_id: UUID) -> list[UUID]:

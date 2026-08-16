@@ -227,6 +227,7 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             salesman_id=data.salesman_id,
             route_id=data.route_id,
+            on_date=data.order_date,
         )
         order_number = (
             data.order_number
@@ -337,6 +338,7 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             salesman_id=data.salesman_id,
             route_id=data.route_id,
+            on_date=data.order_date,
         )
         self._delete_children(order_id)
         row.customer_id = data.customer_id
