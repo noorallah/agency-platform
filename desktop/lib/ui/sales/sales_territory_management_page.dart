@@ -6,6 +6,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
+import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
 import 'assignment_picker_dialog.dart';
 import 'bulk_territory_actions_dialog.dart';
@@ -46,6 +47,8 @@ class _SalesTerritoryManagementPageState
   bool _descending = true;
   bool _includeDeleted = false;
   String? _status;
+  String? _filterCityId;
+  List<GeoPlaceRecord> _filterCities = const [];
   String? _selectedParentId;
   Json _dashboard = const {};
   bool _expandTree = false;
@@ -77,6 +80,24 @@ class _SalesTerritoryManagementPageState
   void initState() {
     super.initState();
     _loadAll();
+    _loadFilterCities();
+  }
+
+  /// The cities a round could be tagged with, for the area filter.
+  ///
+  /// Best effort: geography is shared reference data a platform administrator
+  /// maintains, and a firm whose Places are empty gets no filter rather than a
+  /// broken grid.
+  Future<void> _loadFilterCities() async {
+    if (!_canView) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.city);
+      if (!mounted) return;
+      setState(() => _filterCities = rows);
+    } on ApiException {
+      // No filter is better than an error on a screen that works without it.
+    }
   }
 
   @override
@@ -106,6 +127,7 @@ class _SalesTerritoryManagementPageState
         filters: TerritoryQuery(
           parentId: _selectedParentId,
           status: _status,
+          cityId: _filterCityId,
           includeDeleted: _includeDeleted,
         ),
       );
@@ -145,6 +167,7 @@ class _SalesTerritoryManagementPageState
     final result = await showDialog<Json>(
       context: context,
       builder: (context) => _TerritoryEditorDialog(
+        api: widget.api,
         territory: current,
         hierarchy: _hierarchy,
         items: _items,
@@ -742,6 +765,32 @@ class _SalesTerritoryManagementPageState
       hintText: 'Search code, name, hierarchy path',
       onSearch: (_) => _loadAll(requestedPage: 1),
       filters: [
+        // Matches through the route profile's city, which is why the editor
+        // now lets a round say where it is: the server has always filtered on
+        // this and nothing ever wrote the column.
+        if (_filterCities.isNotEmpty)
+          SizedBox(
+            width: 200,
+            child: DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: _filterCityId ?? '',
+              decoration: const InputDecoration(labelText: 'Area (city)'),
+              items: [
+                const DropdownMenuItem<String>(
+                    value: '', child: Text('Any area')),
+                for (final GeoPlaceRecord city in _filterCities)
+                  DropdownMenuItem<String>(
+                    value: city.id,
+                    child: Text(city.name),
+                  ),
+              ],
+              onChanged: (value) {
+                setState(() =>
+                    _filterCityId = (value == null || value.isEmpty) ? null : value);
+                _loadAll(requestedPage: 1);
+              },
+            ),
+          ),
         SizedBox(
           width: 180,
           child: DropdownButtonFormField<String>(
@@ -1008,6 +1057,7 @@ class _SalesTerritoryManagementPageState
 
 class _TerritoryEditorDialog extends StatefulWidget {
   const _TerritoryEditorDialog({
+    required this.api,
     required this.territory,
     required this.hierarchy,
     required this.items,
@@ -1015,6 +1065,9 @@ class _TerritoryEditorDialog extends StatefulWidget {
     this.initialParentId,
   });
 
+  /// Needed for the geography ladder, which is loaded a level at a time as the
+  /// user picks: every postal code in the country is not a useful dropdown.
+  final ApiClient api;
   final SalesTerritory? territory;
   final TerritoryHierarchyRecord? hierarchy;
   final List<SalesTerritory> items;
@@ -1049,6 +1102,18 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   // route running.
   late String _effectiveFrom = widget.territory?.routeProfile?.effectiveFrom ?? '';
   late String _effectiveTo = widget.territory?.routeProfile?.effectiveTo ?? '';
+
+  // The area a round covers. These three columns have existed on the route
+  // profile from the first migration and no screen ever set one, so the
+  // `city_id` and `locality_id` filters on the territory list -- both
+  // implemented server-side -- could never match anything.
+  late String _cityId = widget.territory?.routeProfile?.cityId ?? '';
+  late String _postalCodeId = widget.territory?.routeProfile?.postalCodeId ?? '';
+  late String _localityId = widget.territory?.routeProfile?.localityId ?? '';
+
+  List<GeoPlaceRecord> _cities = const [];
+  List<GeoPlaceRecord> _postalCodes = const [];
+  List<GeoPlaceRecord> _localities = const [];
   late String? _routeTypeId = _initialRouteTypeId();
   late String _visitFrequency = _initialVisitFrequency();
   late final Set<int> _workingDays = <int>{
@@ -1076,6 +1141,102 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
           ? null
           : widget.initialParentId)
       : widget.territory?.parentId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArea();
+  }
+
+  /// Load the ladder down to whatever the route already names.
+  ///
+  /// Geography reads need `TERRITORY_VIEW`, which anyone opening this editor
+  /// holds. A firm whose administrator has not populated Places gets empty
+  /// dropdowns and a route that still saves -- the area is optional.
+  Future<void> _loadArea() async {
+    try {
+      final List<GeoPlaceRecord> cities =
+          await widget.api.geoPlaces(GeoLevel.city);
+      final List<GeoPlaceRecord> postalCodes = _cityId.isEmpty
+          ? const <GeoPlaceRecord>[]
+          : await widget.api.geoPlaces(GeoLevel.postalCode, parentId: _cityId);
+      final List<GeoPlaceRecord> localities = _postalCodeId.isEmpty
+          ? const <GeoPlaceRecord>[]
+          : await widget.api
+              .geoPlaces(GeoLevel.locality, parentId: _postalCodeId);
+      if (!mounted) return;
+      setState(() {
+        _cities = cities;
+        _postalCodes = postalCodes;
+        _localities = localities;
+      });
+    } on ApiException {
+      // The area is optional and the route saves without it, so a geography
+      // read that fails costs three dropdowns rather than the editor.
+    }
+  }
+
+  /// Options for one rung of the area ladder.
+  ///
+  /// A stored id that is not in the loaded list gets an entry of its own.
+  /// `DropdownButtonFormField` asserts when its value matches no item, so a
+  /// route tagged with a city the reader cannot see — geography read failed,
+  /// or the city was retired — would otherwise break the whole editor. Keeping
+  /// it also means saving does not quietly clear a tag nobody could see.
+  List<DropdownMenuItem<String>> _areaItems(
+    List<GeoPlaceRecord> rows,
+    String currentId, {
+    bool useCode = false,
+  }) =>
+      <DropdownMenuItem<String>>[
+        const DropdownMenuItem<String>(value: '', child: Text('None')),
+        for (final GeoPlaceRecord row in rows)
+          DropdownMenuItem<String>(
+            value: row.id,
+            child: Text(useCode ? row.code : row.name),
+          ),
+        if (currentId.isNotEmpty && !rows.any((row) => row.id == currentId))
+          DropdownMenuItem<String>(
+            value: currentId,
+            child: const Text('Currently set (not listed)'),
+          ),
+      ];
+
+  Future<void> _pickCity(String? value) async {
+    setState(() {
+      _cityId = value ?? '';
+      _postalCodeId = '';
+      _localityId = '';
+      _postalCodes = const [];
+      _localities = const [];
+    });
+    if (_cityId.isEmpty) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.postalCode, parentId: _cityId);
+      if (!mounted) return;
+      setState(() => _postalCodes = rows);
+    } on ApiException {
+      // Same reasoning as `_loadArea`.
+    }
+  }
+
+  Future<void> _pickPostalCode(String? value) async {
+    setState(() {
+      _postalCodeId = value ?? '';
+      _localityId = '';
+      _localities = const [];
+    });
+    if (_postalCodeId.isEmpty) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.locality, parentId: _postalCodeId);
+      if (!mounted) return;
+      setState(() => _localities = rows);
+    } on ApiException {
+      // Same reasoning as `_loadArea`.
+    }
+  }
 
   @override
   void dispose() {
@@ -1144,6 +1305,48 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
               setState(() => _visitFrequency = value ?? 'ON_DEMAND'),
         ),
         const SizedBox(height: 8),
+        // Where the round is. Cascading, because a flat locality list would be
+        // every locality in the country.
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          initialValue: _cityId.isEmpty ? '' : _cityId,
+          decoration: InputDecoration(
+            labelText: 'City',
+            helperText: _cities.isEmpty
+                ? 'No cities defined — a platform administrator maintains these '
+                    'under Places. The route saves without one.'
+                : 'Lets this round be found by area on the grid.',
+          ),
+          items: _areaItems(_cities, _cityId),
+          onChanged: _pickCity,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _postalCodeId.isEmpty ? '' : _postalCodeId,
+                decoration: const InputDecoration(labelText: 'Pin code'),
+                items: _areaItems(_postalCodes, _postalCodeId, useCode: true),
+                onChanged: _cityId.isEmpty ? null : _pickPostalCode,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _localityId.isEmpty ? '' : _localityId,
+                decoration: const InputDecoration(labelText: 'Locality'),
+                items: _areaItems(_localities, _localityId),
+                onChanged: _postalCodeId.isEmpty
+                    ? null
+                    : (value) => setState(() => _localityId = value ?? ''),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
@@ -1208,17 +1411,15 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   /// city/postal/locality links are set elsewhere and would otherwise be lost
   /// the first time somebody changed a route's working days.
   Json _routeProfilePayload() {
-    final TerritoryRouteProfileRecord? existing =
-        widget.territory?.routeProfile;
     return <String, dynamic>{
       'route_type_id': _routeTypeId,
       'visit_frequency': _visitFrequency,
       'working_days': _workingDays.toList()..sort(),
       'effective_from': _orNull(_effectiveFrom),
       'effective_to': _orNull(_effectiveTo),
-      'city_id': _orNull(existing?.cityId),
-      'postal_code_id': _orNull(existing?.postalCodeId),
-      'locality_id': _orNull(existing?.localityId),
+      'city_id': _orNull(_cityId),
+      'postal_code_id': _orNull(_postalCodeId),
+      'locality_id': _orNull(_localityId),
     };
   }
 
