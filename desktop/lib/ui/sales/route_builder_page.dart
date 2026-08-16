@@ -51,6 +51,16 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
   /// The round as it will be saved: order is position in this list.
   final List<AssignableCustomerRecord> _round = <AssignableCustomerRecord>[];
 
+  /// The route whose membership `_round` actually holds.
+  ///
+  /// Saving **replaces** the round with this panel, so the panel has to be the
+  /// truth about the selected route or the save destroys it. Tracked rather
+  /// than assumed: if the load fails, this stays behind `_routeId` and Save is
+  /// refused, instead of writing the previous route's shops onto this one.
+  String? _loadedRouteId;
+
+  bool get _roundIsLoaded => _loadedRouteId != null && _loadedRouteId == _routeId;
+
   bool _loading = false;
   bool _saving = false;
   String? _error;
@@ -103,7 +113,13 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
   Future<void> _loadRound() async {
     final String? id = _routeId;
     if (id == null) return;
-    setState(() => _loading = true);
+    setState(() {
+      // Dropped before the request, not after it succeeds: a panel still
+      // showing the last route's shops is the one thing Save must never see.
+      _round.clear();
+      _loadedRouteId = null;
+      _loading = true;
+    });
     try {
       final PagedResult<AssignableCustomerRecord> page =
           await widget.api.assignableCustomers(
@@ -123,6 +139,7 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
         _round
           ..clear()
           ..addAll(current);
+        _loadedRouteId = id;
         _loading = false;
       });
     } on ApiException catch (exception) {
@@ -184,7 +201,7 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
 
   Future<void> _save() async {
     final String? id = _routeId;
-    if (id == null || !_canAssign) return;
+    if (id == null || !_canAssign || !_roundIsLoaded) return;
     setState(() => _saving = true);
     try {
       // One request carries both the membership and the order: the API replaces
@@ -370,7 +387,18 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
         Expanded(
           child: _routeId == null
               ? const Center(child: Text('Choose the route to build.'))
-              : _round.isEmpty
+              : !_roundIsLoaded
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'This round could not be read, so it cannot be '
+                          'saved over. Refresh to try again.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : _round.isEmpty
                   ? const Center(
                       child: Padding(
                         padding: EdgeInsets.all(16),
@@ -427,7 +455,7 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
         Padding(
           padding: const EdgeInsets.all(12),
           child: FilledButton.icon(
-            onPressed: _routeId == null || _saving || !_canAssign ? null : _save,
+            onPressed: _saving || !_canAssign || !_roundIsLoaded ? null : _save,
             icon: const Icon(Icons.save_outlined),
             label: Text(_saving ? 'Saving...' : 'Save round and order'),
           ),

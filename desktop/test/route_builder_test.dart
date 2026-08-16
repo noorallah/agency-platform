@@ -73,7 +73,7 @@ Json _outletJson({
     };
 
 class _BuilderApi extends ApiClient {
-  _BuilderApi({this.outlets = const <Json>[]})
+  _BuilderApi({this.outlets = const <Json>[], this.failRoundLoad = false})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -82,6 +82,9 @@ class _BuilderApi extends ApiClient {
         );
 
   final List<Json> outlets;
+
+  /// When set, the 500-row read that fills the round panel throws.
+  final bool failRoundLoad;
 
   final List<Json> queries = <Json>[];
   List<TerritoryCustomerAssignmentRecord>? saved;
@@ -114,6 +117,9 @@ class _BuilderApi extends ApiClient {
     String city = '',
     bool unassignedOnly = false,
   }) async {
+    if (failRoundLoad && pageSize == 500) {
+      throw const ApiException('The round could not be read.');
+    }
     queries.add(<String, dynamic>{
       'territory_id': territoryId,
       'search': search,
@@ -271,5 +277,32 @@ void main() {
     );
     expect(save.onPressed, isNull);
     expect(find.textContaining('cannot assign customers'), findsOneWidget);
+  });
+
+  testWidgets('a round that could not be read cannot be saved over',
+      (tester) async {
+    // Saving replaces the round with the panel, so the panel has to be the
+    // truth about the selected route. If the read fails it holds nothing --
+    // and it used to hold the *previous* route's shops, which one Save would
+    // have written straight onto this one.
+    final api = _BuilderApi(
+      outlets: <Json>[_outletJson(id: 'c1', code: 'C1')],
+      failRoundLoad: true,
+    );
+    await _pump(tester, api);
+    await _pickRoute(tester);
+
+    expect(
+      find.text(
+        'This round could not be read, so it cannot be saved over. '
+        'Refresh to try again.',
+      ),
+      findsOneWidget,
+    );
+    final FilledButton save = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Save round and order'),
+    );
+    expect(save.onPressed, isNull);
+    expect(api.saved, isNull);
   });
 }

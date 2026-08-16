@@ -207,6 +207,13 @@ class TerritoryCustomerAssignmentRecord {
         isPotential: json['is_potential'] == true,
       );
 
+  /// Deliberately without `is_primary`.
+  ///
+  /// The server treats an absent flag as "leave it alone", which is what keeps
+  /// a re-save from demoting the round somebody chose as primary — and the
+  /// primary round is the one a sale is filed under. Sending it back would
+  /// also collide with the one-primary-per-customer key the moment a shop is
+  /// put on a second round, which is exactly what the Route Builder does.
   Json toJson() => <String, dynamic>{
         'customer_id': customerId,
         'visit_sequence': visitSequence,
