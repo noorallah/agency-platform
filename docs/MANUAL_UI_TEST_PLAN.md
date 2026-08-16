@@ -5,7 +5,7 @@ Written to exercise the things automated tests cannot: a human switching firms,
 two machines pointing at one server, and the behaviour a low-specification
 Windows box actually gives you.
 
-Every case is written from the code as it stands on 2026-08-15. Where a case
+Every case is written from the code as it stands on 2026-08-16. Where a case
 covers something **not yet built** it says so and is not executable — those are
 drafted so the feature arrives with its tests rather than after them.
 
@@ -357,6 +357,69 @@ never apply. Every branch and warehouse in the demo carried no type.
 | 8.71 | The choice is saved | Pick a type, save, reopen the record | The type is still selected. Set it back to **None**, save, reopen — it is cleared, not left on the old value |
 | 8.72 | A firm with no types can still save | Delete or ignore all types, then create a branch | The dropdown says "None defined — add one under Branch Types" and the branch saves. A type is optional; being unable to classify must never block creating a branch |
 
+### 8.73–8.79 A branch or warehouse can say where it is — and keeps it
+
+Built on 2026-08-16. `branches` and `warehouses` carry six geography keys and
+two street lines and **no free-text city at all**, so the masters are the only
+way to record a place — and no screen ever set one. Worse, the update dumped
+its whole write model and assigned every field, while the form hardcoded
+`is_default: false`, `gst_registration: false` and all ten warehouse capability
+flags. **One rename cleared the address, the city, the default flag and the GST
+registration.**
+
+8.75 is the case that matters. Run it on a record you have just given an
+address to, not on a blank one, or it passes for the wrong reason.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.73 | The address form is there | Masters → Branches → edit a branch | An **Address** section: two street lines and a Country → State → District → City → Pin code → Locality ladder. Same on the warehouse form |
+| 8.74 | The place is saved and comes back | Fill the ladder down to a pin code, save, reopen | Every rung is still chosen. Each rung stays disabled until its parent is picked, and changing the City clears Pin code and Locality — anything below a changed rung stops meaning anything |
+| 8.75 | **A rename keeps the address** | Give a branch an address, tick **Default branch** and **GST registered**, save. Now change only its **name** and save again. Reopen | Address, place, Default and GST are all exactly as they were. Until this was fixed the rename cleared every one of them |
+| 8.76 | The warehouse keeps its capabilities | Tick **Cold storage**, **Hazardous storage** and **Loading dock** on a warehouse, save, then rename it and reopen | All three still ticked. Ten flags were reset by every save |
+| 8.77 | A new warehouse starts sensibly | Masters → Warehouses → **New** | **Receiving area** and **Dispatch area** are ticked, nothing else. Those two were the only honest part of the old hardcoding |
+| 8.78 | Clearing really clears | Empty **Address line 2** on a record that has one, save, reopen | Line 2 is empty and **line 1 is untouched**. Absent means leave alone; sending a field empty means clear it, and the two must stay different |
+| 8.79 | The taller dialogs still fit | Run at 1366×768 and open both forms | They scroll internally. No clipped content, no overflow stripe. The address ladder made both taller than the screen leaves room for |
+
+### 8.90–8.94 A vendor save keeps what it cannot show
+
+Built on 2026-08-16. The vendor dialog sent all six child collections as empty
+lists and the API replaces rather than merges, so correcting a phone number
+destroyed the vendor's addresses, contacts, bank accounts, tax details,
+attachments and notes. One seeded vendor had already lost its address that way.
+
+**Run 8.90 on a vendor that has contacts and bank details**, not a fresh one.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.90 | **An edit keeps the other tabs** | Open a vendor with contacts and banking, change its **name** only, save, reopen and look at every tab | Contacts, Banking, Tax, Attachments and Notes all still there. This is the defect |
+| 8.91 | A vendor address can name its city | Vendors → edit → **Addresses** → add or edit an address, choose a place from the ladder, save, reopen | The place comes back. `vendor_addresses` has no text city column at all, so this is the only way to say where a vendor is |
+| 8.92 | Primary is exclusive | Add a second address and tick **Primary** on it | The first one unticks itself. The form applies the rule rather than letting the save be refused for it |
+| 8.93 | An existing address keeps its identity | Edit an existing address's street line and save | It is the same row updated, not a new one — check the address count did not grow |
+| 8.94 | A firm with no Places can still save | Use a firm whose geography masters are empty | The dropdowns are empty with a hint pointing at Sales → Places, **and the vendor still saves**. Reference data nobody has filled in must not block a write |
+
+### 8.100–8.109 Territory, routes and beat plans
+
+Built across 2026-08-15/16 (PR #86) and never given manual cases until now. See
+`docs/TERRITORY_FRAMEWORK.md` for what the pieces mean. Run these on `WHOLE01`,
+whose seeded layout is `WHOLE01C02→S1`, `WHOLE01C03→N1`, `OB-REV2→N1`,
+`WHOLE01C01→N2`.
+
+**Restore anything you change.** These screens replace whole lists rather than
+merging, so a test left half-finished looks exactly like a defect next time.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.100 | A round can be defined | Sales → Territories → **New**, give it a route type and a parent | It is created and appears under its parent. A node becomes a *route* by carrying a route type |
+| 8.101 | Shops go on the round in an order | Open a route, assign customers, drag one stop above another, save, reopen | The order held. Dragging used to answer 409: the stop-number key is checked per statement, so a swap collided until the numbers being moved are released first |
+| 8.102 | **A failed read cannot overwrite the round** | Open a route with shops, then trigger a read failure (stop the backend, click another route, restart) | The pane is **empty**, not showing the previous route's shops, and Save is refused until it has provably read the route on screen. `PUT /{id}/customers` replaces the whole list, so the pane *is* the record |
+| 8.103 | A shop's stop number survives a save that says nothing about order | Re-save a route without touching the order | The sequence is unchanged. Only rows actually moving are renumbered |
+| 8.104 | The working days decide the call | Give a route working days of Mon only, point a Tuesday beat plan at it, open the call list for that Tuesday | It does **not** occur, and it says why. Working days were recorded and read only to display themselves back |
+| 8.105 | The effective window is judged on the document's date | Set a route's Runs until to yesterday, then tag a document dated today with it | Refused. Back-date the document inside the window and it is accepted |
+| 8.106 | A call list for a date | Sales → Territories → **Call list**, pick a date | The shops the plan calls that day, in stop order, naming the route and the salesperson |
+| 8.107 | Assign by area | Route Builder → search by pin code or street, select shops, assign to a route, order them | The selection assigns and the order sticks. This is the screen for building a round from geography rather than from a list |
+| 8.108 | The hierarchy settings are enforced | Turn on each of the four settings (multi-route per salesman, multi-salesman per route, leaf-only customers, max nodes per parent) and breach each in turn | Each refusal names the rule it broke. All four were stored and checked nowhere |
+| 8.109 | A customer shows the rounds that call them | Open a customer who is on two routes | Both routes listed with this customer's stop number on each. Exactly one is primary — see §12 |
+
 ### 8.60–8.63 Sub-tabs load their own data
 
 Reported from testing on 2026-08-15 and fixed the same day. Every module whose
@@ -529,6 +592,18 @@ Give this section to anyone testing for the first time.
 - **The same shop appearing on two routes** is expected. A distributor calls one
   outlet on a sales beat and a collection round; only one of them is primary,
   and that is the one a sale is filed under.
+- **A place dropdown reading "Currently set (not listed)"** is the record
+  pointing at a place that is no longer offered — retired, or on a rung whose
+  parent has changed. It is kept deliberately: dropping it would make the form
+  save as blank and quietly lose a value nobody could see. Pick a new place, or
+  leave it alone.
+- **A place dropdown that is empty with a hint about Sales → Places** means the
+  firm's geography masters have nothing at that rung, not that the form is
+  broken. The record must still save — reference data nobody has filled in is a
+  configuration gap, not a refusal.
+- **A rung that will not open until the one above it is chosen** is intended.
+  The list is loaded per parent; a flat list of every locality in the country is
+  not a dropdown anybody can use.
 
 ---
 

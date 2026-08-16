@@ -149,13 +149,19 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> Branch:
-        """Replace a branch, demoting any previous default."""
+        """Update a branch, demoting any previous default.
+
+        Only the fields the caller sent are applied; the rest keep what they
+        hold.
+        """
         row = self.get_branch(branch_id, firm_scope=firm_scope)
         self._assert_unique_branch_code(row.firm_id, data.code, excluding_id=row.id)
         before: dict[str, object] = {"code": row.code, "status": row.status}
-        values = self._branch_values(data)
+        values = self._branch_values(data, partial=True)
         self._demote_other_default_branches(
-            row.firm_id, is_default=bool(values["is_default"]), exclude_id=row.id
+            row.firm_id,
+            is_default=bool(values.get("is_default", row.is_default)),
+            exclude_id=row.id,
         )
         for field, value in values.items():
             setattr(row, field, value)
@@ -432,14 +438,20 @@ class BranchWarehouseService:
         firm_scope: UUID | None,
         actor_id: UUID,
     ) -> Warehouse:
-        """Replace a warehouse, demoting any previous default."""
+        """Update a warehouse, demoting any previous default.
+
+        Only the fields the caller sent are applied; the rest keep what they
+        hold.
+        """
         row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
         self._assert_unique_warehouse_code(row.firm_id, data.code, excluding_id=row.id)
         self.get_branch(data.branch_id, firm_scope=row.firm_id)
         before: dict[str, object] = {"code": row.code, "status": row.status}
-        values = self._warehouse_values(data)
+        values = self._warehouse_values(data, partial=True)
         self._demote_other_default_warehouses(
-            data.branch_id, is_default=bool(values["is_default"]), exclude_id=row.id
+            data.branch_id,
+            is_default=bool(values.get("is_default", row.is_default)),
+            exclude_id=row.id,
         )
         for field, value in values.items():
             setattr(row, field, value)
@@ -1017,19 +1029,39 @@ class BranchWarehouseService:
             raise ConflictError(message) from error
 
     @staticmethod
-    def _branch_values(data: BranchCreate | BranchUpdate) -> dict[str, object]:
-        """Flatten a branch payload into column values."""
-        values = data.model_dump(mode="python")
-        values["status"] = data.status.value
-        values["display_name"] = data.display_name or data.name
+    def _branch_values(
+        data: BranchCreate | BranchUpdate, *, partial: bool = False
+    ) -> dict[str, object]:
+        """Flatten a branch payload into column values.
+
+        On an update `partial` keeps the fields the caller never mentioned out
+        of the result, so they are left alone rather than reset to their
+        defaults -- see `_warehouse_values` for why that mattered.
+        """
+        values = data.model_dump(mode="python", exclude_unset=partial)
+        if "status" in values:
+            values["status"] = data.status.value
+        if "display_name" in values or "name" in values:
+            values["display_name"] = data.display_name or data.name
         return values
 
     @staticmethod
-    def _warehouse_values(data: WarehouseCreate | WarehouseUpdate) -> dict[str, object]:
-        """Flatten a warehouse payload into column values."""
-        values = data.model_dump(mode="python")
-        values["status"] = data.status.value
-        values["display_name"] = data.display_name or data.name
+    def _warehouse_values(
+        data: WarehouseCreate | WarehouseUpdate, *, partial: bool = False
+    ) -> dict[str, object]:
+        """Flatten a warehouse payload into column values.
+
+        Every field on the write schema carries a default, so a full dump turns
+        an omission into an instruction: one rename from a client that does not
+        edit addresses cleared the branch's street lines, its city, its default
+        flag and its GST registration. `partial` dumps only what was actually
+        sent, so absent means leave alone and an explicit `null` still clears.
+        """
+        values = data.model_dump(mode="python", exclude_unset=partial)
+        if "status" in values:
+            values["status"] = data.status.value
+        if "display_name" in values or "name" in values:
+            values["display_name"] = data.display_name or data.name
         return values
 
     @staticmethod

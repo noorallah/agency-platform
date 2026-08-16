@@ -471,12 +471,12 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `customers` | 17 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 0 | 0 | `test_global_search` | typed |
-| `vendors` | 23 | 0 | 0 | `test_vendor_management` | typed |
+| `vendors` | 23 | 0 | 0 | `test_vendor_management`, `test_vendor_collections_survive_an_edit` | typed |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 0 | 0 | `test_goods_receipt` | typed |
 | `inventory` | 29 | 0 | 0 | `test_inventory_foundation`, `test_inventory_transaction_vocabulary` | typed |
-| `branches` | 39 | 0 | 0 | `test_branch_warehouse_management` | typed |
+| `branches` | 39 | 0 | 0 | `test_branch_warehouse_management`, `test_branch_warehouse_partial_update` | typed |
 | `uom` | 28 | 0 | 0 | `test_uom_packaging_framework` | typed |
 | `sales_order` | 17 | 0 | 0 | `test_sales_order_module` | typed |
 | `sales_invoice` | 16 | 0 | 0 | `test_sales_invoice_module` | typed |
