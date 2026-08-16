@@ -316,4 +316,33 @@ void main() {
     expect(api.requestedPageSizes, isNotEmpty);
     expect(api.requestedPageSizes.every((size) => size <= 100), isTrue);
   });
+
+  testWidgets('a stop can be dragged into a new position', (tester) async {
+    final api = _DetailApi(outlets: <Json>[
+      _outlet(id: 'c1', code: 'C1', onThisRoute: true, sequence: 1),
+      _outlet(id: 'c2', code: 'C2', onThisRoute: true, sequence: 2),
+      _outlet(id: 'c3', code: 'C3', onThisRoute: true, sequence: 3),
+    ]);
+    await _pump(tester, api);
+    await _openCustomers(tester);
+
+    // Reordering needs a stream of move events, not one jump: a single
+    // `drag` is delivered as down/move/up and the sortable never starts.
+    final Finder handle = find.byIcon(Icons.drag_handle).first;
+    final TestGesture gesture =
+        await tester.startGesture(tester.getCenter(handle));
+    await tester.pump(const Duration(milliseconds: 200));
+    for (int step = 0; step < 10; step++) {
+      await gesture.moveBy(const Offset(0, 12));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Save round and order'));
+    await tester.pumpAndSettle();
+
+    expect(api.saved, isNotNull);
+    expect(api.saved!.first.customerId, isNot('c1'));
+  });
 }

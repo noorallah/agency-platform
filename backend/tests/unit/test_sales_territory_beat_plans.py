@@ -652,3 +652,39 @@ def test_two_shops_cannot_share_a_stop_number() -> None:
             firm_scope=firm.id,
             actor_id=actor,
         )
+
+
+def test_two_stops_can_swap_places() -> None:
+    """Reordering a round is the commonest thing anybody does to one.
+
+    `UQ_territory_customer_assignments_sequence_active` is checked per
+    statement, so reassigning row by row collided the moment two shops
+    exchanged stop numbers -- dragging one above another answered "the
+    operation violates uniqueness constraints".
+    """
+    session = _session_factory()()
+    firm = _firm(session, "SWAP1")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    first = _customer(session, firm.id, "C1")
+    second = _customer(session, firm.id, "C2")
+
+    def place(order: list[UUID]) -> list[UUID]:
+        service.set_customers(
+            route,
+            TerritoryAssignCustomersRequest(
+                entries=[
+                    TerritoryCustomerAssignmentInput(
+                        customer_id=customer_id, visit_sequence=index + 1
+                    )
+                    for index, customer_id in enumerate(order)
+                ]
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+        return [row.customer_id for row in service.customers(route, firm_scope=firm.id)]
+
+    assert place([first.id, second.id]) == [first.id, second.id]
+    assert place([second.id, first.id]) == [second.id, first.id]

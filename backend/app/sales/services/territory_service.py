@@ -1383,6 +1383,26 @@ class SalesTerritoryService:
         }
         requested = set(customer_ids)
         entry_by_customer = {item.customer_id: item for item in entries}
+        # Release every stop number on this round before handing out the new
+        # ones. `UQ_territory_customer_assignments_sequence_active` is checked
+        # per statement, not at commit, so simply reassigning row by row
+        # collides the moment two shops swap places -- which is precisely what
+        # dragging one above another does, and the commonest thing anybody does
+        # to a round. A partial index cannot be declared DEFERRABLE, so the
+        # write clears first and flushes instead.
+        for customer_id, placed in existing.items():
+            if placed.visit_sequence is None:
+                continue
+            entry = entry_by_customer.get(customer_id)
+            # Only the numbers actually about to move are released. A re-save
+            # that says nothing about the order -- the plain `customer_ids`
+            # shape the picker sends -- must leave every sequence exactly where
+            # it was, which is the whole point of that shape.
+            if customer_id not in requested or (
+                entry is not None and entry.visit_sequence is not None
+            ):
+                placed.visit_sequence = None
+        self._session.flush()
         for customer_id in requested:
             row = existing.get(customer_id)
             entry = entry_by_customer.get(customer_id)
