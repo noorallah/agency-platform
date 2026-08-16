@@ -467,7 +467,7 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `firms` | 6 | 0 | 0 | `test_firms_module` | typed |
 | `document_framework` | 15 | 0 | 0 | `test_document_framework` | widgets only |
 | `business` | 28 | 0 | 0 | `test_business_profile_framework`, `test_business_profile_gating` | typed |
-| `sales` (territory) | 62 | 0 | 0 | seven files, 71 tests — see `docs/TERRITORY_FRAMEWORK.md` | typed |
+| `sales` (territory) | 63 | 0 | 0 | eight files, 84 tests — see `docs/TERRITORY_FRAMEWORK.md` | typed |
 | `customers` | 17 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 0 | 0 | `test_global_search` | typed |

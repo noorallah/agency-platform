@@ -35,7 +35,7 @@ geo_countries → geo_states → geo_districts → geo_cities
 address_masters                reusable multi-address storage (no client yet)
 ```
 
-Seventeen tables, one router (`app/sales/api/router.py`, 62 endpoints), one
+Seventeen tables, one router (`app/sales/api/router.py`, 63 endpoints), one
 service (`app/sales/services/territory_service.py`) plus the small
 `scope_resolution.py` that five other modules call.
 
@@ -184,8 +184,12 @@ and dispatched in `ui/desktop_shell.dart`:
 | **Route Types** | the kinds of round, as a `ResourceDefinition` |
 | **Beat Plans** | when each route runs |
 | **Call Lists** | who is called on a date, read-only |
+| **Coverage** | how much ground each salesperson carries, and who carries none |
 | **Route Builder** | lay out a beat by pin code or street, for outlets you do not know by name |
 | **Places** | the geography ladder; read-only unless platform admin |
+
+A customer's own rounds appear on the **Routes** tab of the customer dialog:
+the relationship used to be one-directional, listable only from the territory.
 
 `TerritoryDetailDialog` draws a round **one stop at a time**: clicking an outlet
 appends it as the next stop, first is START and last is END, and clicking one
@@ -206,7 +210,7 @@ Two client rules that are not obvious and have both already caused defects:
 
 ## Tests
 
-Backend, all under `backend/tests/unit/` — **71 tests across seven files**:
+Backend, all under `backend/tests/unit/` — **84 tests across eight files**:
 
 | File | Covers |
 | --- | --- |
@@ -217,8 +221,9 @@ Backend, all under `backend/tests/unit/` — **71 tests across seven files**:
 | `test_sales_assignable_customers` | search by pin code and street; unassigned-only |
 | `test_sales_geography_masters` | edit, retire, the in-use guard, the audit trail |
 | `test_sales_territory_bulk_operations` | the four bulk operations and their one transaction |
+| `test_sales_territory_policies` | the four hierarchy settings, the prospect flag, the import transaction, a customer's rounds |
 
-Desktop, in `desktop/test/` — **53 widget tests across seven files**, one per
+Desktop, in `desktop/test/` — **59 widget tests across eight files**, one per
 screen plus `territory_route_test` for the editor.
 
 ## Migrations
@@ -233,14 +238,60 @@ screen plus `territory_route_test` for the editor.
 All four touch **firm-owned** tables. Run `scripts/migrate_all_stores.py --yes`,
 never a bare `alembic upgrade head`.
 
-## Known gaps
+## Where this stands
 
-- **Visit execution.** Call Lists says who *should* be called; nothing records
-  who was, with an outcome or a linked order. A new subsystem, deliberately out
-  of scope so far.
-- **Import.** Export works; the Import toolbar action is a no-op.
-- **`/coverage/salesmen`** exists and no screen calls it.
-- **Two ways to retire a geography row** — `is_active` and soft delete — and the
-  lists filter only the second, so an inactive country still appears.
-- **`salesman` naming** persists in the model, the API and the permission codes
-  while the UI says "salespeople".
+Measured against the SFA/DMS systems distributors actually run — Bizom,
+FieldAssist, Botree, SAP Route-to-Market, Salesforce Maps:
+
+| Capability | Us | Those systems |
+| --- | --- | --- |
+| Configurable territory hierarchy | ✅ | ✅ |
+| Route / beat master, route types | ✅ | ✅ |
+| Outlet→beat mapping with call sequence | ✅ | ✅ |
+| Beat plan (PJP): weekly / fortnightly / monthly | ✅ | ✅ + cyclic day-N |
+| Call list for a date | ✅ | ✅ |
+| Sales tagged to territory / route / salesman | ✅ | ✅ |
+| Bulk reorganisation, CSV import | ✅ | ✅ |
+| Salesman coverage | ✅ | ✅ |
+| Outlet classification driving frequency | ❌ | ✅ |
+| Beat KPIs — coverage %, TC/PC, adherence | ❌ | ✅ core |
+| Visit execution — check-in, outcome, order at stop | ❌ | ✅ core |
+| Geocoding, map view, route optimisation | ❌ planned | ✅ |
+| Targets vs achievement by route | ❌ | ✅ |
+| Mobile field client | ❌ | ✅ |
+
+**The planning half is competitive; the execution half does not exist.** This is
+a route *planner*, not a field-force system, and the absences below are
+decisions rather than oversights.
+
+## Not built, in dependency order
+
+**Addresses must become structured before coordinates can help.**
+`customer_addresses.city`, `.area` and `.postal_code` are plain strings with no
+link to the geography masters, so "Parrys" and "Parry's Corner" never group and
+the Route Builder's pin-code search is a string match. **No table stores a
+latitude or longitude.** When they arrive they belong on the *address*, which
+means first deciding what `address_masters` is for — a complete multi-address
+framework with two endpoints and no client. Coordinates on a free-text address
+would give a map full of points nobody can group by locality.
+
+**Outlet classification** — A/B/C class and channel (GT / MT / HoReCa) on the
+customer, with visit frequency derived from class. `customer_type` is a broad
+type, not a segmentation. It is what would make the KPIs below mean something.
+
+**Beat KPIs** — coverage %, Total Calls / Productive Calls, strike rate, lines
+per call, drop size, beat adherence. Every SFA reports these; most need visit
+execution to have real numbers rather than planned ones.
+
+**Visit execution** — check-in / check-out per stop, outcome,
+reason-for-no-order, order raised at the stop. The largest gap, and the thing
+that turns a plan into a field-force system. Wants a mobile client.
+
+**Map view and route optimisation**, then **targets vs achievement** by
+territory, route and salesman.
+
+**Smaller** — cyclic day-N beat plans; a distributor dimension on a route; leave
+and holiday rescheduling; territory ownership history; the `salesman` →
+`salesperson` rename across model, API and permission codes; geography's two
+competing retire flags (`is_active` and soft delete, where the lists filter only
+the second, so an inactive country still appears).
