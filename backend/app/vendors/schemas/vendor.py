@@ -177,14 +177,24 @@ class VendorWrite(VendorSchema):
     mobile: str | None = Field(default=None, max_length=20)
     remarks: str | None = None
     business_attributes: dict[str, object] = Field(default_factory=dict)
-    contacts: list[VendorContactInput] = Field(default_factory=list, max_length=50)
-    addresses: list[VendorAddressInput] = Field(default_factory=list, max_length=50)
-    banking: list[VendorBankInput] = Field(default_factory=list, max_length=20)
-    tax: list[VendorTaxInput] = Field(default_factory=list, max_length=20)
-    attachments: list[VendorAttachmentInput] = Field(
-        default_factory=list, max_length=50
-    )
-    notes: list[VendorNoteInput] = Field(default_factory=list, max_length=200)
+    #: The six child collections. **`None` means "leave them alone"; `[]` means
+    #: "remove them all".**
+    #:
+    #: They used to default to an empty list, and an update replaces rather
+    #: than merges -- so a client that did not manage a collection wiped it.
+    #: The desktop vendor dialog sent all six empty on every save, which
+    #: destroyed the vendor's addresses, contacts, bank accounts, tax details,
+    #: attachments and notes each time somebody corrected a phone number.
+    #:
+    #: Distinguishing absent from empty is the whole point of the `| None`: a
+    #: caller that really wants to clear a collection still can, by sending an
+    #: explicit `[]`.
+    contacts: list[VendorContactInput] | None = Field(default=None, max_length=50)
+    addresses: list[VendorAddressInput] | None = Field(default=None, max_length=50)
+    banking: list[VendorBankInput] | None = Field(default=None, max_length=20)
+    tax: list[VendorTaxInput] | None = Field(default=None, max_length=20)
+    attachments: list[VendorAttachmentInput] | None = Field(default=None, max_length=50)
+    notes: list[VendorNoteInput] | None = Field(default=None, max_length=200)
 
     @field_validator(
         "code",
@@ -232,13 +242,15 @@ class VendorWrite(VendorSchema):
     @model_validator(mode="after")
     def validate_nested_defaults(self) -> "VendorWrite":
         """Validate nested defaults."""
-        if sum(contact.is_primary for contact in self.contacts) > 1:
+        # A collection the caller omitted is not being changed, so there is
+        # nothing here to validate about it.
+        if sum(contact.is_primary for contact in self.contacts or []) > 1:
             raise ValueError("Only one primary contact is allowed.")
-        if sum(address.is_primary for address in self.addresses) > 1:
+        if sum(address.is_primary for address in self.addresses or []) > 1:
             raise ValueError("Only one primary address is allowed.")
-        if sum(account.is_primary for account in self.banking) > 1:
+        if sum(account.is_primary for account in self.banking or []) > 1:
             raise ValueError("Only one primary bank account is allowed.")
-        if sum(detail.is_primary for detail in self.tax) > 1:
+        if sum(detail.is_primary for detail in self.tax or []) > 1:
             raise ValueError("Only one primary tax detail row is allowed.")
         return self
 

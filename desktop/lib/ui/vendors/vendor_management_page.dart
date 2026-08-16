@@ -479,7 +479,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     const _PlaceholderTab(
                         label: 'Contacts are managed in API payload.'),
                     const _PlaceholderTab(
-                        label: 'Address framework is geo-master ready.'),
+                        label: 'Addresses are kept as they are by this dialog; '
+                            'editing them here is not built yet.'),
                     const _PlaceholderTab(
                         label: 'Bank details are supported with primary flag.'),
                     const _PlaceholderTab(
@@ -591,12 +592,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'mobile': _mobile.text.trim(),
         'remarks': _remarks.text.trim(),
         'business_attributes': const <String, dynamic>{},
-        'contacts': const <Json>[],
-        'addresses': const <Json>[],
-        'banking': const <Json>[],
-        'tax': const <Json>[],
-        'attachments': const <Json>[],
-        'notes': const <Json>[],
+        // The six child collections are deliberately absent, not empty. This
+        // dialog does not edit them — the tabs are placeholders — and the API
+        // replaces rather than merges, so sending `[]` destroyed the vendor's
+        // addresses, contacts, bank accounts, tax details, attachments and
+        // notes every time somebody corrected a phone number. Omitting them
+        // means "leave them alone".
       };
 }
 

@@ -110,12 +110,22 @@ class VendorService:
             setattr(vendor, field, value)
         vendor.display_name = data.display_name or data.name
         vendor.updated_by = actor_id
-        self._reconcile_contacts(vendor, data.contacts, actor_id)
-        self._reconcile_addresses(vendor, data.addresses, actor_id)
-        self._reconcile_banks(vendor, data.banking, actor_id)
-        self._reconcile_tax(vendor, data.tax, actor_id)
-        self._reconcile_attachments(vendor, data.attachments, actor_id)
-        self._reconcile_notes(vendor, data.notes, actor_id)
+        # Only the collections the caller actually sent. An absent one is left
+        # exactly as it is, because this update replaces rather than merges and
+        # a client that does not manage a collection must not be able to erase
+        # it by omission.
+        if data.contacts is not None:
+            self._reconcile_contacts(vendor, data.contacts, actor_id)
+        if data.addresses is not None:
+            self._reconcile_addresses(vendor, data.addresses, actor_id)
+        if data.banking is not None:
+            self._reconcile_banks(vendor, data.banking, actor_id)
+        if data.tax is not None:
+            self._reconcile_tax(vendor, data.tax, actor_id)
+        if data.attachments is not None:
+            self._reconcile_attachments(vendor, data.attachments, actor_id)
+        if data.notes is not None:
+            self._reconcile_notes(vendor, data.notes, actor_id)
         record_audit(
             self._session,
             action="vendor.updated",
@@ -503,16 +513,22 @@ class VendorService:
             created_by=actor_id,
             updated_by=actor_id,
         )
-        vendor.contacts = [self._new_contact(item, actor_id) for item in data.contacts]
+        # On create an omitted collection and an empty one mean the same
+        # thing: a vendor that does not exist yet has nothing to preserve.
+        vendor.contacts = [
+            self._new_contact(item, actor_id) for item in data.contacts or []
+        ]
         vendor.addresses = [
-            self._new_address(item, actor_id) for item in data.addresses
+            self._new_address(item, actor_id) for item in data.addresses or []
         ]
-        vendor.bank_accounts = [self._new_bank(item, actor_id) for item in data.banking]
-        vendor.tax_details = [self._new_tax(item, actor_id) for item in data.tax]
+        vendor.bank_accounts = [
+            self._new_bank(item, actor_id) for item in data.banking or []
+        ]
+        vendor.tax_details = [self._new_tax(item, actor_id) for item in data.tax or []]
         vendor.attachments = [
-            self._new_attachment(item, actor_id) for item in data.attachments
+            self._new_attachment(item, actor_id) for item in data.attachments or []
         ]
-        vendor.notes = [self._new_note(item, actor_id) for item in data.notes]
+        vendor.notes = [self._new_note(item, actor_id) for item in data.notes or []]
         self._repository.add(vendor)
         self._repository.flush()
         record_audit(
@@ -569,7 +585,7 @@ class VendorService:
         """
         licences = {
             f"tax[{index}].drug_license": row.drug_license
-            for index, row in enumerate(data.tax)
+            for index, row in enumerate(data.tax or [])
         }
         assert_feature_fields(
             self._session, firm_id, feature="DRUG_LICENSE", values=licences
