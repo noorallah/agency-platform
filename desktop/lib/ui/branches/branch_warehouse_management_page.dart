@@ -1143,7 +1143,7 @@ class _BranchDialogState extends State<_BranchDialog> {
                 _field(_line2, 'Address line 2'),
                 const SizedBox(height: 12),
                 GeoAreaPicker(
-                  api: widget.api,
+                  loadPlaces: widget.api.geoPlaces,
                   value: _place,
                   onChanged: (value) => setState(() => _place = value),
                 ),
@@ -1448,7 +1448,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                 _field(_line2, 'Address line 2'),
                 const SizedBox(height: 12),
                 GeoAreaPicker(
-                  api: widget.api,
+                  loadPlaces: widget.api.geoPlaces,
                   value: _place,
                   onChanged: (value) => setState(() => _place = value),
                 ),
