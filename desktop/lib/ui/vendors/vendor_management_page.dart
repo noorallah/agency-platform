@@ -5,6 +5,7 @@ import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
@@ -103,7 +104,8 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     if (!creating && !_canEdit) return;
     final Json? payload = await showDialog<Json>(
       context: context,
-      builder: (context) => _VendorEditorDialog(vendor: vendor),
+      builder: (context) =>
+          _VendorEditorDialog(api: widget.api, vendor: vendor),
     );
     if (payload == null || !mounted) return;
     try {
@@ -390,8 +392,10 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
 }
 
 class _VendorEditorDialog extends StatefulWidget {
-  const _VendorEditorDialog({this.vendor});
+  const _VendorEditorDialog({required this.api, this.vendor});
 
+  /// Needed for the geography ladder behind an address.
+  final ApiClient api;
   final Vendor? vendor;
 
   @override
@@ -401,6 +405,17 @@ class _VendorEditorDialog extends StatefulWidget {
 class _VendorEditorDialogState extends State<_VendorEditorDialog>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs = TabController(length: 6, vsync: this);
+
+  /// The vendor's addresses, edited in place.
+  ///
+  /// `vendor_addresses` has no text city, state or postal code at all — the
+  /// geography masters are the only way to say where a vendor is, and no
+  /// screen ever set those ids, so every seeded vendor address is two lines
+  /// and nothing else.
+  late final List<_EditableAddress> _addresses = <_EditableAddress>[
+    for (final VendorAddress row in widget.vendor?.addresses ?? const [])
+      _EditableAddress.from(row),
+  ];
   late final TextEditingController _code =
       TextEditingController(text: widget.vendor?.code ?? '');
   late final TextEditingController _name =
@@ -478,8 +493,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     _generalTab(),
                     const _PlaceholderTab(
                         label: 'Contacts are managed in API payload.'),
-                    const _PlaceholderTab(
-                        label: 'Address framework is geo-master ready.'),
+                    _addressTab(),
                     const _PlaceholderTab(
                         label: 'Bank details are supported with primary flag.'),
                     const _PlaceholderTab(
@@ -575,6 +589,140 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         decoration: InputDecoration(labelText: label, helperText: helper),
       );
 
+  /// Where the vendor is. The one form that fills the geography keys.
+  Widget _addressTab() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _addresses.isEmpty
+                        ? 'No addresses yet'
+                        : '${_addresses.length} address(es)',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => setState(
+                    () => _addresses.add(_EditableAddress.empty()),
+                  ),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add address'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: _addresses.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'A vendor address records the street lines and the '
+                        'place they sit in, chosen from Sales \u2192 Places.',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _addresses.length,
+                    itemBuilder: (context, index) {
+                      final _EditableAddress row = _addresses[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  SizedBox(
+                                    width: 180,
+                                    child: DropdownButtonFormField<String>(
+                                      initialValue: row.addressType,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Type',
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                            value: 'BILLING',
+                                            child: Text('Billing')),
+                                        DropdownMenuItem(
+                                            value: 'SHIPPING',
+                                            child: Text('Shipping')),
+                                        DropdownMenuItem(
+                                            value: 'OFFICE',
+                                            child: Text('Office')),
+                                        DropdownMenuItem(
+                                            value: 'WAREHOUSE',
+                                            child: Text('Warehouse')),
+                                      ],
+                                      onChanged: (value) => setState(
+                                        () => row.addressType =
+                                            value ?? 'BILLING',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: CheckboxListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      value: row.isPrimary,
+                                      title: const Text('Primary'),
+                                      // The API allows one primary address, so
+                                      // choosing one here demotes the rest
+                                      // rather than letting the save be
+                                      // refused for a rule the form knows.
+                                      onChanged: (value) => setState(() {
+                                        for (final other in _addresses) {
+                                          other.isPrimary = false;
+                                        }
+                                        row.isPrimary = value ?? false;
+                                      }),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Remove address',
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () => setState(
+                                      () => _addresses.removeAt(index),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              TextField(
+                                controller: row.line1,
+                                decoration: const InputDecoration(
+                                  labelText: 'Address line 1',
+                                ),
+                              ),
+                              TextField(
+                                controller: row.line2,
+                                decoration: const InputDecoration(
+                                  labelText: 'Address line 2',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              GeoAreaPicker(
+                                api: widget.api,
+                                value: row.place,
+                                onChanged: (value) =>
+                                    setState(() => row.place = value),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      );
+
   Json _payload() => {
         'code': _code.text.trim().toUpperCase(),
         'name': _name.text.trim(),
@@ -591,12 +739,13 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'mobile': _mobile.text.trim(),
         'remarks': _remarks.text.trim(),
         'business_attributes': const <String, dynamic>{},
-        'contacts': const <Json>[],
-        'addresses': const <Json>[],
-        'banking': const <Json>[],
-        'tax': const <Json>[],
-        'attachments': const <Json>[],
-        'notes': const <Json>[],
+        // Addresses are edited here, so they are sent. The other five
+        // collections are deliberately **absent**, not empty: this dialog does
+        // not edit them, the API replaces rather than merges, and sending `[]`
+        // destroyed a vendor's contacts, bank accounts, tax details,
+        // attachments and notes every time somebody corrected a phone number.
+        // Omitting them means "leave them alone".
+        'addresses': [for (final row in _addresses) row.toJson()],
       };
 }
 
@@ -613,4 +762,71 @@ class _PlaceholderTab extends StatelessWidget {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
       );
+}
+
+/// One vendor address while it is being edited.
+class _EditableAddress {
+  _EditableAddress({
+    required this.id,
+    required this.addressType,
+    required this.line1,
+    required this.line2,
+    required this.place,
+    required this.isPrimary,
+  });
+
+  factory _EditableAddress.from(VendorAddress row) => _EditableAddress(
+        id: row.id,
+        addressType: row.addressType.isEmpty ? 'BILLING' : row.addressType,
+        line1: TextEditingController(text: row.addressLine1),
+        line2: TextEditingController(text: row.addressLine2),
+        place: <GeoLevel, String>{
+          if (row.countryId.isNotEmpty) GeoLevel.country: row.countryId,
+          if (row.stateId.isNotEmpty) GeoLevel.state: row.stateId,
+          if (row.districtId.isNotEmpty) GeoLevel.district: row.districtId,
+          if (row.cityId.isNotEmpty) GeoLevel.city: row.cityId,
+          if (row.postalCodeId.isNotEmpty)
+            GeoLevel.postalCode: row.postalCodeId,
+          if (row.localityId.isNotEmpty) GeoLevel.locality: row.localityId,
+        },
+        isPrimary: row.isPrimary,
+      );
+
+  factory _EditableAddress.empty() => _EditableAddress(
+        id: '',
+        addressType: 'BILLING',
+        line1: TextEditingController(),
+        line2: TextEditingController(),
+        place: <GeoLevel, String>{},
+        isPrimary: false,
+      );
+
+  /// Empty while the address is new. Sent back so the server reconciles the
+  /// row rather than replacing it, which would lose its history.
+  final String id;
+  String addressType;
+  final TextEditingController line1;
+  final TextEditingController line2;
+  Map<GeoLevel, String> place;
+  bool isPrimary;
+
+  String? _at(GeoLevel level) {
+    final String value = place[level] ?? '';
+    return value.isEmpty ? null : value;
+  }
+
+  Json toJson() => <String, dynamic>{
+        if (id.isNotEmpty) 'id': id,
+        'address_type': addressType,
+        'address_line1': line1.text.trim(),
+        'address_line2':
+            line2.text.trim().isEmpty ? null : line2.text.trim(),
+        'country_id': _at(GeoLevel.country),
+        'state_id': _at(GeoLevel.state),
+        'district_id': _at(GeoLevel.district),
+        'city_id': _at(GeoLevel.city),
+        'postal_code_id': _at(GeoLevel.postalCode),
+        'locality_id': _at(GeoLevel.locality),
+        'is_primary': isPrimary,
+      };
 }
