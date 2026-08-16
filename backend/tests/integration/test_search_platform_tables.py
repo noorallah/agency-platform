@@ -139,7 +139,9 @@ def test_users_are_still_searchable_from_inside_a_firm(
     try:
         page = SearchService(tenant_session).search(
             query=f"Search Probe {suffix}",
-            principal=_principal({"FIRM_VIEW"}),
+            # Firm-scoped, because that is the request shape that breaks: with
+            # no firm the session in hand is the platform store already.
+            principal=_principal({"FIRM_VIEW"}, firm_id=uuid4()),
             category="all",
             page=1,
             page_size=20,

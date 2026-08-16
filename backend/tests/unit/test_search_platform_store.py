@@ -20,8 +20,21 @@ returns.
 
 # ruff: noqa: D103
 
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.database.base import Base
+from app.core.enums import TokenType
+from app.core.security.authorization import Principal
+from app.core.security.jwt import TokenClaims
 from app.core.tenancy.lifecycle import _PLATFORM_TABLES
-from app.search.services.search_service import _DEFINITIONS
+from app.identity.models import Role
+from app.search.services import search_service as module
+from app.search.services.search_service import _DEFINITIONS, SearchService
 
 
 def _table_of(model: type) -> str:
@@ -79,3 +92,81 @@ def test_geography_is_not_platform_owned() -> None:
     for definition in geography:
         assert definition.firm_column is None
         assert not definition.platform_store
+
+
+def _session() -> Session:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(bind=engine, expire_on_commit=False)()
+
+
+def _principal(permissions: set[str], firm_id: object | None) -> Principal:
+    subject = uuid4()
+    return Principal(
+        subject=subject,
+        roles=frozenset(),
+        permissions=frozenset(permissions),
+        claims=TokenClaims(
+            sub=str(subject), type=TokenType.ACCESS, iat=1, exp=4_102_444_800
+        ),
+        firm_id=firm_id,
+    )
+
+
+def test_a_search_with_no_firm_does_not_open_a_second_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no `X-Firm-ID` the session in hand is already the platform store.
+
+    Reaching for `platform_reader()` there opens a real PostgreSQL connection
+    to read a table the caller can see anyway -- which broke the whole unit
+    suite on a machine with no database, CI included. The rule is not "is this
+    entity platform-owned" but "is this session unable to see it".
+    """
+    session = _session()
+    actor = uuid4()
+    session.add(
+        Role(code="OPS_ADMIN", name="Ops Admin", created_by=actor, updated_by=actor)
+    )
+    session.commit()
+
+    def _refuse() -> None:
+        raise AssertionError("opened the platform store for a platform request")
+
+    monkeypatch.setattr(module, "platform_reader", _refuse)
+
+    page = SearchService(session).search(
+        query="Ops",
+        principal=_principal({"ROLE_VIEW"}, firm_id=None),
+        category="organization",
+        page=1,
+        page_size=20,
+    )
+
+    assert [item.entity_type for item in page.results] == ["roles"]
+
+
+def test_a_firm_scoped_search_of_firm_owned_data_stays_on_one_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No platform entity in scope means no platform connection."""
+    session = _session()
+
+    def _refuse() -> None:
+        raise AssertionError("opened the platform store with nothing to read there")
+
+    monkeypatch.setattr(module, "platform_reader", _refuse)
+
+    page = SearchService(session).search(
+        query="anything",
+        principal=_principal({"CUSTOMER_VIEW"}, firm_id=uuid4()),
+        category="masters",
+        page=1,
+        page_size=20,
+    )
+
+    assert page.total == 0

@@ -679,8 +679,14 @@ class SearchService:
             allowed_types = allowed_types.intersection(entity_types)
         per_entity_limit = max(page_size, 20)
         hits: list[SearchResultItem] = []
-        # Opened once and only if a platform-owned entity is actually in
-        # scope, so a search narrowed to customers costs no second connection.
+        # Opened once, and only when it is both needed and unavoidable:
+        #
+        #   * a platform-owned entity has to be in scope -- a search narrowed
+        #     to customers costs no second connection;
+        #   * and the request has to be firm-scoped. With no `X-Firm-ID`,
+        #     `get_db` resolves no tenant and hands over the platform session
+        #     already, so reaching for a second one would open a connection to
+        #     read a table the caller can see anyway.
         with ExitStack() as stack:
             platform: Session | None = None
             for definition in _DEFINITIONS:
@@ -688,7 +694,11 @@ class SearchService:
                     continue
                 if not self._is_accessible(definition, principal):
                     continue
-                if definition.platform_store and platform is None:
+                if (
+                    definition.platform_store
+                    and platform is None
+                    and principal.firm_id is not None
+                ):
                     platform = stack.enter_context(platform_reader())
                 hits.extend(
                     self._search_definition(
@@ -776,11 +786,9 @@ class SearchService:
         # not exist` -- and because one definition failing aborts the whole
         # search, **every** global search from inside a firm answered 503.
         # Fourth occurrence of this shape; see `platform_reader`.
-        reader = platform if definition.platform_store else self._session
-        if reader is None:  # pragma: no cover - guarded by the caller
-            raise RuntimeError(
-                "A platform-owned entity was searched without a platform session."
-            )
+        # `platform` is None when the request carries no firm, and then the
+        # session in hand is the platform store already.
+        reader = platform if definition.platform_store and platform else self._session
         rows = reader.scalars(statement).all()
         return [
             self._to_item(definition=definition, row=row, query=query)
