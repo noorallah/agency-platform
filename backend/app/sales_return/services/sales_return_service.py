@@ -50,6 +50,7 @@ from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_return.models import (
     SalesReturn,
@@ -317,13 +318,20 @@ class SalesReturnService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
         )
+        scope_salesman, scope_territory = self._fill_missing_scope(
+            firm_id=firm_id,
+            customer_id=customer_id,
+            salesman_id=header.get("salesman_id"),
+            territory_id=header.get("territory_id"),
+            on_date=data.return_date,
+        )
         row = SalesReturn(
             firm_id=firm_id,
             customer_id=customer_id,
             branch_id=branch_id,
             warehouse_id=data.warehouse_id,
-            salesman_id=header.get("salesman_id"),
-            territory_id=header.get("territory_id"),
+            salesman_id=scope_salesman,
+            territory_id=scope_territory,
             business_profile_id=data.business_profile_id,
             return_number=return_number,
             return_date=data.return_date,
@@ -405,8 +413,13 @@ class SalesReturnService(TransactionalDocumentService):
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
         row.warehouse_id = data.warehouse_id
-        row.salesman_id = header.get("salesman_id")
-        row.territory_id = header.get("territory_id")
+        row.salesman_id, row.territory_id = self._fill_missing_scope(
+            firm_id=firm_scope,
+            customer_id=row.customer_id,
+            salesman_id=header.get("salesman_id"),
+            territory_id=header.get("territory_id"),
+            on_date=data.return_date,
+        )
         row.business_profile_id = data.business_profile_id
         row.return_date = data.return_date
         row.customer_return_number = (
@@ -1064,6 +1077,33 @@ class SalesReturnService(TransactionalDocumentService):
             self._session.query(model).filter(
                 model.sales_return_id == return_id
             ).delete(synchronize_session=False)
+
+    def _fill_missing_scope(
+        self,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        salesman_id: UUID | None,
+        territory_id: UUID | None,
+        on_date: date,
+    ) -> tuple[UUID | None, UUID | None]:
+        """Derive the territory and salesman this return never inherited.
+
+        A return always cites a source, so normally both arrive from the
+        invoice or delivery note being returned and are kept untouched -- the
+        return belongs where the sale did, whatever round the customer is on
+        now. Only a source that predates scope resolution, and so carries
+        nothing, is filled from the customer's own assignments.
+        """
+        if territory_id is not None and salesman_id is not None:
+            return salesman_id, territory_id
+        derived = resolve_sales_scope(
+            self._session, firm_id=firm_id, customer_id=customer_id, on_date=on_date
+        )
+        return (
+            salesman_id if salesman_id is not None else derived.salesman_id,
+            territory_id if territory_id is not None else derived.territory_id,
+        )
 
     # ---- sources -------------------------------------------------------
 

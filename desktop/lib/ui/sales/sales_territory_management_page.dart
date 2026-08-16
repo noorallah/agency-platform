@@ -6,8 +6,13 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
+import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
 import 'assignment_picker_dialog.dart';
+import 'bulk_territory_actions_dialog.dart';
+import 'call_order_dialog.dart';
+import 'territory_detail_dialog.dart';
+import 'territory_import_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
@@ -43,10 +48,17 @@ class _SalesTerritoryManagementPageState
   bool _descending = true;
   bool _includeDeleted = false;
   String? _status;
+  String? _filterCityId;
+  List<GeoPlaceRecord> _filterCities = const [];
   String? _selectedParentId;
   Json _dashboard = const {};
   bool _expandTree = false;
   int _treeEpoch = 0;
+
+  /// Rows ticked for a bulk action. Distinct from `_selected`, which is the one
+  /// row the detail panel and the Edit button follow — ticking twenty rows to
+  /// restatus them should not also change what the panel is describing.
+  Set<String> _bulkIds = <String>{};
 
   bool get _canView => widget.permissions.hasPermission('TERRITORY_VIEW');
   bool get _canCreate => widget.permissions.hasPermission('TERRITORY_CREATE');
@@ -54,15 +66,40 @@ class _SalesTerritoryManagementPageState
   bool get _canDelete => widget.permissions.hasPermission('TERRITORY_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('TERRITORY_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('TERRITORY_EXPORT');
+  bool get _canImport => widget.permissions.hasPermission('TERRITORY_IMPORT');
   bool get _canAssignCustomers =>
       widget.permissions.hasPermission('TERRITORY_ASSIGN_CUSTOMERS');
   bool get _canAssignSalesmen =>
       widget.permissions.hasPermission('TERRITORY_ASSIGN_SALESMEN');
 
+  /// Whether any bulk operation is open to this user at all.
+  ///
+  /// The checkbox column only appears when it is: offering people rows to tick
+  /// and then no action to take on them is worse than not offering it.
+  bool get _canBulk => _canEdit || _canAssignCustomers || _canAssignSalesmen;
+
   @override
   void initState() {
     super.initState();
     _loadAll();
+    _loadFilterCities();
+  }
+
+  /// The cities a round could be tagged with, for the area filter.
+  ///
+  /// Best effort: geography is shared reference data a platform administrator
+  /// maintains, and a firm whose Places are empty gets no filter rather than a
+  /// broken grid.
+  Future<void> _loadFilterCities() async {
+    if (!_canView) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.city);
+      if (!mounted) return;
+      setState(() => _filterCities = rows);
+    } on ApiException {
+      // No filter is better than an error on a screen that works without it.
+    }
   }
 
   @override
@@ -92,6 +129,7 @@ class _SalesTerritoryManagementPageState
         filters: TerritoryQuery(
           parentId: _selectedParentId,
           status: _status,
+          cityId: _filterCityId,
           includeDeleted: _includeDeleted,
         ),
       );
@@ -131,6 +169,7 @@ class _SalesTerritoryManagementPageState
     final result = await showDialog<Json>(
       context: context,
       builder: (context) => _TerritoryEditorDialog(
+        api: widget.api,
         territory: current,
         hierarchy: _hierarchy,
         items: _items,
@@ -196,33 +235,24 @@ class _SalesTerritoryManagementPageState
 
   /// The API caps a page at 100, and the picker needs the whole list: a
   /// customer on page three is one you can neither find nor take off a round.
-  static const int _pickerPageSize = 100;
 
   /// Reads every page of a list endpoint. Bounded so a firm with a very large
   /// book cannot turn opening a dialog into a hundred requests — the search
   /// box inside the picker is the answer beyond this, not more paging.
   Future<List<T>> _allPages<T>(
-    Future<PagedResult<T>> Function(int page) fetch, {
-    int maxPages = 20,
-  }) async {
-    final List<T> collected = <T>[];
-    for (int page = 1; page <= maxPages; page++) {
-      final PagedResult<T> result = await fetch(page);
-      collected.addAll(result.items);
-      if (result.items.isEmpty || collected.length >= result.total) break;
-    }
-    return collected;
-  }
+    Future<PagedResult<T>> Function(int page) fetch,
+  ) =>
+      fetchAllPages<T>(fetch);
 
   Future<void> _assignCustomers(SalesTerritory territory) async {
     if (!_canAssignCustomers) return;
     // Replaces a text box that asked for comma-separated customer UUIDs.
     // Nobody knows a customer's id, and pasting the wrong one assigns a
     // different customer with nothing on screen to notice it by.
-    final List<String> current =
+    final List<TerritoryCustomerAssignmentRecord> current =
         await widget.api.territoryCustomers(territory.id);
     final List<Customer> customers = await _allPages<Customer>(
-      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
     );
     if (!mounted) return;
     final List<String>? chosen = await showDialog<List<String>>(
@@ -232,7 +262,7 @@ class _SalesTerritoryManagementPageState
         searchHint: 'Search customers by name or code',
         emptyMessage: 'This firm has no customers yet. Add one under '
             'Masters before putting anybody on a round.',
-        selectedIds: current.toSet(),
+        selectedIds: {for (final row in current) row.customerId},
         options: [
           for (final Customer customer in customers)
             AssignableOption(
@@ -247,12 +277,73 @@ class _SalesTerritoryManagementPageState
     );
     if (chosen == null || !mounted) return;
     try {
-      await widget.api.setTerritoryCustomers(territory.id, chosen);
+      // Carry each customer's existing place in the round through. The picker
+      // adds and removes; it has no notion of order, and rebuilding the list
+      // from bare ids would flatten a sequence somebody had set.
+      final Map<String, TerritoryCustomerAssignmentRecord> existing = {
+        for (final row in current) row.customerId: row,
+      };
+      await widget.api.setTerritoryCustomers(territory.id, [
+        for (final String id in chosen)
+          existing[id] ??
+              TerritoryCustomerAssignmentRecord(
+                customerId: id,
+                isPrimary: true,
+                visitSequence: null,
+                isPotential: false,
+              ),
+      ]);
       await _loadAll();
       if (!mounted) return;
       NotificationService.show(
         context,
         '${chosen.length} customer(s) on ${territory.name}.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<void> _setCallOrder(SalesTerritory territory) async {
+    if (!_canAssignCustomers) return;
+    final List<TerritoryCustomerAssignmentRecord> current =
+        await widget.api.territoryCustomers(territory.id);
+    final List<Customer> customers = await _allPages<Customer>(
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
+    );
+    if (!mounted) return;
+    final Map<String, Customer> byId = {
+      for (final Customer customer in customers) customer.id: customer,
+    };
+    final List<TerritoryCustomerAssignmentRecord>? ordered =
+        await showDialog<List<TerritoryCustomerAssignmentRecord>>(
+      context: context,
+      builder: (context) => CallOrderDialog(
+        routeName: territory.name,
+        assignments: current,
+        nameFor: (id) {
+          final Customer? customer = byId[id];
+          if (customer == null) return id;
+          return customer.displayName.isEmpty
+              ? '${customer.code} — ${customer.name}'
+              : '${customer.code} — ${customer.displayName}';
+        },
+      ),
+    );
+    if (ordered == null || !mounted) return;
+    try {
+      await widget.api.setTerritoryCustomers(territory.id, ordered);
+      await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Call order saved for ${territory.name}.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
@@ -324,6 +415,178 @@ class _SalesTerritoryManagementPageState
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Run one operation over every ticked territory.
+  ///
+  /// Each of the four is a single request that the server applies in one
+  /// transaction, so a batch refused on its fifth territory leaves the first
+  /// four unchanged — which is what lets the failure message say nothing was
+  /// applied without lying.
+  Future<void> _bulkActions() async {
+    final List<SalesTerritory> targets =
+        _items.where((item) => _bulkIds.contains(item.id)).toList();
+    if (targets.isEmpty || !_canBulk) return;
+    final BulkTerritoryChoice? choice = await showDialog<BulkTerritoryChoice>(
+      context: context,
+      builder: (context) => BulkTerritoryActionsDialog(
+        count: targets.length,
+        canUpdate: _canEdit,
+        canAssignCustomers: _canAssignCustomers,
+        canAssignSalesmen: _canAssignSalesmen,
+        parents: [
+          for (final SalesTerritory item in _items)
+            if (!_bulkIds.contains(item.id))
+              BulkParentOption(id: item.id, label: '${item.code} - ${item.name}'),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+
+    // The two assignment actions need a second dialog to say *who*, and both
+    // replace rather than extend, so they are confirmed before anything runs.
+    List<String>? chosenIds;
+    if (choice.action == BulkTerritoryAction.customers) {
+      chosenIds = await _pickCustomersForBulk(targets.length);
+    } else if (choice.action == BulkTerritoryAction.salesmen) {
+      chosenIds = await _pickSalesmenForBulk(targets.length);
+    }
+    if (!mounted) return;
+    if (choice.action == BulkTerritoryAction.customers ||
+        choice.action == BulkTerritoryAction.salesmen) {
+      if (chosenIds == null) return;
+    }
+
+    try {
+      final int affected = switch (choice.action) {
+        BulkTerritoryAction.status => await widget.api.bulkTerritoryStatus({
+            'territory_ids': [for (final item in targets) item.id],
+            'status': choice.status,
+          }),
+        BulkTerritoryAction.move => await widget.api.bulkTerritoryMove({
+            'territory_ids': [for (final item in targets) item.id],
+            if (choice.parentId?.isNotEmpty == true)
+              'new_parent_id': choice.parentId,
+          }),
+        BulkTerritoryAction.customers =>
+          await widget.api.bulkTerritoryCustomers([
+            for (final item in targets)
+              <String, dynamic>{
+                'territory_id': item.id,
+                'customer_ids': chosenIds ?? const <String>[],
+              },
+          ]),
+        BulkTerritoryAction.salesmen =>
+          await widget.api.bulkTerritorySalesmen([
+            for (final item in targets)
+              <String, dynamic>{
+                'territory_id': item.id,
+                'assignments': [
+                  for (final String userId in chosenIds ?? const <String>[])
+                    <String, dynamic>{'user_id': userId},
+                ],
+              },
+          ]),
+      };
+      setState(() => _bulkIds = <String>{});
+      await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '$affected territor${affected == 1 ? 'y' : 'ies'} updated.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${exception.message} Nothing was changed.',
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<List<String>?> _pickCustomersForBulk(int count) async {
+    final List<Customer> customers = await _allPages<Customer>(
+      (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
+    );
+    if (!mounted) return null;
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Customers for $count territories',
+        searchHint: 'Search customers by name or code',
+        emptyMessage: 'This firm has no customers yet.',
+        // Deliberately empty rather than pre-ticked from any one territory:
+        // the list applies to all of them, so seeding it from one would put
+        // that territory's customers onto the other nineteen by default.
+        selectedIds: const <String>{},
+        options: [
+          for (final Customer customer in customers)
+            AssignableOption(
+              id: customer.id,
+              label: customer.displayName.isEmpty
+                  ? customer.name
+                  : customer.displayName,
+              secondary: customer.code,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<String>?> _pickSalesmenForBulk(int count) async {
+    final List<TerritorySalesmanCandidate> users =
+        await widget.api.territorySalesmanCandidates();
+    if (!mounted) return null;
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) => AssignmentPickerDialog(
+        title: 'Salespeople for $count territories',
+        searchHint: 'Search people by name or email',
+        emptyMessage: 'No users to assign. Add one under Administration.',
+        selectedIds: const <String>{},
+        options: [
+          for (final TerritorySalesmanCandidate user in users)
+            AssignableOption(
+              id: user.userId,
+              label: user.fullName.isEmpty ? user.email : user.fullName,
+              secondary: user.email,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Show everything about one territory, full screen.
+  ///
+  /// The right-hand card had 300 pixels for a summary, the tree controls and
+  /// the tree itself. This is where the summary went, and where a round's
+  /// outlets are laid out in the order they are called.
+  Future<void> _openDetail(SalesTerritory territory) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (context) => TerritoryDetailDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        territory: territory,
+      ),
+    );
+    if (saved != true || !mounted) return;
+    // Customer and salesman counts live on the grid row, so they go stale the
+    // moment the dialog saves.
+    await _loadAll();
+  }
+
+  /// Load a hierarchy from CSV. The whole file is one transaction server-side.
+  Future<void> _import() async {
+    if (!_canImport) return;
+    final bool? imported = await showDialog<bool>(
+      context: context,
+      builder: (context) => TerritoryImportDialog(api: widget.api),
+    );
+    if (imported != true || !mounted) return;
+    await _loadAll();
   }
 
   Future<void> _export() async {
@@ -427,15 +690,18 @@ class _SalesTerritoryManagementPageState
     final toolbar = WorkspaceToolbar(
       actions: const [
         ToolbarAction.newItem,
+        ToolbarAction.view,
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
+        ToolbarAction.import,
         ToolbarAction.export,
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
         ToolbarAction.edit => _canEdit,
         ToolbarAction.delete => _canDelete || _canRestore,
+        ToolbarAction.import => _canImport,
         ToolbarAction.export => _canExport,
         _ => true,
       },
@@ -443,9 +709,11 @@ class _SalesTerritoryManagementPageState
           !_loading &&
           switch (action) {
             ToolbarAction.newItem => _canCreate,
+            ToolbarAction.view => _selected != null,
             ToolbarAction.edit => _selected != null,
             ToolbarAction.delete => _selected != null,
             ToolbarAction.refresh => true,
+            ToolbarAction.import => _canImport,
             ToolbarAction.export => _items.isNotEmpty,
             _ => false,
           },
@@ -453,6 +721,9 @@ class _SalesTerritoryManagementPageState
         switch (action) {
           case ToolbarAction.newItem:
             _openEditor();
+            break;
+          case ToolbarAction.view:
+            if (_selected != null) _openDetail(_selected!);
             break;
           case ToolbarAction.edit:
             if (_selected != null) _openEditor(current: _selected);
@@ -470,11 +741,12 @@ class _SalesTerritoryManagementPageState
           case ToolbarAction.refresh:
             _loadAll();
             break;
+          case ToolbarAction.import:
+            _import();
+            break;
           case ToolbarAction.export:
             _export();
             break;
-          case ToolbarAction.view:
-          case ToolbarAction.import:
           case ToolbarAction.print:
           case ToolbarAction.settings:
             break;
@@ -482,12 +754,61 @@ class _SalesTerritoryManagementPageState
       },
     );
 
+    final Widget? bulkBar = _bulkIds.isEmpty
+        ? null
+        : Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('${_bulkIds.length} ticked'),
+                FilledButton.icon(
+                  onPressed: _bulkActions,
+                  icon: const Icon(Icons.playlist_add_check),
+                  label: const Text('Bulk actions'),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _bulkIds = <String>{}),
+                  child: const Text('Clear selection'),
+                ),
+              ],
+            ),
+          );
+
     final searchPanel = SearchFilterPanel(
       controller: _search,
       focusNode: _searchFocus,
       hintText: 'Search code, name, hierarchy path',
       onSearch: (_) => _loadAll(requestedPage: 1),
       filters: [
+        // Matches through the route profile's city, which is why the editor
+        // now lets a round say where it is: the server has always filtered on
+        // this and nothing ever wrote the column.
+        if (_filterCities.isNotEmpty)
+          SizedBox(
+            width: 200,
+            child: DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: _filterCityId ?? '',
+              decoration: const InputDecoration(labelText: 'Area (city)'),
+              items: [
+                const DropdownMenuItem<String>(
+                    value: '', child: Text('Any area')),
+                for (final GeoPlaceRecord city in _filterCities)
+                  DropdownMenuItem<String>(
+                    value: city.id,
+                    child: Text(city.name),
+                  ),
+              ],
+              onChanged: (value) {
+                setState(() =>
+                    _filterCityId = (value == null || value.isEmpty) ? null : value);
+                _loadAll(requestedPage: 1);
+              },
+            ),
+          ),
         SizedBox(
           width: 180,
           child: DropdownButtonFormField<String>(
@@ -557,8 +878,12 @@ class _SalesTerritoryManagementPageState
                         item.salesmanCount.toString(),
                       ],
                       selectedId: _selected?.id,
+                      selectedIds: _bulkIds,
+                      onSelectionChanged: _canBulk
+                          ? (ids) => setState(() => _bulkIds = ids)
+                          : null,
                       onSelect: (item) => setState(() => _selected = item),
-                      onOpen: (item) => _openEditor(current: item),
+                      onOpen: _openDetail,
                       onPageChanged: (offset) =>
                           _loadAll(requestedPage: offset ~/ _rowsPerPage + 1),
                     ),
@@ -575,6 +900,9 @@ class _SalesTerritoryManagementPageState
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
         searchPanel: searchPanel,
+        // Sits between the filters and the grid so the count and the action are
+        // next to the rows they apply to, and vanishes when nothing is ticked.
+        filterPanel: bulkBar,
         primaryContent: primaryContent,
         detailsPanel: _selected == null ? null : _detailsPanel(),
         statusBar: WorkspaceStatusBar(
@@ -606,21 +934,18 @@ class _SalesTerritoryManagementPageState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _selected == null ? 'Territory tree' : _selected!.name,
+                    'Territory tree',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
-                  if (_selected != null) ...[
-                    Text('Code: ${_selected!.code}'),
-                    Text('Level: ${_selected!.hierarchyLevelName}'),
-                    Text(
-                        'Status: ${_selected!.isDeleted ? 'DELETED' : _selected!.status}'),
-                    Text('Customers: ${_selected!.customerCount}'),
-                    Text('Salesmen: ${_selected!.salesmanCount}'),
-                    Text(
-                      'Coverage: A:${_selected!.activeCustomerCount} / I:${_selected!.inactiveCustomerCount} / N:${_selected!.newCustomerCount} / P:${_selected!.potentialCustomerCount}',
+                  // The selected node's summary moved to the detail dialog,
+                  // which has room for it. This panel is the tree.
+                  if (_selected != null)
+                    OutlinedButton.icon(
+                      onPressed: () => _openDetail(_selected!),
+                      icon: const Icon(Icons.open_in_full),
+                      label: Text('Open ${_selected!.code}'),
                     ),
-                  ],
                   const SizedBox(height: 8),
                   Text(
                     'Dashboard • Territories ${_dashboard['total_territories'] ?? 0} • Routes ${_dashboard['total_routes'] ?? 0} • Customers w/o route ${_dashboard['customers_without_route'] ?? 0}',
@@ -687,6 +1012,12 @@ class _SalesTerritoryManagementPageState
                         icon: const Icon(Icons.groups_2_outlined),
                         label: const Text('Assign customers'),
                       ),
+                    if (_canAssignCustomers)
+                      OutlinedButton.icon(
+                        onPressed: () => _setCallOrder(_selected!),
+                        icon: const Icon(Icons.format_list_numbered),
+                        label: const Text('Call order'),
+                      ),
                     if (_canAssignSalesmen)
                       OutlinedButton.icon(
                         onPressed: () => _assignSalesmen(_selected!),
@@ -744,6 +1075,7 @@ class _SalesTerritoryManagementPageState
 
 class _TerritoryEditorDialog extends StatefulWidget {
   const _TerritoryEditorDialog({
+    required this.api,
     required this.territory,
     required this.hierarchy,
     required this.items,
@@ -751,6 +1083,9 @@ class _TerritoryEditorDialog extends StatefulWidget {
     this.initialParentId,
   });
 
+  /// Needed for the geography ladder, which is loaded a level at a time as the
+  /// user picks: every postal code in the country is not a useful dropdown.
+  final ApiClient api;
   final SalesTerritory? territory;
   final TerritoryHierarchyRecord? hierarchy;
   final List<SalesTerritory> items;
@@ -780,6 +1115,23 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   /// payload omits it, so a route whose type was never chosen would lose its
   /// frequency and working days the next time somebody renamed it.
   late bool _isRoute = widget.territory?.routeProfile != null;
+  // Shown and editable now that the server reads them: a round is only called
+  // between these dates, so a window nobody could see would silently stop a
+  // route running.
+  late String _effectiveFrom = widget.territory?.routeProfile?.effectiveFrom ?? '';
+  late String _effectiveTo = widget.territory?.routeProfile?.effectiveTo ?? '';
+
+  // The area a round covers. These three columns have existed on the route
+  // profile from the first migration and no screen ever set one, so the
+  // `city_id` and `locality_id` filters on the territory list -- both
+  // implemented server-side -- could never match anything.
+  late String _cityId = widget.territory?.routeProfile?.cityId ?? '';
+  late String _postalCodeId = widget.territory?.routeProfile?.postalCodeId ?? '';
+  late String _localityId = widget.territory?.routeProfile?.localityId ?? '';
+
+  List<GeoPlaceRecord> _cities = const [];
+  List<GeoPlaceRecord> _postalCodes = const [];
+  List<GeoPlaceRecord> _localities = const [];
   late String? _routeTypeId = _initialRouteTypeId();
   late String _visitFrequency = _initialVisitFrequency();
   late final Set<int> _workingDays = <int>{
@@ -807,6 +1159,102 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
           ? null
           : widget.initialParentId)
       : widget.territory?.parentId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArea();
+  }
+
+  /// Load the ladder down to whatever the route already names.
+  ///
+  /// Geography reads need `TERRITORY_VIEW`, which anyone opening this editor
+  /// holds. A firm whose administrator has not populated Places gets empty
+  /// dropdowns and a route that still saves -- the area is optional.
+  Future<void> _loadArea() async {
+    try {
+      final List<GeoPlaceRecord> cities =
+          await widget.api.geoPlaces(GeoLevel.city);
+      final List<GeoPlaceRecord> postalCodes = _cityId.isEmpty
+          ? const <GeoPlaceRecord>[]
+          : await widget.api.geoPlaces(GeoLevel.postalCode, parentId: _cityId);
+      final List<GeoPlaceRecord> localities = _postalCodeId.isEmpty
+          ? const <GeoPlaceRecord>[]
+          : await widget.api
+              .geoPlaces(GeoLevel.locality, parentId: _postalCodeId);
+      if (!mounted) return;
+      setState(() {
+        _cities = cities;
+        _postalCodes = postalCodes;
+        _localities = localities;
+      });
+    } on ApiException {
+      // The area is optional and the route saves without it, so a geography
+      // read that fails costs three dropdowns rather than the editor.
+    }
+  }
+
+  /// Options for one rung of the area ladder.
+  ///
+  /// A stored id that is not in the loaded list gets an entry of its own.
+  /// `DropdownButtonFormField` asserts when its value matches no item, so a
+  /// route tagged with a city the reader cannot see — geography read failed,
+  /// or the city was retired — would otherwise break the whole editor. Keeping
+  /// it also means saving does not quietly clear a tag nobody could see.
+  List<DropdownMenuItem<String>> _areaItems(
+    List<GeoPlaceRecord> rows,
+    String currentId, {
+    bool useCode = false,
+  }) =>
+      <DropdownMenuItem<String>>[
+        const DropdownMenuItem<String>(value: '', child: Text('None')),
+        for (final GeoPlaceRecord row in rows)
+          DropdownMenuItem<String>(
+            value: row.id,
+            child: Text(useCode ? row.code : row.name),
+          ),
+        if (currentId.isNotEmpty && !rows.any((row) => row.id == currentId))
+          DropdownMenuItem<String>(
+            value: currentId,
+            child: const Text('Currently set (not listed)'),
+          ),
+      ];
+
+  Future<void> _pickCity(String? value) async {
+    setState(() {
+      _cityId = value ?? '';
+      _postalCodeId = '';
+      _localityId = '';
+      _postalCodes = const [];
+      _localities = const [];
+    });
+    if (_cityId.isEmpty) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.postalCode, parentId: _cityId);
+      if (!mounted) return;
+      setState(() => _postalCodes = rows);
+    } on ApiException {
+      // Same reasoning as `_loadArea`.
+    }
+  }
+
+  Future<void> _pickPostalCode(String? value) async {
+    setState(() {
+      _postalCodeId = value ?? '';
+      _localityId = '';
+      _localities = const [];
+    });
+    if (_postalCodeId.isEmpty) return;
+    try {
+      final List<GeoPlaceRecord> rows =
+          await widget.api.geoPlaces(GeoLevel.locality, parentId: _postalCodeId);
+      if (!mounted) return;
+      setState(() => _localities = rows);
+    } on ApiException {
+      // Same reasoning as `_loadArea`.
+    }
+  }
 
   @override
   void dispose() {
@@ -874,6 +1322,70 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
           onChanged: (value) =>
               setState(() => _visitFrequency = value ?? 'ON_DEMAND'),
         ),
+        const SizedBox(height: 8),
+        // Where the round is. Cascading, because a flat locality list would be
+        // every locality in the country.
+        DropdownButtonFormField<String>(
+          isExpanded: true,
+          initialValue: _cityId.isEmpty ? '' : _cityId,
+          decoration: InputDecoration(
+            labelText: 'City',
+            helperText: _cities.isEmpty
+                ? 'No cities defined — a platform administrator maintains these '
+                    'under Places. The route saves without one.'
+                : 'Lets this round be found by area on the grid.',
+          ),
+          items: _areaItems(_cities, _cityId),
+          onChanged: _pickCity,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _postalCodeId.isEmpty ? '' : _postalCodeId,
+                decoration: const InputDecoration(labelText: 'Pin code'),
+                items: _areaItems(_postalCodes, _postalCodeId, useCode: true),
+                onChanged: _cityId.isEmpty ? null : _pickPostalCode,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _localityId.isEmpty ? '' : _localityId,
+                decoration: const InputDecoration(labelText: 'Locality'),
+                items: _areaItems(_localities, _localityId),
+                onChanged: _postalCodeId.isEmpty
+                    ? null
+                    : (value) => setState(() => _localityId = value ?? ''),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _DateField(
+                label: 'Runs from',
+                value: _effectiveFrom,
+                helperText: 'Blank means it has always run.',
+                onChanged: (value) => setState(() => _effectiveFrom = value),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _DateField(
+                label: 'Runs until',
+                value: _effectiveTo,
+                helperText: 'Blank means it has no end.',
+                onChanged: (value) => setState(() => _effectiveTo = value),
+              ),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         Align(
           alignment: Alignment.centerLeft,
@@ -917,17 +1429,15 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
   /// city/postal/locality links are set elsewhere and would otherwise be lost
   /// the first time somebody changed a route's working days.
   Json _routeProfilePayload() {
-    final TerritoryRouteProfileRecord? existing =
-        widget.territory?.routeProfile;
     return <String, dynamic>{
       'route_type_id': _routeTypeId,
       'visit_frequency': _visitFrequency,
       'working_days': _workingDays.toList()..sort(),
-      'effective_from': _orNull(existing?.effectiveFrom),
-      'effective_to': _orNull(existing?.effectiveTo),
-      'city_id': _orNull(existing?.cityId),
-      'postal_code_id': _orNull(existing?.postalCodeId),
-      'locality_id': _orNull(existing?.localityId),
+      'effective_from': _orNull(_effectiveFrom),
+      'effective_to': _orNull(_effectiveTo),
+      'city_id': _orNull(_cityId),
+      'postal_code_id': _orNull(_postalCodeId),
+      'locality_id': _orNull(_localityId),
     };
   }
 
@@ -1077,5 +1587,58 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
             child: const Text('Save'),
           ),
         ],
+      );
+}
+
+/// One end of a route's effective window.
+///
+/// A plain read-only field with a picker rather than a text box: the API takes
+/// an ISO date and a typo is refused with a validation error that names a
+/// field, not a format.
+class _DateField extends StatelessWidget {
+  const _DateField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.helperText,
+  });
+
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+  final String? helperText;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: () async {
+          final DateTime initial =
+              DateTime.tryParse(value) ?? DateTime.now();
+          final DateTime? picked = await showDatePicker(
+            context: context,
+            initialDate: initial,
+            firstDate: DateTime(initial.year - 5),
+            lastDate: DateTime(initial.year + 5),
+          );
+          if (picked == null) return;
+          onChanged(
+            '${picked.year.toString().padLeft(4, '0')}-'
+            '${picked.month.toString().padLeft(2, '0')}-'
+            '${picked.day.toString().padLeft(2, '0')}',
+          );
+        },
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helperText,
+            suffixIcon: value.isEmpty
+                ? const Icon(Icons.event, size: 18)
+                : IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => onChanged(''),
+                  ),
+          ),
+          child: Text(value.isEmpty ? 'Any date' : value),
+        ),
       );
 }

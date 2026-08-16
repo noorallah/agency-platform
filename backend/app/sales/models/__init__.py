@@ -3,7 +3,7 @@
 from app.sales.models.territory import (
     AddressMaster,
     BeatPlan,
-    BeatPlanStop,
+    BeatPlanCustomerStop,
     GeoCity,
     GeoCountry,
     GeoDistrict,
@@ -23,7 +23,7 @@ from app.sales.models.territory import (
 __all__ = [
     "AddressMaster",
     "BeatPlan",
-    "BeatPlanStop",
+    "BeatPlanCustomerStop",
     "GeoCity",
     "GeoCountry",
     "GeoDistrict",

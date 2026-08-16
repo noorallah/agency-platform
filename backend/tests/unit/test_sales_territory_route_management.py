@@ -140,13 +140,13 @@ def test_territory_service_supports_hierarchy_tree_and_assignments() -> None:
     session.add(UserFirm(user_id=salesman.id, firm_id=firm.id, is_active=True))
     session.commit()
 
-    customer_ids = service.set_customers(
+    assignments = service.set_customers(
         child.id,
         TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
         firm_scope=firm.id,
         actor_id=actor,
     )
-    assert customer_ids == [customer.id]
+    assert [row.customer_id for row in assignments] == [customer.id]
 
     salesmen = service.set_salesmen(
         child.id,

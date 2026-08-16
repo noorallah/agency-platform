@@ -40,6 +40,7 @@ The library provides:
 | `WorkspaceShortcuts` | Permission-safe module shortcut registration |
 | `showWorkspaceContextMenu` | Extendable View/Edit/Delete/Copy/Refresh/Export menu |
 | `showGlobalSearch` | Ctrl+K search UI contract; no API dependency |
+| `fetchAllPages` / `maxApiPageSize` | Reads every page of a list endpoint, 100 at a time. **Never ask a list endpoint for a larger page**: the cap is enforced, not clamped, and on the routers that build their pagination by hand it comes back as a 500 rather than a message naming the limit. Two screens shipped asking for 500 and were broken against every real backend while their tests, whose fakes ignore `pageSize`, stayed green |
 
 Core services and infrastructure remain separately injectable:
 

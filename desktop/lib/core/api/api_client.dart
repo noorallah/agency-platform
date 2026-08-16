@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
 import '../../models/finance.dart';
@@ -1863,6 +1864,7 @@ class ApiClient {
 
   Future<PagedResult<SalesTerritory>> territories({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -1873,6 +1875,7 @@ class ApiClient {
         SalesTerritory.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
         additionalQuery: filters.toQuery(),
@@ -1952,23 +1955,121 @@ class ApiClient {
         await request('POST', '/api/v1/sales-territories/$id/restore'),
       ));
 
-  Future<List<String>> territoryCustomers(String territoryId) async {
+  /// The customers on a round, in the order it calls them.
+  ///
+  /// Returns the whole assignment rather than a list of ids: `visit_sequence`
+  /// is the call order and was writable long before anything could read it
+  /// back, so no screen could show the sequence it was saving.
+  Future<List<TerritoryCustomerAssignmentRecord>> territoryCustomers(
+    String territoryId,
+  ) async {
     final Json response = await request(
         'GET', '/api/v1/sales-territories/$territoryId/customers');
-    return stringList(response['data']);
+    return _assignments(response['data']);
   }
 
-  Future<List<String>> setTerritoryCustomers(
+  /// Replace the customers on a round, in call order.
+  ///
+  /// [includePotential] is opt-in: only a screen that actually offers the
+  /// potential toggle should send the flag, because the server treats it as
+  /// absent-means-unchanged and a screen that cannot set it must not clear it.
+  Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<String> customerIds,
-  ) async {
+    List<TerritoryCustomerAssignmentRecord> assignments, {
+    bool includePotential = false,
+  }) async {
     final Json response = await request(
       'PUT',
       '/api/v1/sales-territories/$territoryId/customers',
-      body: {'customer_ids': customerIds},
+      body: {
+        'entries': [
+          for (final row in assignments)
+            row.toJson(includePotential: includePotential),
+        ],
+      },
     );
-    return stringList(response['data']);
+    return _assignments(response['data']);
   }
+
+  List<TerritoryCustomerAssignmentRecord> _assignments(dynamic data) {
+    if (data is! List) return const <TerritoryCustomerAssignmentRecord>[];
+    return <TerritoryCustomerAssignmentRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritoryCustomerAssignmentRecord.fromJson(
+              Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  // Route types are written through the generic `create`/`update`/`delete`
+  // helpers, which build `/api/v1/sales-territories/route-types[/{id}]` from
+  // the `resource` on their `ResourceDefinition`. Named methods here would be
+  // a second spelling of the same three paths with nothing calling them.
+
+  Future<PagedResult<BeatPlanRecord>> beatPlans({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    bool includeDeleted = false,
+  }) =>
+      _list(
+        '/api/v1/sales-territories/beat-plans',
+        BeatPlanRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery:
+            includeDeleted ? {'include_deleted': 'true'} : const {},
+      );
+
+  Future<BeatPlanRecord> beatPlan(String id) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/sales-territories/beat-plans/$id'),
+      ));
+
+  Future<BeatPlanRecord> createBeatPlan(Json data) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/sales-territories/beat-plans',
+            body: data),
+      ));
+
+  /// Who should be called on [date] (`yyyy-MM-dd`), across every active plan.
+  ///
+  /// Computed by the server from the recurrence rule and the assignments, so
+  /// it is always current — there are no stored occurrences to go stale.
+  Future<CallListRecord> callLists({
+    required String date,
+    String salesmanId = '',
+  }) async =>
+      CallListRecord.fromJson(_unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/sales-territories/call-lists',
+          query: {
+            'date': date,
+            if (salesmanId.isNotEmpty) 'salesman_id': salesmanId,
+          },
+        ),
+      ));
+
+  /// The same answer for one plan, used by the preview on the plan editor.
+  Future<CallListRecord> beatPlanCallList(String id, String date) async =>
+      CallListRecord.fromJson(_unwrapMap(
+        await request(
+          'GET',
+          '/api/v1/sales-territories/beat-plans/$id/call-list',
+          query: {'date': date},
+        ),
+      ));
+
+  Future<BeatPlanRecord> updateBeatPlan(String id, Json data) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/sales-territories/beat-plans/$id',
+            body: data),
+      ));
+
+  Future<void> deleteBeatPlan(String id) async =>
+      request('DELETE', '/api/v1/sales-territories/beat-plans/$id');
 
   /// The people this firm can put on a route.
   ///
@@ -2016,6 +2117,144 @@ class ApiClient {
         .toList();
   }
 
+  /// Outlets a round could call, narrowed by pin code, street or town.
+  ///
+  /// Lives on the territory router rather than under customers because it
+  /// answers a territory question — who is already on a round — and the
+  /// customer module knows nothing about assignments.
+  Future<PagedResult<AssignableCustomerRecord>> assignableCustomers({
+    int page = 1,
+    int pageSize = 50,
+    String territoryId = '',
+    String search = '',
+    String postalCode = '',
+    String area = '',
+    String city = '',
+    bool unassignedOnly = false,
+  }) =>
+      _list(
+        '/api/v1/sales-territories/assignable-customers',
+        AssignableCustomerRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (territoryId.isNotEmpty) 'territory_id': territoryId,
+          if (postalCode.isNotEmpty) 'postal_code': postalCode,
+          if (area.isNotEmpty) 'area': area,
+          if (city.isNotEmpty) 'city': city,
+          if (unassignedOnly) 'unassigned_only': 'true',
+        },
+      );
+
+  /// Import a territory hierarchy from CSV.
+  ///
+  /// The whole file is one transaction server-side, so a row refused anywhere
+  /// leaves the firm exactly as it was — which is what lets the dialog say
+  /// nothing was written and be telling the truth.
+  Future<List<SalesTerritory>> importTerritories({
+    required String fileName,
+    required List<int> bytes,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/sales-territories/import',
+      fields: {'format': 'csv'},
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: 'text/csv',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <SalesTerritory>[];
+    return data
+        .whereType<Map>()
+        .map((item) => SalesTerritory.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  /// How much ground each salesperson covers.
+  Future<List<TerritoryCoverageRecord>> territoryCoverage() async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/coverage/salesmen',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <TerritoryCoverageRecord>[];
+    return <TerritoryCoverageRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritoryCoverageRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  /// The rounds that call one shop, primary first.
+  Future<List<CustomerRouteRecord>> customerRoutes(String customerId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/customers/$customerId/routes',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <CustomerRouteRecord>[];
+    return <CustomerRouteRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          CustomerRouteRecord.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  /// The shared geography masters: country > state > district > city >
+  /// postal code > locality.
+  ///
+  /// Reference data rather than firm data — every firm reads the same rows —
+  /// but it is served from the firm store, so these still carry `X-Firm-ID`
+  /// like every other call here. Writes are platform-admin only.
+  Future<List<GeoPlaceRecord>> geoPlaces(
+    GeoLevel level, {
+    String parentId = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-territories/geo/${level.path}',
+      query: {
+        if (parentId.isNotEmpty && level.parentQuery != null)
+          level.parentQuery!: parentId,
+      },
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const <GeoPlaceRecord>[];
+    return <GeoPlaceRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          GeoPlaceRecord.fromJson(level, Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  Future<GeoPlaceRecord> createGeoPlace(GeoLevel level, Json body) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/geo/${level.path}',
+      body: body,
+    );
+    return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
+  }
+
+  Future<GeoPlaceRecord> updateGeoPlace(
+    GeoLevel level,
+    String id,
+    Json body,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/sales-territories/geo/${level.path}/$id',
+      body: body,
+    );
+    return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
+  }
+
+  Future<void> deleteGeoPlace(GeoLevel level, String id) =>
+      request('DELETE', '/api/v1/sales-territories/geo/${level.path}/$id');
+
   Future<int> bulkTerritoryStatus(Json body) async {
     final Json response = await request(
       'POST',
@@ -2031,6 +2270,31 @@ class ApiClient {
       'POST',
       '/api/v1/sales-territories/bulk/move',
       body: body,
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Apply one customer list to several territories.
+  ///
+  /// The whole batch commits once server-side, so a run refused on its fifth
+  /// territory leaves the first four unwritten — worth knowing, because it is
+  /// what lets the dialog say "nothing was changed" and be telling the truth.
+  Future<int> bulkTerritoryCustomers(List<Json> items) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/customers',
+      body: {'items': items},
+    );
+    final Json data = _unwrapMap(response);
+    return (data['affected'] as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> bulkTerritorySalesmen(List<Json> items) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/sales-territories/bulk/salesmen',
+      body: {'items': items},
     );
     final Json data = _unwrapMap(response);
     return (data['affected'] as num?)?.toInt() ?? 0;

@@ -24,6 +24,12 @@ import 'delivery_notes/delivery_note_management_page.dart';
 import 'goods_receipts/goods_receipt_management_page.dart';
 import 'purchase_invoices/purchase_invoice_management_page.dart';
 import 'purchase_returns/purchase_return_management_page.dart';
+import 'sales/beat_plan_management_page.dart';
+import 'sales/call_list_page.dart';
+import 'sales/geography_master_page.dart';
+import 'sales/route_builder_page.dart';
+import 'sales/territory_coverage_page.dart';
+import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
@@ -1799,6 +1805,30 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'route-types' => RouteTypeManagementPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      'beat-plans' => BeatPlanManagementPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      'call-lists' => CallListPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      'coverage' => TerritoryCoveragePage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      'route-builder' => RouteBuilderPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      'geography-masters' => GeographyMasterPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1807,15 +1837,47 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
         ),
     };
 
+    final (String heading, String blurb) = switch (tabId) {
+      'territories' => (
+          'Geography Management',
+          'Configure multi-level territory hierarchy, assignments, and routing foundation.',
+        ),
+      'route-types' => (
+          'Route Types',
+          'The kinds of round this firm runs — a sales beat, a collection round.',
+        ),
+      'beat-plans' => (
+          'Beat Plans',
+          'When each route runs: which day, how often, and between which dates.',
+        ),
+      'call-lists' => (
+          'Call Lists',
+          'Who is called on a given day, in the order the round walks them.',
+        ),
+      'coverage' => (
+          'Coverage',
+          'How much ground each salesperson carries, and who carries none.',
+        ),
+      'route-builder' => (
+          'Route Builder',
+          'Find outlets by pin code or street, put them on a round, and set '
+              'the order they are called in.',
+        ),
+      'geography-masters' => (
+          'Places',
+          'The shared geography every address and route hangs off: country to '
+              'locality.',
+        ),
+      _ => (module.label, module.description),
+    };
+
     return ModuleWorkspaceFrame(
-      title: tabId == 'territories' ? 'Geography Management' : module.label,
-      description: tabId == 'territories'
-          ? 'Configure multi-level territory hierarchy, assignments, and routing foundation.'
-          : module.description,
+      title: heading,
+      description: blurb,
       breadcrumbs: [
         'Workspace',
         'Sales',
-        if (tabId == 'territories') 'Geography',
+        visibleTabs.firstWhere((tab) => tab.id == tabId).label,
       ],
       child: content,
     );

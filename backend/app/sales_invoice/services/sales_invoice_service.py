@@ -42,6 +42,7 @@ from app.finance.services.journal_engine import JournalEntryEngine
 from app.identity.models import User
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceAccountingEvent,
@@ -296,6 +297,14 @@ class SalesInvoiceService(TransactionalDocumentService):
             territory_id=territory_id,
             route_id=route_id,
         )
+        salesman_id, territory_id, route_id = self._fill_missing_scope(
+            firm_id=firm_id,
+            customer_id=customer_id,
+            salesman_id=salesman_id,
+            territory_id=territory_id,
+            route_id=route_id,
+            on_date=data.invoice_date,
+        )
         self._validate_customer_invoice_number(
             firm_id=firm_id,
             customer_id=customer_id,
@@ -426,9 +435,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
-        row.salesman_id = data.salesman_id or header.get("salesman_id")
-        row.territory_id = data.territory_id or header.get("territory_id")
-        row.route_id = data.route_id or header.get("route_id")
+        salesman_id, territory_id, route_id = self._fill_missing_scope(
+            firm_id=firm_id,
+            customer_id=row.customer_id,
+            salesman_id=data.salesman_id or header.get("salesman_id"),
+            territory_id=data.territory_id or header.get("territory_id"),
+            route_id=data.route_id or header.get("route_id"),
+            on_date=data.invoice_date,
+        )
+        row.salesman_id = salesman_id
+        row.territory_id = territory_id
+        row.route_id = route_id
         row.invoice_date = data.invoice_date
         row.customer_invoice_number = (
             data.customer_invoice_number.strip()
@@ -1564,6 +1581,37 @@ class SalesInvoiceService(TransactionalDocumentService):
         charges_amount: Decimal,
     ) -> Decimal:
         return self._q(quantity * unit_price - discount_amount + charges_amount)
+
+    def _fill_missing_scope(
+        self,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        salesman_id: UUID | None,
+        territory_id: UUID | None,
+        route_id: UUID | None,
+        on_date: date,
+    ) -> tuple[UUID | None, UUID | None, UUID | None]:
+        """Derive the territory, route and salesman this invoice never got.
+
+        Fills blanks only. An invoice raised from an order or a delivery note
+        inherits all three, and re-deriving them would let the invoice drift
+        from the document it bills -- a customer moved to another round last
+        week must not retag the order they placed last month. So what arrived
+        from a source, or from the caller, is left exactly as it is; only a
+        standalone invoice with nothing to inherit is resolved from the
+        customer's own assignments.
+        """
+        if territory_id is not None and salesman_id is not None:
+            return salesman_id, territory_id, route_id
+        derived = resolve_sales_scope(
+            self._session, firm_id=firm_id, customer_id=customer_id, on_date=on_date
+        )
+        return (
+            salesman_id if salesman_id is not None else derived.salesman_id,
+            territory_id if territory_id is not None else derived.territory_id,
+            route_id if route_id is not None else derived.route_id,
+        )
 
     def _validate_scope_references(
         self,

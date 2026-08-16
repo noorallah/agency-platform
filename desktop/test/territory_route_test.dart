@@ -25,8 +25,10 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/geography.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/sales_territory_management_page.dart';
+import 'package:agency_desktop/ui/sales/territory_detail_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -84,6 +86,7 @@ class _TerritoryApi extends ApiClient {
     this.customerPages = const <List<Json>>[],
     this.customerTotal = 0,
     this.assignedSalesmen = const <Json>[],
+    this.geoRows = const <GeoLevel, List<Json>>{},
   }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -96,10 +99,15 @@ class _TerritoryApi extends ApiClient {
   final List<List<Json>> customerPages;
   final int customerTotal;
   final List<Json> assignedSalesmen;
+  final Map<GeoLevel, List<Json>> geoRows;
 
   Json? created;
   Json? updated;
+  TerritoryQuery? lastQuery;
   List<String>? assignedCustomerIds;
+  List<TerritoryCustomerAssignmentRecord>? sentAssignments;
+  List<TerritoryCustomerAssignmentRecord> assignedCustomers =
+      const <TerritoryCustomerAssignmentRecord>[];
   List<Json>? sentSalesmen;
 
   @override
@@ -125,18 +133,32 @@ class _TerritoryApi extends ApiClient {
   @override
   Future<PagedResult<SalesTerritory>> territories({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
     TerritoryQuery filters = const TerritoryQuery(),
-  }) async =>
-      PagedResult<SalesTerritory>(
-        items: <SalesTerritory>[SalesTerritory.fromJson(territory)],
-        total: 1,
-      );
+  }) async {
+    lastQuery = filters;
+    return PagedResult<SalesTerritory>(
+      items: <SalesTerritory>[SalesTerritory.fromJson(territory)],
+      total: 1,
+    );
+  }
 
   @override
   Future<Json> territoryDashboard() async => <String, dynamic>{};
+
+  /// The cities/pin codes/localities a round can be tagged with.
+  @override
+  Future<List<GeoPlaceRecord>> geoPlaces(
+    GeoLevel level, {
+    String parentId = '',
+  }) async =>
+      <GeoPlaceRecord>[
+        for (final Json row in (geoRows[level] ?? const <Json>[]))
+          GeoPlaceRecord.fromJson(level, row),
+      ];
 
   @override
   Future<List<TerritoryRouteTypeRecord>> territoryRouteTypes() async =>
@@ -175,16 +197,20 @@ class _TerritoryApi extends ApiClient {
   }
 
   @override
-  Future<List<String>> territoryCustomers(String territoryId) async =>
-      const <String>[];
+  Future<List<TerritoryCustomerAssignmentRecord>> territoryCustomers(
+    String territoryId,
+  ) async =>
+      assignedCustomers;
 
   @override
-  Future<List<String>> setTerritoryCustomers(
+  Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<String> customerIds,
-  ) async {
-    assignedCustomerIds = customerIds;
-    return customerIds;
+    List<TerritoryCustomerAssignmentRecord> assignments, {
+    bool includePotential = false,
+  }) async {
+    sentAssignments = assignments;
+    assignedCustomerIds = [for (final row in assignments) row.customerId];
+    return assignments;
   }
 
   @override
@@ -439,11 +465,12 @@ void main() {
     );
   });
 
-  testWidgets('editing a route keeps the fields the form does not show',
+  testWidgets('a route keeps an area it was tagged with elsewhere',
       (tester) async {
-    // Effective dates and the city/postal/locality links are set elsewhere.
-    // The payload replaces the profile whole, so leaving them out of the form
-    // would clear them the first time somebody changed a working day.
+    // The payload replaces the profile whole, so a value the reader cannot see
+    // must still survive a save. `city-9` is deliberately absent from the
+    // loaded cities -- a retired city, or a geography read that failed -- and
+    // the dropdown must neither drop it nor assert on it.
     final _TerritoryApi api = _TerritoryApi(
       territory: _territoryJson(
         id: 't-1',
@@ -547,5 +574,140 @@ void main() {
     expect(api.sentSalesmen!.single['is_primary'], isTrue,
         reason: 'the primary salesperson was silently demoted');
     expect(api.sentSalesmen!.single['include_children'], isTrue);
+  });
+
+  testWidgets('a route can say when it runs, and keeps it on a re-save',
+      (tester) async {
+    // The effective window used to be carried through the payload and never
+    // shown, so nobody could set it — and the server read it nowhere anyway.
+    // It now decides whether a round is called at all, so it has to be
+    // visible and editable.
+    final api = _TerritoryApi(
+      territory: _territoryJson(
+        id: 't-1',
+        code: 'RT01',
+        name: 'North Beat',
+        routeProfile: <String, dynamic>{
+          'visit_frequency': 'WEEKLY',
+          'working_days': <int>[1],
+          'effective_from': '2026-01-01',
+          'effective_to': '2026-06-30',
+        },
+      ),
+    );
+    await _pump(tester, api);
+    await _selectRow(tester, 'RT01');
+    await _openEdit(tester);
+
+    expect(_inDialog(find.text('2026-01-01')), findsOneWidget);
+    expect(_inDialog(find.text('2026-06-30')), findsOneWidget);
+
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    final Json profile = api.updated!['route_profile'] as Json;
+    expect(profile['effective_from'], '2026-01-01');
+    expect(profile['effective_to'], '2026-06-30');
+  });
+
+  testWidgets('the View action opens the territory full screen', (tester) async {
+    // Selecting a row used to fill a 300px card on the right. The summary
+    // moved into a dialog with room for it, plus the customers and the round.
+    final api = _TerritoryApi(
+      territory: _territoryJson(
+        id: 't-1',
+        code: 'RT01',
+        name: 'North Beat',
+        routeProfile: <String, dynamic>{
+          'route_type_name': 'Sales Route',
+          'visit_frequency': 'WEEKLY',
+          'working_days': <int>[1],
+        },
+      ),
+    );
+    await _pump(tester, api);
+    await _selectRow(tester, 'RT01');
+
+    // Two: the toolbar button and the grid's row-action column, which offers
+    // View whenever a row can be opened. The toolbar comes first in the tree.
+    await tester.tap(find.byTooltip('View').first);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TerritoryDetailDialog), findsOneWidget);
+    expect(find.text('RT01 — North Beat'), findsOneWidget);
+  });
+
+  testWidgets('a route can say which area it covers', (tester) async {
+    // These three columns have been on the route profile since the first
+    // migration and no screen ever set one, so the `city_id` filter on the
+    // territory list -- implemented server-side all along -- could never match.
+    final _TerritoryApi api = _TerritoryApi(
+      territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
+      geoRows: <GeoLevel, List<Json>>{
+        GeoLevel.city: <Json>[
+          <String, dynamic>{'id': 'city-1', 'code': 'CHE', 'name': 'Chennai'},
+        ],
+        GeoLevel.postalCode: <Json>[
+          <String, dynamic>{'id': 'pin-1', 'postal_code': '600001'},
+        ],
+      },
+    );
+    await _pump(tester, api);
+    await _openNew(tester);
+
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Code')), 'RT02');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'South');
+    await _pickFromDropdown(
+      tester,
+      _inDialog(find.byType(DropdownButtonFormField<String>)).first,
+      'Route',
+    );
+    final Finder routeSwitch = _inDialog(find.text('This is a route'));
+    await tester.ensureVisible(routeSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(routeSwitch);
+    await tester.pumpAndSettle();
+
+    // City first: the pin code list only means anything under one.
+    await _pickFromDropdown(
+      tester,
+      _inDialog(find.widgetWithText(DropdownButtonFormField<String>, 'City')),
+      'Chennai',
+    );
+    await _pickFromDropdown(
+      tester,
+      _inDialog(
+          find.widgetWithText(DropdownButtonFormField<String>, 'Pin code')),
+      '600001',
+    );
+
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    final Json profile = api.created!['route_profile'] as Json;
+    expect(profile['city_id'], 'city-1');
+    expect(profile['postal_code_id'], 'pin-1');
+  });
+
+  testWidgets('the grid can be narrowed to one area', (tester) async {
+    final _TerritoryApi api = _TerritoryApi(
+      territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
+      geoRows: <GeoLevel, List<Json>>{
+        GeoLevel.city: <Json>[
+          <String, dynamic>{'id': 'city-1', 'code': 'CHE', 'name': 'Chennai'},
+        ],
+      },
+    );
+    await _pump(tester, api);
+
+    await tester.tap(find.widgetWithText(
+        DropdownButtonFormField<String>, 'Area (city)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chennai').last);
+    await tester.pumpAndSettle();
+
+    expect(api.lastQuery?.cityId, 'city-1');
   });
 }

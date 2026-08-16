@@ -2,6 +2,7 @@
 
 # ruff: noqa: D102, D103, D107
 
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -18,7 +19,12 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    RequiredFirmScope,
+    ResolvedFirmScope,
+    firm_permission_scope,
+)
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -28,13 +34,18 @@ from app.core.security.authorization import (
     Principal,
     require_platform_admin,
 )
+from app.core.utils.dates import utc_now
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
+    AssignableCustomer,
+    AssignableCustomerFilters,
     BeatPlanCreate,
     BeatPlanResponse,
     BeatPlanUpdate,
     BulkOperationResult,
+    CallListResponse,
+    CustomerRoute,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -53,12 +64,13 @@ from app.sales.schemas import (
     RouteTypeWrite,
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
-    TerritoryBulkCustomerAssignment,
+    TerritoryBulkCustomerRequest,
     TerritoryBulkMoveRequest,
-    TerritoryBulkSalesmanAssignment,
+    TerritoryBulkSalesmanRequest,
     TerritoryBulkStatusRequest,
     TerritoryCopyRequest,
     TerritoryCreate,
+    TerritoryCustomerAssignmentResponse,
     TerritoryDashboardStats,
     TerritoryDetailResponse,
     TerritoryListFilters,
@@ -123,7 +135,7 @@ def get_hierarchy(
 def update_hierarchy(
     payload: HierarchyUpdateRequest,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[HierarchyResponse]:
     data = _service(db).update_hierarchy(
@@ -155,8 +167,39 @@ def create_route_type(
     return ApiResponse(data=data)
 
 
+@router.put(
+    "/route-types/{route_type_id}",
+    response_model=ApiResponse[RouteTypeResponse],
+)
+def update_route_type(
+    route_type_id: UUID,
+    payload: RouteTypeWrite,
+    scope: TerritoryUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RouteTypeResponse]:
+    """Rename a route type, or retire it by clearing its active flag."""
+    data = _service(db).update_route_type(
+        route_type_id, payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=data)
+
+
+@router.delete("/route-types/{route_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_route_type(
+    route_type_id: UUID,
+    scope: TerritoryDeleteScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Soft delete a route type no route is still classified by."""
+    _service(db).delete_route_type(
+        route_type_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/geo/countries", response_model=ApiResponse[list[GeoCountryResponse]])
 def list_geo_countries(
+    scope: TerritoryViewScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoCountryResponse]]:
     return ApiResponse(data=_service(db).list_countries())
@@ -170,7 +213,7 @@ def list_geo_countries(
 def create_geo_country(
     payload: GeoCountryWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCountryResponse]:
     return ApiResponse(
@@ -180,6 +223,7 @@ def create_geo_country(
 
 @router.get("/geo/states", response_model=ApiResponse[list[GeoStateResponse]])
 def list_geo_states(
+    scope: TerritoryViewScope,
     country_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoStateResponse]]:
@@ -194,7 +238,7 @@ def list_geo_states(
 def create_geo_state(
     payload: GeoStateWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoStateResponse]:
     return ApiResponse(data=_service(db).create_state(payload, actor_id=scope.actor_id))
@@ -202,6 +246,7 @@ def create_geo_state(
 
 @router.get("/geo/districts", response_model=ApiResponse[list[GeoDistrictResponse]])
 def list_geo_districts(
+    scope: TerritoryViewScope,
     state_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoDistrictResponse]]:
@@ -216,7 +261,7 @@ def list_geo_districts(
 def create_geo_district(
     payload: GeoDistrictWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoDistrictResponse]:
     return ApiResponse(
@@ -226,6 +271,7 @@ def create_geo_district(
 
 @router.get("/geo/cities", response_model=ApiResponse[list[GeoCityResponse]])
 def list_geo_cities(
+    scope: TerritoryViewScope,
     district_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoCityResponse]]:
@@ -240,7 +286,7 @@ def list_geo_cities(
 def create_geo_city(
     payload: GeoCityWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoCityResponse]:
     return ApiResponse(data=_service(db).create_city(payload, actor_id=scope.actor_id))
@@ -250,6 +296,7 @@ def create_geo_city(
     "/geo/postal-codes", response_model=ApiResponse[list[GeoPostalCodeResponse]]
 )
 def list_geo_postal_codes(
+    scope: TerritoryViewScope,
     city_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoPostalCodeResponse]]:
@@ -264,7 +311,7 @@ def list_geo_postal_codes(
 def create_geo_postal_code(
     payload: GeoPostalCodeWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoPostalCodeResponse]:
     return ApiResponse(
@@ -274,6 +321,7 @@ def create_geo_postal_code(
 
 @router.get("/geo/localities", response_model=ApiResponse[list[GeoLocalityResponse]])
 def list_geo_localities(
+    scope: TerritoryViewScope,
     postal_code_id: UUID | None = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GeoLocalityResponse]]:
@@ -288,7 +336,7 @@ def list_geo_localities(
 def create_geo_locality(
     payload: GeoLocalityWrite,
     _: PlatformPrincipal,
-    scope: ResolvedFirmScope,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[GeoLocalityResponse]:
     return ApiResponse(
@@ -335,11 +383,189 @@ def upsert_addresses(
     return ApiResponse(data=data)
 
 
+@router.put(
+    "/geo/countries/{country_id}",
+    response_model=ApiResponse[GeoCountryResponse],
+)
+def update_geo_country(
+    country_id: UUID,
+    payload: GeoCountryWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoCountryResponse]:
+    """Replace one country's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_country(country_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/countries/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_country(
+    country_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one country nothing still refers to."""
+    _service(db).delete_country(country_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/states/{state_id}",
+    response_model=ApiResponse[GeoStateResponse],
+)
+def update_geo_state(
+    state_id: UUID,
+    payload: GeoStateWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoStateResponse]:
+    """Replace one state's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_state(state_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/states/{state_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_state(
+    state_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one state nothing still refers to."""
+    _service(db).delete_state(state_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/districts/{district_id}",
+    response_model=ApiResponse[GeoDistrictResponse],
+)
+def update_geo_district(
+    district_id: UUID,
+    payload: GeoDistrictWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoDistrictResponse]:
+    """Replace one district's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_district(district_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/districts/{district_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_district(
+    district_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one district nothing still refers to."""
+    _service(db).delete_district(district_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/cities/{city_id}",
+    response_model=ApiResponse[GeoCityResponse],
+)
+def update_geo_city(
+    city_id: UUID,
+    payload: GeoCityWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoCityResponse]:
+    """Replace one city's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_city(city_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/cities/{city_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_city(
+    city_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one city nothing still refers to."""
+    _service(db).delete_city(city_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/postal-codes/{postal_code_id}",
+    response_model=ApiResponse[GeoPostalCodeResponse],
+)
+def update_geo_postal_code(
+    postal_code_id: UUID,
+    payload: GeoPostalCodeWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoPostalCodeResponse]:
+    """Replace one postal code's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_postal_code(
+            postal_code_id, payload, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.delete(
+    "/geo/postal-codes/{postal_code_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_geo_postal_code(
+    postal_code_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one postal code nothing still refers to."""
+    _service(db).delete_postal_code(postal_code_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put(
+    "/geo/localities/{locality_id}",
+    response_model=ApiResponse[GeoLocalityResponse],
+)
+def update_geo_locality(
+    locality_id: UUID,
+    payload: GeoLocalityWrite,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[GeoLocalityResponse]:
+    """Replace one locality's editable fields."""
+    return ApiResponse(
+        data=_service(db).update_locality(locality_id, payload, actor_id=scope.actor_id)
+    )
+
+
+@router.delete("/geo/localities/{locality_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_geo_locality(
+    locality_id: UUID,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Retire one locality nothing still refers to."""
+    _service(db).delete_locality(locality_id, actor_id=scope.actor_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("", response_model=PaginatedResponse[TerritoryResponse])
 def list_territories(
     scope: TerritoryViewScope,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "status", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -513,23 +739,30 @@ def territory_global_search(
     )
 
 
-@router.get("/{territory_id}/customers", response_model=ApiResponse[list[UUID]])
+@router.get(
+    "/{territory_id}/customers",
+    response_model=ApiResponse[list[TerritoryCustomerAssignmentResponse]],
+)
 def territory_customers(
     territory_id: UUID,
     scope: TerritoryViewScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[UUID]]:
+) -> ApiResponse[list[TerritoryCustomerAssignmentResponse]]:
+    """List the customers on a territory, in the order the round calls them."""
     data = _service(db).customers(territory_id, firm_scope=scope.firm_id)
     return ApiResponse(data=data)
 
 
-@router.put("/{territory_id}/customers", response_model=ApiResponse[list[UUID]])
+@router.put(
+    "/{territory_id}/customers",
+    response_model=ApiResponse[list[TerritoryCustomerAssignmentResponse]],
+)
 def set_territory_customers(
     territory_id: UUID,
     payload: TerritoryAssignCustomersRequest,
     scope: TerritoryAssignCustomersScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[UUID]]:
+) -> ApiResponse[list[TerritoryCustomerAssignmentResponse]]:
     data = _service(db).set_customers(
         territory_id,
         payload,
@@ -571,12 +804,12 @@ def set_territory_salesmen(
 
 @router.post("/bulk/customers", response_model=ApiResponse[BulkOperationResult])
 def bulk_set_customers(
-    payload: list[TerritoryBulkCustomerAssignment],
+    payload: TerritoryBulkCustomerRequest,
     scope: TerritoryAssignCustomersScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BulkOperationResult]:
     data = _service(db).bulk_set_customers(
-        payload,
+        payload.items,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
@@ -585,12 +818,12 @@ def bulk_set_customers(
 
 @router.post("/bulk/salesmen", response_model=ApiResponse[BulkOperationResult])
 def bulk_set_salesmen(
-    payload: list[TerritoryBulkSalesmanAssignment],
+    payload: TerritoryBulkSalesmanRequest,
     scope: TerritoryAssignSalesmenScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BulkOperationResult]:
     data = _service(db).bulk_set_salesmen(
-        payload,
+        payload.items,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
@@ -629,7 +862,7 @@ def bulk_move(
 def list_beat_plans(
     scope: TerritoryViewScope,
     page: int = 1,
-    page_size: int = 20,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     include_deleted: bool = False,
     db: Session = Depends(get_db),
@@ -700,6 +933,102 @@ def delete_beat_plan(
         beat_plan_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/beat-plans/{beat_plan_id}/call-list")
+def beat_plan_call_list(
+    beat_plan_id: UUID,
+    scope: TerritoryViewScope,
+    on_date: Annotated[date | None, Query(alias="date")] = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CallListResponse]:
+    """Answer who one plan calls on a date, defaulting to today."""
+    return ApiResponse(
+        data=_service(db).call_list(
+            firm_scope=scope.firm_id,
+            # `utc_now()`, never `date.today()`: everything persisted here is
+            # UTC, so the server's local clock is a different day for part of
+            # every day on any non-UTC deployment.
+            on_date=on_date or utc_now().date(),
+            beat_plan_id=beat_plan_id,
+        )
+    )
+
+
+# Literal path, so it must be declared above the trailing `GET /{territory_id}`.
+# FastAPI matches in declaration order and that route is deliberately last;
+# four paths on this router have already been read as a territory id once.
+@router.get("/call-lists")
+def call_lists(
+    scope: TerritoryViewScope,
+    on_date: Annotated[date | None, Query(alias="date")] = None,
+    salesman_id: UUID | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CallListResponse]:
+    """Answer who is called on a date across every active plan."""
+    return ApiResponse(
+        data=_service(db).call_list(
+            firm_scope=scope.firm_id,
+            on_date=on_date or utc_now().date(),
+            salesman_id=salesman_id,
+        )
+    )
+
+
+@router.get(
+    "/customers/{customer_id}/routes",
+    response_model=ApiResponse[list[CustomerRoute]],
+)
+def customer_routes(
+    customer_id: UUID,
+    scope: TerritoryViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerRoute]]:
+    """List the rounds that call one shop.
+
+    A literal path, so it is declared above the trailing `GET /{territory_id}`.
+    """
+    return ApiResponse(
+        data=_service(db).customer_routes(customer_id, firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/assignable-customers",
+    response_model=PaginatedResponse[AssignableCustomer],
+)
+def assignable_customers(
+    scope: TerritoryViewScope,
+    page: int = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    territory_id: UUID | None = None,
+    search: str | None = None,
+    postal_code: str | None = None,
+    area: str | None = None,
+    city: str | None = None,
+    unassigned_only: bool = False,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[AssignableCustomer]:
+    """Find outlets for a round by pin code, street or town.
+
+    A literal path, so it is declared above the trailing `GET /{territory_id}`
+    that FastAPI would otherwise match it against.
+    """
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = _service(db).assignable_customers(
+        firm_scope=scope.firm_id,
+        territory_id=territory_id,
+        filters=AssignableCustomerFilters(
+            postal_code=postal_code,
+            area=area,
+            city=city,
+            unassigned_only=unassigned_only,
+        ),
+        search=search,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    return PaginatedResponse(data=rows, pagination=params.metadata(total))
 
 
 @router.get("/export")

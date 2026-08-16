@@ -411,7 +411,39 @@ class TerritoryListFilters(TerritorySchema):
 class TerritoryCustomerAssignmentInput(TerritorySchema):
     customer_id: UUID
     visit_sequence: int | None = Field(default=None, ge=1, le=100000)
-    is_potential: bool = False
+    #: A shop the round calls on but does not yet sell to.
+    #:
+    #: `None` means "leave it alone", for the same reason `is_primary` does:
+    #: every client used to send a hardcoded `False` on every save, so the flag
+    #: was wiped by the next round save and `potential_customer_count` -- shown
+    #: on the grid and the coverage line -- could only ever read zero.
+    is_potential: bool | None = None
+    #: Which round a document for this customer belongs to. Every assignment
+    #: was written `is_primary = True` with no way for a caller to say
+    #: otherwise, so once a shop could be on two rounds the flag could not
+    #: settle which one a sale counts against.
+    #:
+    #: `None` means "leave it alone" rather than `False`: a new assignment
+    #: still defaults to primary, matching what every existing caller wrote,
+    #: and re-saving a round from the customer picker -- which sends no flag --
+    #: cannot silently demote the round someone chose. The salesman list was
+    #: demoted exactly that way once already.
+    is_primary: bool | None = None
+
+
+class TerritoryCustomerAssignmentResponse(TerritorySchema):
+    """One customer's place on a round.
+
+    The `GET`/`PUT` pair for territory customers used to move a bare list of
+    ids, which meant `visit_sequence` -- the order the round is walked in --
+    could be written and never read back. A round with no readable order is a
+    set, not a route.
+    """
+
+    customer_id: UUID
+    is_primary: bool
+    visit_sequence: int | None
+    is_potential: bool
 
 
 class TerritoryAssignCustomersRequest(TerritorySchema):
@@ -421,6 +453,29 @@ class TerritoryAssignCustomersRequest(TerritorySchema):
     entries: list[TerritoryCustomerAssignmentInput] = Field(
         default_factory=list, max_length=5000
     )
+
+    @model_validator(mode="after")
+    def validate_call_order(self) -> "TerritoryAssignCustomersRequest":
+        """Refuse two shops at the same stop number.
+
+        The database refuses it too, but as a rollback reading "the operation
+        violates uniqueness constraints", which names neither the round nor the
+        number. This call replaces the whole list for one territory, so every
+        sequence in play arrives in this payload and the clash can be named
+        here instead.
+        """
+        placed = [
+            item.visit_sequence
+            for item in self.entries
+            if item.visit_sequence is not None
+        ]
+        duplicates = sorted({value for value in placed if placed.count(value) > 1})
+        if duplicates:
+            raise ValueError(
+                "Two customers cannot share a stop number on one route: "
+                + ", ".join(str(value) for value in duplicates)
+            )
+        return self
 
 
 class SalesmanAssignmentInput(TerritorySchema):
@@ -460,9 +515,73 @@ class TerritoryCopyRequest(TerritorySchema):
         return value.strip().upper()
 
 
+class CustomerRoute(TerritorySchema):
+    """One round that calls a given shop, and where in it.
+
+    The relationship was one-directional everywhere: from a territory you could
+    list its customers, and from a customer you could see nothing at all.
+    """
+
+    territory_id: UUID
+    code: str
+    name: str
+    path: str
+    is_route: bool
+    is_primary: bool
+    visit_sequence: int | None
+
+
+class AssignableCustomer(TerritorySchema):
+    """One shop a round could call, with enough address to find it by.
+
+    Built for the question a supervisor actually asks -- "which outlets on this
+    pin code are not on a round yet" -- which the customer list could not
+    answer: it filters on city and state and nothing finer, and it knows
+    nothing about territory assignment at all.
+    """
+
+    customer_id: UUID
+    code: str
+    name: str
+    address_line: str
+    area: str | None
+    city: str
+    postal_code: str
+    #: Already on the route being built, and where in its order.
+    on_this_route: bool
+    visit_sequence: int | None
+    #: A prospect on this round rather than a buyer. Carried so the screen that
+    #: offers the toggle knows the current state before it saves.
+    is_potential: bool = False
+    #: Other rounds that already call this shop, by code. A distributor calling
+    #: the same outlet on a sales beat and a collection round is ordinary, so
+    #: this is information rather than a warning.
+    other_routes: list[str] = Field(default_factory=list)
+
+
+class AssignableCustomerFilters(TerritorySchema):
+    """How to narrow the outlets offered to a round."""
+
+    postal_code: str | None = Field(default=None, max_length=24)
+    area: str | None = Field(default=None, max_length=100)
+    city: str | None = Field(default=None, max_length=100)
+    #: Only shops no live route assignment names. The default is False, because
+    #: hiding a shop already on another round would make it impossible to put
+    #: one outlet on both.
+    unassigned_only: bool = False
+
+
 class TerritoryBulkCustomerAssignment(TerritorySchema):
+    """One territory's customer list, for a batch that applies several at once."""
+
     territory_id: UUID
     customer_ids: list[UUID] = Field(default_factory=list, max_length=5000)
+    #: Carried so a bulk assignment can set the call order and the primary
+    #: flag. The bulk path used to forward only `customer_ids`, which made it a
+    #: strictly weaker version of the single-row endpoint for no reason.
+    entries: list[TerritoryCustomerAssignmentInput] = Field(
+        default_factory=list, max_length=5000
+    )
 
 
 class TerritoryBulkSalesmanAssignment(TerritorySchema):
@@ -470,6 +589,24 @@ class TerritoryBulkSalesmanAssignment(TerritorySchema):
     assignments: list[SalesmanAssignmentInput] = Field(
         default_factory=list, max_length=5000
     )
+
+
+class TerritoryBulkCustomerRequest(TerritorySchema):
+    """A batch of per-territory customer lists.
+
+    Wrapped in an object rather than posted as a bare JSON array so that all
+    four bulk endpoints take the same shape -- the status and move endpoints
+    always did, and a bare array cannot be sent by the desktop client, whose
+    request body is a map.
+    """
+
+    items: list[TerritoryBulkCustomerAssignment] = Field(min_length=1, max_length=5000)
+
+
+class TerritoryBulkSalesmanRequest(TerritorySchema):
+    """A batch of per-territory salesperson lists."""
+
+    items: list[TerritoryBulkSalesmanAssignment] = Field(min_length=1, max_length=5000)
 
 
 class TerritoryBulkStatusRequest(TerritorySchema):
@@ -487,10 +624,15 @@ class BulkOperationResult(TerritorySchema):
     failed: int = 0
 
 
-class BeatPlanStopInput(TerritorySchema):
-    """One ordered stop declaration for beat-planning templates."""
+class BeatPlanCustomerStopInput(TerritorySchema):
+    """One ordered outlet on a beat plan.
 
-    territory_id: UUID
+    Optional: a plan that lists none calls every customer on its territory, in
+    `visit_sequence` order. These rows exist for a route that splits into
+    several day-beats calling different shops.
+    """
+
+    customer_id: UUID
     stop_order: int = Field(ge=1, le=1000)
     planned_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
 
@@ -508,7 +650,9 @@ class BeatPlanWrite(TerritorySchema):
     ends_on: date | None = None
     is_active: bool = True
     notes: str | None = None
-    stops: list[BeatPlanStopInput] = Field(default_factory=list, max_length=300)
+    customer_stops: list[BeatPlanCustomerStopInput] = Field(
+        default_factory=list, max_length=1000
+    )
 
     @field_validator("code", mode="before")
     @classmethod
@@ -536,13 +680,51 @@ class BeatPlanUpdate(BeatPlanWrite):
     """Replace payload for one beat-plan template."""
 
 
-class BeatPlanStopResponse(TerritorySchema):
-    """Persisted beat-plan stop representation."""
+class BeatPlanCustomerStopResponse(TerritorySchema):
+    """Persisted outlet stop representation."""
 
     id: UUID
-    territory_id: UUID
+    customer_id: UUID
     stop_order: int
     planned_duration_minutes: int | None
+
+
+class CallListStop(TerritorySchema):
+    """One outlet to be called, in the order the round walks it."""
+
+    customer_id: UUID
+    customer_code: str
+    customer_name: str
+    stop_order: int
+    planned_duration_minutes: int | None
+
+
+class CallListEntry(TerritorySchema):
+    """What one beat plan asks for on one date.
+
+    `occurs` is answered even when it is false, and `reason` says why, because
+    "this plan does not run today" and "this plan cannot be computed" are
+    different answers and a screen that shows an empty list for both is lying
+    about one of them.
+    """
+
+    beat_plan_id: UUID
+    beat_plan_code: str
+    beat_plan_name: str
+    territory_id: UUID
+    territory_code: str
+    territory_name: str
+    salesman_id: UUID | None
+    occurs: bool
+    reason: str | None
+    stops: list[CallListStop] = Field(default_factory=list)
+
+
+class CallListResponse(TerritorySchema):
+    """Every plan's call list for one date."""
+
+    on_date: date
+    entries: list[CallListEntry] = Field(default_factory=list)
 
 
 class BeatPlanResponse(TerritorySchema):
@@ -563,4 +745,4 @@ class BeatPlanResponse(TerritorySchema):
     notes: str | None
     created_at: datetime
     updated_at: datetime
-    stops: list[BeatPlanStopResponse]
+    customer_stops: list[BeatPlanCustomerStopResponse] = Field(default_factory=list)

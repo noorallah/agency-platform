@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/sales_territory.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
@@ -188,6 +189,11 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         mode: mode,
         customer: customer,
         onSave: (payload) => _controller.save(customer, payload),
+        // Passed as a loader rather than the client itself, matching `onSave`:
+        // the dialog stays a form and does not grow an API dependency.
+        loadRoutes: customer == null
+            ? null
+            : () => widget.api.customerRoutes(customer.id),
       ),
     );
     if (saved == null || !mounted) return;
@@ -638,11 +644,16 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     required this.mode,
     required this.customer,
     required this.onSave,
+    this.loadRoutes,
   });
 
   final CustomerDialogMode mode;
   final Customer? customer;
   final Future<Customer> Function(Json payload) onSave;
+
+  /// The rounds that call this shop. Null while creating, since a customer
+  /// that does not exist yet is on nothing.
+  final Future<List<CustomerRouteRecord>> Function()? loadRoutes;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -650,6 +661,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
 }
 
 class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
+  /// Null until the rounds have been read; empty means read and none.
+  List<CustomerRouteRecord>? _routes;
+  bool _routesRequested = false;
+
   final List<GlobalKey<FormState>> _forms =
       List.generate(4, (_) => GlobalKey<FormState>());
   late final Map<String, TextEditingController> _fields = {
@@ -836,6 +851,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           WorkspaceDialogTab(label: 'Address', child: _addressTab()),
           WorkspaceDialogTab(label: 'Contacts', child: _contactTab()),
           WorkspaceDialogTab(label: 'Financial', child: _financialTab()),
+          WorkspaceDialogTab(label: 'Routes', child: _routesTab()),
           WorkspaceDialogTab(label: 'Audit', child: _auditTab()),
         ],
         footer: Padding(
@@ -980,6 +996,78 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           ]),
         ]),
       );
+
+  /// Which rounds call this shop, and where in each.
+  ///
+  /// The relationship was one-directional everywhere: from a territory you
+  /// could list its customers, and from a customer you could see nothing at
+  /// all — so nobody could answer "is this shop on a beat?" without opening
+  /// every route in turn.
+  Widget _routesTab() {
+    if (widget.loadRoutes == null) {
+      return _tabPage([
+        const WorkspaceEmptyState(
+          title: 'Routes appear after save',
+          message: 'A customer is put on a round from the Sales workspace.',
+          icon: Icons.alt_route,
+        ),
+      ]);
+    }
+    if (!_routesRequested) {
+      _routesRequested = true;
+      widget.loadRoutes!().then((rows) {
+        if (mounted) setState(() => _routes = rows);
+      }).catchError((Object _) {
+        // A round list that cannot be read costs this tab, not the dialog.
+        if (mounted) setState(() => _routes = const <CustomerRouteRecord>[]);
+      });
+    }
+    final List<CustomerRouteRecord>? rows = _routes;
+    if (rows == null) {
+      return _tabPage([const Center(child: CircularProgressIndicator())]);
+    }
+    if (rows.isEmpty) {
+      return _tabPage([
+        const WorkspaceEmptyState(
+          title: 'On no round yet',
+          message: 'Put this customer on a route from Sales \u2192 Route Builder, '
+              'or from the territory itself.',
+          icon: Icons.alt_route,
+        ),
+      ]);
+    }
+    return _tabPage([
+      Card(
+        child: Column(
+          children: [
+            for (final CustomerRouteRecord row in rows)
+              ListTile(
+                leading: Icon(
+                  row.isRoute ? Icons.alt_route : Icons.account_tree_outlined,
+                ),
+                title: Text('${row.code} \u2014 ${row.name}'),
+                subtitle: Text(row.path),
+                trailing: Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (row.visitSequence != null)
+                      Text('Stop ${row.visitSequence}'),
+                    // The round a sale for this shop is filed under, which is
+                    // what makes the by-territory reports say what they say.
+                    if (row.isPrimary)
+                      const StatusBadge(
+                        label: 'Primary',
+                        tone: StatusBadgeTone.success,
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ]);
+  }
 
   Widget _auditTab() {
     final Customer? customer = widget.customer;

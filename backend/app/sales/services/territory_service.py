@@ -3,25 +3,28 @@
 # ruff: noqa: D102, D107
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from io import BytesIO
+from typing import TypeVar
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
+from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerAddress
 from app.identity.models import User
 from app.sales.models import (
     AddressMaster,
     BeatPlan,
-    BeatPlanStop,
+    BeatPlanCustomerStop,
     GeoCity,
     GeoCountry,
     GeoDistrict,
@@ -40,11 +43,18 @@ from app.sales.models import (
 from app.sales.schemas import (
     AddressMasterResponse,
     AddressMasterWrite,
+    AssignableCustomer,
+    AssignableCustomerFilters,
     BeatPlanCreate,
+    BeatPlanCustomerStopInput,
     BeatPlanResponse,
-    BeatPlanStopInput,
+    BeatPlanType,
     BeatPlanUpdate,
     BulkOperationResult,
+    CallListEntry,
+    CallListResponse,
+    CallListStop,
+    CustomerRoute,
     GeoCityResponse,
     GeoCityWrite,
     GeoCountryResponse,
@@ -73,6 +83,7 @@ from app.sales.schemas import (
     TerritoryBulkStatusRequest,
     TerritoryCopyRequest,
     TerritoryCreate,
+    TerritoryCustomerAssignmentResponse,
     TerritoryDashboardStats,
     TerritoryDetailResponse,
     TerritoryListFilters,
@@ -82,6 +93,11 @@ from app.sales.schemas import (
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
 )
+from app.sales.services.scope_resolution import route_profile_in_force
+
+#: Any geography master row. The lookup helper is shared by all six levels
+#: and must hand back the concrete type it was asked for.
+_GeoRowT = TypeVar("_GeoRowT", bound=BaseEntity)
 
 
 class SalesTerritoryService:
@@ -153,6 +169,7 @@ class SalesTerritoryService:
     def create_route_type(
         self, payload: RouteTypeWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> RouteTypeResponse:
+        self._assert_unique_route_type_code(firm_scope, payload.code)
         row = RouteTypeMaster(
             firm_id=firm_scope,
             code=payload.code,
@@ -163,7 +180,117 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        # Flushed so the audit row has an entity id to point at; `record_audit`
+        # reads `row.id`, which is None until the insert reaches the database.
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.created",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"code": row.code, "name": row.name},
+        )
         self._commit()
+        return self._route_type_response(row)
+
+    def update_route_type(
+        self,
+        route_type_id: UUID,
+        payload: RouteTypeWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> RouteTypeResponse:
+        """Replace one route type's editable fields."""
+        row = self._route_type(route_type_id, firm_scope)
+        self._assert_unique_route_type_code(firm_scope, payload.code, current_id=row.id)
+        row.code = payload.code
+        row.name = payload.name
+        row.description = payload.description
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.updated",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"code": row.code, "name": row.name},
+        )
+        self._commit()
+        return self._route_type_response(row)
+
+    def delete_route_type(
+        self, route_type_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Soft delete a route type no route is still classified by.
+
+        There is no database guard: `territory_route_profiles.route_type_id` has
+        no cascade and no restriction, so deleting a type in use would leave
+        every route pointing at a row that reads as absent -- the route type
+        column on the territory grid would simply go blank with nothing to say
+        why. Refuse instead, and name the count so the caller knows what to
+        reassign.
+        """
+        row = self._route_type(route_type_id, firm_scope)
+        in_use = self._session.scalar(
+            select(func.count())
+            .select_from(TerritoryRouteProfile)
+            .where(
+                TerritoryRouteProfile.route_type_id == row.id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if int(in_use or 0) > 0:
+            raise ConflictError(
+                f"{in_use} route(s) still use this route type. "
+                "Reassign them before deleting it."
+            )
+        row.is_deleted = True
+        row.deleted_at = utc_now()
+        row.deleted_by = actor_id
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.deleted",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"code": row.code, "name": row.name},
+        )
+        self._commit()
+
+    def _route_type(self, route_type_id: UUID, firm_scope: UUID) -> RouteTypeMaster:
+        row = self._session.scalar(
+            select(RouteTypeMaster).where(
+                RouteTypeMaster.id == route_type_id,
+                RouteTypeMaster.firm_id == firm_scope,
+                RouteTypeMaster.is_deleted.is_(False),
+            )
+        )
+        if row is None:
+            raise ResourceNotFoundError("Route type not found.")
+        return row
+
+    def _assert_unique_route_type_code(
+        self, firm_id: UUID, code: str, current_id: UUID | None = None
+    ) -> None:
+        statement = select(RouteTypeMaster.id).where(
+            RouteTypeMaster.firm_id == firm_id,
+            RouteTypeMaster.code == code,
+            RouteTypeMaster.is_deleted.is_(False),
+        )
+        if current_id is not None:
+            statement = statement.where(RouteTypeMaster.id != current_id)
+        if self._session.scalar(statement) is not None:
+            raise ConflictError("A route type with this code already exists.")
+
+    @staticmethod
+    def _route_type_response(row: RouteTypeMaster) -> RouteTypeResponse:
         return RouteTypeResponse(
             id=row.id,
             code=row.code,
@@ -393,6 +520,325 @@ class SalesTerritoryService:
             postal_code_id=row.postal_code_id,
             name=row.name,
             is_active=row.is_active,
+        )
+
+    # ---- geography masters: edit and retire ----------------------------
+    #
+    # Every foreign key into these tables is `ondelete="RESTRICT"`, which
+    # sounds like the guard is already there. It is not: these rows are
+    # soft-deleted, and a soft delete never reaches the database's referential
+    # check. A "deleted" country stays wired to every branch that names it and
+    # simply vanishes from the list, so the address panel goes blank with
+    # nothing to say why -- the same shape as deleting a route type in use.
+    #
+    # So the guard lives here, and it looks in two directions: at the level
+    # below (a state under a country) and at everything outside geography that
+    # points at the row.
+
+    def update_country(
+        self, country_id: UUID, payload: GeoCountryWrite, *, actor_id: UUID
+    ) -> GeoCountryResponse:
+        """Rename a country, or retire it by clearing its active flag."""
+        row = self._geo_row(GeoCountry, country_id, "Country")
+        self._assert_geo_code_free(GeoCountry, payload.code, current_id=row.id)
+        row.code = payload.code
+        row.name = payload.name
+        row.iso2 = payload.iso2
+        row.iso3 = payload.iso3
+        row.phone_code = payload.phone_code
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("country", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return self._country_response(row)
+
+    def delete_country(self, country_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a country nothing still refers to."""
+        row = self._geo_row(GeoCountry, country_id, "Country")
+        self._assert_geo_unused(
+            "country",
+            [
+                (GeoState, GeoState.country_id),
+                (AddressMaster, AddressMaster.country_id),
+                (Branch, Branch.country_id),
+                (Warehouse, Warehouse.country_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("country", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_state(
+        self, state_id: UUID, payload: GeoStateWrite, *, actor_id: UUID
+    ) -> GeoStateResponse:
+        """Replace one state's editable fields."""
+        row = self._geo_row(GeoState, state_id, "State")
+        self._geo_row(GeoCountry, payload.country_id, "Country")
+        self._assert_geo_code_free(GeoState, payload.code, current_id=row.id)
+        row.country_id = payload.country_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("state", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoStateResponse(
+            id=row.id,
+            country_id=row.country_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_state(self, state_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a state nothing still refers to."""
+        row = self._geo_row(GeoState, state_id, "State")
+        self._assert_geo_unused(
+            "state",
+            [
+                (GeoDistrict, GeoDistrict.state_id),
+                (AddressMaster, AddressMaster.state_id),
+                (Branch, Branch.state_id),
+                (Warehouse, Warehouse.state_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("state", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_district(
+        self, district_id: UUID, payload: GeoDistrictWrite, *, actor_id: UUID
+    ) -> GeoDistrictResponse:
+        """Replace one district's editable fields."""
+        row = self._geo_row(GeoDistrict, district_id, "District")
+        self._geo_row(GeoState, payload.state_id, "State")
+        self._assert_geo_code_free(GeoDistrict, payload.code, current_id=row.id)
+        row.state_id = payload.state_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("district", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoDistrictResponse(
+            id=row.id,
+            state_id=row.state_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_district(self, district_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a district nothing still refers to."""
+        row = self._geo_row(GeoDistrict, district_id, "District")
+        self._assert_geo_unused(
+            "district",
+            [
+                (GeoCity, GeoCity.district_id),
+                (AddressMaster, AddressMaster.district_id),
+                (Branch, Branch.district_id),
+                (Warehouse, Warehouse.district_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("district", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_city(
+        self, city_id: UUID, payload: GeoCityWrite, *, actor_id: UUID
+    ) -> GeoCityResponse:
+        """Replace one city's editable fields."""
+        row = self._geo_row(GeoCity, city_id, "City")
+        self._geo_row(GeoDistrict, payload.district_id, "District")
+        self._assert_geo_code_free(GeoCity, payload.code, current_id=row.id)
+        row.district_id = payload.district_id
+        row.code = payload.code
+        row.name = payload.name
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("city", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoCityResponse(
+            id=row.id,
+            district_id=row.district_id,
+            code=row.code,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_city(self, city_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a city nothing still refers to."""
+        row = self._geo_row(GeoCity, city_id, "City")
+        self._assert_geo_unused(
+            "city",
+            [
+                (GeoPostalCode, GeoPostalCode.city_id),
+                (AddressMaster, AddressMaster.city_id),
+                (Branch, Branch.city_id),
+                (Warehouse, Warehouse.city_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.city_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("city", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    def update_postal_code(
+        self, postal_code_id: UUID, payload: GeoPostalCodeWrite, *, actor_id: UUID
+    ) -> GeoPostalCodeResponse:
+        """Replace one postal code's editable fields."""
+        row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
+        self._geo_row(GeoCity, payload.city_id, "City")
+        row.city_id = payload.city_id
+        row.postal_code = payload.postal_code
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("postal_code", "updated", row.id, actor_id, row.postal_code)
+        self._commit()
+        return GeoPostalCodeResponse(
+            id=row.id,
+            city_id=row.city_id,
+            postal_code=row.postal_code,
+            is_active=row.is_active,
+        )
+
+    def delete_postal_code(self, postal_code_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a postal code nothing still refers to."""
+        row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
+        self._assert_geo_unused(
+            "postal code",
+            [
+                (GeoLocality, GeoLocality.postal_code_id),
+                (AddressMaster, AddressMaster.postal_code_id),
+                (Branch, Branch.postal_code_id),
+                (Warehouse, Warehouse.postal_code_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.postal_code_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("postal_code", "deleted", row.id, actor_id, row.postal_code)
+        self._commit()
+
+    def update_locality(
+        self, locality_id: UUID, payload: GeoLocalityWrite, *, actor_id: UUID
+    ) -> GeoLocalityResponse:
+        """Replace one locality's editable fields."""
+        row = self._geo_row(GeoLocality, locality_id, "Locality")
+        self._geo_row(GeoPostalCode, payload.postal_code_id, "Postal code")
+        row.postal_code_id = payload.postal_code_id
+        row.name = payload.name.strip()
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        self._audit_geo("locality", "updated", row.id, actor_id, row.name)
+        self._commit()
+        return GeoLocalityResponse(
+            id=row.id,
+            postal_code_id=row.postal_code_id,
+            name=row.name,
+            is_active=row.is_active,
+        )
+
+    def delete_locality(self, locality_id: UUID, *, actor_id: UUID) -> None:
+        """Retire a locality nothing still refers to."""
+        row = self._geo_row(GeoLocality, locality_id, "Locality")
+        self._assert_geo_unused(
+            "locality",
+            [
+                (AddressMaster, AddressMaster.locality_id),
+                (Branch, Branch.locality_id),
+                (Warehouse, Warehouse.locality_id),
+                (TerritoryRouteProfile, TerritoryRouteProfile.locality_id),
+            ],
+            row.id,
+        )
+        self._retire_geo(row, actor_id)
+        self._audit_geo("locality", "deleted", row.id, actor_id, row.name)
+        self._commit()
+
+    @staticmethod
+    def _country_response(row: GeoCountry) -> GeoCountryResponse:
+        return GeoCountryResponse(
+            id=row.id,
+            code=row.code,
+            name=row.name,
+            iso2=row.iso2,
+            iso3=row.iso3,
+            phone_code=row.phone_code,
+            is_active=row.is_active,
+        )
+
+    def _geo_row(self, model: type[_GeoRowT], row_id: UUID, label: str) -> _GeoRowT:
+        row = self._session.scalar(
+            select(model).where(model.id == row_id, model.is_deleted.is_(False))
+        )
+        if row is None:
+            raise ResourceNotFoundError(f"{label} not found.")
+        return row
+
+    def _assert_geo_code_free(
+        self, model: type[BaseEntity], code: str, *, current_id: UUID
+    ) -> None:
+        """Keep a geography code unique among the live rows of its own kind."""
+        # `code` is not on `BaseEntity`, so it is read off the mapper rather
+        # than the class: the four levels that carry one all spell it the same,
+        # and postal codes -- which do not -- never reach here.
+        code_column = model.__table__.c["code"]
+        existing = self._session.scalar(
+            select(model.id).where(
+                code_column == code,
+                model.id != current_id,
+                model.is_deleted.is_(False),
+            )
+        )
+        if existing is not None:
+            raise ConflictError(f"Another record already uses the code {code}.")
+
+    def _assert_geo_unused(
+        self,
+        label: str,
+        references: list[tuple[type[BaseEntity], InstrumentedAttribute[UUID | None]]],
+        row_id: UUID,
+    ) -> None:
+        """Refuse to retire a geography row anything still points at."""
+        for model, column in references:
+            count = self._session.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(column == row_id, model.is_deleted.is_(False))
+            )
+            if int(count or 0) > 0:
+                raise ConflictError(
+                    f"{count} record(s) still use this {label}. "
+                    "Reassign them before deleting it."
+                )
+
+    def _retire_geo(self, row: BaseEntity, actor_id: UUID) -> None:
+        row.is_deleted = True
+        row.deleted_at = utc_now()
+        row.deleted_by = actor_id
+        row.updated_by = actor_id
+
+    def _audit_geo(
+        self, kind: str, action: str, row_id: UUID, actor_id: UUID, name: str
+    ) -> None:
+        """Record a geography change.
+
+        Geography is reference data every firm reads, so a change to it is
+        exactly the sort of thing somebody has to be able to trace later.
+        Creating one of these wrote no audit row at all.
+        """
+        record_audit(
+            self._session,
+            action=f"sales_territory.geo.{kind}.{action}",
+            entity_type=f"geo_{kind}",
+            entity_id=row_id,
+            actor_id=actor_id,
+            after_data={"name": name},
         )
 
     def upsert_addresses(
@@ -670,7 +1116,12 @@ class SalesTerritoryService:
         return [convert(item) for item in children.get(None, [])]
 
     def create_territory(
-        self, data: TerritoryCreate, *, firm_scope: UUID, actor_id: UUID
+        self,
+        data: TerritoryCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        commit: bool = True,
     ) -> TerritoryResponse:
         self._assert_unique_code(firm_scope, data.code)
         self._assert_unique_name_under_parent(
@@ -682,6 +1133,7 @@ class SalesTerritoryService:
         level = self._level(data.hierarchy_level_id)
         parent = self._parent(firm_scope, data.parent_id)
         self._validate_level_parent(level, parent)
+        self._assert_room_under_parent(firm_scope, level, parent)
         path = data.code if parent is None else f"{parent.path}/{data.code}"
         row = SalesTerritoryNode(
             firm_id=firm_scope,
@@ -713,7 +1165,12 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"code": row.code, "name": row.name},
         )
-        self._commit()
+        # An import owns the transaction for the whole file instead, so a CSV
+        # refused on its fifth row leaves none of the first four behind.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.get_territory(row.id, firm_scope=firm_scope)
 
     def get_territory(
@@ -889,7 +1346,8 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
-    ) -> list[UUID]:
+        commit: bool = True,
+    ) -> list[TerritoryCustomerAssignmentResponse]:
         territory = self._territory(territory_id, firm_scope)
         entries = payload.entries
         customer_ids = (
@@ -909,8 +1367,18 @@ class SalesTerritoryService:
                 raise ValidationError(
                     "One or more customers do not belong to the active firm."
                 )
+        if customer_ids:
+            self._assert_customer_leaf_policy(firm_scope, territory)
+        # Scoped to this territory. Without the `territory_id` filter this
+        # cleared a customer's assignment to *every* territory, so putting a
+        # shop on the collection round silently took it off the sales round --
+        # and a distributor normally calls the same shop on both. Rows for
+        # other territories are none of this call's business; the loop below
+        # already retires the ones that belong to this territory and were
+        # dropped from the list.
         for assignment in self._session.scalars(
             select(TerritoryCustomerAssignment).where(
+                TerritoryCustomerAssignment.territory_id == territory.id,
                 TerritoryCustomerAssignment.customer_id.in_(customer_ids),
                 TerritoryCustomerAssignment.is_deleted.is_(False),
             )
@@ -929,6 +1397,26 @@ class SalesTerritoryService:
         }
         requested = set(customer_ids)
         entry_by_customer = {item.customer_id: item for item in entries}
+        # Release every stop number on this round before handing out the new
+        # ones. `UQ_territory_customer_assignments_sequence_active` is checked
+        # per statement, not at commit, so simply reassigning row by row
+        # collides the moment two shops swap places -- which is precisely what
+        # dragging one above another does, and the commonest thing anybody does
+        # to a round. A partial index cannot be declared DEFERRABLE, so the
+        # write clears first and flushes instead.
+        for customer_id, placed in existing.items():
+            if placed.visit_sequence is None:
+                continue
+            entry = entry_by_customer.get(customer_id)
+            # Only the numbers actually about to move are released. A re-save
+            # that says nothing about the order -- the plain `customer_ids`
+            # shape the picker sends -- must leave every sequence exactly where
+            # it was, which is the whole point of that shape.
+            if customer_id not in requested or (
+                entry is not None and entry.visit_sequence is not None
+            ):
+                placed.visit_sequence = None
+        self._session.flush()
         for customer_id in requested:
             row = existing.get(customer_id)
             entry = entry_by_customer.get(customer_id)
@@ -937,11 +1425,27 @@ class SalesTerritoryService:
                     TerritoryCustomerAssignment(
                         territory_id=territory.id,
                         customer_id=customer_id,
-                        is_primary=True,
+                        is_primary=(
+                            entry.is_primary
+                            if entry is not None and entry.is_primary is not None
+                            # Primary only if this shop is on no other round
+                            # yet. It used to be unconditionally True, which
+                            # gave a customer on two rounds two primaries --
+                            # and "primary" then settled nothing, which is the
+                            # question `resolve_sales_scope` asks to decide
+                            # which round a sale counts against.
+                            else not self._has_primary_elsewhere(
+                                customer_id, territory.id
+                            )
+                        ),
                         visit_sequence=(
                             entry.visit_sequence if entry is not None else None
                         ),
-                        is_potential=entry.is_potential if entry is not None else False,
+                        is_potential=(
+                            entry.is_potential
+                            if entry is not None and entry.is_potential is not None
+                            else False
+                        ),
                         created_by=actor_id,
                         updated_by=actor_id,
                     )
@@ -953,7 +1457,10 @@ class SalesTerritoryService:
                 row.updated_by = actor_id
             if row is not None and entry is not None:
                 row.visit_sequence = entry.visit_sequence
-                row.is_potential = entry.is_potential
+                if entry.is_potential is not None:
+                    row.is_potential = entry.is_potential
+                if entry.is_primary is not None:
+                    row.is_primary = entry.is_primary
         for customer_id, row in existing.items():
             if customer_id not in requested and not row.is_deleted:
                 row.is_deleted = True
@@ -969,19 +1476,270 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"customer_count": len(customer_ids)},
         )
-        self._commit()
+        # A bulk caller commits once for the whole batch instead, so a run that
+        # fails on its fifth territory does not leave the first four written.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.customers(territory_id, firm_scope=firm_scope)
 
-    def customers(self, territory_id: UUID, *, firm_scope: UUID) -> list[UUID]:
+    def _has_primary_elsewhere(self, customer_id: UUID, territory_id: UUID) -> bool:
+        """Whether this shop is already the primary of some other round."""
+        return (
+            self._session.scalar(
+                select(TerritoryCustomerAssignment.id).where(
+                    TerritoryCustomerAssignment.customer_id == customer_id,
+                    TerritoryCustomerAssignment.territory_id != territory_id,
+                    TerritoryCustomerAssignment.is_primary.is_(True),
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+            is not None
+        )
+
+    def customers(
+        self, territory_id: UUID, *, firm_scope: UUID
+    ) -> list[TerritoryCustomerAssignmentResponse]:
+        """List the customers on a territory, in the order they are called.
+
+        Returns the whole assignment rather than a bare id: `visit_sequence` is
+        the call order of a round and was writable long before anything could
+        read it back, so the desktop had no way to show -- let alone edit -- the
+        sequence it was saving.
+
+        Ordered with unsequenced customers last through an explicit `case`.
+        On `ASC` SQLite sorts NULLs first and PostgreSQL sorts them last, so a
+        bare `.asc()` would lead the round with the customers nobody has placed
+        in the unit suite and trail with them in production. Neither is chosen;
+        the `case` chooses.
+        """
         territory = self._territory(territory_id, firm_scope)
-        return list(
+        rows = list(
             self._session.scalars(
-                select(TerritoryCustomerAssignment.customer_id).where(
+                select(TerritoryCustomerAssignment)
+                .where(
                     TerritoryCustomerAssignment.territory_id == territory.id,
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+                .order_by(
+                    case(
+                        (TerritoryCustomerAssignment.visit_sequence.is_(None), 1),
+                        else_=0,
+                    ),
+                    TerritoryCustomerAssignment.visit_sequence.asc(),
+                    TerritoryCustomerAssignment.created_at.asc(),
+                )
+            )
+        )
+        return [
+            TerritoryCustomerAssignmentResponse(
+                customer_id=row.customer_id,
+                is_primary=row.is_primary,
+                visit_sequence=row.visit_sequence,
+                is_potential=row.is_potential,
+            )
+            for row in rows
+        ]
+
+    def customer_routes(
+        self, customer_id: UUID, *, firm_scope: UUID
+    ) -> list[CustomerRoute]:
+        """List the rounds that call one shop, primary first."""
+        rows = list(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment).where(
+                    TerritoryCustomerAssignment.customer_id == customer_id,
                     TerritoryCustomerAssignment.is_deleted.is_(False),
                 )
             )
         )
+        if not rows:
+            return []
+        nodes = {
+            node.id: node
+            for node in self._session.scalars(
+                select(SalesTerritoryNode).where(
+                    SalesTerritoryNode.id.in_([row.territory_id for row in rows]),
+                    SalesTerritoryNode.firm_id == firm_scope,
+                    SalesTerritoryNode.is_deleted.is_(False),
+                )
+            )
+        }
+        routes = set(
+            self._session.scalars(
+                select(TerritoryRouteProfile.territory_id).where(
+                    TerritoryRouteProfile.territory_id.in_(nodes),
+                    TerritoryRouteProfile.is_deleted.is_(False),
+                )
+            )
+        )
+        result = [
+            CustomerRoute(
+                territory_id=node.id,
+                code=node.code,
+                name=node.name,
+                path=node.path,
+                is_route=node.id in routes,
+                is_primary=row.is_primary,
+                visit_sequence=row.visit_sequence,
+            )
+            for row in rows
+            if (node := nodes.get(row.territory_id)) is not None
+        ]
+        # Primary first: it is the round a sale for this shop is filed under,
+        # which is the thing somebody looking at the customer wants to know.
+        result.sort(key=lambda item: (not item.is_primary, item.code))
+        return result
+
+    def assignable_customers(
+        self,
+        *,
+        firm_scope: UUID,
+        territory_id: UUID | None,
+        filters: AssignableCustomerFilters,
+        search: str | None,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[AssignableCustomer], int]:
+        """Find the outlets a round could call, by where they are.
+
+        The customer list cannot answer this. It filters on city and state and
+        nothing finer -- no pin code, no street -- and it knows nothing about
+        territory assignment, so "which shops on this pin code are not on a
+        round yet" had no query behind it and a beat had to be built by
+        recognising names in an alphabetical list.
+
+        Address matching goes through `EXISTS` rather than a join: a customer
+        with three addresses would otherwise come back three times, and the
+        page count with them.
+        """
+        conditions = [
+            Customer.firm_id == firm_scope,
+            Customer.is_deleted.is_(False),
+        ]
+        if search:
+            token = f"%{search.strip()}%"
+            conditions.append(
+                or_(
+                    Customer.name.ilike(token),
+                    Customer.display_name.ilike(token),
+                    Customer.code.ilike(token),
+                )
+            )
+        for column, value in (
+            (CustomerAddress.postal_code, filters.postal_code),
+            (CustomerAddress.area, filters.area),
+            (CustomerAddress.city, filters.city),
+        ):
+            if not value:
+                continue
+            conditions.append(
+                exists(
+                    select(CustomerAddress.id).where(
+                        CustomerAddress.customer_id == Customer.id,
+                        CustomerAddress.is_deleted.is_(False),
+                        column.ilike(f"%{value.strip()}%"),
+                    )
+                )
+            )
+        if filters.unassigned_only:
+            conditions.append(
+                ~exists(
+                    select(TerritoryCustomerAssignment.id).where(
+                        TerritoryCustomerAssignment.customer_id == Customer.id,
+                        TerritoryCustomerAssignment.is_deleted.is_(False),
+                    )
+                )
+            )
+        total = int(
+            self._session.scalar(
+                select(func.count()).select_from(Customer).where(*conditions)
+            )
+            or 0
+        )
+        rows = list(
+            self._session.scalars(
+                select(Customer)
+                .where(*conditions)
+                .order_by(Customer.name.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return self._assignable_rows(rows, territory_id), total
+
+    def _assignable_rows(
+        self, rows: list[Customer], territory_id: UUID | None
+    ) -> list[AssignableCustomer]:
+        """Decorate each customer with its address and its rounds.
+
+        Read for the whole page at once rather than per row: a fifty-row page
+        would otherwise be a hundred and fifty queries, which is the shape the
+        attribute framework has a rule against for exactly this reason.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        addresses: dict[UUID, CustomerAddress] = {}
+        for address in self._session.scalars(
+            select(CustomerAddress)
+            .where(
+                CustomerAddress.customer_id.in_(ids),
+                CustomerAddress.is_deleted.is_(False),
+            )
+            .order_by(CustomerAddress.is_default_shipping.desc())
+        ):
+            addresses.setdefault(address.customer_id, address)
+
+        assignments = list(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment).where(
+                    TerritoryCustomerAssignment.customer_id.in_(ids),
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+        node_ids = {row.territory_id for row in assignments}
+        codes = {
+            node.id: node.code
+            for node in self._session.scalars(
+                select(SalesTerritoryNode).where(SalesTerritoryNode.id.in_(node_ids))
+            )
+        }
+        by_customer: dict[UUID, list[TerritoryCustomerAssignment]] = defaultdict(list)
+        for row in assignments:
+            by_customer[row.customer_id].append(row)
+
+        result: list[AssignableCustomer] = []
+        for customer in rows:
+            mine = [
+                item
+                for item in by_customer[customer.id]
+                if territory_id is not None and item.territory_id == territory_id
+            ]
+            best = addresses.get(customer.id)
+            result.append(
+                AssignableCustomer(
+                    customer_id=customer.id,
+                    code=customer.code,
+                    name=customer.display_name or customer.name,
+                    address_line=best.address_line1 if best else "",
+                    area=best.area if best else None,
+                    city=best.city if best else "",
+                    postal_code=best.postal_code if best else "",
+                    on_this_route=bool(mine),
+                    visit_sequence=mine[0].visit_sequence if mine else None,
+                    is_potential=bool(mine) and mine[0].is_potential,
+                    other_routes=sorted(
+                        codes[item.territory_id]
+                        for item in by_customer[customer.id]
+                        if item.territory_id != territory_id
+                        and item.territory_id in codes
+                    ),
+                )
+            )
+        return result
 
     def set_salesmen(
         self,
@@ -990,6 +1748,7 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        commit: bool = True,
     ) -> list[dict[str, object]]:
         territory = self._territory(territory_id, firm_scope)
         requested_user_ids = [item.user_id for item in payload.assignments]
@@ -1003,6 +1762,7 @@ class SalesTerritoryService:
                 raise ValidationError(
                     "One or more salesmen are not active firm members."
                 )
+        self._assert_salesman_policy(firm_scope, territory, requested_user_ids)
         existing = {
             row.user_id: row
             for row in self._session.scalars(
@@ -1048,7 +1808,12 @@ class SalesTerritoryService:
             firm_id=firm_scope,
             after_data={"salesman_count": len(requested_user_ids)},
         )
-        self._commit()
+        # See `set_customers`: a bulk caller owns the transaction so the batch
+        # is all-or-nothing.
+        if commit:
+            self._commit()
+        else:
+            self._session.flush()
         return self.salesmen(territory_id, firm_scope=firm_scope)
 
     def salesmen(
@@ -1095,6 +1860,7 @@ class SalesTerritoryService:
     ) -> BeatPlanResponse:
         self._assert_unique_beat_code(firm_scope, data.code)
         territory = self._territory(data.territory_id, firm_scope)
+        self._assert_is_a_route(territory)
         row = BeatPlan(
             firm_id=firm_scope,
             business_profile_id=territory.business_profile_id,
@@ -1113,7 +1879,9 @@ class SalesTerritoryService:
         )
         self._session.add(row)
         self._session.flush()
-        self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
+        self._replace_beat_customer_stops(
+            row.id, data.customer_stops, firm_scope, actor_id
+        )
         record_audit(
             self._session,
             action="sales_territory.beat_plan.created",
@@ -1184,7 +1952,7 @@ class SalesTerritoryService:
     ) -> BeatPlanResponse:
         row = self._beat_plan(beat_plan_id, firm_scope, include_deleted=True)
         self._assert_unique_beat_code(firm_scope, data.code, current_id=row.id)
-        self._territory(data.territory_id, firm_scope)
+        self._assert_is_a_route(self._territory(data.territory_id, firm_scope))
         row.territory_id = data.territory_id
         row.code = data.code
         row.name = data.name
@@ -1196,7 +1964,9 @@ class SalesTerritoryService:
         row.is_active = data.is_active
         row.notes = data.notes
         row.updated_by = actor_id
-        self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
+        self._replace_beat_customer_stops(
+            row.id, data.customer_stops, firm_scope, actor_id
+        )
         record_audit(
             self._session,
             action="sales_territory.beat_plan.updated",
@@ -1225,6 +1995,236 @@ class SalesTerritoryService:
             firm_id=firm_scope,
         )
         self._commit()
+
+    def call_list(
+        self,
+        *,
+        firm_scope: UUID,
+        on_date: date,
+        beat_plan_id: UUID | None = None,
+        salesman_id: UUID | None = None,
+    ) -> CallListResponse:
+        """Answer who should be called on one date.
+
+        Computed from the recurrence rule and the assignment tables, never
+        stored. Materialising occurrences would need a regeneration story every
+        time a plan, a route or a customer assignment changed, and a stale
+        materialised list is a list that sends someone to the wrong shop.
+
+        This says who *should* be called. It is not visit execution and records
+        nothing about what happened.
+        """
+        statement = select(BeatPlan).where(
+            BeatPlan.firm_id == firm_scope,
+            BeatPlan.is_deleted.is_(False),
+            BeatPlan.is_active.is_(True),
+        )
+        if beat_plan_id is not None:
+            statement = statement.where(BeatPlan.id == beat_plan_id)
+        plans = list(self._session.scalars(statement.order_by(BeatPlan.code.asc())))
+        if beat_plan_id is not None and not plans:
+            raise ResourceNotFoundError("Beat plan not found.")
+        entries: list[CallListEntry] = []
+        for plan in plans:
+            territory = self._session.scalar(
+                select(SalesTerritoryNode).where(
+                    SalesTerritoryNode.id == plan.territory_id
+                )
+            )
+            if territory is None:
+                continue
+            plan_salesman = self._primary_salesman(plan.territory_id)
+            if salesman_id is not None and plan_salesman != salesman_id:
+                continue
+            occurs, reason = self._occurs_on(plan, on_date)
+            if occurs and not self._route_in_force(plan.territory_id, on_date):
+                # The plan may recur today, but the round itself was not
+                # operating: the effective window says when it runs at
+                # all, and a seasonal route out of season calls nobody.
+                occurs = False
+                reason = "The route is not in force on this date."
+            if occurs and not self._route_works_on(plan.territory_id, on_date):
+                # The route's own working days. They were written by the
+                # editor and read only to display themselves back, so a round
+                # marked "Mon, Thu" was called on a Tuesday without complaint
+                # -- two answers to one question, and the visible one meant
+                # nothing.
+                occurs = False
+                reason = "The route does not work on this day."
+            entries.append(
+                CallListEntry(
+                    beat_plan_id=plan.id,
+                    beat_plan_code=plan.code,
+                    beat_plan_name=plan.name,
+                    territory_id=territory.id,
+                    territory_code=territory.code,
+                    territory_name=territory.name,
+                    salesman_id=plan_salesman,
+                    occurs=occurs,
+                    reason=reason,
+                    stops=self._call_list_stops(plan) if occurs else [],
+                )
+            )
+        return CallListResponse(on_date=on_date, entries=entries)
+
+    def _route_works_on(self, territory_id: UUID, on_date: date) -> bool:
+        """Report whether the round works the weekday of this date.
+
+        A route that names no working days works every day its plan says, so
+        turning this on cannot silently stop a round somebody already relies
+        on. `isoweekday()` is 1..7 Monday..Sunday, which is what the column
+        stores.
+        """
+        profile_id = self._session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == territory_id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if profile_id is None:
+            return True
+        days = list(
+            self._session.scalars(
+                select(TerritoryWorkingDay.weekday).where(
+                    TerritoryWorkingDay.route_profile_id == profile_id,
+                    TerritoryWorkingDay.is_deleted.is_(False),
+                )
+            )
+        )
+        return not days or on_date.isoweekday() in days
+
+    def _route_in_force(self, territory_id: UUID, on_date: date) -> bool:
+        """Report whether the round behind a plan was operating on this date."""
+        profile = self._session.scalar(
+            select(TerritoryRouteProfile).where(
+                TerritoryRouteProfile.territory_id == territory_id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        # A plan can only target a route, so a missing profile means the route
+        # was retired underneath it rather than that the window is open.
+        return profile is not None and route_profile_in_force(profile, on_date)
+
+    def _occurs_on(self, plan: BeatPlan, on_date: date) -> tuple[bool, str | None]:
+        """Decide whether a plan runs on a date, and say why when it does not.
+
+        A plan that cannot be computed reports that rather than quietly
+        returning nothing: an empty list means "nobody to call today", and a
+        CUSTOM plan means "this system cannot tell you". Showing the same blank
+        screen for both would misreport one of them every time.
+        """
+        if plan.starts_on is not None and on_date < plan.starts_on:
+            return False, "The plan has not started yet."
+        if plan.ends_on is not None and on_date > plan.ends_on:
+            return False, "The plan has ended."
+        plan_type = plan.plan_type
+        # `isoweekday()` is 1..7 Monday..Sunday, which is what `weekday` stores.
+        if plan_type == BeatPlanType.WEEKLY.value:
+            if plan.weekday is None:
+                return False, "This weekly plan has no weekday set."
+            return (
+                (True, None) if plan.weekday == on_date.isoweekday() else (False, None)
+            )
+        if plan_type == BeatPlanType.FORTNIGHTLY.value:
+            if plan.weekday is None:
+                return False, "This fortnightly plan has no weekday set."
+            if plan.weekday != on_date.isoweekday():
+                return False, None
+            if plan.starts_on is None:
+                # Every other week counted from what? Guessing an anchor would
+                # put half of these rounds on the wrong week, so it says so.
+                return False, "A fortnightly plan needs a start date to count from."
+            return (on_date - plan.starts_on).days // 7 % 2 == 0, None
+        if plan_type == BeatPlanType.MONTHLY.value:
+            if plan.weekday is None or plan.week_of_month is None:
+                return False, "This monthly plan has no weekday or week set."
+            if plan.weekday != on_date.isoweekday():
+                return False, None
+            return (on_date.day - 1) // 7 + 1 == plan.week_of_month, None
+        return False, "A custom plan's dates are not computed."
+
+    def _call_list_stops(self, plan: BeatPlan) -> list[CallListStop]:
+        """Resolve the outlets a plan calls, in the order it calls them.
+
+        Outlet stops on the plan win; failing those, the customers assigned to
+        the plan's territory in `visit_sequence` order. The territory stops on
+        `sales_beat_plan_stops` are deliberately not expanded here -- they name a
+        sub-territory, and no firm on this platform has a level below the route
+        for them to name.
+        """
+        stops = self._beat_customer_stops(plan.id)
+        if stops:
+            ordered = [(item.customer_id, item) for item in stops]
+            customers = self._customers_by_id(
+                [customer_id for customer_id, _ in ordered]
+            )
+            return [
+                CallListStop(
+                    customer_id=customer_id,
+                    customer_code=customers[customer_id].code,
+                    customer_name=customers[customer_id].display_name,
+                    stop_order=item.stop_order,
+                    planned_duration_minutes=item.planned_duration_minutes,
+                )
+                for customer_id, item in ordered
+                if customer_id in customers
+            ]
+        assignments = self._session.scalars(
+            select(TerritoryCustomerAssignment)
+            .where(
+                TerritoryCustomerAssignment.territory_id == plan.territory_id,
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+            )
+            .order_by(
+                case(
+                    (TerritoryCustomerAssignment.visit_sequence.is_(None), 1),
+                    else_=0,
+                ),
+                TerritoryCustomerAssignment.visit_sequence.asc(),
+                TerritoryCustomerAssignment.created_at.asc(),
+            )
+        )
+        rows = list(assignments)
+        customers = self._customers_by_id([row.customer_id for row in rows])
+        return [
+            CallListStop(
+                customer_id=row.customer_id,
+                customer_code=customers[row.customer_id].code,
+                customer_name=customers[row.customer_id].display_name,
+                stop_order=index,
+                planned_duration_minutes=None,
+            )
+            for index, row in enumerate(rows, start=1)
+            if row.customer_id in customers
+        ]
+
+    def _customers_by_id(self, customer_ids: list[UUID]) -> dict[UUID, Customer]:
+        if not customer_ids:
+            return {}
+        return {
+            row.id: row
+            for row in self._session.scalars(
+                select(Customer).where(
+                    Customer.id.in_(customer_ids),
+                    Customer.is_deleted.is_(False),
+                )
+            )
+        }
+
+    def _primary_salesman(self, territory_id: UUID) -> UUID | None:
+        """Name the person a call list belongs to, preferring the primary."""
+        rows = list(
+            self._session.scalars(
+                select(TerritorySalesmanAssignment).where(
+                    TerritorySalesmanAssignment.territory_id == territory_id,
+                    TerritorySalesmanAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+        for row in rows:
+            if row.is_primary:
+                return row.user_id
+        return rows[0].user_id if len(rows) == 1 else None
 
     def export_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
         rows, _ = self.list_territories(
@@ -1415,6 +2415,7 @@ class SalesTerritoryService:
                 ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             territory_by_code[created_row.code] = self._territory(
                 created_row.id, firm_scope
@@ -1434,8 +2435,14 @@ class SalesTerritoryService:
                     TerritoryAssignCustomersRequest(customer_ids=customer_ids),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
             created.append(created_row)
+        # One commit for the file. Every row was staged, so a refusal anywhere
+        # leaves the firm exactly as it was -- the shape
+        # `CustomerService.import_customers` has always had, and the one the
+        # branch and warehouse imports had to be repaired into.
+        self._commit()
         return created
 
     def copy_hierarchy(
@@ -1549,15 +2556,31 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> BulkOperationResult:
+        """Replace the customer list on several territories in one transaction.
+
+        `set_customers` commits, so looping over it wrote each territory as it
+        went: a batch that failed on its fifth left the first four applied and
+        told the caller only that it had failed. The whole batch now commits
+        once, which is the shape `import_customers` already had and the shape
+        the branch/warehouse imports had to be repaired into.
+
+        `entries` is forwarded rather than only `customer_ids`, so a bulk
+        assignment can carry the call order and the primary flag the single-row
+        path accepts.
+        """
         affected = 0
         for item in items:
             self.set_customers(
                 item.territory_id,
-                TerritoryAssignCustomersRequest(customer_ids=item.customer_ids),
+                TerritoryAssignCustomersRequest(
+                    customer_ids=item.customer_ids, entries=item.entries
+                ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             affected += 1
+        self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
     def bulk_set_salesmen(
@@ -1567,6 +2590,11 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> BulkOperationResult:
+        """Replace the salesperson list on several territories in one transaction.
+
+        Same reasoning as `bulk_set_customers`: one commit for the batch, so a
+        refusal partway through leaves nothing behind.
+        """
         affected = 0
         for item in items:
             self.set_salesmen(
@@ -1574,8 +2602,10 @@ class SalesTerritoryService:
                 TerritoryAssignSalesmenRequest(assignments=item.assignments),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             affected += 1
+        self._commit()
         return BulkOperationResult(affected=affected, failed=0)
 
     def bulk_status_change(
@@ -1863,6 +2893,118 @@ class SalesTerritoryService:
                 )
             )
         return result
+
+    def _assert_salesman_policy(
+        self,
+        firm_scope: UUID,
+        territory: SalesTerritoryNode,
+        user_ids: list[UUID],
+    ) -> None:
+        """Apply the two multi-assignment settings the firm recorded.
+
+        Both were stored and returned by the API and checked nowhere, so a firm
+        that had turned either off went on assigning freely.
+        """
+        config = self._hierarchy_settings(firm_scope)
+        if config is None:
+            return
+        if not config.allow_multi_salesman_per_route and len(set(user_ids)) > 1:
+            raise ValidationError(
+                f"{territory.code} may have only one salesperson. "
+                "Change the hierarchy settings to allow more."
+            )
+        if config.allow_multi_route_per_salesman or not user_ids:
+            return
+        clash = self._session.scalar(
+            select(SalesTerritoryNode.code)
+            .select_from(TerritorySalesmanAssignment)
+            .join(
+                SalesTerritoryNode,
+                SalesTerritoryNode.id == TerritorySalesmanAssignment.territory_id,
+            )
+            .where(
+                TerritorySalesmanAssignment.user_id.in_(user_ids),
+                TerritorySalesmanAssignment.territory_id != territory.id,
+                TerritorySalesmanAssignment.is_deleted.is_(False),
+                SalesTerritoryNode.firm_id == firm_scope,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        if clash is not None:
+            raise ValidationError(
+                f"A salesperson here is already on {clash}, and this firm "
+                "allows one route per salesperson. Take them off it first."
+            )
+
+    def _assert_customer_leaf_policy(
+        self, firm_scope: UUID, territory: SalesTerritoryNode
+    ) -> None:
+        """Keep customers on leaf nodes when the firm asks for that.
+
+        `enforce_customer_leaf_assignment` existed to stop a shop being hung
+        off a Region -- where a beat plan can never call it, because a plan
+        resolves to the customers of its own territory.
+        """
+        config = self._hierarchy_settings(firm_scope)
+        if config is None or not config.enforce_customer_leaf_assignment:
+            return
+        child = self._session.scalar(
+            select(SalesTerritoryNode.code).where(
+                SalesTerritoryNode.parent_id == territory.id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        if child is not None:
+            raise ValidationError(
+                f"{territory.code} has territories beneath it, and this firm "
+                "assigns customers only to the lowest level. Put them on a "
+                "route instead."
+            )
+
+    def _assert_room_under_parent(
+        self,
+        firm_scope: UUID,
+        level: SalesHierarchyLevel,
+        parent: SalesTerritoryNode | None,
+    ) -> None:
+        """Honour the level's `max_nodes_per_parent`, which nothing read."""
+        limit = level.max_nodes_per_parent
+        if limit is None:
+            return
+        statement = (
+            select(func.count())
+            .select_from(SalesTerritoryNode)
+            .where(
+                SalesTerritoryNode.firm_id == firm_scope,
+                SalesTerritoryNode.hierarchy_level_id == level.id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+        statement = statement.where(
+            SalesTerritoryNode.parent_id == parent.id
+            if parent is not None
+            else SalesTerritoryNode.parent_id.is_(None)
+        )
+        if int(self._session.scalar(statement) or 0) >= limit:
+            where = "at the top level" if parent is None else f"under {parent.code}"
+            raise ValidationError(
+                f"{level.display_name} allows at most {limit} node(s) {where}."
+            )
+
+    def _hierarchy_settings(self, firm_id: UUID) -> SalesHierarchyConfig | None:
+        """Read the firm's hierarchy settings without creating them.
+
+        The four flags below were stored, returned by the API and checked
+        nowhere, so a platform administrator could turn any of them on and
+        nothing changed. A firm with no config row yet keeps the permissive
+        defaults -- a configuration gap is not a decision.
+        """
+        return self._session.scalar(
+            select(SalesHierarchyConfig).where(
+                SalesHierarchyConfig.firm_id == firm_id,
+                SalesHierarchyConfig.is_deleted.is_(False),
+            )
+        )
 
     def _ensure_hierarchy_config(
         self, firm_id: UUID, actor_id: UUID
@@ -2457,6 +3599,26 @@ class SalesTerritoryService:
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
 
+    def _assert_is_a_route(self, territory: SalesTerritoryNode) -> None:
+        """Refuse a beat plan on a node that is not a round.
+
+        Nothing stopped a plan targeting a Region, which reads as a schedule
+        for a whole state and calls nobody: the customers a plan resolves to
+        are the ones assigned to its territory, and assignments live on routes.
+        A plan aimed above them is silently empty.
+        """
+        profile = self._session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == territory.id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if profile is None:
+            raise ValidationError(
+                f"{territory.code} is not a route. Turn on 'This is a route' "
+                "for it before scheduling a beat plan against it."
+            )
+
     def _assert_unique_beat_code(
         self, firm_id: UUID, code: str, current_id: UUID | None = None
     ) -> None:
@@ -2496,27 +3658,44 @@ class SalesTerritoryService:
             raise ResourceNotFoundError("Beat plan not found.")
         return row
 
-    def _replace_beat_stops(
+    def _replace_beat_customer_stops(
         self,
         beat_plan_id: UUID,
-        stops: list[BeatPlanStopInput],
+        stops: list[BeatPlanCustomerStopInput],
         firm_scope: UUID,
         actor_id: UUID,
     ) -> None:
+        """Replace the outlets a plan calls, refusing any from another firm."""
         for row in self._session.scalars(
-            select(BeatPlanStop).where(BeatPlanStop.beat_plan_id == beat_plan_id)
+            select(BeatPlanCustomerStop).where(
+                BeatPlanCustomerStop.beat_plan_id == beat_plan_id
+            )
         ):
             row.is_deleted = True
             row.deleted_at = utc_now()
             row.deleted_by = actor_id
             row.updated_by = actor_id
+        if not stops:
+            return
+        customer_ids = {item.customer_id for item in stops}
+        owned = set(
+            self._session.scalars(
+                select(Customer.id).where(
+                    Customer.id.in_(customer_ids),
+                    Customer.firm_id == firm_scope,
+                    Customer.is_deleted.is_(False),
+                )
+            )
+        )
+        if owned != customer_ids:
+            raise ValidationError(
+                "One or more customers do not belong to the active firm."
+            )
         for item in stops:
-            territory_id = item.territory_id
-            self._territory(territory_id, firm_scope)
             self._session.add(
-                BeatPlanStop(
+                BeatPlanCustomerStop(
                     beat_plan_id=beat_plan_id,
-                    territory_id=territory_id,
+                    customer_id=item.customer_id,
                     stop_order=item.stop_order,
                     planned_duration_minutes=item.planned_duration_minutes,
                     created_by=actor_id,
@@ -2524,17 +3703,19 @@ class SalesTerritoryService:
                 )
             )
 
-    def _beat_plan_response(self, row: BeatPlan) -> BeatPlanResponse:
-        stops = list(
+    def _beat_customer_stops(self, beat_plan_id: UUID) -> list[BeatPlanCustomerStop]:
+        return list(
             self._session.scalars(
-                select(BeatPlanStop)
+                select(BeatPlanCustomerStop)
                 .where(
-                    BeatPlanStop.beat_plan_id == row.id,
-                    BeatPlanStop.is_deleted.is_(False),
+                    BeatPlanCustomerStop.beat_plan_id == beat_plan_id,
+                    BeatPlanCustomerStop.is_deleted.is_(False),
                 )
-                .order_by(BeatPlanStop.stop_order.asc())
+                .order_by(BeatPlanCustomerStop.stop_order.asc())
             )
         )
+
+    def _beat_plan_response(self, row: BeatPlan) -> BeatPlanResponse:
         return BeatPlanResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -2551,14 +3732,14 @@ class SalesTerritoryService:
             notes=row.notes,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            stops=[
+            customer_stops=[
                 {
                     "id": item.id,
-                    "territory_id": item.territory_id,
+                    "customer_id": item.customer_id,
                     "stop_order": item.stop_order,
                     "planned_duration_minutes": item.planned_duration_minutes,
                 }
-                for item in stops
+                for item in self._beat_customer_stops(row.id)
             ],
         )
 

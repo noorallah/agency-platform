@@ -288,6 +288,36 @@ abstract final class ModuleCatalog {
           label: 'Geography',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
+        ModuleTabDefinition(
+          id: 'route-types',
+          label: 'Route Types',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'beat-plans',
+          label: 'Beat Plans',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'call-lists',
+          label: 'Call Lists',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'coverage',
+          label: 'Coverage',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'route-builder',
+          label: 'Route Builder',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'geography-masters',
+          label: 'Places',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
       ],
     ),
     ModuleDefinition(

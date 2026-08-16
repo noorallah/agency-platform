@@ -516,6 +516,19 @@ Give this section to anyone testing for the first time.
   firm's policy is set to Block.
 - **`platform-admin` unable to open firm screens without choosing a firm** is
   correct.
+- **Sales → Call Lists showing "Not today" for every plan** usually means the
+  date is simply not the weekday the plan runs on. The screen opens on today;
+  step it with the arrows.
+- **A beat plan reporting "The route is not in force on this date"** is the
+  route's effective window, not a broken plan. Check Runs from / Runs until on
+  the territory editor.
+- **Sales → Places being read-only** is correct for a firm login. Geography is
+  shared reference data; only a platform administrator writes it.
+- **"On no route yet" returning nothing** in WHOLE01 is correct — the seeder
+  places every customer on a round. Create a customer to see the filter work.
+- **The same shop appearing on two routes** is expected. A distributor calls one
+  outlet on a sales beat and a collection round; only one of them is primary,
+  and that is the one a sale is filed under.
 
 ---
 

@@ -36,6 +36,7 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import (
     SalesOrder,
     SalesOrderAttachment,
@@ -219,6 +220,15 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             route_id=data.route_id,
         )
+        scope = resolve_sales_scope(
+            self._session,
+            firm_id=firm_id,
+            customer_id=data.customer_id,
+            territory_id=data.territory_id,
+            salesman_id=data.salesman_id,
+            route_id=data.route_id,
+            on_date=data.order_date,
+        )
         order_number = (
             data.order_number
             if data.order_number
@@ -237,9 +247,9 @@ class SalesOrderService(TransactionalDocumentService):
         row = SalesOrder(
             firm_id=firm_id,
             customer_id=data.customer_id,
-            salesman_id=data.salesman_id,
-            territory_id=data.territory_id,
-            route_id=data.route_id,
+            salesman_id=scope.salesman_id,
+            territory_id=scope.territory_id,
+            route_id=scope.route_id,
             branch_id=data.branch_id,
             warehouse_id=data.warehouse_id,
             business_profile_id=data.business_profile_id,
@@ -321,11 +331,20 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             route_id=data.route_id,
         )
+        scope = resolve_sales_scope(
+            self._session,
+            firm_id=firm_scope,
+            customer_id=data.customer_id,
+            territory_id=data.territory_id,
+            salesman_id=data.salesman_id,
+            route_id=data.route_id,
+            on_date=data.order_date,
+        )
         self._delete_children(order_id)
         row.customer_id = data.customer_id
-        row.salesman_id = data.salesman_id
-        row.territory_id = data.territory_id
-        row.route_id = data.route_id
+        row.salesman_id = scope.salesman_id
+        row.territory_id = scope.territory_id
+        row.route_id = scope.route_id
         row.branch_id = data.branch_id
         row.warehouse_id = data.warehouse_id
         row.business_profile_id = data.business_profile_id
