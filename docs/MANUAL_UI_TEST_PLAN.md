@@ -172,6 +172,8 @@ same tables and only `firm_id` separates them.
 | 5.2.3 | Direct access by id | Note a FOOD01 customer's id from its URL or detail screen; switch to MEDI01 and try to open that id | Not found — not "access denied" leaking that it exists, and certainly not the record |
 | 5.2.4 | Search does not cross firms | Search a term that matches records in both | Only the active firm's rows |
 | 5.2.5 | Reports do not cross firms | Open any summary or report in FOOD01, compare with MEDI01 | Totals differ and correspond to each firm's own data |
+| 5.2.7 | **Global search works at all from inside a firm** | Sign in as any firm admin, pick a firm, press **Ctrl+K** and search anything | Results. Until 2026-08-16 every query answered 503 — `users`, `roles`, `permissions` and `firms` live only in the platform schema and were read on the firm's session, and one failing entity aborted the whole search |
+| 5.2.8 | Platform records are found from inside a firm | With a firm selected, Ctrl+K and search a user's name, then a role name | Both found, alongside firm-owned records. Reaching the platform store is the fix; quietly dropping those entities would look the same on 5.2.7 alone |
 | 5.2.6 | Platform admin sees no merged list | As `platform-admin`, open a firm-owned screen with no firm selected | Refused or empty — **not** every firm's rows in one list. This was a real defect in global search; verify it stays fixed |
 
 ### 5.3 Isolation across storage modes
