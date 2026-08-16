@@ -8,6 +8,7 @@ import '../../models/entities.dart';
 import '../../models/customer.dart';
 import '../../models/sales_territory.dart';
 import 'assignment_picker_dialog.dart';
+import 'call_order_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
@@ -219,7 +220,7 @@ class _SalesTerritoryManagementPageState
     // Replaces a text box that asked for comma-separated customer UUIDs.
     // Nobody knows a customer's id, and pasting the wrong one assigns a
     // different customer with nothing on screen to notice it by.
-    final List<String> current =
+    final List<TerritoryCustomerAssignmentRecord> current =
         await widget.api.territoryCustomers(territory.id);
     final List<Customer> customers = await _allPages<Customer>(
       (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
@@ -232,7 +233,7 @@ class _SalesTerritoryManagementPageState
         searchHint: 'Search customers by name or code',
         emptyMessage: 'This firm has no customers yet. Add one under '
             'Masters before putting anybody on a round.',
-        selectedIds: current.toSet(),
+        selectedIds: {for (final row in current) row.customerId},
         options: [
           for (final Customer customer in customers)
             AssignableOption(
@@ -247,12 +248,73 @@ class _SalesTerritoryManagementPageState
     );
     if (chosen == null || !mounted) return;
     try {
-      await widget.api.setTerritoryCustomers(territory.id, chosen);
+      // Carry each customer's existing place in the round through. The picker
+      // adds and removes; it has no notion of order, and rebuilding the list
+      // from bare ids would flatten a sequence somebody had set.
+      final Map<String, TerritoryCustomerAssignmentRecord> existing = {
+        for (final row in current) row.customerId: row,
+      };
+      await widget.api.setTerritoryCustomers(territory.id, [
+        for (final String id in chosen)
+          existing[id] ??
+              TerritoryCustomerAssignmentRecord(
+                customerId: id,
+                isPrimary: true,
+                visitSequence: null,
+                isPotential: false,
+              ),
+      ]);
       await _loadAll();
       if (!mounted) return;
       NotificationService.show(
         context,
         '${chosen.length} customer(s) on ${territory.name}.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<void> _setCallOrder(SalesTerritory territory) async {
+    if (!_canAssignCustomers) return;
+    final List<TerritoryCustomerAssignmentRecord> current =
+        await widget.api.territoryCustomers(territory.id);
+    final List<Customer> customers = await _allPages<Customer>(
+      (page) => widget.api.customers(page: page, pageSize: _pickerPageSize),
+    );
+    if (!mounted) return;
+    final Map<String, Customer> byId = {
+      for (final Customer customer in customers) customer.id: customer,
+    };
+    final List<TerritoryCustomerAssignmentRecord>? ordered =
+        await showDialog<List<TerritoryCustomerAssignmentRecord>>(
+      context: context,
+      builder: (context) => CallOrderDialog(
+        routeName: territory.name,
+        assignments: current,
+        nameFor: (id) {
+          final Customer? customer = byId[id];
+          if (customer == null) return id;
+          return customer.displayName.isEmpty
+              ? '${customer.code} — ${customer.name}'
+              : '${customer.code} — ${customer.displayName}';
+        },
+      ),
+    );
+    if (ordered == null || !mounted) return;
+    try {
+      await widget.api.setTerritoryCustomers(territory.id, ordered);
+      await _loadAll();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Call order saved for ${territory.name}.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
@@ -686,6 +748,12 @@ class _SalesTerritoryManagementPageState
                         onPressed: () => _assignCustomers(_selected!),
                         icon: const Icon(Icons.groups_2_outlined),
                         label: const Text('Assign customers'),
+                      ),
+                    if (_canAssignCustomers)
+                      OutlinedButton.icon(
+                        onPressed: () => _setCallOrder(_selected!),
+                        icon: const Icon(Icons.format_list_numbered),
+                        label: const Text('Call order'),
                       ),
                     if (_canAssignSalesmen)
                       OutlinedButton.icon(

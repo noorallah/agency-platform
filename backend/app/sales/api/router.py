@@ -59,6 +59,7 @@ from app.sales.schemas import (
     TerritoryBulkStatusRequest,
     TerritoryCopyRequest,
     TerritoryCreate,
+    TerritoryCustomerAssignmentResponse,
     TerritoryDashboardStats,
     TerritoryDetailResponse,
     TerritoryListFilters,
@@ -153,6 +154,36 @@ def create_route_type(
         payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=data)
+
+
+@router.put(
+    "/route-types/{route_type_id}",
+    response_model=ApiResponse[RouteTypeResponse],
+)
+def update_route_type(
+    route_type_id: UUID,
+    payload: RouteTypeWrite,
+    scope: TerritoryUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RouteTypeResponse]:
+    """Rename a route type, or retire it by clearing its active flag."""
+    data = _service(db).update_route_type(
+        route_type_id, payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=data)
+
+
+@router.delete("/route-types/{route_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_route_type(
+    route_type_id: UUID,
+    scope: TerritoryDeleteScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Soft delete a route type no route is still classified by."""
+    _service(db).delete_route_type(
+        route_type_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/geo/countries", response_model=ApiResponse[list[GeoCountryResponse]])
@@ -513,23 +544,30 @@ def territory_global_search(
     )
 
 
-@router.get("/{territory_id}/customers", response_model=ApiResponse[list[UUID]])
+@router.get(
+    "/{territory_id}/customers",
+    response_model=ApiResponse[list[TerritoryCustomerAssignmentResponse]],
+)
 def territory_customers(
     territory_id: UUID,
     scope: TerritoryViewScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[UUID]]:
+) -> ApiResponse[list[TerritoryCustomerAssignmentResponse]]:
+    """List the customers on a territory, in the order the round calls them."""
     data = _service(db).customers(territory_id, firm_scope=scope.firm_id)
     return ApiResponse(data=data)
 
 
-@router.put("/{territory_id}/customers", response_model=ApiResponse[list[UUID]])
+@router.put(
+    "/{territory_id}/customers",
+    response_model=ApiResponse[list[TerritoryCustomerAssignmentResponse]],
+)
 def set_territory_customers(
     territory_id: UUID,
     payload: TerritoryAssignCustomersRequest,
     scope: TerritoryAssignCustomersScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[UUID]]:
+) -> ApiResponse[list[TerritoryCustomerAssignmentResponse]]:
     data = _service(db).set_customers(
         territory_id,
         payload,

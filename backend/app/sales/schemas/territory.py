@@ -414,6 +414,21 @@ class TerritoryCustomerAssignmentInput(TerritorySchema):
     is_potential: bool = False
 
 
+class TerritoryCustomerAssignmentResponse(TerritorySchema):
+    """One customer's place on a round.
+
+    The `GET`/`PUT` pair for territory customers used to move a bare list of
+    ids, which meant `visit_sequence` -- the order the round is walked in --
+    could be written and never read back. A round with no readable order is a
+    set, not a route.
+    """
+
+    customer_id: UUID
+    is_primary: bool
+    visit_sequence: int | None
+    is_potential: bool
+
+
 class TerritoryAssignCustomersRequest(TerritorySchema):
     """Replace customer assignments for one territory node."""
 

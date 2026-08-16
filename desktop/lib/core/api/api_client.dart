@@ -1863,6 +1863,7 @@ class ApiClient {
 
   Future<PagedResult<SalesTerritory>> territories({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -1873,6 +1874,7 @@ class ApiClient {
         SalesTerritory.fromJson,
         page,
         search,
+        pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
         additionalQuery: filters.toQuery(),
@@ -1952,23 +1954,83 @@ class ApiClient {
         await request('POST', '/api/v1/sales-territories/$id/restore'),
       ));
 
-  Future<List<String>> territoryCustomers(String territoryId) async {
+  /// The customers on a round, in the order it calls them.
+  ///
+  /// Returns the whole assignment rather than a list of ids: `visit_sequence`
+  /// is the call order and was writable long before anything could read it
+  /// back, so no screen could show the sequence it was saving.
+  Future<List<TerritoryCustomerAssignmentRecord>> territoryCustomers(
+    String territoryId,
+  ) async {
     final Json response = await request(
         'GET', '/api/v1/sales-territories/$territoryId/customers');
-    return stringList(response['data']);
+    return _assignments(response['data']);
   }
 
-  Future<List<String>> setTerritoryCustomers(
+  Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<String> customerIds,
+    List<TerritoryCustomerAssignmentRecord> assignments,
   ) async {
     final Json response = await request(
       'PUT',
       '/api/v1/sales-territories/$territoryId/customers',
-      body: {'customer_ids': customerIds},
+      body: {
+        'entries': [for (final row in assignments) row.toJson()],
+      },
     );
-    return stringList(response['data']);
+    return _assignments(response['data']);
   }
+
+  List<TerritoryCustomerAssignmentRecord> _assignments(dynamic data) {
+    if (data is! List) return const <TerritoryCustomerAssignmentRecord>[];
+    return <TerritoryCustomerAssignmentRecord>[
+      for (final dynamic row in data)
+        if (row is Map)
+          TerritoryCustomerAssignmentRecord.fromJson(
+              Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  // Route types are written through the generic `create`/`update`/`delete`
+  // helpers, which build `/api/v1/sales-territories/route-types[/{id}]` from
+  // the `resource` on their `ResourceDefinition`. Named methods here would be
+  // a second spelling of the same three paths with nothing calling them.
+
+  Future<PagedResult<BeatPlanRecord>> beatPlans({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    bool includeDeleted = false,
+  }) =>
+      _list(
+        '/api/v1/sales-territories/beat-plans',
+        BeatPlanRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery:
+            includeDeleted ? {'include_deleted': 'true'} : const {},
+      );
+
+  Future<BeatPlanRecord> beatPlan(String id) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('GET', '/api/v1/sales-territories/beat-plans/$id'),
+      ));
+
+  Future<BeatPlanRecord> createBeatPlan(Json data) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/sales-territories/beat-plans',
+            body: data),
+      ));
+
+  Future<BeatPlanRecord> updateBeatPlan(String id, Json data) async =>
+      BeatPlanRecord.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/sales-territories/beat-plans/$id',
+            body: data),
+      ));
+
+  Future<void> deleteBeatPlan(String id) async =>
+      request('DELETE', '/api/v1/sales-territories/beat-plans/$id');
 
   /// The people this firm can put on a route.
   ///

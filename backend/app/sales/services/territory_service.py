@@ -7,7 +7,7 @@ from datetime import timedelta
 from io import BytesIO
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -73,6 +73,7 @@ from app.sales.schemas import (
     TerritoryBulkStatusRequest,
     TerritoryCopyRequest,
     TerritoryCreate,
+    TerritoryCustomerAssignmentResponse,
     TerritoryDashboardStats,
     TerritoryDetailResponse,
     TerritoryListFilters,
@@ -153,6 +154,7 @@ class SalesTerritoryService:
     def create_route_type(
         self, payload: RouteTypeWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> RouteTypeResponse:
+        self._assert_unique_route_type_code(firm_scope, payload.code)
         row = RouteTypeMaster(
             firm_id=firm_scope,
             code=payload.code,
@@ -163,7 +165,117 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        # Flushed so the audit row has an entity id to point at; `record_audit`
+        # reads `row.id`, which is None until the insert reaches the database.
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.created",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"code": row.code, "name": row.name},
+        )
         self._commit()
+        return self._route_type_response(row)
+
+    def update_route_type(
+        self,
+        route_type_id: UUID,
+        payload: RouteTypeWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> RouteTypeResponse:
+        """Replace one route type's editable fields."""
+        row = self._route_type(route_type_id, firm_scope)
+        self._assert_unique_route_type_code(firm_scope, payload.code, current_id=row.id)
+        row.code = payload.code
+        row.name = payload.name
+        row.description = payload.description
+        row.is_active = payload.is_active
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.updated",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={"code": row.code, "name": row.name},
+        )
+        self._commit()
+        return self._route_type_response(row)
+
+    def delete_route_type(
+        self, route_type_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Soft delete a route type no route is still classified by.
+
+        There is no database guard: `territory_route_profiles.route_type_id` has
+        no cascade and no restriction, so deleting a type in use would leave
+        every route pointing at a row that reads as absent -- the route type
+        column on the territory grid would simply go blank with nothing to say
+        why. Refuse instead, and name the count so the caller knows what to
+        reassign.
+        """
+        row = self._route_type(route_type_id, firm_scope)
+        in_use = self._session.scalar(
+            select(func.count())
+            .select_from(TerritoryRouteProfile)
+            .where(
+                TerritoryRouteProfile.route_type_id == row.id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if int(in_use or 0) > 0:
+            raise ConflictError(
+                f"{in_use} route(s) still use this route type. "
+                "Reassign them before deleting it."
+            )
+        row.is_deleted = True
+        row.deleted_at = utc_now()
+        row.deleted_by = actor_id
+        row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_territory.route_type.deleted",
+            entity_type="sales_route_type",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"code": row.code, "name": row.name},
+        )
+        self._commit()
+
+    def _route_type(self, route_type_id: UUID, firm_scope: UUID) -> RouteTypeMaster:
+        row = self._session.scalar(
+            select(RouteTypeMaster).where(
+                RouteTypeMaster.id == route_type_id,
+                RouteTypeMaster.firm_id == firm_scope,
+                RouteTypeMaster.is_deleted.is_(False),
+            )
+        )
+        if row is None:
+            raise ResourceNotFoundError("Route type not found.")
+        return row
+
+    def _assert_unique_route_type_code(
+        self, firm_id: UUID, code: str, current_id: UUID | None = None
+    ) -> None:
+        statement = select(RouteTypeMaster.id).where(
+            RouteTypeMaster.firm_id == firm_id,
+            RouteTypeMaster.code == code,
+            RouteTypeMaster.is_deleted.is_(False),
+        )
+        if current_id is not None:
+            statement = statement.where(RouteTypeMaster.id != current_id)
+        if self._session.scalar(statement) is not None:
+            raise ConflictError("A route type with this code already exists.")
+
+    @staticmethod
+    def _route_type_response(row: RouteTypeMaster) -> RouteTypeResponse:
         return RouteTypeResponse(
             id=row.id,
             code=row.code,
@@ -889,7 +1001,7 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
-    ) -> list[UUID]:
+    ) -> list[TerritoryCustomerAssignmentResponse]:
         territory = self._territory(territory_id, firm_scope)
         entries = payload.entries
         customer_ids = (
@@ -909,8 +1021,16 @@ class SalesTerritoryService:
                 raise ValidationError(
                     "One or more customers do not belong to the active firm."
                 )
+        # Scoped to this territory. Without the `territory_id` filter this
+        # cleared a customer's assignment to *every* territory, so putting a
+        # shop on the collection round silently took it off the sales round --
+        # and a distributor normally calls the same shop on both. Rows for
+        # other territories are none of this call's business; the loop below
+        # already retires the ones that belong to this territory and were
+        # dropped from the list.
         for assignment in self._session.scalars(
             select(TerritoryCustomerAssignment).where(
+                TerritoryCustomerAssignment.territory_id == territory.id,
                 TerritoryCustomerAssignment.customer_id.in_(customer_ids),
                 TerritoryCustomerAssignment.is_deleted.is_(False),
             )
@@ -972,16 +1092,49 @@ class SalesTerritoryService:
         self._commit()
         return self.customers(territory_id, firm_scope=firm_scope)
 
-    def customers(self, territory_id: UUID, *, firm_scope: UUID) -> list[UUID]:
+    def customers(
+        self, territory_id: UUID, *, firm_scope: UUID
+    ) -> list[TerritoryCustomerAssignmentResponse]:
+        """List the customers on a territory, in the order they are called.
+
+        Returns the whole assignment rather than a bare id: `visit_sequence` is
+        the call order of a round and was writable long before anything could
+        read it back, so the desktop had no way to show -- let alone edit -- the
+        sequence it was saving.
+
+        Ordered with unsequenced customers last through an explicit `case`.
+        On `ASC` SQLite sorts NULLs first and PostgreSQL sorts them last, so a
+        bare `.asc()` would lead the round with the customers nobody has placed
+        in the unit suite and trail with them in production. Neither is chosen;
+        the `case` chooses.
+        """
         territory = self._territory(territory_id, firm_scope)
-        return list(
+        rows = list(
             self._session.scalars(
-                select(TerritoryCustomerAssignment.customer_id).where(
+                select(TerritoryCustomerAssignment)
+                .where(
                     TerritoryCustomerAssignment.territory_id == territory.id,
                     TerritoryCustomerAssignment.is_deleted.is_(False),
                 )
+                .order_by(
+                    case(
+                        (TerritoryCustomerAssignment.visit_sequence.is_(None), 1),
+                        else_=0,
+                    ),
+                    TerritoryCustomerAssignment.visit_sequence.asc(),
+                    TerritoryCustomerAssignment.created_at.asc(),
+                )
             )
         )
+        return [
+            TerritoryCustomerAssignmentResponse(
+                customer_id=row.customer_id,
+                is_primary=row.is_primary,
+                visit_sequence=row.visit_sequence,
+                is_potential=row.is_potential,
+            )
+            for row in rows
+        ]
 
     def set_salesmen(
         self,
@@ -1095,6 +1248,7 @@ class SalesTerritoryService:
     ) -> BeatPlanResponse:
         self._assert_unique_beat_code(firm_scope, data.code)
         territory = self._territory(data.territory_id, firm_scope)
+        self._assert_is_a_route(territory)
         row = BeatPlan(
             firm_id=firm_scope,
             business_profile_id=territory.business_profile_id,
@@ -1184,7 +1338,7 @@ class SalesTerritoryService:
     ) -> BeatPlanResponse:
         row = self._beat_plan(beat_plan_id, firm_scope, include_deleted=True)
         self._assert_unique_beat_code(firm_scope, data.code, current_id=row.id)
-        self._territory(data.territory_id, firm_scope)
+        self._assert_is_a_route(self._territory(data.territory_id, firm_scope))
         row.territory_id = data.territory_id
         row.code = data.code
         row.name = data.name
@@ -2456,6 +2610,26 @@ class SalesTerritoryService:
                 row.deleted_at = utc_now()
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
+
+    def _assert_is_a_route(self, territory: SalesTerritoryNode) -> None:
+        """Refuse a beat plan on a node that is not a round.
+
+        Nothing stopped a plan targeting a Region, which reads as a schedule
+        for a whole state and calls nobody: the customers a plan resolves to
+        are the ones assigned to its territory, and assignments live on routes.
+        A plan aimed above them is silently empty.
+        """
+        profile = self._session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == territory.id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if profile is None:
+            raise ValidationError(
+                f"{territory.code} is not a route. Turn on 'This is a route' "
+                "for it before scheduling a beat plan against it."
+            )
 
     def _assert_unique_beat_code(
         self, firm_id: UUID, code: str, current_id: UUID | None = None

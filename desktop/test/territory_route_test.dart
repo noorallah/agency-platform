@@ -100,6 +100,9 @@ class _TerritoryApi extends ApiClient {
   Json? created;
   Json? updated;
   List<String>? assignedCustomerIds;
+  List<TerritoryCustomerAssignmentRecord>? sentAssignments;
+  List<TerritoryCustomerAssignmentRecord> assignedCustomers =
+      const <TerritoryCustomerAssignmentRecord>[];
   List<Json>? sentSalesmen;
 
   @override
@@ -125,6 +128,7 @@ class _TerritoryApi extends ApiClient {
   @override
   Future<PagedResult<SalesTerritory>> territories({
     int page = 1,
+    int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
@@ -175,16 +179,19 @@ class _TerritoryApi extends ApiClient {
   }
 
   @override
-  Future<List<String>> territoryCustomers(String territoryId) async =>
-      const <String>[];
+  Future<List<TerritoryCustomerAssignmentRecord>> territoryCustomers(
+    String territoryId,
+  ) async =>
+      assignedCustomers;
 
   @override
-  Future<List<String>> setTerritoryCustomers(
+  Future<List<TerritoryCustomerAssignmentRecord>> setTerritoryCustomers(
     String territoryId,
-    List<String> customerIds,
+    List<TerritoryCustomerAssignmentRecord> assignments,
   ) async {
-    assignedCustomerIds = customerIds;
-    return customerIds;
+    sentAssignments = assignments;
+    assignedCustomerIds = [for (final row in assignments) row.customerId];
+    return assignments;
   }
 
   @override

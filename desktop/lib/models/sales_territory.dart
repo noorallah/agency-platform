@@ -158,12 +158,14 @@ class TerritoryRouteTypeRecord {
     required this.id,
     required this.code,
     required this.name,
+    this.description = '',
     required this.isActive,
   });
 
   final String id;
   final String code;
   final String name;
+  final String description;
   final bool isActive;
 
   String get label => '$code  $name';
@@ -173,7 +175,135 @@ class TerritoryRouteTypeRecord {
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
+        description: stringValue(json['description']),
         isActive: json['is_active'] as bool? ?? true,
+      );
+}
+
+/// One customer's place on a round.
+class TerritoryCustomerAssignmentRecord {
+  const TerritoryCustomerAssignmentRecord({
+    required this.customerId,
+    required this.isPrimary,
+    required this.visitSequence,
+    required this.isPotential,
+  });
+
+  final String customerId;
+  final bool isPrimary;
+
+  /// Where this customer falls in the call order. Null means nobody has placed
+  /// them yet, and the server sorts those to the end of the round.
+  final int? visitSequence;
+  final bool isPotential;
+
+  factory TerritoryCustomerAssignmentRecord.fromJson(Json json) =>
+      TerritoryCustomerAssignmentRecord(
+        customerId: stringValue(json['customer_id']),
+        isPrimary: json['is_primary'] == true,
+        visitSequence: json['visit_sequence'] is num
+            ? (json['visit_sequence'] as num).toInt()
+            : null,
+        isPotential: json['is_potential'] == true,
+      );
+
+  Json toJson() => <String, dynamic>{
+        'customer_id': customerId,
+        'visit_sequence': visitSequence,
+        'is_potential': isPotential,
+      };
+
+  TerritoryCustomerAssignmentRecord withSequence(int? sequence) =>
+      TerritoryCustomerAssignmentRecord(
+        customerId: customerId,
+        isPrimary: isPrimary,
+        visitSequence: sequence,
+        isPotential: isPotential,
+      );
+}
+
+/// A recurring round: which route runs, and on which days.
+class BeatPlanRecord {
+  const BeatPlanRecord({
+    required this.id,
+    required this.territoryId,
+    required this.code,
+    required this.name,
+    required this.planType,
+    required this.weekday,
+    required this.weekOfMonth,
+    required this.startsOn,
+    required this.endsOn,
+    required this.isActive,
+    required this.notes,
+    required this.stops,
+  });
+
+  final String id;
+  final String territoryId;
+  final String code;
+  final String name;
+
+  /// WEEKLY, FORTNIGHTLY, MONTHLY or CUSTOM.
+  final String planType;
+
+  /// ISO weekday 1-7. Meaningful for every plan type except CUSTOM.
+  final int? weekday;
+
+  /// Which week of the month, for a MONTHLY plan.
+  final int? weekOfMonth;
+  final String startsOn;
+  final String endsOn;
+  final bool isActive;
+  final String notes;
+  final List<BeatPlanStopRecord> stops;
+
+  factory BeatPlanRecord.fromJson(Json json) => BeatPlanRecord(
+        id: stringValue(json['id']),
+        territoryId: stringValue(json['territory_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        planType: stringValue(json['plan_type']),
+        weekday:
+            json['weekday'] is num ? (json['weekday'] as num).toInt() : null,
+        weekOfMonth: json['week_of_month'] is num
+            ? (json['week_of_month'] as num).toInt()
+            : null,
+        startsOn: stringValue(json['starts_on']),
+        endsOn: stringValue(json['ends_on']),
+        isActive: json['is_active'] != false,
+        notes: stringValue(json['notes']),
+        stops: <BeatPlanStopRecord>[
+          for (final dynamic row in (json['stops'] as List? ?? const []))
+            if (row is Map)
+              BeatPlanStopRecord.fromJson(Map<String, dynamic>.from(row)),
+        ],
+      );
+}
+
+/// One leg of a beat plan. A stop is a territory, not an outlet — the outlets
+/// are whoever is assigned to that territory, in their call order.
+class BeatPlanStopRecord {
+  const BeatPlanStopRecord({
+    required this.id,
+    required this.territoryId,
+    required this.stopOrder,
+    required this.plannedDurationMinutes,
+  });
+
+  final String id;
+  final String territoryId;
+  final int stopOrder;
+  final int? plannedDurationMinutes;
+
+  factory BeatPlanStopRecord.fromJson(Json json) => BeatPlanStopRecord(
+        id: stringValue(json['id']),
+        territoryId: stringValue(json['territory_id']),
+        stopOrder:
+            json['stop_order'] is num ? (json['stop_order'] as num).toInt() : 0,
+        plannedDurationMinutes: json['planned_duration_minutes'] is num
+            ? (json['planned_duration_minutes'] as num).toInt()
+            : null,
       );
 }
 
