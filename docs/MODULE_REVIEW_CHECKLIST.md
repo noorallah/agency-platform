@@ -467,7 +467,7 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `firms` | 6 | 0 | 0 | `test_firms_module` | typed |
 | `document_framework` | 15 | 0 | 0 | `test_document_framework` | widgets only |
 | `business` | 28 | 0 | 0 | `test_business_profile_framework`, `test_business_profile_gating` | typed |
-| `sales` (territory) | 44 | 0 | 0 | `test_sales_territory_route_management` | typed |
+| `sales` (territory) | 62 | 0 | 0 | seven files, 71 tests — see `docs/TERRITORY_FRAMEWORK.md` | typed |
 | `customers` | 17 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 0 | 0 | `test_global_search` | typed |
@@ -561,3 +561,4 @@ which nothing did until the endpoint published an ETag.
 | 19 | `search` | 2026-08-10 | the firm filter was skipped entirely for platform admins, so an admin with no firm selected saw every firm's rows in one result list — in a SHARED store that is one schema holding all of them | yes |
 | 20 | `document_framework` | 2026-08-10 | none — the commit-per-method defect was fixed in the 2026-08-09 pass and lifecycle, numbering and timeline events all hold | gates only |
 | 21 | `finance` | 2026-08-10 | the journal engine checked the balance on the summed-then-rounded totals but stored each leg rounded, so a document balanced at four decimals could store lines a cent apart with `is_balanced` true — and `_post_line` copies line amounts straight into the general ledger; the ledger statement was dated and ordered by the wall clock at posting rather than the journal date; line narration was collected and never displayed, the report preferring a field nothing writes | yes — no stored data was affected |
+| 22 | `sales` (territory) | 2026-08-16 | the whole reporting chain was unfed — `territory_id`/`route_id`/`salesman_id` were never populated, so three reports answered `[]` from correct endpoints; six geography reads carried no principal at all and served data to an unauthenticated caller; nineteen handlers took the bare `ResolvedFirmScope`, which FastAPI read as a **request body field**, so every geography write and `PUT /hierarchy-levels` was uncallable; two bulk assignments committed per item, so a batch refused partway left the earlier rows written; `effective_from`/`effective_to` were stored and read nowhere | yes — plus four migrations and `docs/TERRITORY_FRAMEWORK.md` |
