@@ -180,7 +180,13 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "purchase_orders",
         PurchaseOrder,
         "purchases",
-        "purchases",
+        # The tab, not the module, and there has never been a tab called
+        # "purchases" -- the ids are `purchase-orders`, `purchase-dashboard`
+        # and so on. Opening a purchase order from global search therefore
+        # landed on whichever tab the shell falls back to rather than on the
+        # order. `test_search_navigation_targets` now fails the build if any
+        # definition names a tab the desktop does not have.
+        "purchase-orders",
         "shopping_cart",
         "PURCHASE_VIEW",
         False,
@@ -291,7 +297,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "tax_systems",
         TaxSystem,
         "administration",
-        "tax-systems",
+        "tax-configuration",
         "account_balance",
         "TAX_VIEW",
         False,
@@ -304,7 +310,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "tax_profiles",
         TaxProfile,
         "administration",
-        "tax-profiles",
+        "tax-configuration",
         "receipt_long",
         "TAX_VIEW",
         False,
@@ -317,7 +323,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "tax_rules",
         TaxRule,
         "administration",
-        "tax-rules",
+        "tax-rules-page",
         "rule",
         "TAX_RULE_VIEW",
         False,
@@ -370,7 +376,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "routes",
         SalesTerritoryNode,
         "sales",
-        "routes",
+        "territories",
         "alt_route",
         "TERRITORY_VIEW",
         False,
@@ -503,7 +509,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "expiry",
         BatchRecord,
         "inventory",
-        "expiry",
+        "expiry-monitor",
         "event_busy",
         "BATCH_VIEW",
         False,
@@ -516,8 +522,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoCountry,
-        "settings",
-        "geo-masters",
+        "sales",
+        "geography-masters",
         "public",
         "TERRITORY_VIEW",
         False,
@@ -529,8 +535,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoState,
-        "settings",
-        "geo-masters",
+        "sales",
+        "geography-masters",
         "map",
         "TERRITORY_VIEW",
         False,
@@ -542,8 +548,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoDistrict,
-        "settings",
-        "geo-masters",
+        "sales",
+        "geography-masters",
         "location_city",
         "TERRITORY_VIEW",
         False,
@@ -555,8 +561,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoCity,
-        "settings",
-        "geo-masters",
+        "sales",
+        "geography-masters",
         "location_on",
         "TERRITORY_VIEW",
         False,
@@ -568,8 +574,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoLocality,
-        "settings",
-        "geo-masters",
+        "sales",
+        "geography-masters",
         "pin_drop",
         "TERRITORY_VIEW",
         False,
@@ -581,7 +587,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "settings",
         TaxSettings,
-        "settings",
+        "administration",
         "tax-settings",
         "settings",
         "TAX_MANAGE_SETTINGS",
