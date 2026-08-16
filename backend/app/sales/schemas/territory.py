@@ -448,6 +448,29 @@ class TerritoryAssignCustomersRequest(TerritorySchema):
         default_factory=list, max_length=5000
     )
 
+    @model_validator(mode="after")
+    def validate_call_order(self) -> "TerritoryAssignCustomersRequest":
+        """Refuse two shops at the same stop number.
+
+        The database refuses it too, but as a rollback reading "the operation
+        violates uniqueness constraints", which names neither the round nor the
+        number. This call replaces the whole list for one territory, so every
+        sequence in play arrives in this payload and the clash can be named
+        here instead.
+        """
+        placed = [
+            item.visit_sequence
+            for item in self.entries
+            if item.visit_sequence is not None
+        ]
+        duplicates = sorted({value for value in placed if placed.count(value) > 1})
+        if duplicates:
+            raise ValueError(
+                "Two customers cannot share a stop number on one route: "
+                + ", ".join(str(value) for value in duplicates)
+            )
+        return self
+
 
 class SalesmanAssignmentInput(TerritorySchema):
     """One salesperson assignment entry for a territory node."""
@@ -576,14 +599,6 @@ class BulkOperationResult(TerritorySchema):
     failed: int = 0
 
 
-class BeatPlanStopInput(TerritorySchema):
-    """One ordered stop declaration for beat-planning templates."""
-
-    territory_id: UUID
-    stop_order: int = Field(ge=1, le=1000)
-    planned_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
-
-
 class BeatPlanCustomerStopInput(TerritorySchema):
     """One ordered outlet on a beat plan.
 
@@ -610,7 +625,6 @@ class BeatPlanWrite(TerritorySchema):
     ends_on: date | None = None
     is_active: bool = True
     notes: str | None = None
-    stops: list[BeatPlanStopInput] = Field(default_factory=list, max_length=300)
     customer_stops: list[BeatPlanCustomerStopInput] = Field(
         default_factory=list, max_length=1000
     )
@@ -639,15 +653,6 @@ class BeatPlanCreate(BeatPlanWrite):
 
 class BeatPlanUpdate(BeatPlanWrite):
     """Replace payload for one beat-plan template."""
-
-
-class BeatPlanStopResponse(TerritorySchema):
-    """Persisted beat-plan stop representation."""
-
-    id: UUID
-    territory_id: UUID
-    stop_order: int
-    planned_duration_minutes: int | None
 
 
 class BeatPlanCustomerStopResponse(TerritorySchema):
@@ -715,5 +720,4 @@ class BeatPlanResponse(TerritorySchema):
     notes: str | None
     created_at: datetime
     updated_at: datetime
-    stops: list[BeatPlanStopResponse]
     customer_stops: list[BeatPlanCustomerStopResponse] = Field(default_factory=list)

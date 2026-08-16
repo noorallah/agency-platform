@@ -1,4 +1,18 @@
-"""Firm-scoped sales territory hierarchy and reusable geo persistence models."""
+"""Firm-scoped sales territory hierarchy and reusable geo persistence models.
+
+**The `firms.id` and `users.id` foreign keys below are declared here and do not
+exist in any deployed firm store.** Both tables live only in the `platform`
+schema, so every migration that touches these tables guards the reference away
+-- verified against `firm_shared` and `wholesale_hub`, where neither constraint
+is present. They stay in the ORM because `Base.metadata.create_all` builds the
+unit-test schema and the sample-data scripts from it, and those need the whole
+graph in one database.
+
+The consequence to know: nothing at the database level stops a territory naming
+a deleted user or a firm that is gone. The service checks are the only guard,
+which is why `set_salesmen` counts active memberships through
+`FirmMetadataReader` rather than trusting the column.
+"""
 
 from datetime import date
 from uuid import UUID
@@ -124,10 +138,39 @@ class TerritoryCustomerAssignment(BaseEntity):
 
     __tablename__ = "territory_customer_assignments"
     __table_args__ = (
-        UniqueConstraint(
+        # Scoped to live rows. A table-wide key let a retired assignment
+        # reserve that shop for that round forever: `set_customers` works
+        # around it by un-retiring, but any other insert path -- bulk, a
+        # seeder, an import -- would meet a 409 with no visible cause.
+        Index(
+            "UQ_territory_customer_assignments_pair_active",
             "territory_id",
             "customer_id",
-            name="UQ_territory_customer_assignments_territory_customer",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        # One primary round per shop. `resolve_sales_scope` decides which round
+        # a sale counts against by finding exactly one primary, so two of them
+        # resolve to nothing and the sale lands in no report at all. Mirrors
+        # UQ_user_firms_active_primary.
+        Index(
+            "UQ_territory_customer_assignments_primary_active",
+            "customer_id",
+            unique=True,
+            postgresql_where=text("is_primary AND is_deleted = false"),
+            sqlite_where=text("is_primary = 1 AND is_deleted = 0"),
+        ),
+        # One shop per stop number on a round. Without this two shops could
+        # both be stop 1 and the round was walked in whatever order the
+        # created_at tiebreak happened to give -- an order nobody chose.
+        Index(
+            "UQ_territory_customer_assignments_sequence_active",
+            "territory_id",
+            "visit_sequence",
+            unique=True,
+            postgresql_where=text("visit_sequence IS NOT NULL AND is_deleted = false"),
+            sqlite_where=text("visit_sequence IS NOT NULL AND is_deleted = 0"),
         ),
         Index("IX_territory_customer_assignments_customer", "customer_id"),
     )
@@ -218,37 +261,6 @@ class BeatPlan(BaseEntity):
         Boolean, nullable=False, default=True, server_default="true"
     )
     notes: Mapped[str | None] = mapped_column(Text)
-
-
-class BeatPlanStop(BaseEntity):
-    """Store one ordered territory stop belonging to a beat plan."""
-
-    __tablename__ = "sales_beat_plan_stops"
-    __table_args__ = (
-        UniqueConstraint(
-            "beat_plan_id", "stop_order", name="UQ_sales_beat_plan_stops_plan_order"
-        ),
-        UniqueConstraint(
-            "beat_plan_id",
-            "territory_id",
-            name="UQ_sales_beat_plan_stops_plan_territory",
-        ),
-    )
-
-    beat_plan_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("sales_beat_plans.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    territory_id: Mapped[UUID] = mapped_column(
-        UUIDType(),
-        ForeignKey("sales_territories.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
-    stop_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    planned_duration_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
 class BeatPlanCustomerStop(BaseEntity):

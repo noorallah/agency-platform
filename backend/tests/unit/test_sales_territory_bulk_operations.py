@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.sales.models import SalesTerritoryNode, TerritoryCustomerAssignment
@@ -215,9 +215,7 @@ def test_a_bulk_status_change_records_one_audit_row_per_territory() -> None:
     assert result.affected == 2
     rows = list(
         session.scalars(
-            select(SalesTerritoryNode).where(
-                SalesTerritoryNode.id.in_([first, second])
-            )
+            select(SalesTerritoryNode).where(SalesTerritoryNode.id.in_([first, second]))
         )
     )
     assert {row.status for row in rows} == {"INACTIVE"}
@@ -286,7 +284,7 @@ def test_a_bulk_assignment_refuses_a_customer_from_another_firm() -> None:
     route = _node(service, firm.id, actor, "RT01")
     outsider = _customer(session, other.id, "X1")
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="do not belong"):
         service.bulk_set_customers(
             [
                 TerritoryBulkCustomerAssignment(

@@ -25,7 +25,6 @@ from app.sales.models import (
     AddressMaster,
     BeatPlan,
     BeatPlanCustomerStop,
-    BeatPlanStop,
     GeoCity,
     GeoCountry,
     GeoDistrict,
@@ -49,7 +48,6 @@ from app.sales.schemas import (
     BeatPlanCreate,
     BeatPlanCustomerStopInput,
     BeatPlanResponse,
-    BeatPlanStopInput,
     BeatPlanType,
     BeatPlanUpdate,
     BulkOperationResult,
@@ -1395,7 +1393,15 @@ class SalesTerritoryService:
                         is_primary=(
                             entry.is_primary
                             if entry is not None and entry.is_primary is not None
-                            else True
+                            # Primary only if this shop is on no other round
+                            # yet. It used to be unconditionally True, which
+                            # gave a customer on two rounds two primaries --
+                            # and "primary" then settled nothing, which is the
+                            # question `resolve_sales_scope` asks to decide
+                            # which round a sale counts against.
+                            else not self._has_primary_elsewhere(
+                                customer_id, territory.id
+                            )
                         ),
                         visit_sequence=(
                             entry.visit_sequence if entry is not None else None
@@ -1437,6 +1443,20 @@ class SalesTerritoryService:
         else:
             self._session.flush()
         return self.customers(territory_id, firm_scope=firm_scope)
+
+    def _has_primary_elsewhere(self, customer_id: UUID, territory_id: UUID) -> bool:
+        """Whether this shop is already the primary of some other round."""
+        return (
+            self._session.scalar(
+                select(TerritoryCustomerAssignment.id).where(
+                    TerritoryCustomerAssignment.customer_id == customer_id,
+                    TerritoryCustomerAssignment.territory_id != territory_id,
+                    TerritoryCustomerAssignment.is_primary.is_(True),
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+            is not None
+        )
 
     def customers(
         self, territory_id: UUID, *, firm_scope: UUID
@@ -1767,7 +1787,6 @@ class SalesTerritoryService:
         )
         self._session.add(row)
         self._session.flush()
-        self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
         self._replace_beat_customer_stops(
             row.id, data.customer_stops, firm_scope, actor_id
         )
@@ -1853,7 +1872,6 @@ class SalesTerritoryService:
         row.is_active = data.is_active
         row.notes = data.notes
         row.updated_by = actor_id
-        self._replace_beat_stops(row.id, data.stops, firm_scope, actor_id)
         self._replace_beat_customer_stops(
             row.id, data.customer_stops, firm_scope, actor_id
         )
@@ -3377,34 +3395,6 @@ class SalesTerritoryService:
             raise ResourceNotFoundError("Beat plan not found.")
         return row
 
-    def _replace_beat_stops(
-        self,
-        beat_plan_id: UUID,
-        stops: list[BeatPlanStopInput],
-        firm_scope: UUID,
-        actor_id: UUID,
-    ) -> None:
-        for row in self._session.scalars(
-            select(BeatPlanStop).where(BeatPlanStop.beat_plan_id == beat_plan_id)
-        ):
-            row.is_deleted = True
-            row.deleted_at = utc_now()
-            row.deleted_by = actor_id
-            row.updated_by = actor_id
-        for item in stops:
-            territory_id = item.territory_id
-            self._territory(territory_id, firm_scope)
-            self._session.add(
-                BeatPlanStop(
-                    beat_plan_id=beat_plan_id,
-                    territory_id=territory_id,
-                    stop_order=item.stop_order,
-                    planned_duration_minutes=item.planned_duration_minutes,
-                    created_by=actor_id,
-                    updated_by=actor_id,
-                )
-            )
-
     def _replace_beat_customer_stops(
         self,
         beat_plan_id: UUID,
@@ -3463,16 +3453,6 @@ class SalesTerritoryService:
         )
 
     def _beat_plan_response(self, row: BeatPlan) -> BeatPlanResponse:
-        stops = list(
-            self._session.scalars(
-                select(BeatPlanStop)
-                .where(
-                    BeatPlanStop.beat_plan_id == row.id,
-                    BeatPlanStop.is_deleted.is_(False),
-                )
-                .order_by(BeatPlanStop.stop_order.asc())
-            )
-        )
         return BeatPlanResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -3489,15 +3469,6 @@ class SalesTerritoryService:
             notes=row.notes,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            stops=[
-                {
-                    "id": item.id,
-                    "territory_id": item.territory_id,
-                    "stop_order": item.stop_order,
-                    "planned_duration_minutes": item.planned_duration_minutes,
-                }
-                for item in stops
-            ],
             customer_stops=[
                 {
                     "id": item.id,

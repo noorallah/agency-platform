@@ -548,3 +548,107 @@ def test_re_saving_a_round_keeps_the_call_order_it_was_not_told_about() -> None:
     assert [
         row.visit_sequence for row in service.customers(route, firm_scope=firm.id)
     ] == [1, 2]
+
+
+def test_a_second_round_does_not_take_the_primary_flag() -> None:
+    """The flag has to settle which round a sale counts against.
+
+    It used to be set unconditionally, so a shop on two rounds had two
+    primaries and `resolve_sales_scope` -- which looks for exactly one --
+    resolved to nothing. The sale then landed in no report at all, silently.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "PRIM1")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    sales = _route(service, firm.id, actor, "SALES01")
+    collection = _route(service, firm.id, actor, "COLL01")
+    shop = _customer(session, firm.id, "C1")
+
+    for route in (sales, collection):
+        service.set_customers(
+            route,
+            TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    first = service.customers(sales, firm_scope=firm.id)
+    second = service.customers(collection, firm_scope=firm.id)
+    assert [row.is_primary for row in first] == [True]
+    assert [row.is_primary for row in second] == [False]
+
+
+def test_a_caller_can_still_move_the_primary_flag() -> None:
+    session = _session_factory()()
+    firm = _firm(session, "PRIM2")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    sales = _route(service, firm.id, actor, "SALES01")
+    collection = _route(service, firm.id, actor, "COLL01")
+    shop = _customer(session, firm.id, "C1")
+    service.set_customers(
+        sales,
+        TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        sales,
+        TerritoryAssignCustomersRequest(
+            entries=[
+                TerritoryCustomerAssignmentInput(customer_id=shop.id, is_primary=False)
+            ]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        collection,
+        TerritoryAssignCustomersRequest(
+            entries=[
+                TerritoryCustomerAssignmentInput(customer_id=shop.id, is_primary=True)
+            ]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    assert [row.is_primary for row in service.customers(sales, firm_scope=firm.id)] == [
+        False
+    ]
+    assert [
+        row.is_primary for row in service.customers(collection, firm_scope=firm.id)
+    ] == [True]
+
+
+def test_two_shops_cannot_share_a_stop_number() -> None:
+    """Named in the refusal, not surfaced as a rollback.
+
+    The partial index refuses it as well, but as "the operation violates
+    uniqueness constraints", which names neither the round nor the number.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "SEQ1")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    first = _customer(session, firm.id, "C1")
+    second = _customer(session, firm.id, "C2")
+
+    with pytest.raises(ValueError, match="share a stop number"):
+        service.set_customers(
+            route,
+            TerritoryAssignCustomersRequest(
+                entries=[
+                    TerritoryCustomerAssignmentInput(
+                        customer_id=first.id, visit_sequence=1
+                    ),
+                    TerritoryCustomerAssignmentInput(
+                        customer_id=second.id, visit_sequence=1
+                    ),
+                ]
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
