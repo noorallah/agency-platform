@@ -361,17 +361,22 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
     try {
       final List<Map<String, String>> rows = await _parseRows(file);
       final List<StorageNodeRecord> storageNodes = await _loadStorageNodes();
-      final PagedResult<InventoryRecord> inventoryResult = await widget.api.inventory(
-        page: 1,
-        pageSize: 5000,
-        search: '',
+      // 5000 rows in one page is fifty times the cap, so this read failed on
+      // every real server and the wizard could validate nothing against stock.
+      final List<InventoryRecord> inventoryRows = await fetchAllPages(
+        (page) => widget.api.inventory(
+          page: page,
+          pageSize: maxApiPageSize,
+          search: '',
+        ),
+        maxPages: 50,
       );
       final _ImportValidationContext context = _ImportValidationContext(
         products: widget.products,
         branches: widget.branches,
         warehouses: widget.warehouses,
         storageNodes: storageNodes,
-        inventory: inventoryResult.items,
+        inventory: inventoryRows,
         referencePrefix: _referencePrefix.text.trim(),
         defaultPostingDate: _defaultPostingDate.text.trim(),
         duplicateSignatures: _successfulSignatures,

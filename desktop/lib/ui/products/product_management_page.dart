@@ -70,9 +70,14 @@ class ProductController extends ChangeNotifier {
       );
     }
     try {
-      final PagedResult<AttributeDefinitionRecord> result =
-          await _api.attributeDefinitions(pageSize: 500);
-      attributeDefinitions = result.items;
+      // Paged rather than asked for in one oversized page: `MAX_PAGE_SIZE`
+      // is 100 and over-asking is a 500, not a clamp.
+      attributeDefinitions = await fetchAllPages(
+        (page) => _api.attributeDefinitions(
+          page: page,
+          pageSize: maxApiPageSize,
+        ),
+      );
     } on ApiException catch (exception) {
       if (!exception.isForbidden) {
         error = exception.message;
