@@ -770,6 +770,45 @@ abstract final class ModuleCatalog {
     ),
   ];
 
+  /// The `business_modules` code that decides whether [module] is offered.
+  ///
+  /// Null means the module is never gated this way.
+  ///
+  /// **A document is gated by the process that owns it.** `business_modules`
+  /// holds process modules -- DASHBOARD, ADMINISTRATION, SETTINGS, MASTERS,
+  /// PRODUCTS, PURCHASES, SALES, INVENTORY, REPORTS, ACCOUNTING, plus a few
+  /// industry ones -- and has never held `SALES_ORDERS` or `GOODS_RECEIPTS`.
+  /// Naming a code the catalogue does not contain hid that module in **every
+  /// firm**, because a code that is absent can never be in the active set.
+  static String? businessModuleCode(AppModule module) => switch (module) {
+        AppModule.dashboard => 'DASHBOARD',
+        AppModule.administration => 'ADMINISTRATION',
+        AppModule.masters => 'MASTERS',
+        // A document is gated by the process that owns it, not by a code of
+        // its own. `business_modules` holds process modules -- DASHBOARD,
+        // MASTERS, PRODUCTS, PURCHASES, SALES, INVENTORY, REPORTS,
+        // ACCOUNTING, plus a few industry ones -- and has never held
+        // `SALES_ORDERS` or `GOODS_RECEIPTS`. Naming a code the catalogue does
+        // not contain hid the module in **every firm**: a firm could raise a
+        // purchase order and then had nowhere to receive it, and the whole
+        // sales document chain was unreachable the same way.
+        AppModule.sales => 'SALES',
+        AppModule.quotations => 'SALES',
+        AppModule.salesOrders => 'SALES',
+        AppModule.deliveryNotes => 'SALES',
+        AppModule.salesInvoices => 'SALES',
+        AppModule.salesReturns => 'SALES',
+        AppModule.purchases => 'PURCHASES',
+        AppModule.purchaseInvoices => 'PURCHASES',
+        AppModule.purchaseReturns => 'PURCHASES',
+        AppModule.goodsReceipts => 'PURCHASES',
+        AppModule.inventory => 'INVENTORY',
+        AppModule.accounting => 'ACCOUNTING',
+        AppModule.reports => 'REPORTS',
+        AppModule.settings => 'SETTINGS',
+        AppModule.licensing => 'LICENSING',
+      };
+
   static ModuleDefinition byId(AppModule id) =>
       modules.firstWhere((module) => module.id == id);
 
