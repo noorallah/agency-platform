@@ -23,8 +23,8 @@ import 'package:agency_desktop/models/purchase.dart';
 import 'package:agency_desktop/models/tax_framework.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/purchases/purchase_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
-import 'package:agency_desktop/ui/workspace/workspace_templates.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,6 +80,10 @@ class _RecordingApi extends ApiClient {
   final List<({String? status, String sortBy})> requests =
       <({String? status, String sortBy})>[];
 
+  /// Counted so "selecting a row costs nothing" can be asserted rather than
+  /// assumed.
+  int historyCalls = 0;
+
   @override
   Future<PurchaseSummaryRecord> purchaseSummary() async =>
       const PurchaseSummaryRecord(
@@ -103,6 +107,21 @@ class _RecordingApi extends ApiClient {
   }) async {
     requests.add((status: filters.status, sortBy: sortBy));
     return PagedResult<PurchaseOrder>(items: <PurchaseOrder>[_order], total: 1);
+  }
+
+  @override
+  Future<PurchaseOrder> purchaseOrder(
+    String id, {
+    bool includeDeleted = false,
+  }) async =>
+      _order;
+
+  @override
+  Future<List<PurchaseOrderHistoryRecord>> purchaseOrderHistory(
+    String id,
+  ) async {
+    historyCalls += 1;
+    return const <PurchaseOrderHistoryRecord>[];
   }
 
   // The workspace loads six lookups before its first list. Unstubbed they
@@ -402,5 +421,45 @@ void main() {
         expect(find.byType(SegmentedButton<PurchaseOrderView>), findsNothing);
       });
     }
+  });
+
+  group('the grid keeps its width', () {
+    testWidgets('there is no details panel beside the table', (tester) async {
+      // It repeated columns the grid already shows -- PO number, vendor,
+      // branch, warehouse, buyer, date, status, priority, total -- and took a
+      // third of the width to do it, squeezing a fifteen-column table.
+      await _openOrders(tester);
+
+      expect(find.byType(QuickSummaryPanel), findsNothing);
+      expect(find.byType(DetailsPanel), findsNothing);
+      expect(find.text('PO-0001'), findsWidgets);
+    });
+
+    testWidgets('double-clicking a row opens the document', (tester) async {
+      final _RecordingApi api = await _openOrders(tester);
+
+      final Finder row = find.text('PO-0001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      // The full document, which is where everything the panel showed lives.
+      expect(find.text('Document Header'), findsWidgets);
+      expect(api.historyCalls, greaterThan(0),
+          reason: 'the dialog loads its own history');
+    });
+
+    testWidgets('selecting a row costs no request', (tester) async {
+      // Selecting used to fetch that order's whole history to fill one
+      // "Latest Activity" line in the panel -- on every click.
+      final _RecordingApi api = await _openOrders(tester);
+      final int before = api.historyCalls;
+
+      await tester.tap(find.text('PO-0001').first);
+      await tester.pumpAndSettle();
+
+      expect(api.historyCalls, before);
+    });
   });
 }

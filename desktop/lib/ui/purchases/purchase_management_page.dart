@@ -159,7 +159,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   List<PurchaseOrder> _orders = const [];
   PurchaseOrder? _selected;
   Set<String> _selectedIds = <String>{};
-  List<PurchaseOrderHistoryRecord> _selectedHistory = const [];
 
   bool get _canView => widget.permissions.hasPermission('PURCHASE_VIEW');
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
@@ -217,7 +216,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       _page = 1;
       _selected = null;
       _selectedIds = <String>{};
-      _selectedHistory = const [];
     });
     unawaited(_load(requestedPage: 1));
   }
@@ -246,7 +244,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     _purchaseType = null;
     _selected = null;
     _selectedIds = <String>{};
-    _selectedHistory = const [];
   }
 
   @override
@@ -410,16 +407,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       if (selected == null && orders.items.isNotEmpty) {
         selected = orders.items.first;
       }
-      List<PurchaseOrderHistoryRecord> history = _selectedHistory;
-      if (selected != null) {
-        try {
-          history = await widget.api.purchaseOrderHistory(selected.id);
-        } on ApiException {
-          history = const [];
-        }
-      } else {
-        history = const [];
-      }
       if (!mounted) return;
       setState(() {
         _summary = summary;
@@ -429,7 +416,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         _selectedIds = _selectedIds
             .where((id) => orders.items.any((item) => item.id == id))
             .toSet();
-        _selectedHistory = history;
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -442,8 +428,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         _total = 0;
         _selected = null;
         _selectedIds = <String>{};
-        _selectedHistory = const [];
-      });
+        });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -507,17 +492,13 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
   }
 
-  Future<void> _selectOrder(PurchaseOrder order) async {
+  /// Select a row.
+  ///
+  /// This used to fetch that order's whole history as well, on every click,
+  /// to fill one "Latest Activity" line in the details panel. The view dialog
+  /// loads its own history, so with the panel gone the request went with it.
+  void _selectOrder(PurchaseOrder order) {
     setState(() => _selected = order);
-    try {
-      final List<PurchaseOrderHistoryRecord> history =
-          await widget.api.purchaseOrderHistory(order.id);
-      if (!mounted) return;
-      setState(() => _selectedHistory = history);
-    } on ApiException {
-      if (!mounted) return;
-      setState(() => _selectedHistory = const []);
-    }
   }
 
   Future<void> _openEditor(PurchaseDialogMode mode,
@@ -564,7 +545,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       kind: AppNotificationKind.success,
     );
     await _load();
-    await _selectOrder(saved);
+    _selectOrder(saved);
   }
 
   Future<void> _deleteSelected() async {
@@ -1118,7 +1099,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                         : EmptyStateType.noSearchResults,
                   )
                 : _buildOrdersGrid(),
-        detailsPanel: _buildDetailsPanel(),
+        // No details panel. It repeated columns the grid already shows and
+        // took a third of the width to do it, squeezing a fifteen-column
+        // table. Double-click a row for the full document instead.
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _selected != null || _selectedIds.isNotEmpty,
@@ -1766,41 +1749,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildDetailsPanel() {
-    final PurchaseOrder? selected = _selected;
-    if (selected == null) {
-      return const DetailsPanel(title: 'Purchase Details', lines: []);
-    }
-    final List<DetailLine> lines = [
-      DetailLine('PO Number', selected.poNumber),
-      DetailLine('Vendor', _labelForVendor(selected.vendorId)),
-      DetailLine('Branch', _labelForBranch(selected.branchId)),
-      DetailLine('Warehouse', _labelForWarehouse(selected.warehouseId)),
-      DetailLine('Buyer', _labelForBuyer(selected.buyerId)),
-      DetailLine('Purchase Date', selected.purchaseDate),
-      DetailLine(
-          'Expected Delivery', selected.expectedDeliveryDate.ifEmpty('-')),
-      DetailLine('Status', selected.status.replaceAll('_', ' ')),
-      DetailLine('Priority', selected.priority),
-      DetailLine('Grand Total', selected.grandTotal),
-      DetailLine('Items', '${selected.lines.length}'),
-      if (selected.remarks.isNotEmpty) DetailLine('Remarks', selected.remarks),
-      if (_selectedHistory.isNotEmpty)
-        DetailLine(
-          'Latest Activity',
-          '${_selectedHistory.last.action} • ${_selectedHistory.last.createdAt}',
-        ),
-    ];
-    return QuickSummaryPanel(
-      title: 'Purchase Order',
-      lines: lines,
-      onView: () => _openEditor(PurchaseDialogMode.view, selected),
-      onEdit: _canUpdate && !selected.isDeleted
-          ? () => _openEditor(PurchaseDialogMode.edit, selected)
-          : null,
     );
   }
 
