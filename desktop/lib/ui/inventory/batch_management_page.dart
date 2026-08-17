@@ -384,26 +384,18 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   }
 
   Widget _buildBatchGrid() {
-    if (_batches.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildBatchSummary(),
-          Expanded(
-            child: StandardEmptyState(
-              type: _search.text.trim().isEmpty
-                  ? EmptyStateType.noRecords
-                  : EmptyStateType.noSearchResults,
-            ),
-          ),
-        ],
-      );
-    }
+    final Widget body = _batches.isEmpty
+        ? StandardEmptyState(
+            type: _search.text.trim().isEmpty
+                ? EmptyStateType.noRecords
+                : EmptyStateType.noSearchResults,
+          )
+        : _buildBatchTable();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildBatchSummary(),
-        Expanded(child: _buildBatchTable()),
+        Expanded(child: body),
       ],
     );
   }
@@ -718,7 +710,14 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
             if (_batches.isEmpty)
               const Center(child: Text('No batch data available.'))
             else
-              _buildBatchGrid(),
+              // Bounded on purpose. This sits in a `SingleChildScrollView`,
+              // where the height is unbounded, and `EnterpriseDataGrid` puts
+              // its table in an `Expanded` -- so it threw `RenderFlex children
+              // have non-zero flex but incoming height constraints are
+              // unbounded` every time the Expiry Monitor was opened with a
+              // batch on it. Same shape, and the same fix, as the embedded
+              // grid on the purchase dashboard.
+              SizedBox(height: 420, child: _buildBatchGrid()),
           ],
         ),
       ),
