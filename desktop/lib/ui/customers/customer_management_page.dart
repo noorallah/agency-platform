@@ -4,9 +4,10 @@ import '../../core/api/api_client.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
-import '../../models/sales_territory.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/geography.dart';
+import '../../models/sales_territory.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_settings_dialog.dart';
 
@@ -189,8 +190,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         mode: mode,
         customer: customer,
         onSave: (payload) => _controller.save(customer, payload),
-        // Passed as a loader rather than the client itself, matching `onSave`:
+        // Passed as loaders rather than the client itself, matching `onSave`:
         // the dialog stays a form and does not grow an API dependency.
+        loadPlaces: widget.api.geoPlaces,
         loadRoutes: customer == null
             ? null
             : () => widget.api.customerRoutes(customer.id),
@@ -644,12 +646,18 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     required this.mode,
     required this.customer,
     required this.onSave,
+    required this.loadPlaces,
     this.loadRoutes,
   });
 
   final CustomerDialogMode mode;
   final Customer? customer;
   final Future<Customer> Function(Json payload) onSave;
+
+  /// One rung of the geography ladder behind an address. A loader rather than
+  /// the client itself, matching `onSave` and `loadRoutes`: the dialog stays a
+  /// form and does not grow an API dependency.
+  final GeoPlaceLoader loadPlaces;
 
   /// The rounds that call this shop. Null while creating, since a customer
   /// that does not exist yet is on nothing.
@@ -1096,6 +1104,40 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     ]);
   }
 
+  /// Show the text the chosen place will save.
+  ///
+  /// The server derives these columns from the keys anyway, so this is not the
+  /// authority — it is the form refusing to display something different from
+  /// what it is about to send. A rung the picker could not name is left as the
+  /// user typed it rather than blanked.
+  void _mirrorPlace(_AddressDraft address, Map<GeoLevel, String> names) {
+    const Map<GeoLevel, String> fields = <GeoLevel, String>{
+      GeoLevel.state: 'state',
+      GeoLevel.district: 'district',
+      GeoLevel.city: 'city',
+      GeoLevel.postalCode: 'postalCode',
+      GeoLevel.locality: 'area',
+    };
+    for (final MapEntry<GeoLevel, String> entry in fields.entries) {
+      final String? name = names[entry.key];
+      if (name == null || name.isEmpty) continue;
+      switch (entry.key) {
+        case GeoLevel.state:
+          address.state.text = name;
+        case GeoLevel.district:
+          address.district.text = name;
+        case GeoLevel.city:
+          address.city.text = name;
+        case GeoLevel.postalCode:
+          address.postalCode.text = name;
+        case GeoLevel.locality:
+          address.area.text = name;
+        case GeoLevel.country:
+          break;
+      }
+    }
+  }
+
   Widget _addressCard(int index) {
     final _AddressDraft address = _addresses[index];
     return Card(
@@ -1139,6 +1181,34 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             _draftText(address.country, 'Country', required: true),
             _draftText(address.postalCode, 'Postal code', required: true),
           ]),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Place',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Choosing a place fills the fields above from the shared '
+              'masters, so two shops on the same street group together.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          const SizedBox(height: 8),
+          GeoAreaPicker(
+            loadPlaces: widget.loadPlaces,
+            value: address.place,
+            enabled: !_readOnly,
+            onChanged: (value) => setState(() {
+              address.place = value;
+              _dirty = true;
+            }),
+            onNames: (names) => setState(() => _mirrorPlace(address, names)),
+          ),
           Wrap(spacing: 12, children: [
             FilterChip(
               label: const Text('Default billing'),
@@ -1385,6 +1455,7 @@ class _AddressDraft {
     required this.postalCode,
     required this.defaultBilling,
     required this.defaultShipping,
+    this.place = const <GeoLevel, String>{},
   });
 
   final String id;
@@ -1399,6 +1470,13 @@ class _AddressDraft {
   final TextEditingController postalCode;
   bool defaultBilling;
   bool defaultShipping;
+
+  /// Where the address is, chosen from the shared geography masters. The text
+  /// fields above stay: they are required, and a firm whose Places are empty
+  /// still has to be able to record an address. Where a rung is chosen the
+  /// server derives the matching text from it, and the form mirrors that so
+  /// the user sees what will be saved.
+  Map<GeoLevel, String> place;
 
   List<TextEditingController> get controllers => [
         line1,
@@ -1439,7 +1517,23 @@ class _AddressDraft {
         postalCode: TextEditingController(text: address.postalCode),
         defaultBilling: address.isDefaultBilling,
         defaultShipping: address.isDefaultShipping,
+        place: <GeoLevel, String>{
+          if (address.countryId.isNotEmpty) GeoLevel.country: address.countryId,
+          if (address.stateId.isNotEmpty) GeoLevel.state: address.stateId,
+          if (address.districtId.isNotEmpty)
+            GeoLevel.district: address.districtId,
+          if (address.cityId.isNotEmpty) GeoLevel.city: address.cityId,
+          if (address.postalCodeId.isNotEmpty)
+            GeoLevel.postalCode: address.postalCodeId,
+          if (address.localityId.isNotEmpty)
+            GeoLevel.locality: address.localityId,
+        },
       );
+
+  String? _at(GeoLevel level) {
+    final String value = place[level] ?? '';
+    return value.isEmpty ? null : value;
+  }
 
   Json toJson() => {
         if (id.isNotEmpty) 'id': id,
@@ -1452,6 +1546,12 @@ class _AddressDraft {
         'state': state.text.trim(),
         'country': country.text.trim().toUpperCase(),
         'postal_code': postalCode.text.trim(),
+        'country_id': _at(GeoLevel.country),
+        'state_id': _at(GeoLevel.state),
+        'district_id': _at(GeoLevel.district),
+        'city_id': _at(GeoLevel.city),
+        'postal_code_id': _at(GeoLevel.postalCode),
+        'locality_id': _at(GeoLevel.locality),
         'is_default_billing': defaultBilling,
         'is_default_shipping': defaultShipping,
       };

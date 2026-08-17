@@ -12,6 +12,12 @@ class CustomerAddress {
     required this.state,
     required this.country,
     required this.postalCode,
+    this.countryId = '',
+    this.stateId = '',
+    this.districtId = '',
+    this.cityId = '',
+    this.postalCodeId = '',
+    this.localityId = '',
     required this.isDefaultBilling,
     required this.isDefaultShipping,
   });
@@ -26,6 +32,16 @@ class CustomerAddress {
   final String state;
   final String country;
   final String postalCode;
+
+  /// Where the address is, as ids into the shared geography masters. The text
+  /// above stays — it is NOT NULL and every report reads it — but where these
+  /// are set the server derives it from them, so the two cannot disagree.
+  final String countryId;
+  final String stateId;
+  final String districtId;
+  final String cityId;
+  final String postalCodeId;
+  final String localityId;
   final bool isDefaultBilling;
   final bool isDefaultShipping;
 
@@ -40,6 +56,12 @@ class CustomerAddress {
         state: stringValue(json['state']),
         country: stringValue(json['country']),
         postalCode: stringValue(json['postal_code']),
+        countryId: stringValue(json['country_id']),
+        stateId: stringValue(json['state_id']),
+        districtId: stringValue(json['district_id']),
+        cityId: stringValue(json['city_id']),
+        postalCodeId: stringValue(json['postal_code_id']),
+        localityId: stringValue(json['locality_id']),
         isDefaultBilling: boolValue(json['is_default_billing']),
         isDefaultShipping: boolValue(json['is_default_shipping']),
       );
@@ -55,6 +77,14 @@ class CustomerAddress {
         'state': state,
         'country': country,
         'postal_code': postalCode,
+        // Null rather than absent when unset: these are optional on the write
+        // schema, and sending null is how a place is cleared.
+        'country_id': countryId.isEmpty ? null : countryId,
+        'state_id': stateId.isEmpty ? null : stateId,
+        'district_id': districtId.isEmpty ? null : districtId,
+        'city_id': cityId.isEmpty ? null : cityId,
+        'postal_code_id': postalCodeId.isEmpty ? null : postalCodeId,
+        'locality_id': localityId.isEmpty ? null : localityId,
         'is_default_billing': isDefaultBilling,
         'is_default_shipping': isDefaultShipping,
       };

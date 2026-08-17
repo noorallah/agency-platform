@@ -779,6 +779,7 @@ void main() {
             mode: CustomerDialogMode.create,
             customer: null,
             onSave: (_) async => _customer,
+            loadPlaces: (level, {parentId = ''}) async => const [],
           ),
         ),
       ),

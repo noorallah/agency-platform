@@ -107,12 +107,39 @@ class CustomerAddress(BaseEntity):
     address_type: Mapped[str] = mapped_column(String(20), nullable=False)
     address_line1: Mapped[str] = mapped_column(String(250), nullable=False)
     address_line2: Mapped[str | None] = mapped_column(String(250))
+    # The free text is what this table has always held, and it stays: it is
+    # NOT NULL, every report reads it, and a firm whose geography masters are
+    # empty still has to be able to record an address. Where the keys below are
+    # set the service derives it from them, so the two cannot disagree.
     area: Mapped[str | None] = mapped_column(String(100))
     city: Mapped[str] = mapped_column(String(100), nullable=False)
     district: Mapped[str | None] = mapped_column(String(100))
     state: Mapped[str] = mapped_column(String(100), nullable=False)
     country: Mapped[str] = mapped_column(String(2), nullable=False)
     postal_code: Mapped[str] = mapped_column(String(24), nullable=False)
+    # Where the address actually is, as ids into the shared geography masters.
+    # Nullable, and nullable for good: these are added to a table with live
+    # rows, an old client sends none of them, and a firm may have no masters.
+    # Without them "Parrys" and "Parry's Corner" never group and a pin-code
+    # search is a string match -- and there is nowhere to hang a coordinate.
+    country_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_countries.id", ondelete="RESTRICT")
+    )
+    state_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_states.id", ondelete="RESTRICT")
+    )
+    district_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_districts.id", ondelete="RESTRICT")
+    )
+    city_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_cities.id", ondelete="RESTRICT")
+    )
+    postal_code_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_postal_codes.id", ondelete="RESTRICT")
+    )
+    locality_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("geo_localities.id", ondelete="RESTRICT")
+    )
     is_default_billing: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

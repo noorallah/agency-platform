@@ -708,7 +708,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                               ),
                               const SizedBox(height: 12),
                               GeoAreaPicker(
-                                api: widget.api,
+                                loadPlaces: widget.api.geoPlaces,
                                 value: row.place,
                                 onChanged: (value) =>
                                     setState(() => row.place = value),

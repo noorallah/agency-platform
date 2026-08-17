@@ -46,6 +46,7 @@ Future<void> _pumpEditor(
           mode: CustomerDialogMode.edit,
           customer: Customer.fromJson(_customerJson()),
           onSave: onSave,
+          loadPlaces: (level, {parentId = ''}) async => const [],
         ),
       ),
     ),

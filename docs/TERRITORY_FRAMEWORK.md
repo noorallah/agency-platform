@@ -160,11 +160,34 @@ and is not: these rows are soft-deleted, and a soft delete never reaches the
 database's referential check. A "deleted" city would stay wired to every branch
 naming it and simply vanish from the list.
 
-**Customer addresses do not reference these tables.** `customer_addresses.city`,
-`.area` and `.postal_code` are plain strings, so the Route Builder's pin-code
-search matches the *text typed on the address*, not a geography row.
-`address_masters` is the table that was built to link them and has no client.
-Wiring it in — or retiring it — is an open decision.
+**Customer addresses reference these tables as of 2026-08-16.**
+`customer_addresses` carries `country_id`, `state_id`, `district_id`,
+`city_id`, `postal_code_id` and `locality_id` beside the free text it always
+had (`20260816_0094`). All four address-carrying modules — customers, vendors,
+branches and warehouses — now name the same masters, which is what makes
+"Parrys" one place rather than one spelling of it, and is the prerequisite for
+putting a coordinate anywhere.
+
+Two rules follow.
+
+- **The keys are the truth and the text is derived from them.** `city`,
+  `state`, `country` and `postal_code` are NOT NULL and every report reads
+  them, so they stay; `CustomerService._apply_place` rewrites them from
+  whichever masters are named, and refuses an address whose rungs do not
+  belong together. An address that names no place keeps the text it was given,
+  which is what every client written before these columns did.
+- **The columns are nullable and stay nullable.** They were added to a table
+  with live rows, a firm may have no masters at all, and the migration's
+  backfill only claims a match it is sure of — one live master row, compared
+  case-insensitively, anchored to the rung above or unique across the store.
+  Where the seeded data disagreed with the masters (a store whose only state
+  is "Andera Pradesh" while its addresses are in Telangana) it filled nothing,
+  which is the intended outcome: a guess here is indistinguishable from a fact
+  afterwards.
+
+The Route Builder's pin-code search still matches the text. Moving it onto
+`postal_code_id` is the natural follow-up now that the key exists.
+`address_masters` remains unused and is due for retirement.
 
 ## Permissions
 
@@ -266,14 +289,13 @@ decisions rather than oversights.
 
 ## Not built, in dependency order
 
-**Addresses must become structured before coordinates can help.**
-`customer_addresses.city`, `.area` and `.postal_code` are plain strings with no
-link to the geography masters, so "Parrys" and "Parry's Corner" never group and
-the Route Builder's pin-code search is a string match. **No table stores a
-latitude or longitude.** When they arrive they belong on the *address*, which
-means first deciding what `address_masters` is for — a complete multi-address
-framework with two endpoints and no client. Coordinates on a free-text address
-would give a map full of points nobody can group by locality.
+**Addresses are structured now, which is what coordinates were waiting for.**
+Done on 2026-08-16: all four address-carrying modules name the geography
+masters, and `customer_addresses` was migrated (see above). **No table stores a
+latitude or longitude yet** — but there is now somewhere to put one that groups
+by locality rather than by spelling. The remaining work is the columns, a
+geocoding source, and moving the Route Builder's pin-code search off the text
+and onto `postal_code_id`.
 
 **Outlet classification** — A/B/C class and channel (GT / MT / HoReCa) on the
 customer, with visit frequency derived from class. `customer_type` is a broad

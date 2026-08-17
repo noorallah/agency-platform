@@ -27,6 +27,7 @@ void main() {
           mode: CustomerDialogMode.create,
           customer: null,
           onSave: (_) async => throw UnimplementedError(),
+          loadPlaces: (level, {parentId = ''}) async => const [],
         ),
       ),
     ));
