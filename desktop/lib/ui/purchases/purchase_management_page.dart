@@ -304,41 +304,77 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         },
       });
 
-  Future<void> _loadLookups() async {
+  /// Read one lookup, and let it fail on its own.
+  ///
+  /// These used to be a single `Future.wait`, which fails fast: the first
+  /// rejection abandoned the other five, so one bad request left the editor
+  /// with no vendors, no branches, no warehouses, no products, no buyers and
+  /// no tax profiles. The `catch` around it said it kept the workspace
+  /// responsive "even if some optional lookups fail", and could not -- it
+  /// never saw a partial result to keep.
+  Future<List<T>> _lookup<T>(Future<List<T>> Function() read) async {
     try {
-      final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.vendors(page: 1),
-        widget.api.branches(page: 1, pageSize: 100),
-        widget.api.warehouses(page: 1, pageSize: 200),
-        widget.api.products(page: 1, pageSize: 500),
-        widget.api
-            .users(page: 1, search: '', sortBy: 'email', descending: false),
-        widget.api.taxProfiles(
-            page: 1, search: '', sortBy: 'name', descending: false),
-      ]);
-      final List<WarehouseRecord> warehouses =
-          (results[2] as PagedResult<WarehouseRecord>).items;
-      final List<StorageNodeRecord> storageNodes = [];
-      for (final WarehouseRecord warehouse in warehouses) {
-        try {
-          storageNodes.addAll(await widget.api.storageNodes(warehouse.id));
-        } on ApiException {
-          // Keep the rest of the workspace available even if one warehouse fails.
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _vendors = (results[0] as PagedResult<Vendor>).items;
-        _branches = (results[1] as PagedResult<BranchRecord>).items;
-        _warehouses = warehouses;
-        _products = (results[3] as PagedResult<Product>).items;
-        _buyers = (results[4] as PagedResult<PlatformUser>).items;
-        _taxProfiles = (results[5] as PagedResult<TaxProfileRecord>).items;
-        _storageNodes = storageNodes;
-      });
+      return await read();
     } on ApiException {
-      // Keep the workspace responsive even if some optional lookups fail.
+      return <T>[];
     }
+  }
+
+  Future<void> _loadLookups() async {
+    // Warehouses and products page through rather than asking for one
+    // oversized page. `MAX_PAGE_SIZE` is 100 and it is refused rather than
+    // clamped, so `pageSize: 200` and `pageSize: 500` were a 500 from every
+    // real server -- and through the old `Future.wait` they took the four
+    // healthy lookups down with them. That is why the New Purchase Order form
+    // offered no vendor and no branch: both of those requests succeeded.
+    final List<Vendor> vendors = await _lookup(
+      () => fetchAllPages((page) => widget.api.vendors(page: page)),
+    );
+    final List<BranchRecord> branches = await _lookup(
+      () => fetchAllPages(
+        (page) => widget.api.branches(page: page, pageSize: maxApiPageSize),
+      ),
+    );
+    final List<WarehouseRecord> warehouses = await _lookup(
+      () => fetchAllPages(
+        (page) => widget.api.warehouses(page: page, pageSize: maxApiPageSize),
+      ),
+    );
+    final List<Product> products = await _lookup(
+      () => fetchAllPages(
+        (page) => widget.api.products(page: page, pageSize: maxApiPageSize),
+      ),
+    );
+    final List<PlatformUser> buyers = await _lookup(
+      () => fetchAllPages(
+        (page) => widget.api
+            .users(page: page, search: '', sortBy: 'email', descending: false),
+      ),
+    );
+    final List<TaxProfileRecord> taxProfiles = await _lookup(
+      () => fetchAllPages(
+        (page) => widget.api.taxProfiles(
+            page: page, search: '', sortBy: 'name', descending: false),
+      ),
+    );
+    final List<StorageNodeRecord> storageNodes = [];
+    for (final WarehouseRecord warehouse in warehouses) {
+      try {
+        storageNodes.addAll(await widget.api.storageNodes(warehouse.id));
+      } on ApiException {
+        // Keep the rest of the workspace available even if one warehouse fails.
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _vendors = vendors;
+      _branches = branches;
+      _warehouses = warehouses;
+      _products = products;
+      _buyers = buyers;
+      _taxProfiles = taxProfiles;
+      _storageNodes = storageNodes;
+    });
   }
 
   Future<void> _load({int? requestedPage}) async {

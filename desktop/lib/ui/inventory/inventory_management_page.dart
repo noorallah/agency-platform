@@ -216,16 +216,22 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
 
   Future<void> _loadLookups() async {
     try {
+      // `pageSize: 500` is refused rather than clamped, and `Future.wait`
+      // fails fast, so the products request took branches and warehouses with
+      // it and left this screen with none of the three.
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.branches(page: 1, pageSize: 100),
-        widget.api.warehouses(page: 1, pageSize: 100),
-        widget.api.products(page: 1, pageSize: 500),
+        fetchAllPages((page) =>
+            widget.api.branches(page: page, pageSize: maxApiPageSize)),
+        fetchAllPages((page) =>
+            widget.api.warehouses(page: page, pageSize: maxApiPageSize)),
+        fetchAllPages((page) =>
+            widget.api.products(page: page, pageSize: maxApiPageSize)),
       ]);
       if (!mounted) return;
       setState(() {
-        _branches = (results[0] as PagedResult<BranchRecord>).items;
-        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
-        _products = (results[2] as PagedResult<Product>).items;
+        _branches = (results[0] as List<BranchRecord>);
+        _warehouses = (results[1] as List<WarehouseRecord>);
+        _products = (results[2] as List<Product>);
       });
     } on ApiException {
       // Keep inventory screens usable even if lookup metadata is partial.
