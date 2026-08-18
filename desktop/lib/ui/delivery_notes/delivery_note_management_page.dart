@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'delivery_note_editor_dialog.dart';
 
@@ -50,7 +51,6 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   Json _summary = const {};
   List<_DeliveryNoteRecord> _notes = const [];
   _DeliveryNoteRecord? _selected;
-  List<DocumentTimelineSnapshot> _history = const [];
   // Reference data the editor needs, loaded once with the workspace.
   List<Json> _deliverableOrders = const [];
   List<WarehouseRecord> _warehouses = const [];
@@ -223,22 +223,15 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
       if (selected == null && notes.isNotEmpty) {
         selected = notes.first;
       }
-      List<DocumentTimelineSnapshot> history = const [];
-      if (selected != null) {
-        try {
-          final Json timeline = _unwrap(await widget.api.documentHistory('delivery-notes', selected.id));
-          history = _timelineFromResponse(timeline);
-        } on ApiException {
-          history = const [];
-        }
-      }
+      // The timeline is no longer fetched on every list load. It filled a
+      // pane that was on screen whether or not anybody wanted it; the dialog
+      // reads it when the document is opened.
       if (!mounted) return;
       setState(() {
         _summary = summary;
         _notes = notes;
         _total = page['pagination'] is Map ? (page['pagination']['total'] as num?)?.toInt() ?? notes.length : notes.length;
         _selected = selected;
-        _history = history;
       });
     } catch (error) {
       if (!mounted) return;
@@ -246,7 +239,6 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         _error = error.toString();
         _notes = const [];
         _selected = null;
-        _history = const [];
         _total = 0;
       });
     } finally {
@@ -256,254 +248,221 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final _DeliveryNoteRecord? selected = _selected;
-    final DocumentHeaderSnapshot header = selected?.toHeader() ??
-        const DocumentHeaderSnapshot(
-          documentTypeCode: 'DELIVERY_NOTE',
-          documentTypeName: 'Delivery Note',
-          documentNumber: '-',
-          documentDate: '-',
-          status: 'DRAFT',
-        );
-    final DocumentTotalsSnapshot totals = selected?.toTotals() ??
-        const DocumentTotalsSnapshot(
-          subtotal: '0',
-          discount: '0',
-          tax: '0',
-          charges: '0',
-          roundOff: '0',
-          grandTotal: '0',
-        );
-    return ModuleWorkspaceFrame(
-      title: 'Delivery Notes',
-      description: 'Manage dispatches, reservation release, and inventory deduction.',
-      breadcrumbs: const ['Workspace', 'Delivery Notes'],
-      child: Column(
-        children: [
-          if (_loading) const LinearProgressIndicator(minHeight: 2),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-            child: SummaryCards(
-              children: [
-                _summaryCard('Total', '${_summary['total'] ?? 0}'),
-                _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
-                _summaryCard('Approved', '${_summary['approved'] ?? 0}'),
-                _summaryCard('Dispatched', '${_summary['dispatched'] ?? 0}'),
-                _summaryCard('Completed', '${_summary['completed'] ?? 0}'),
-                _summaryCard('Cancelled', '${_summary['cancelled'] ?? 0}'),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _search,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Search delivery notes',
-                                      prefixIcon: Icon(Icons.search),
-                                    ),
-                                    onSubmitted: (_) => _load(requestedPage: 1),
-                                  ),
-                                ),
-                                if (_canCreate) ...[
-                                  const SizedBox(width: 12),
-                                  FilledButton.icon(
-                                    // A delivery note line requires a sales
-                                    // order line, so with nothing approved to
-                                    // deliver there is nothing to raise.
-                                    onPressed: _deliverableOrders.isEmpty
-                                        ? null
-                                        : _createNote,
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('New Note'),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _notes.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final _DeliveryNoteRecord row = _notes[index];
-                                final bool selected = _selected?.id == row.id;
-                                return ListTile(
-                                  selected: selected,
-                                  title: Text(row.deliveryNoteNumber),
-                                  subtitle: Text('${row.salesOrderReference} • ${row.deliveryDate} • ${row.status}'),
-                                  trailing: Text(row.grandTotal),
-                                  onTap: () => _selectNote(row),
-                                );
-                              },
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Text('$_total notes'),
-                            ),
-                          ),
-                          WorkspacePager(
-                            page: _page,
-                            pageSize: _rowsPerPage,
-                            total: _total,
-                            onPageChanged: (next) =>
-                                _load(requestedPage: next),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 4,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          EnterpriseDocumentToolbar(
-                            actions: const [
-                              DocumentToolbarAction.newDocument,
-                              DocumentToolbarAction.printDocument,
-                              DocumentToolbarAction.exportDocument,
-                              DocumentToolbarAction.emailDocument,
-                              DocumentToolbarAction.approve,
-                              // Two buttons, not one. `requestApproval` used
-                              // to be both -- it dispatched an approved note
-                              // and completed anything else -- under a label
-                              // reading "Request approval", while dispatching
-                              // is the step that **moves the stock**.
-                              DocumentToolbarAction.dispatch,
-                              DocumentToolbarAction.complete,
-                              DocumentToolbarAction.cancel,
-                              DocumentToolbarAction.close,
-                            ],
-                            isEnabled: (action) =>
-                                selected != null &&
-                                _mayRun(action) &&
-                                _statusAllows(action, selected.status),
-                            onAction: (action) async {
-                              if (selected == null) return;
-                              try {
-                                switch (action) {
-                                  case DocumentToolbarAction.approve:
-                                    await _act('/approve');
-                                    break;
-                                  case DocumentToolbarAction.dispatch:
-                                    await _act('/dispatch');
-                                    break;
-                                  case DocumentToolbarAction.complete:
-                                    await _act('/complete');
-                                    break;
-                                  case DocumentToolbarAction.cancel:
-                                    await _act('/cancel');
-                                    break;
-                                  case DocumentToolbarAction.close:
-                                    await _act('/close');
-                                    break;
-                                  default:
-                                    NotificationService.show(
-                                      context,
-                                      'Placeholder action for delivery notes.',
-                                      kind: AppNotificationKind.information,
-                                    );
-                                }
-                              } on ApiException catch (error) {
-                                if (!context.mounted) return;
-                                NotificationService.show(context, error.message,
-                                    kind: AppNotificationKind.error);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentHeader(header: header),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentLines(
-                            lines: selected == null
-                                ? const []
-                                : [
-                                    for (final _DeliveryNoteLine line in selected.lines)
-                                      DocumentLineSnapshot(
-                                        lineNumber: line.lineNumber,
-                                        product: line.productId,
-                                        description: line.description,
-                                        uom: line.salesUomId,
-                                        packaging: line.packagingTypeId,
-                                        quantity: line.currentDeliveryQuantity,
-                                        freeQuantity: line.freeQuantity,
-                                        unitPrice: line.unitPrice,
-                                        discount: line.discountAmount,
-                                        taxProfile: line.taxProfileId,
-                                        amount: line.grossAmount,
-                                        netAmount: line.netAmount,
-                                        remarks: line.remarks,
-                                      ),
-                                  ],
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseTotalsPanel(totals: totals),
-                          const SizedBox(height: 12),
-                          EnterpriseTimeline(entries: _history),
-                          const SizedBox(height: 12),
-                          EnterpriseApprovalPanel(
-                            status: header.status,
-                            message: 'Approval workflow placeholder.',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+  /// Select a row.
+  ///
+  /// This used to fetch the note's timeline on every click, to fill a pane
+  /// that was on screen whether or not anybody wanted it. The dialog reads it
+  /// when the document is actually opened.
+  void _selectNote(_DeliveryNoteRecord row) {
+    setState(() => _selected = row);
+  }
+
+  /// Show one note: header, lines, totals and timeline.
+  Future<void> _openNote(_DeliveryNoteRecord row) async {
+    setState(() => _selected = row);
+    List<DocumentTimelineSnapshot> history = const [];
+    try {
+      final Json timeline =
+          _unwrap(await widget.api.documentHistory('delivery-notes', row.id));
+      history = _timelineFromResponse(timeline);
+    } on ApiException {
+      history = const [];
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => DocumentViewDialog(
+        title: row.deliveryNoteNumber,
+        subtitle: 'Against ${row.salesOrderReference}',
+        icon: Icons.local_shipping_outlined,
+        header: row.toHeader(),
+        lines: [
+          for (final _DeliveryNoteLine line in row.lines)
+            DocumentLineSnapshot(
+              lineNumber: line.lineNumber,
+              product: line.productId,
+              uom: line.salesUomId,
+              quantity: line.currentDeliveryQuantity,
+              unitPrice: line.unitPrice,
+              amount: line.grossAmount,
+              netAmount: line.netAmount,
+              remarks: line.remarks,
             ),
         ],
+        totals: row.toTotals(),
+        history: history,
       ),
     );
   }
 
+  @override
+  Widget build(BuildContext context) => ModuleWorkspaceFrame(
+        title: 'Delivery Notes',
+        description: 'Deliver against approved sales orders. Dispatching a '
+            'note is what moves the stock.',
+        breadcrumbs: const ['Workspace', 'Sales', 'Delivery Notes'],
+        child: Column(
+          children: [
+            if (_loading) const LinearProgressIndicator(minHeight: 2),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              child: SummaryCards(
+                children: [
+                  _summaryCard('Total', '${_summary['total'] ?? 0}'),
+                  _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
+                  _summaryCard('Approved', '${_summary['approved'] ?? 0}'),
+                  _summaryCard('Dispatched', '${_summary['dispatched'] ?? 0}'),
+                  _summaryCard('Completed', '${_summary['completed'] ?? 0}'),
+                  _summaryCard('Cancelled', '${_summary['cancelled'] ?? 0}'),
+                ],
+              ),
+            ),
+            // Bounded, so the layout below has a height to divide.
+            Expanded(child: _buildGridWorkspace()),
+          ],
+        ),
+      );
+
+  Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
+        toolbar: _buildToolbar(),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search note number, sales order...',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+        primaryContent: !widget.hasActiveFirm
+            ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
+            : _error != null && !_loading
+                ? WorkspaceEmptyState(
+                    title: 'Delivery notes unavailable',
+                    message: _error!,
+                  )
+                : _notes.isEmpty && !_loading
+                    ? StandardEmptyState(
+                        type: _search.text.trim().isEmpty
+                            ? EmptyStateType.noRecords
+                            : EmptyStateType.noSearchResults,
+                      )
+                    : _buildNoteGrid(),
+        // No side pane. It sat at `flex: 4` against a `flex: 3` list.
+        detailsPanel: null,
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: _selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      );
+
+  Widget _buildToolbar() => WorkspaceToolbar(
+        actions: const [
+          ToolbarAction.newItem,
+          ToolbarAction.view,
+          ToolbarAction.refresh,
+        ],
+        isVisible: (action) =>
+            action != ToolbarAction.newItem || _canCreate,
+        isEnabled: (action) =>
+            !_loading &&
+            switch (action) {
+              // A delivery note line needs an approved sales order line
+              // behind it, so nothing to deliver against is a disabled button
+              // rather than an empty dialog.
+              ToolbarAction.newItem =>
+                _canCreate && _deliverableOrders.isNotEmpty,
+              ToolbarAction.view => _selected != null,
+              ToolbarAction.refresh => true,
+              _ => false,
+            },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.newItem:
+              unawaited(_createNote());
+            case ToolbarAction.view:
+              final _DeliveryNoteRecord? selected = _selected;
+              if (selected != null) unawaited(_openNote(selected));
+            case ToolbarAction.refresh:
+              unawaited(_load());
+            default:
+              break;
+          }
+        },
+        // Dispatch and Complete are separate buttons. They used to share
+        // `requestApproval`, which dispatched an approved note and completed
+        // anything else -- under a label reading "Request approval", while
+        // dispatching is the step that moves the stock.
+        trailing: [
+          _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _actionButton(DocumentToolbarAction.dispatch, '/dispatch'),
+          _actionButton(DocumentToolbarAction.complete, '/complete'),
+          _actionButton(DocumentToolbarAction.cancel, '/cancel'),
+          _actionButton(DocumentToolbarAction.close, '/close'),
+        ],
+      );
+
+  /// A lifecycle button, disabled unless permission **and** the selected
+  /// note's status allow it.
+  Widget _actionButton(DocumentToolbarAction action, String suffix) => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _selected == null ||
+                  !_mayRun(action) ||
+                  !_statusAllows(action, _selected?.status)
+              ? null
+              : () => unawaited(_act(suffix)),
+          icon: Icon(action.icon, size: 18),
+          label: Text(action.label),
+        ),
+      );
+
+  /// Run a lifecycle action against the selected note and reload.
+  ///
+  /// The try/catch used to sit around the toolbar's `onAction` switch; it
+  /// lives here now that each button calls this directly, so a refusal still
+  /// reaches the user instead of becoming an unhandled exception.
   Future<void> _act(String suffix) async {
     final _DeliveryNoteRecord? selected = _selected;
     if (selected == null) return;
-    await widget.api.documentAction('delivery-notes', selected.id, suffix);
-    await _load();
-  }
-
-  Future<void> _selectNote(_DeliveryNoteRecord row) async {
-    setState(() => _selected = row);
     try {
-      final Json timeline = _unwrap(await widget.api.documentHistory('delivery-notes', row.id));
+      await widget.api.documentAction('delivery-notes', selected.id, suffix);
+      await _load();
+    } on ApiException catch (error) {
       if (!mounted) return;
-      setState(() => _history = _timelineFromResponse(timeline));
-    } on ApiException {
-      if (!mounted) return;
-      setState(() => _history = const []);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
+
+  Widget _buildNoteGrid() => EnterpriseDataGrid<_DeliveryNoteRecord>(
+        columns: const [
+          GridColumn(key: 'number', label: 'Note Number'),
+          GridColumn(key: 'order', label: 'Sales Order'),
+          GridColumn(key: 'date', label: 'Delivery Date'),
+          GridColumn(key: 'status', label: 'Status'),
+          GridColumn(key: 'total', label: 'Grand Total'),
+        ],
+        items: _notes,
+        id: (item) => item.id,
+        selectedId: _selected?.id,
+        cells: (item) => [
+          item.deliveryNoteNumber,
+          item.salesOrderReference,
+          item.deliveryDate,
+          item.status,
+          item.grandTotal,
+        ],
+        onSelect: _selectNote,
+        onOpen: (item) => unawaited(_openNote(item)),
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        onPageChanged: (offset) {
+          final int next = offset ~/ _rowsPerPage + 1;
+          if (next != _page) _load(requestedPage: next);
+        },
+      );
 
   Widget _summaryCard(String label, String value) => Card(
         child: Padding(
