@@ -32,18 +32,12 @@ void main() {
   });
 
   test('module catalog exposes goods receipt workspace tabs', () {
+    // Two, not eight. Pending, Partial and Completed Receipts, Rejected and
+    // Damaged Items and History were menu entries onto this same workspace --
+    // see `GoodsReceiptView` and `goods_receipt_navigation_test.dart`.
     expect(
       ModuleCatalog.byId(AppModule.goodsReceipts).tabs.map((tab) => tab.label),
-      containsAll([
-        'Receipts',
-        'Pending Receipts',
-        'Partial Receipts',
-        'Completed Receipts',
-        'Rejected Items',
-        'Damaged Items',
-        'History',
-        'Settings',
-      ]),
+      containsAll(['Receipts', 'Settings']),
     );
   });
 

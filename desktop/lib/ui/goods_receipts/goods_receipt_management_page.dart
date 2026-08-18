@@ -16,6 +16,41 @@ import '../../models/purchase.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
 import 'goods_receipt_editor_dialog.dart';
+import 'goods_receipt_view_dialog.dart';
+
+/// A named view over the one goods receipt list.
+///
+/// These were menu items: Pending, Partial and Completed Receipts, Rejected
+/// and Damaged Items, and History -- six entries under a group called
+/// "Reports" that all opened this same screen. Four of them filtered nothing
+/// at all, and History was an exact duplicate of Completed. A receipt's status
+/// is a view of the list, not a module.
+enum GoodsReceiptView {
+  all,
+  draft,
+  completed,
+  cancelled,
+  closed;
+
+  /// The status this view filters on, or null for every status.
+  String? get status => switch (this) {
+        GoodsReceiptView.draft => 'DRAFT',
+        GoodsReceiptView.completed => 'COMPLETED',
+        GoodsReceiptView.cancelled => 'CANCELLED',
+        GoodsReceiptView.closed => 'CLOSED',
+        GoodsReceiptView.all => null,
+      };
+
+  String get label => switch (this) {
+        GoodsReceiptView.all => 'All',
+        // "Draft" rather than "Pending": it is the status the server stores,
+        // and a receipt sits there until it is completed.
+        GoodsReceiptView.draft => 'Draft',
+        GoodsReceiptView.completed => 'Completed',
+        GoodsReceiptView.cancelled => 'Cancelled',
+        GoodsReceiptView.closed => 'Closed',
+      };
+}
 
 class GoodsReceiptManagementPage extends StatefulWidget {
   const GoodsReceiptManagementPage({
@@ -52,6 +87,9 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   Json _summary = const {};
   List<GoodsReceiptRecord> _receipts = const [];
   GoodsReceiptRecord? _selected;
+
+  /// Which segment of the status bar is showing.
+  GoodsReceiptView _view = GoodsReceiptView.all;
   List<DocumentTimelineSnapshot> _history = const [];
   // Reference data the receipt editor needs. Loaded once when the workspace
   // opens rather than each time the dialog does, so choosing an order is
@@ -99,7 +137,7 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
           search: _search.text.trim(),
           sortBy: 'receipt_date',
           descending: true,
-          filters: _filtersForTab(),
+          filters: _filtersForView(),
         ),
       ]);
       final Json summary = results[0] as Json;
@@ -250,32 +288,38 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
     }
   }
 
+  /// Switch the list to another view of itself.
+  void _selectView(GoodsReceiptView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _page = 1;
+      _selected = null;
+      _history = const [];
+    });
+    unawaited(_load(requestedPage: 1));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final DocumentTotalsSnapshot totals =
-        _selected?.toTotals() ?? const DocumentTotalsSnapshot(
-          subtotal: '0',
-          discount: '0',
-          tax: '0',
-          charges: '0',
-          roundOff: '0',
-          grandTotal: '0',
-        );
-    final DocumentHeaderSnapshot header = _selected?.toHeader() ??
-        const DocumentHeaderSnapshot(
-          documentTypeCode: 'GOODS_RECEIPT_NOTE',
-          documentTypeName: 'Goods Receipt Note',
-          documentNumber: '-',
-          documentDate: '-',
-          status: 'DRAFT',
-        );
+    if (!widget.hasActiveFirm) {
+      return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
+    }
+    if (!widget.permissions.hasPermission('PURCHASE_VIEW')) {
+      return const StandardEmptyState(type: EmptyStateType.noPermissions);
+    }
+    if (_error != null && !_loading) {
+      return WorkspaceEmptyState(
+        title: 'Goods receipts unavailable',
+        message: _error!,
+      );
+    }
     return ModuleWorkspaceFrame(
-      title: 'Goods Receipt Notes',
-      description: 'Manage GRN execution, receipt history, and inventory posting.',
-      breadcrumbs: const ['Workspace', 'Goods Receipts'],
-      status: _loading
-          ? const LinearProgressIndicator(minHeight: 2)
-          : null,
+      title: 'Goods Receipts',
+      description:
+          'Receive against approved purchase orders. Completing a receipt is '
+          'what posts the stock.',
+      breadcrumbs: const ['Workspace', 'Purchases', 'Goods Receipts'],
       child: Column(
         children: [
           Padding(
@@ -290,154 +334,190 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
               ],
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _search,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Search receipts',
-                                      prefixIcon: Icon(Icons.search),
-                                    ),
-                                    onSubmitted: (_) =>
-                                        _load(requestedPage: 1),
-                                  ),
-                                ),
-                                if (_canCreate) ...[
-                                  const SizedBox(width: 12),
-                                  FilledButton.icon(
-                                    // Nothing to receive against means nothing
-                                    // to raise: a goods receipt line requires a
-                                    // purchase order line, so an empty order
-                                    // list is a disabled button and not an
-                                    // empty dialog.
-                                    onPressed: _receivableOrders.isEmpty
-                                        ? null
-                                        : _createReceipt,
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('New Receipt'),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _receipts.length,
-                              separatorBuilder: (_, __) =>
-                                  const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final GoodsReceiptRecord row = _receipts[index];
-                                final bool selected = _selected?.id == row.id;
-                                return ListTile(
-                                  selected: selected,
-                                  title: Text(row.grnNumber),
-                                  subtitle: Text(
-                                    '${row.purchaseOrderNumber} • ${row.receiptDate} • ${row.status}',
-                                  ),
-                                  trailing: Text(row.grandTotal),
-                                  onTap: () => setState(() {
-                                    _selected = row;
-                                  }),
-                                );
-                              },
-                            ),
-                          ),
-                          WorkspacePager(
-                            page: _page,
-                            pageSize: _rowsPerPage,
-                            total: _total,
-                            onPageChanged: (next) =>
-                                _load(requestedPage: next),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 4,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          EnterpriseDocumentToolbar(
-                            actions: const [
-                              DocumentToolbarAction.requestApproval,
-                              DocumentToolbarAction.cancel,
-                              DocumentToolbarAction.close,
-                            ],
-                            // A goods receipt has no approve/reject step, and
-                            // print, email and direct create have no backend at
-                            // all — offering them enabled meant eight buttons
-                            // that silently did nothing.
-                            isEnabled: (action) =>
-                                _selected != null && _isReceiptActionAllowed(action),
-                            onAction: _runReceiptAction,
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentHeader(header: header),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentLines(
-                            lines: _selected == null
-                                ? const []
-                                : [
-                                    for (final GoodsReceiptLine line
-                                        in _selected!.lines)
-                                      DocumentLineSnapshot(
-                                        lineNumber: line.lineNumber,
-                                        product: line.productId,
-                                        description: line.description,
-                                        uom: line.inventoryUomId,
-                                        packaging: line.packagingTypeId,
-                                        quantity: line.currentReceiptQuantity,
-                                        freeQuantity: line.freeQuantity,
-                                        unitPrice: line.unitPrice,
-                                        discount: line.discountAmount,
-                                        taxProfile: line.taxProfileId,
-                                        amount: line.grossAmount,
-                                        netAmount: line.netAmount,
-                                        remarks: line.remarks,
-                                      ),
-                                  ],
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseTotalsPanel(totals: totals),
-                          const SizedBox(height: 12),
-                          EnterpriseTimeline(entries: _history),
-                          const SizedBox(height: 12),
-                          EnterpriseApprovalPanel(
-                            status: header.status,
-                            message: 'Approval workflow placeholder.',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
+          // Bounded, so the layout below has a height to divide.
+          Expanded(child: _buildGridWorkspace()),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
+        toolbar: _buildToolbar(),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search GRN number, purchase order...',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+        viewBar: _buildViewBar(),
+        primaryContent: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _receipts.isEmpty
+                ? StandardEmptyState(
+                    type: _search.text.trim().isEmpty
+                        ? EmptyStateType.noRecords
+                        : EmptyStateType.noSearchResults,
+                  )
+                : _buildReceiptGrid(),
+        // No side pane. It took 57% of the width -- more than the list it sat
+        // beside -- to show a document the user had only pointed at.
+        // Double-click opens it instead.
+        detailsPanel: null,
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: _selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      );
+
+  /// The status bar: All / Draft / Completed / Cancelled / Closed.
+  Widget _buildViewBar() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<GoodsReceiptView>(
+          segments: [
+            for (final GoodsReceiptView view in GoodsReceiptView.values)
+              ButtonSegment<GoodsReceiptView>(
+                value: view,
+                label: Text(view.label),
+              ),
+          ],
+          selected: <GoodsReceiptView>{_view},
+          onSelectionChanged:
+              _loading ? null : (selection) => _selectView(selection.first),
+          showSelectedIcon: false,
+        ),
+      );
+
+  Widget _buildToolbar() => WorkspaceToolbar(
+        actions: const [
+          ToolbarAction.newItem,
+          ToolbarAction.view,
+          ToolbarAction.refresh,
+        ],
+        isVisible: (action) =>
+            action != ToolbarAction.newItem || _canCreate,
+        isEnabled: (action) =>
+            !_loading &&
+            switch (action) {
+              // Nothing to receive against means nothing to raise: a goods
+              // receipt line requires a purchase order line, so an empty order
+              // list is a disabled button and not an empty dialog.
+              ToolbarAction.newItem =>
+                _canCreate && _receivableOrders.isNotEmpty,
+              ToolbarAction.view => _selected != null,
+              ToolbarAction.refresh => true,
+              _ => false,
+            },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.newItem:
+              unawaited(_createReceipt());
+            case ToolbarAction.view:
+              final GoodsReceiptRecord? selected = _selected;
+              if (selected != null) unawaited(_openReceipt(selected));
+            case ToolbarAction.refresh:
+              unawaited(_load());
+            default:
+              break;
+          }
+        },
+        trailing: [
+          // The action that posts stock. It was labelled "Request approval" --
+          // there is no approval step on a receipt, and calling the thing that
+          // moves inventory something else is how somebody completes one
+          // without meaning to.
+          _actionButton(
+            'Complete',
+            Icons.check_circle_outline,
+            DocumentToolbarAction.requestApproval,
+          ),
+          _actionButton(
+            'Cancel',
+            Icons.cancel_outlined,
+            DocumentToolbarAction.cancel,
+          ),
+          _actionButton(
+            'Close',
+            Icons.lock_outline,
+            DocumentToolbarAction.close,
+          ),
+        ],
+      );
+
+  Widget _actionButton(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+  ) =>
+      Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _isReceiptActionAllowed(action)
+              ? () => _runReceiptAction(action)
+              : null,
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+        ),
+      );
+
+  Widget _buildReceiptGrid() => EnterpriseDataGrid<GoodsReceiptRecord>(
+        columns: const [
+          GridColumn(key: 'grn', label: 'GRN Number'),
+          GridColumn(key: 'po', label: 'Purchase Order'),
+          GridColumn(key: 'date', label: 'Receipt Date'),
+          GridColumn(key: 'status', label: 'Status'),
+          GridColumn(key: 'total', label: 'Grand Total'),
+        ],
+        items: _receipts,
+        id: (item) => item.id,
+        selectedId: _selected?.id,
+        cells: (item) => [
+          item.grnNumber,
+          item.purchaseOrderNumber,
+          item.receiptDate,
+          item.status,
+          item.grandTotal,
+        ],
+        onSelect: _selectReceipt,
+        onOpen: _openReceipt,
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        onPageChanged: (offset) {
+          final int next = offset ~/ _rowsPerPage + 1;
+          if (next != _page) _load(requestedPage: next);
+        },
+      );
+
+  void _selectReceipt(GoodsReceiptRecord record) {
+    setState(() => _selected = record);
+    unawaited(_loadHistory(record));
+  }
+
+  Future<void> _loadHistory(GoodsReceiptRecord record) async {
+    try {
+      final List<DocumentTimelineSnapshot> history =
+          await widget.api.goodsReceiptHistory(record.id);
+      if (!mounted) return;
+      setState(() => _history = history);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _history = const []);
+    }
+  }
+
+  /// Show one receipt: its header, its lines and its timeline.
+  ///
+  /// This is what the pinned side pane held. It is a dialog now, so the table
+  /// keeps the whole width and the document gets room to be read.
+  Future<void> _openReceipt(GoodsReceiptRecord record) async {
+    setState(() => _selected = record);
+    await _loadHistory(record);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => GoodsReceiptViewDialog(
+        receipt: record,
+        history: _history,
       ),
     );
   }
@@ -456,10 +536,8 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         ),
       );
 
-  Map<String, String> _filtersForTab() => switch (widget.tabId) {
-        'pending-receipts' => const {'status': 'DRAFT'},
-        'completed-receipts' => const {'status': 'COMPLETED'},
-        'grn-history' => const {'status': 'COMPLETED'},
-        _ => const {},
-      };
+  Map<String, String> _filtersForView() {
+    final String? status = _view.status;
+    return status == null ? const {} : {'status': status};
+  }
 }
