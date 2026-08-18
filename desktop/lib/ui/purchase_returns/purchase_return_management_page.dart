@@ -11,6 +11,7 @@ import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'purchase_return_editor_dialog.dart';
@@ -329,39 +330,52 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
             'Approve',
             Icons.thumb_up_outlined,
             DocumentToolbarAction.approve,
+            DocumentLifecycleAction.approve,
             '/approve',
           ),
           _actionButton(
             'Complete',
             Icons.check_circle_outline,
             DocumentToolbarAction.approve,
+            DocumentLifecycleAction.complete,
             '/complete',
           ),
           _actionButton(
             'Cancel',
             Icons.cancel_outlined,
             DocumentToolbarAction.cancel,
+            DocumentLifecycleAction.cancel,
             '/cancel',
           ),
           _actionButton(
             'Close',
             Icons.lock_outline,
             DocumentToolbarAction.close,
+            DocumentLifecycleAction.close,
             '/close',
           ),
         ],
       );
 
+  /// A lifecycle button, disabled unless the selected document's status
+  /// allows it.
+  ///
+  /// Permission alone used to decide this, so Approve was live on an
+  /// already-approved document and Close on a closed one. Pressing either
+  /// produced a refusal the screen could have predicted.
   Widget _actionButton(
     String label,
     IconData icon,
     DocumentToolbarAction action,
+    DocumentLifecycleAction lifecycle,
     String suffix,
   ) =>
       Padding(
         padding: const EdgeInsets.only(left: 8),
         child: OutlinedButton.icon(
-          onPressed: _selected == null || !_mayRun(action)
+          onPressed: _selected == null ||
+                  !_mayRun(action) ||
+                  !DocumentStatusGate.purchaseReturn.allows(lifecycle, _selected?.status)
               ? null
               : () => unawaited(_act(suffix)),
           icon: Icon(icon, size: 18),
