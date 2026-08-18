@@ -29,7 +29,11 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ResourceNotFoundError
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import customer as _customer_models  # noqa: F401
@@ -42,7 +46,7 @@ from app.identity.models import UserFirm
 from app.inventory.models import InventoryRecord, InventoryTransaction
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
-from app.purchase.schemas import PurchaseOrderCreate
+from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderUpdate
 from app.purchase.services import PurchaseService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -177,8 +181,14 @@ class _Fixture:
         self.order = self._purchase_order()
 
     def _purchase_order(self) -> PurchaseOrder:
-        """Raise the order the receipts are taken against."""
-        return PurchaseService(self.session).create_order(
+        """Raise the order the receipts are taken against, and approve it.
+
+        These fixtures used to leave the order at DRAFT and receive against it
+        anyway, which is exactly the hole `_assert_order_receivable` closes --
+        the suite could not have caught it because it depended on it.
+        """
+        service = PurchaseService(self.session)
+        order = service.create_order(
             PurchaseOrderCreate.model_validate(
                 {
                     "po_number": f"PO-{self.firm.code}",
@@ -199,6 +209,10 @@ class _Fixture:
             ),
             firm_id=self.firm.id,
             actor_id=self.actor_id,
+        )
+        service.submit_order(order.id, firm_scope=self.firm.id, actor_id=self.actor_id)
+        return service.approve_order(
+            order.id, firm_scope=self.firm.id, actor_id=self.actor_id
         )
 
     @property
@@ -456,14 +470,13 @@ def _order_status(session: Session, order_id: UUID) -> str:
 
 
 def _approve(fixture: "_Fixture") -> None:
-    """Walk the order to APPROVED, which is where receiving begins."""
-    service = PurchaseService(fixture.session)
-    service.submit_order(
-        fixture.order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
-    )
-    service.approve_order(
-        fixture.order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
-    )
+    """Assert the order is where receiving begins.
+
+    The fixture now approves on the way out, because receiving against an
+    unapproved order is refused. This is kept as the statement of what these
+    tests depend on rather than deleted.
+    """
+    assert _order_status(fixture.session, fixture.order.id) == "APPROVED"
 
 
 def test_a_part_delivery_leaves_the_order_partially_received() -> None:
@@ -573,3 +586,107 @@ def test_a_cancelled_order_is_never_revived_by_a_receipt() -> None:
     )
 
     assert _order_status(session, fixture.order.id) == "CANCELLED"
+
+
+def test_an_unapproved_order_cannot_be_received_against() -> None:
+    """Nothing checked this, and completing a receipt posts stock.
+
+    A draft purchase order could be received against and the receipt completed,
+    which posts stock and posts to the ledger, so the approval step was
+    bypassable by any client that did not filter its own picker. The order then
+    stayed DRAFT for good, because the resync only moves an order already in
+    the receiving part of its life.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-DRAFT")
+    PurchaseService(session).update_order(
+        fixture.order.id,
+        PurchaseOrderUpdate.model_validate(
+            {
+                "branch_id": fixture.branch.id,
+                "warehouse_id": fixture.warehouse.id,
+                "vendor_id": fixture.vendor.id,
+                "purchase_date": "2026-08-02",
+                "lines": [
+                    {
+                        "product_id": fixture.product.id,
+                        "ordered_quantity": "10",
+                        "unit_price": "100",
+                        "warehouse_id": fixture.warehouse.id,
+                    }
+                ],
+            }
+        ),
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    assert _order_status(session, fixture.order.id) == "DRAFT"
+
+    with pytest.raises(ValidationError, match="only be received against an approved"):
+        GoodsReceiptService(session).create_receipt(
+            fixture.receipt_payload("4"),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+
+
+def test_a_cancelled_order_cannot_be_received_against() -> None:
+    """The same guard, from the other terminal state."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-CANC")
+    PurchaseService(session).cancel_order(
+        fixture.order.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="no longer needed",
+    )
+
+    with pytest.raises(ValidationError, match="only be received against an approved"):
+        GoodsReceiptService(session).create_receipt(
+            fixture.receipt_payload("4"),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+
+
+def test_a_received_order_refuses_an_edit() -> None:
+    """Its lines are what stock was posted at.
+
+    Editing them leaves the receipt describing a document that no longer says
+    what it said.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-EDIT")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"), firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert _order_status(session, fixture.order.id) == "PARTIALLY_RECEIVED"
+
+    with pytest.raises(ValidationError, match="Goods have been received"):
+        PurchaseService(session).update_order(
+            fixture.order.id,
+            PurchaseOrderUpdate.model_validate(
+                {
+                    "branch_id": fixture.branch.id,
+                    "warehouse_id": fixture.warehouse.id,
+                    "vendor_id": fixture.vendor.id,
+                    "purchase_date": "2026-08-02",
+                    "lines": [
+                        {
+                            "product_id": fixture.product.id,
+                            "ordered_quantity": "999",
+                            "unit_price": "1",
+                            "warehouse_id": fixture.warehouse.id,
+                        }
+                    ],
+                }
+            ),
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+
+    assert _order_status(session, fixture.order.id) == "PARTIALLY_RECEIVED"

@@ -503,10 +503,41 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     setState(() => _selected = order);
   }
 
+  /// Whether this order may be edited, saying why when it may not.
+  ///
+  /// Approving is a statement about a particular document, so the server
+  /// withdraws the approval when the document changes. That has to be said
+  /// before the editor opens rather than discovered afterwards -- somebody
+  /// correcting a typo on an approved order is entitled to know it will need
+  /// approving again.
+  Future<bool> _mayEdit(PurchaseOrder order) async {
+    final String? refusal = order.editRefusal;
+    if (refusal != null) {
+      NotificationService.show(
+        context,
+        refusal,
+        kind: AppNotificationKind.warning,
+      );
+      return false;
+    }
+    if (!order.isApproved) return true;
+    return showWorkspaceConfirmDialog(
+      context,
+      title: 'Editing withdraws the approval',
+      message: '${order.poNumber} has been approved. Changing it returns the '
+          'order to Draft, and it will need submitting and approving again.',
+      confirmLabel: 'Edit anyway',
+      type: ConfirmationType.custom,
+    );
+  }
+
   Future<void> _openEditor(PurchaseDialogMode mode,
       [PurchaseOrder? seed]) async {
     if (mode == PurchaseDialogMode.create && !_canCreate) return;
     if (mode == PurchaseDialogMode.edit && (!_canUpdate || seed == null)) {
+      return;
+    }
+    if (mode == PurchaseDialogMode.edit && !await _mayEdit(seed!)) {
       return;
     }
     if ((mode == PurchaseDialogMode.view ||
@@ -961,7 +992,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         refresh: _loading ? null : _load,
         delete: _canDelete ? _deleteSelected : null,
         globalSearch: widget.onOpenGlobalSearch,
-        edit: _canUpdate && _selected != null && !_selected!.isDeleted
+        edit: _canUpdate && (_selected?.isEditable ?? false)
             ? () => _openEditor(PurchaseDialogMode.edit, _selected)
             : null,
         export: _canExport ? _openExport : null,
@@ -1279,8 +1310,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
 
   Widget _buildToolbar() {
     final PurchaseOrder? selected = _selected;
+    // Mirrors `PurchaseService._assert_order_editable`: a received, cancelled
+    // or closed order refuses an edit, so the button must not offer one.
     final bool canEditSelected =
-        selected != null && !selected.isDeleted && _canUpdate;
+        selected != null && selected.isEditable && _canUpdate;
     final bool canDeleteSelected =
         (_selectedIds.isNotEmpty || selected != null) &&
             !(_selected?.isDeleted ?? false) &&

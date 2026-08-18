@@ -44,6 +44,7 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.api.router import (
     ActionReasonRequest,
+    approve_purchase_order,
     cancel_purchase_order,
     close_purchase_order,
     create_purchase_order,
@@ -55,6 +56,7 @@ from app.purchase.api.router import (
     purchase_order_history,
     purchase_summary,
     restore_purchase_order,
+    submit_purchase_order,
     update_purchase_order,
 )
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -607,7 +609,11 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
         actor_id=actor_id,
     )
     updated_response = service.order_response(updated)
-    assert updated_response.status == PurchaseOrderStatus.SUBMITTED
+    # The payload said SUBMITTED and the order stays DRAFT. An edit no longer
+    # decides the status -- `PurchaseOrderUpdate` defaults that field to DRAFT,
+    # so honouring it meant a client saying nothing about the status silently
+    # reset an approved order. The lifecycle endpoints own it now.
+    assert updated_response.status == PurchaseOrderStatus.DRAFT
     assert updated_response.subtotal == Decimal("48.0000")
     assert updated_response.tax_total == Decimal("2.4000")
     assert updated_response.grand_total == Decimal("49.9000")
@@ -661,7 +667,7 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
         actor_id=actor_id,
         reason="Vendor unavailable",
     )
-    with pytest.raises(ValidationError, match="Cancelled/closed purchase orders"):
+    with pytest.raises(ValidationError, match="Cancelled purchase orders"):
         service.update_order(
             cancelled.id,
             PurchaseOrderUpdate.model_validate(
@@ -1107,7 +1113,9 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         update_response,
         session,
     )
-    assert updated.data.status == PurchaseOrderStatus.APPROVED
+    # The payload asked for APPROVED. A PUT cannot approve an order; only
+    # `POST /{id}/approve` can, and only from SUBMITTED.
+    assert updated.data.status == PurchaseOrderStatus.DRAFT
     version_after = (
         PurchaseService(session)
         .get_order(created.data.id, firm_scope=scope.firm_id)
@@ -1117,6 +1125,14 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         update_response.headers["ETag"] == f'"{version_after}"'
     ), "the update must publish the version it left behind"
     assert version_after > version_read
+
+    # Walk it to SUBMITTED through the endpoint that owns that transition.
+    # This assertion used to rely on the update having set the status, which
+    # is the defect the update no longer has.
+    submitted = submit_purchase_order(created.data.id, scope, session)
+    assert submitted.data.status == PurchaseOrderStatus.SUBMITTED
+    approved = approve_purchase_order(created.data.id, scope, session)
+    assert approved.data.status == PurchaseOrderStatus.APPROVED
 
     summary = purchase_summary(scope, session)
     assert summary.data.total == 1
@@ -1602,3 +1618,85 @@ def test_each_transition_leaves_a_trail() -> None:
     states = {(event.from_state, event.to_state) for event in history}
     assert ("DRAFT", "SUBMITTED") in states
     assert ("SUBMITTED", "APPROVED") in states
+
+
+def _edit(
+    service: PurchaseService,
+    order: PurchaseOrder,
+    *,
+    firm_id: UUID,
+    actor_id: UUID,
+    qty: str,
+) -> PurchaseOrder:
+    """Re-save the order with a different quantity and no status at all."""
+    line = service.order_response(order).lines[0]
+    return service.update_order(
+        order.id,
+        PurchaseOrderUpdate.model_validate(
+            {
+                "branch_id": order.branch_id,
+                "warehouse_id": order.warehouse_id,
+                "vendor_id": order.vendor_id,
+                "purchase_date": "2026-08-02",
+                "lines": [
+                    {
+                        "product_id": line.product_id,
+                        "ordered_quantity": qty,
+                        "unit_price": "11",
+                        "warehouse_id": order.warehouse_id,
+                    }
+                ],
+            }
+        ),
+        firm_scope=firm_id,
+        actor_id=actor_id,
+    )
+
+
+def test_editing_an_approved_order_withdraws_its_approval() -> None:
+    """Approval is a statement about a particular document.
+
+    Change the document and the statement no longer applies, so the order goes
+    round again. The desktop always sent back the status it last read, which
+    meant an approved order could be edited from any amount to any other and
+    stay approved -- the approval control was decorative.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    edited = _edit(service, order, firm_id=firm_id, actor_id=actor_id, qty="500")
+
+    assert edited.status == PurchaseOrderStatus.DRAFT.value
+    assert "purchase.approval_withdrawn" in [
+        entry.action
+        for entry in service.order_history(order_id=order.id, firm_scope=firm_id)
+    ], "the withdrawal has to be on the record, not silent"
+
+
+def test_editing_a_draft_leaves_its_status_alone() -> None:
+    """An omitted status is not an instruction.
+
+    `PurchaseOrderUpdate` defaults `status` to DRAFT and the service used to
+    assign it straight onto the row, so a client that said nothing about the
+    status reset the order -- the ninth occurrence of that shape in this
+    codebase. Nothing in a payload can move the status now.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    edited = _edit(service, order, firm_id=firm_id, actor_id=actor_id, qty="7")
+
+    assert edited.status == PurchaseOrderStatus.SUBMITTED.value
+
+
+def test_a_closed_order_says_which_of_the_two_it_is() -> None:
+    """One message covered two states and named neither accurately."""
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.close_order(order.id, firm_scope=firm_id, actor_id=actor_id, reason="done")
+
+    with pytest.raises(ValidationError, match="Closed purchase orders"):
+        _edit(service, order, firm_id=firm_id, actor_id=actor_id, qty="3")

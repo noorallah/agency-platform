@@ -445,6 +445,39 @@ class PurchaseOrder {
   /// that nothing performed the transition, so no order was ever in this
   /// state and the Open Orders tab it feeds was empty for every firm.
   bool get isSubmitted => status == 'SUBMITTED';
+
+  /// Committed to. Editing one withdraws the approval server-side.
+  bool get isApproved => status == 'APPROVED';
+
+  /// Some or all of it has arrived, so its lines are what stock was posted
+  /// at and the server refuses to change them.
+  bool get hasReceipts =>
+      status == 'PARTIALLY_RECEIVED' || status == 'RECEIVED';
+
+  /// Finished with, either way.
+  bool get isTerminal => status == 'CANCELLED' || status == 'CLOSED';
+
+  /// Whether the server will accept an edit at all.
+  ///
+  /// Mirrors `PurchaseService._assert_order_editable`. A button that offers
+  /// what the server refuses is a round trip whose only outcome is an error
+  /// message.
+  bool get isEditable => !isDeleted && !hasReceipts && !isTerminal;
+
+  /// Why an edit is refused, or null when it is not.
+  String? get editRefusal {
+    if (isDeleted) return 'This purchase order is deleted. Restore it first.';
+    if (hasReceipts) {
+      return 'Goods have been received against this order, so its lines '
+          'cannot be changed. Cancel the receipt first, or raise a purchase '
+          'return.';
+    }
+    if (status == 'CANCELLED') {
+      return 'Cancelled purchase orders cannot be changed.';
+    }
+    if (status == 'CLOSED') return 'Closed purchase orders cannot be changed.';
+    return null;
+  }
   final String subtotal;
   final String lineDiscountTotal;
   final String headerDiscountAmount;
@@ -622,7 +655,19 @@ class PurchaseOrder {
         'notes': notes.map((item) => item.toWriteJson()).toList(),
       };
 
-  Json toUpdateJson() => toCreateJson();
+  /// The same body as a create, without the status.
+  ///
+  /// The server owns the status through its lifecycle endpoints and ignores
+  /// what an update says about it. Sending the value we last read is what hid
+  /// the defect underneath: the server's own default for the field is DRAFT,
+  /// so any client that stayed quiet silently reset an approved order, while
+  /// this one echoed the status back and so let an approved order be edited to
+  /// any amount and stay approved.
+  Json toUpdateJson() {
+    final Json body = toCreateJson();
+    body.remove('status');
+    return body;
+  }
 }
 
 class PurchaseSummaryRecord {

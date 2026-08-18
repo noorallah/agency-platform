@@ -357,11 +357,7 @@ class PurchaseService(TransactionalDocumentService):
             values={"attachments": data.attachments},
         )
         row = self.get_order(order_id, firm_scope=firm_scope)
-        if row.status in {
-            PurchaseOrderStatus.CANCELLED.value,
-            PurchaseOrderStatus.CLOSED.value,
-        }:
-            raise ValidationError("Cancelled/closed purchase orders cannot be updated.")
+        self._assert_order_editable(row)
         self._validate_scope_references(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -389,7 +385,6 @@ class PurchaseService(TransactionalDocumentService):
         row.external_reference = data.external_reference
         row.priority = data.priority
         row.remarks = data.remarks
-        row.status = data.status.value
         row.header_discount_amount = data.header_discount_amount
         row.additional_charges = data.additional_charges
         row.round_off = data.round_off
@@ -410,6 +405,9 @@ class PurchaseService(TransactionalDocumentService):
             actor_id=actor_id,
             details={"po_number": row.po_number},
         )
+        # After the edit's own entry, so the trail reads in the order it
+        # happened: the document changed, and that withdrew the approval.
+        self._withdraw_approval(row, before_status=before_status, actor_id=actor_id)
         self._record_document_event(
             firm_id=firm_scope,
             document_type=self._ensure_document_setup(
@@ -450,6 +448,66 @@ class PurchaseService(TransactionalDocumentService):
         if row is None:
             raise ResourceNotFoundError("Purchase order not found.")
         return row
+
+    def _assert_order_editable(self, order: PurchaseOrder) -> None:
+        """Refuse an edit the order's own history makes meaningless.
+
+        Cancelled and closed were always refused. Received was not, and had to
+        be: the quantities and prices on those lines are what a goods receipt
+        was matched against and what stock was posted at, so editing them
+        leaves the receipt describing a document that no longer says what it
+        said. Cancel the order or raise a purchase return instead.
+        """
+        refusal = {
+            PurchaseOrderStatus.CANCELLED.value: (
+                "Cancelled purchase orders cannot be updated."
+            ),
+            PurchaseOrderStatus.CLOSED.value: (
+                "Closed purchase orders cannot be updated."
+            ),
+            PurchaseOrderStatus.PARTIALLY_RECEIVED.value: (
+                "Goods have been received against this order, so its lines "
+                "cannot be changed. Cancel the receipt first, or raise a "
+                "purchase return."
+            ),
+            PurchaseOrderStatus.RECEIVED.value: (
+                "This order has been received in full, so its lines cannot be "
+                "changed. Raise a purchase return instead."
+            ),
+        }.get(order.status)
+        if refusal is not None:
+            raise ValidationError(refusal)
+
+    def _withdraw_approval(
+        self, order: PurchaseOrder, *, before_status: str, actor_id: UUID
+    ) -> None:
+        """Send an edited order back for approval.
+
+        Editing used to write `data.status` straight onto the row, and
+        `PurchaseOrderUpdate` gives that field a default of DRAFT -- so a
+        client that said nothing about the status silently reset an APPROVED
+        order to DRAFT, and a PARTIALLY_RECEIVED one too, where nothing could
+        ever move it back. The desktop hid it by always sending the status it
+        last read, which produced the opposite fault: an approved order could
+        be edited from any amount to any other and stay approved.
+
+        The status is now the lifecycle endpoints' alone. The one status change
+        an edit legitimately causes is this one: approving is a statement about
+        a particular document, so changing the document withdraws it, and the
+        order goes round again. Editing a DRAFT or SUBMITTED order changes
+        nothing -- neither has been approved yet.
+        """
+        if before_status != PurchaseOrderStatus.APPROVED.value:
+            return
+        order.status = PurchaseOrderStatus.DRAFT.value
+        self._history(
+            order=order,
+            action="purchase.approval_withdrawn",
+            from_status=before_status,
+            to_status=order.status,
+            actor_id=actor_id,
+            details={"reason": "The order was edited after approval."},
+        )
 
     def _assert_order_removable(self, order: PurchaseOrder) -> None:
         """Refuse to delete an order goods have already been received against.

@@ -77,6 +77,38 @@ which is the point — somebody who can approve can see that they can, and
 somebody who cannot is not shown a control they will never be able to press. An
 unsaved order offers neither.
 
+### What an edit does to the status
+
+Nothing, with one exception.
+
+`PUT /{id}` used to write `data.status` straight onto the row. Because
+`PurchaseOrderUpdate` defaults that field to DRAFT, a client that said nothing
+about the status silently reset the order -- an approved one back to DRAFT, and
+a partially received one too, where the receipt resync could never move it
+again because it only touches an order already in the receiving part of its
+life. The desktop echoed back the status it last read, so from that client the
+fault was the mirror image: an approved order could be edited from any amount to
+any other and stay approved.
+
+The status is now the lifecycle endpoints' alone. The one status change an edit
+causes is deliberate:
+
+| Editing an order that is | Result |
+| --- | --- |
+| DRAFT or SUBMITTED | edited, status unchanged |
+| APPROVED | edited, **returned to DRAFT** -- `purchase.approval_withdrawn` in the history |
+| PARTIALLY_RECEIVED or RECEIVED | **refused** |
+| CANCELLED or CLOSED | **refused** |
+
+Approving is a statement about a particular document, so changing the document
+withdraws it and the order goes round again. A received order is refused because
+its quantities and prices are what a goods receipt was matched against and what
+stock was posted at -- raise a purchase return instead.
+
+The desktop asks before it opens the editor on an approved order, and disables
+Edit entirely for the four refused states, so the rule is visible rather than
+discovered through a 422.
+
 ### Receiving moves the order, ordering does not
 
 `GoodsReceiptService._resync_order_status` writes `PARTIALLY_RECEIVED` and
