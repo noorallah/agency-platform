@@ -11,6 +11,7 @@ import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'purchase_return_editor_dialog.dart';
 
@@ -219,27 +220,11 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
 
   @override
   Widget build(BuildContext context) {
-    final _PurchaseReturnRecord? selected = _selected;
-    final DocumentHeaderSnapshot header = selected?.toHeader() ??
-        const DocumentHeaderSnapshot(
-          documentTypeCode: 'PURCHASE_RETURN',
-          documentTypeName: 'Purchase Return',
-          documentNumber: '-',
-          documentDate: '-',
-          status: 'DRAFT',
-        );
-    final DocumentTotalsSnapshot totals = selected?.toTotals() ??
-        const DocumentTotalsSnapshot(
-          subtotal: '0',
-          discount: '0',
-          tax: '0',
-          charges: '0',
-          roundOff: '0',
-          grandTotal: '0',
-        );
     return EnterpriseWorkspace(
       title: 'Purchase Returns',
-      description: 'Manage supplier returns, GRN matching, and accounting events.',
+      description:
+          'Send goods back to a supplier. Completing a return is what takes '
+          'the stock off.',
       breadcrumbs: const ['Workspace', 'Purchase Returns'],
       content: Column(
         children: [
@@ -257,180 +242,192 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
               ],
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _search,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Search returns',
-                                      prefixIcon: Icon(Icons.search),
-                                    ),
-                                    onSubmitted: (_) => _load(requestedPage: 1),
-                                  ),
-                                ),
-                                if (_canCreate) ...[
-                                  const SizedBox(width: 12),
-                                  FilledButton.icon(
-                                    // Nothing received is nothing to send
-                                    // back: a return line belongs to a
-                                    // receipt line, so an empty list is a
-                                    // disabled button rather than an empty
-                                    // dialog.
-                                    onPressed: _returnableReceipts.isEmpty
-                                        ? null
-                                        : _createReturn,
-                                    icon: const Icon(Icons.add),
-                                    label: const Text('New Return'),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _returns.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final _PurchaseReturnRecord row = _returns[index];
-                                final bool selected = _selected?.id == row.id;
-                                return ListTile(
-                                  selected: selected,
-                                  title: Text(row.returnNumber),
-                                  subtitle: Text(
-                                    '${row.supplierReturnNumber} • ${row.returnDate} • ${row.status}',
-                                  ),
-                                  trailing: Text(row.grandTotal),
-                                  onTap: () => _selectReturn(row),
-                                );
-                              },
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Text('$_total returns'),
-                            ),
-                          ),
-                          WorkspacePager(
-                            page: _page,
-                            pageSize: _rowsPerPage,
-                            total: _total,
-                            onPageChanged: (next) =>
-                                _load(requestedPage: next),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 4,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          EnterpriseDocumentToolbar(
-                            actions: const [
-                              DocumentToolbarAction.newDocument,
-                              DocumentToolbarAction.printDocument,
-                              DocumentToolbarAction.exportDocument,
-                              DocumentToolbarAction.emailDocument,
-                              DocumentToolbarAction.approve,
-                              DocumentToolbarAction.reject,
-                              DocumentToolbarAction.cancel,
-                              DocumentToolbarAction.close,
-                            ],
-                            isEnabled: (action) => selected != null && _mayRun(action),
-                            onAction: (action) async {
-                              if (selected == null) {
-                                return;
-                              }
-                              switch (action) {
-                                case DocumentToolbarAction.approve:
-                                  await _act('/approve');
-                                  break;
-                                case DocumentToolbarAction.cancel:
-                                  await _act('/cancel');
-                                  break;
-                                case DocumentToolbarAction.close:
-                                  await _act('/complete');
-                                  break;
-                                default:
-                                  NotificationService.show(
-                                    context,
-                                    'Placeholder action for purchase returns.',
-                                  kind: AppNotificationKind.information,
-                                  );
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentHeader(header: header),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentLines(
-                            lines: selected == null
-                                ? const []
-                                : [
-                                    for (final _PurchaseReturnLine line in selected.lines)
-                                      DocumentLineSnapshot(
-                                        lineNumber: line.lineNumber,
-                                        product: line.productId,
-                                        description: line.description,
-                                        uom: line.returnUomId,
-                                        packaging: line.packagingTypeId,
-                                        quantity: line.currentReturnQuantity,
-                                        freeQuantity: '0',
-                                        unitPrice: line.unitPrice,
-                                        discount: line.discountAmount,
-                                        taxProfile: line.taxProfileId,
-                                        amount: line.grossAmount,
-                                        netAmount: line.netAmount,
-                                        remarks: line.remarks,
-                                      ),
-                                  ],
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseTotalsPanel(totals: totals),
-                          const SizedBox(height: 12),
-                          EnterpriseTimeline(entries: _history),
-                          const SizedBox(height: 12),
-                          EnterpriseApprovalPanel(
-                            status: header.status,
-                            message: 'Approval workflow placeholder.',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          // Bounded, so the layout below has a height to divide.
+          Expanded(child: _buildGridWorkspace()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
+        toolbar: _buildToolbar(),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search return number, supplier return...',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+        // Inside the frame rather than instead of it: the workspace still
+        // names itself and its breadcrumbs when no firm is chosen, which is
+        // what tells the user where they are while they choose one.
+        primaryContent: !widget.hasActiveFirm
+            ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
+            : _error != null && !_loading
+            ? WorkspaceEmptyState(
+                title: 'Purchase returns unavailable',
+                message: _error!,
+              )
+            : _returns.isEmpty && !_loading
+                ? StandardEmptyState(
+                    type: _search.text.trim().isEmpty
+                        ? EmptyStateType.noRecords
+                        : EmptyStateType.noSearchResults,
+                  )
+                : _buildReturnGrid(),
+        // No side pane. It sat at `flex: 4` against a `flex: 3` list, so the
+        // preview of the one record pointed at had more room than every
+        // record. Double-click opens it instead.
+        detailsPanel: null,
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: _selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      );
+
+  Widget _buildToolbar() => WorkspaceToolbar(
+        actions: const [
+          ToolbarAction.newItem,
+          ToolbarAction.view,
+          ToolbarAction.refresh,
+        ],
+        isVisible: (action) => action != ToolbarAction.newItem || _canCreate,
+        isEnabled: (action) =>
+            !_loading &&
+            switch (action) {
+              // A return line needs a completed receipt line behind it, so
+              // nothing to return against is a disabled button rather than an
+              // empty dialog.
+              ToolbarAction.newItem =>
+                _canCreate && _returnableReceipts.isNotEmpty,
+              ToolbarAction.view => _selected != null,
+              ToolbarAction.refresh => true,
+              _ => false,
+            },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.newItem:
+              unawaited(_createReturn());
+            case ToolbarAction.view:
+              final _PurchaseReturnRecord? selected = _selected;
+              if (selected != null) unawaited(_openReturn(selected));
+            case ToolbarAction.refresh:
+              unawaited(_load());
+            default:
+              break;
+          }
+        },
+        // Only the four the backend has. The pane offered eight -- new, print,
+        // export, email and reject among them -- and four fell through to a
+        // notification saying "Placeholder action for purchase returns.".
+        //
+        // Worse, its **Close** button called `/complete`, which is the step
+        // that takes the stock off, and `/close` was never called at all. A
+        // button that posts a stock movement must not be named after the one
+        // that ends the document.
+        trailing: [
+          _actionButton(
+            'Approve',
+            Icons.thumb_up_outlined,
+            DocumentToolbarAction.approve,
+            '/approve',
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+          _actionButton(
+            'Complete',
+            Icons.check_circle_outline,
+            DocumentToolbarAction.approve,
+            '/complete',
+          ),
+          _actionButton(
+            'Cancel',
+            Icons.cancel_outlined,
+            DocumentToolbarAction.cancel,
+            '/cancel',
+          ),
+          _actionButton(
+            'Close',
+            Icons.lock_outline,
+            DocumentToolbarAction.close,
+            '/close',
+          ),
+        ],
+      );
+
+  Widget _actionButton(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+    String suffix,
+  ) =>
+      Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _selected == null || !_mayRun(action)
+              ? null
+              : () => unawaited(_act(suffix)),
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+        ),
+      );
+
+  Widget _buildReturnGrid() => EnterpriseDataGrid<_PurchaseReturnRecord>(
+        columns: const [
+          GridColumn(key: 'number', label: 'Return Number'),
+          GridColumn(key: 'supplier', label: 'Supplier Return'),
+          GridColumn(key: 'date', label: 'Return Date'),
+          GridColumn(key: 'status', label: 'Status'),
+          GridColumn(key: 'total', label: 'Grand Total'),
+        ],
+        items: _returns,
+        id: (item) => item.id,
+        selectedId: _selected?.id,
+        cells: (item) => [
+          item.returnNumber,
+          item.supplierReturnNumber,
+          item.returnDate,
+          item.status,
+          item.grandTotal,
+        ],
+        onSelect: (item) => unawaited(_selectReturn(item)),
+        onOpen: (item) => unawaited(_openReturn(item)),
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        onPageChanged: (offset) {
+          final int next = offset ~/ _rowsPerPage + 1;
+          if (next != _page) _load(requestedPage: next);
+        },
+      );
+
+  /// Show one return: header, lines, totals and timeline.
+  Future<void> _openReturn(_PurchaseReturnRecord record) async {
+    await _selectReturn(record);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => DocumentViewDialog(
+        title: record.returnNumber,
+        subtitle: 'Supplier return ${record.supplierReturnNumber}',
+        icon: Icons.assignment_return_outlined,
+        header: record.toHeader(),
+        lines: [
+          for (final _PurchaseReturnLine line in record.lines)
+            DocumentLineSnapshot(
+              lineNumber: line.lineNumber,
+              product: line.productId,
+              description: line.description,
+              uom: line.returnUomId,
+              packaging: line.packagingTypeId,
+              quantity: line.currentReturnQuantity,
+              unitPrice: line.unitPrice,
+              discount: line.discountAmount,
+              taxProfile: line.taxProfileId,
+              amount: line.grossAmount,
+              netAmount: line.netAmount,
+              remarks: line.remarks,
             ),
         ],
+        totals: record.toTotals(),
+        history: _history,
       ),
     );
   }

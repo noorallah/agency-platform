@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 
 class PurchaseInvoiceManagementPage extends StatefulWidget {
@@ -159,27 +160,10 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
 
   @override
   Widget build(BuildContext context) {
-    final _PurchaseInvoiceRecord? selected = _selected;
-    final DocumentHeaderSnapshot header = selected?.toHeader() ??
-        const DocumentHeaderSnapshot(
-          documentTypeCode: 'PURCHASE_INVOICE',
-          documentTypeName: 'Purchase Invoice',
-          documentNumber: '-',
-          documentDate: '-',
-          status: 'DRAFT',
-        );
-    final DocumentTotalsSnapshot totals = selected?.toTotals() ??
-        const DocumentTotalsSnapshot(
-          subtotal: '0',
-          discount: '0',
-          tax: '0',
-          charges: '0',
-          roundOff: '0',
-          grandTotal: '0',
-        );
     return EnterpriseWorkspace(
       title: 'Purchase Invoices',
-      description: 'Manage supplier invoices, GRN matching, and accounting events.',
+      description:
+          'Manage supplier invoices, GRN matching, and accounting events.',
       breadcrumbs: const ['Workspace', 'Purchase Invoices'],
       content: Column(
         children: [
@@ -196,159 +180,171 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
               ],
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: TextField(
-                              controller: _search,
-                              decoration: const InputDecoration(
-                                labelText: 'Search invoices',
-                                prefixIcon: Icon(Icons.search),
-                              ),
-                              onSubmitted: (_) => _load(requestedPage: 1),
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _invoices.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final _PurchaseInvoiceRecord row = _invoices[index];
-                                final bool selected = _selected?.id == row.id;
-                                return ListTile(
-                                  selected: selected,
-                                  title: Text(row.invoiceNumber),
-                                  subtitle: Text(
-                                    '${row.supplierInvoiceNumber} • ${row.invoiceDate} • ${row.status}',
-                                  ),
-                                  trailing: Text(row.grandTotal),
-                                  onTap: () => _selectInvoice(row),
-                                );
-                              },
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Text('$_total invoices'),
-                            ),
-                          ),
-                          WorkspacePager(
-                            page: _page,
-                            pageSize: _rowsPerPage,
-                            total: _total,
-                            onPageChanged: (next) =>
-                                _load(requestedPage: next),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 4,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          EnterpriseDocumentToolbar(
-                            actions: const [
-                              DocumentToolbarAction.newDocument,
-                              DocumentToolbarAction.printDocument,
-                              DocumentToolbarAction.exportDocument,
-                              DocumentToolbarAction.emailDocument,
-                              DocumentToolbarAction.approve,
-                              DocumentToolbarAction.reject,
-                              DocumentToolbarAction.cancel,
-                              DocumentToolbarAction.close,
-                            ],
-                            isEnabled: (action) => selected != null && _mayRun(action),
-                            onAction: (action) async {
-                              if (selected == null) {
-                                return;
-                              }
-                              switch (action) {
-                                case DocumentToolbarAction.approve:
-                                  await _act('/approve');
-                                  break;
-                                case DocumentToolbarAction.cancel:
-                                  await _act('/cancel');
-                                  break;
-                                case DocumentToolbarAction.close:
-                                  await _act('/close');
-                                  break;
-                                default:
-                                  NotificationService.show(
-                                    context,
-                                    'Placeholder action for purchase invoices.',
-                                  kind: AppNotificationKind.information,
-                                  );
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentHeader(header: header),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentLines(
-                            lines: selected == null
-                                ? const []
-                                : [
-                                    for (final _PurchaseInvoiceLine line in selected.lines)
-                                      DocumentLineSnapshot(
-                                        lineNumber: line.lineNumber,
-                                        product: line.productId,
-                                        description: line.description,
-                                        uom: line.invoiceUomId,
-                                        packaging: line.packagingTypeId,
-                                        quantity: line.currentInvoiceQuantity,
-                                        freeQuantity: '0',
-                                        unitPrice: line.unitPrice,
-                                        discount: line.discountAmount,
-                                        taxProfile: line.taxProfileId,
-                                        amount: line.grossAmount,
-                                        netAmount: line.netAmount,
-                                        remarks: line.remarks,
-                                      ),
-                                  ],
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseTotalsPanel(totals: totals),
-                          const SizedBox(height: 12),
-                          EnterpriseTimeline(entries: _history),
-                          const SizedBox(height: 12),
-                          EnterpriseApprovalPanel(
-                            status: header.status,
-                            message: 'Approval workflow placeholder.',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          // Bounded, so the layout below has a height to divide.
+          Expanded(child: _buildGridWorkspace()),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
+        toolbar: _buildToolbar(),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search invoice number, supplier invoice...',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+        // Inside the frame rather than instead of it: the workspace still
+        // names itself and its breadcrumbs when no firm is chosen, which is
+        // what tells the user where they are while they choose one.
+        primaryContent: !widget.hasActiveFirm
+            ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
+            : _error != null && !_loading
+            ? WorkspaceEmptyState(
+                title: 'Purchase invoices unavailable',
+                message: _error!,
+              )
+            : _invoices.isEmpty && !_loading
+            ? StandardEmptyState(
+                type: _search.text.trim().isEmpty
+                    ? EmptyStateType.noRecords
+                    : EmptyStateType.noSearchResults,
+              )
+            : _buildInvoiceGrid(),
+        // No side pane. It sat at `flex: 4` against a `flex: 3` list, so the
+        // preview of the one record pointed at had more room than every
+        // record. Double-click opens it instead.
+        detailsPanel: null,
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: _selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      );
+
+  Widget _buildToolbar() => WorkspaceToolbar(
+        actions: const [ToolbarAction.view, ToolbarAction.refresh],
+        isEnabled: (action) =>
+            !_loading &&
+            switch (action) {
+              ToolbarAction.view => _selected != null,
+              ToolbarAction.refresh => true,
+              _ => false,
+            },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.view:
+              final _PurchaseInvoiceRecord? selected = _selected;
+              if (selected != null) unawaited(_openInvoice(selected));
+            case ToolbarAction.refresh:
+              unawaited(_load());
+            default:
+              break;
+          }
+        },
+        // Only the three the backend has. The pane offered eight -- new,
+        // print, export, email and reject among them -- and five fell through
+        // to a notification saying "Placeholder action for purchase
+        // invoices.", which is a button that exists to tell you it does
+        // nothing.
+        trailing: [
+          _actionButton(
+            'Approve',
+            Icons.check_circle_outline,
+            DocumentToolbarAction.approve,
+            '/approve',
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
+          _actionButton(
+            'Cancel',
+            Icons.cancel_outlined,
+            DocumentToolbarAction.cancel,
+            '/cancel',
+          ),
+          _actionButton(
+            'Close',
+            Icons.lock_outline,
+            DocumentToolbarAction.close,
+            '/close',
+          ),
+        ],
+      );
+
+  Widget _actionButton(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+    String suffix,
+  ) =>
+      Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _selected == null || !_mayRun(action)
+              ? null
+              : () => unawaited(_act(suffix)),
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+        ),
+      );
+
+  Widget _buildInvoiceGrid() => EnterpriseDataGrid<_PurchaseInvoiceRecord>(
+        columns: const [
+          GridColumn(key: 'number', label: 'Invoice Number'),
+          GridColumn(key: 'supplier', label: 'Supplier Invoice'),
+          GridColumn(key: 'date', label: 'Invoice Date'),
+          GridColumn(key: 'status', label: 'Status'),
+          GridColumn(key: 'total', label: 'Grand Total'),
+        ],
+        items: _invoices,
+        id: (item) => item.id,
+        selectedId: _selected?.id,
+        cells: (item) => [
+          item.invoiceNumber,
+          item.supplierInvoiceNumber,
+          item.invoiceDate,
+          item.status,
+          item.grandTotal,
+        ],
+        onSelect: (item) => unawaited(_selectInvoice(item)),
+        onOpen: (item) => unawaited(_openInvoice(item)),
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        onPageChanged: (offset) {
+          final int next = offset ~/ _rowsPerPage + 1;
+          if (next != _page) _load(requestedPage: next);
+        },
+      );
+
+  /// Show one invoice: header, lines, totals and timeline.
+  Future<void> _openInvoice(_PurchaseInvoiceRecord record) async {
+    await _selectInvoice(record);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => DocumentViewDialog(
+        title: record.invoiceNumber,
+        subtitle: 'Supplier invoice ${record.supplierInvoiceNumber}',
+        icon: Icons.request_quote_outlined,
+        header: record.toHeader(),
+        lines: [
+          for (final _PurchaseInvoiceLine line in record.lines)
+            DocumentLineSnapshot(
+              lineNumber: line.lineNumber,
+              product: line.productId,
+              description: line.description,
+              uom: line.invoiceUomId,
+              packaging: line.packagingTypeId,
+              quantity: line.currentInvoiceQuantity,
+              unitPrice: line.unitPrice,
+              discount: line.discountAmount,
+              taxProfile: line.taxProfileId,
+              amount: line.grossAmount,
+              netAmount: line.netAmount,
+              remarks: line.remarks,
             ),
         ],
+        totals: record.toTotals(),
+        history: _history,
       ),
     );
   }
