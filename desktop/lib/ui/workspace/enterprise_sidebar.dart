@@ -186,15 +186,26 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
         ),
       );
       for (final ModuleDefinition module in sectionModules) {
-        _addExpandedModuleTile(tiles, module);
-        for (final AppModule childId
-            in section.childModuleIds[module.id] ?? const <AppModule>[]) {
+        final List<AppModule> childIds =
+            section.childModuleIds[module.id] ?? const <AppModule>[];
+        final List<Widget> childTiles = [];
+        for (final AppModule childId in childIds) {
           final ModuleDefinition? child = moduleById[childId];
           // Absent when the user's permissions filtered it out, which is the
           // normal case rather than an error.
           if (child == null) continue;
-          _addExpandedModuleTile(tiles, child, indent: 16);
+          _addExpandedModuleTile(childTiles, child, indent: 16);
         }
+        _addExpandedModuleTile(
+          tiles,
+          module,
+          childTiles: childTiles,
+          insertChildrenAfter: section.childModulesAfter[module.id],
+          // The group has to open when a *child* module is the selected one,
+          // or navigating to Goods Receipts would close the tree around it.
+          selected: module.id == widget.selectedModule ||
+              childIds.contains(widget.selectedModule),
+        );
       }
     }
     return ListView(
@@ -207,12 +218,15 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
     List<Widget> tiles,
     ModuleDefinition module, {
     double indent = 0,
+    List<Widget> childTiles = const [],
+    String? insertChildrenAfter,
+    bool? selected,
   }) {
     final List<WorkspaceNavigationNode> children = widget.navigationChildren(
       module,
     );
-    final bool selectedModule = module.id == widget.selectedModule;
-    if (children.isEmpty) {
+    final bool selectedModule = selected ?? module.id == widget.selectedModule;
+    if (children.isEmpty && childTiles.isEmpty) {
       tiles.add(
         Padding(
           padding: EdgeInsets.only(left: indent),
@@ -233,8 +247,17 @@ class _EnterpriseSidebarState extends State<EnterpriseSidebar> {
           key: ValueKey(module.id),
           module: module,
           children: children,
-          initiallyExpanded: selectedModule,
-          selectedPath: selectedModule ? widget.selectedPath : null,
+          childTiles: childTiles,
+          insertChildrenAfter: insertChildrenAfter,
+          // Expanded by default when it holds whole modules. They used to be
+          // siblings drawn below the group and so always visible; moving them
+          // inside it to fix the order must not make them harder to find,
+          // which is the complaint that started this. Collapsing stays the
+          // user's choice.
+          initiallyExpanded: selectedModule || childTiles.isNotEmpty,
+          selectedPath: module.id == widget.selectedModule
+              ? widget.selectedPath
+              : null,
           onSelectedPath: (path) => widget.onSelectLeaf(module.id, path),
         ),
       ),
@@ -247,12 +270,23 @@ class EnterpriseSidebarSection {
     required this.label,
     required this.moduleIds,
     this.childModuleIds = const {},
+    this.childModulesAfter = const {},
   });
 
   final String label;
 
   /// The modules shown at the top of this section, in order.
   final List<AppModule> moduleIds;
+
+  /// Where inside a parent's own navigation its child modules are drawn.
+  ///
+  /// The value is the nav path they follow; absent means "after everything",
+  /// which is where they used to go unconditionally. That put Goods Receipts
+  /// *below Settings* -- a document filed after the workspace's configuration,
+  /// which reads as an afterthought rather than the next step of the process.
+  /// Purchases names `purchase-orders`, so receiving follows ordering and the
+  /// configuration entries stay last.
+  final Map<AppModule, String> childModulesAfter;
 
   /// Modules filed underneath one of [moduleIds], indented beneath it.
   ///
@@ -277,10 +311,22 @@ class _ModuleGroup extends StatefulWidget {
     required this.initiallyExpanded,
     required this.selectedPath,
     required this.onSelectedPath,
+    this.childTiles = const [],
+    this.insertChildrenAfter,
   });
 
   final ModuleDefinition module;
   final List<WorkspaceNavigationNode> children;
+
+  /// Whole modules filed under this one, already built as tiles because they
+  /// carry their own routes and permissions rather than being nav nodes here.
+  final List<Widget> childTiles;
+
+  /// The nav path [childTiles] are drawn after.
+  ///
+  /// Null puts them last, which is where they always went. An empty string
+  /// puts them first.
+  final String? insertChildrenAfter;
   final bool initiallyExpanded;
   final String? selectedPath;
   final ValueChanged<String> onSelectedPath;
@@ -290,6 +336,46 @@ class _ModuleGroup extends StatefulWidget {
 }
 
 class _ModuleGroupState extends State<_ModuleGroup> {
+  /// This module's own navigation, with any child modules woven in.
+  ///
+  /// They are drawn after the node named by `insertChildrenAfter`, so a
+  /// document sits beside the process step it follows rather than below the
+  /// workspace's Settings entry.
+  List<Widget> _children() {
+    final List<Widget> tiles = [];
+    bool placed = widget.childTiles.isEmpty;
+    // An empty path means "before this module's own entries", which is what
+    // Sales wants: the documents are the work, the territory and geography
+    // screens are the setup behind them.
+    if (!placed && widget.insertChildrenAfter == '') {
+      tiles.addAll(widget.childTiles);
+      placed = true;
+    }
+    for (final WorkspaceNavigationNode node in widget.children) {
+      tiles.add(
+        CollapsibleGroupTile(
+          node: node,
+          selectedPath: widget.selectedPath,
+          onSelected: widget.onSelectedPath,
+          depth: 0,
+        ),
+      );
+      // Guarded on non-null: a group header like Sourcing carries no path,
+      // and `null == null` would have dropped the documents after whichever
+      // header came first.
+      if (!placed &&
+          widget.insertChildrenAfter != null &&
+          node.path == widget.insertChildrenAfter) {
+        tiles.addAll(widget.childTiles);
+        placed = true;
+      }
+    }
+    // Unplaced when no path was named, or the named one is hidden from this
+    // user: last is where they always used to go, so nothing disappears.
+    if (!placed) tiles.addAll(widget.childTiles);
+    return tiles;
+  }
+
   late bool _expanded = widget.initiallyExpanded;
 
   @override
@@ -309,15 +395,7 @@ class _ModuleGroupState extends State<_ModuleGroup> {
           leading: Icon(widget.module.icon),
           title: Text(widget.module.label),
           childrenPadding: const EdgeInsets.only(left: 8),
-          children: [
-            for (final WorkspaceNavigationNode node in widget.children)
-              CollapsibleGroupTile(
-                node: node,
-                selectedPath: widget.selectedPath,
-                onSelected: widget.onSelectedPath,
-                depth: 0,
-              ),
-          ],
+          children: _children(),
         ),
       );
 }

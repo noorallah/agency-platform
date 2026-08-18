@@ -1083,6 +1083,12 @@ class _DesktopShellState extends State<DesktopShell> {
             AppModule.purchaseReturns,
           ]),
         },
+        // Documents follow the order they come from, so receiving reads as
+        // the next step rather than as something filed after Settings.
+        childModulesAfter: const {
+          AppModule.sales: '',
+          AppModule.purchases: 'purchase-orders',
+        },
       ),
       EnterpriseSidebarSection(
         label: 'INVENTORY',
