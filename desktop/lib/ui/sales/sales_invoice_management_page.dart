@@ -8,6 +8,7 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_status_gate.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_notice.dart';
 
@@ -80,6 +81,31 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           widget.permissions.hasPermission('SALES_EXPORT'),
         _ => true,
       };
+
+  /// The lifecycle action a toolbar button stands for, or null when it is not
+  /// a lifecycle action at all.
+  DocumentLifecycleAction? _lifecycleOf(DocumentToolbarAction action) =>
+      switch (action) {
+        DocumentToolbarAction.approve => DocumentLifecycleAction.approve,
+        DocumentToolbarAction.dispatch => DocumentLifecycleAction.dispatch,
+        DocumentToolbarAction.complete => DocumentLifecycleAction.complete,
+        DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
+        DocumentToolbarAction.close => DocumentLifecycleAction.close,
+        _ => null,
+      };
+
+  /// Whether [action] may run against the selected document right now.
+  ///
+  /// Permission alone used to decide this, so Approve was live on an
+  /// already-approved document and Close on a closed one; pressing either
+  /// produced a refusal the screen could have predicted. The gate states the
+  /// same rule the service enforces.
+  bool _statusAllows(DocumentToolbarAction action, String? status) {
+    final DocumentLifecycleAction? lifecycle = _lifecycleOf(action);
+    // Not a lifecycle action -- New, Print and the rest are unaffected.
+    if (lifecycle == null) return true;
+    return DocumentStatusGate.salesInvoice.allows(lifecycle, status);
+  }
 
   Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
@@ -287,7 +313,10 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
                               DocumentToolbarAction.cancel,
                               DocumentToolbarAction.close,
                             ],
-                            isEnabled: (action) => selected != null && _mayRun(action),
+                            isEnabled: (action) =>
+                                selected != null &&
+                                _mayRun(action) &&
+                                _statusAllows(action, selected['status'] as String?),
                             onAction: (action) async {
                               if (selected == null) return;
                               try {

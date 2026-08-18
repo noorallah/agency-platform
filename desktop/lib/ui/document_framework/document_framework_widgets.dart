@@ -12,6 +12,14 @@ enum DocumentToolbarAction {
   emailDocument,
   requestApproval,
   approve,
+  /// Send the goods. On a delivery note this is what moves the stock, which
+  /// is why it is its own action rather than something borrowed: it used to
+  /// ride on `requestApproval`, so the button that dispatched a load was
+  /// labelled "Request approval".
+  dispatch,
+  /// Finish the document. Posts stock on a goods receipt, takes it off on a
+  /// return.
+  complete,
   reject,
   cancel,
   close,
@@ -27,6 +35,8 @@ extension DocumentToolbarActionDetails on DocumentToolbarAction {
         DocumentToolbarAction.emailDocument => 'Email',
         DocumentToolbarAction.requestApproval => 'Request approval',
         DocumentToolbarAction.approve => 'Approve',
+        DocumentToolbarAction.dispatch => 'Dispatch',
+        DocumentToolbarAction.complete => 'Complete',
         DocumentToolbarAction.reject => 'Reject',
         DocumentToolbarAction.cancel => 'Cancel',
         DocumentToolbarAction.close => 'Close',
@@ -41,6 +51,8 @@ extension DocumentToolbarActionDetails on DocumentToolbarAction {
         DocumentToolbarAction.emailDocument => Icons.email_outlined,
         DocumentToolbarAction.requestApproval => Icons.how_to_reg_outlined,
         DocumentToolbarAction.approve => Icons.check_circle_outline,
+        DocumentToolbarAction.dispatch => Icons.local_shipping_outlined,
+        DocumentToolbarAction.complete => Icons.task_alt_outlined,
         DocumentToolbarAction.reject => Icons.block_outlined,
         DocumentToolbarAction.cancel => Icons.cancel_outlined,
         DocumentToolbarAction.close => Icons.lock_outline,

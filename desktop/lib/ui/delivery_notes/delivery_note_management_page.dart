@@ -12,6 +12,7 @@ import '../../models/document_framework.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_status_gate.dart';
 import '../workspace/desktop_framework.dart';
 import 'delivery_note_editor_dialog.dart';
 
@@ -160,6 +161,31 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
       'a draft. Dispatching it is what moves the stock.',
       kind: AppNotificationKind.success,
     );
+  }
+
+  /// The lifecycle action a toolbar button stands for, or null when it is not
+  /// a lifecycle action at all.
+  DocumentLifecycleAction? _lifecycleOf(DocumentToolbarAction action) =>
+      switch (action) {
+        DocumentToolbarAction.approve => DocumentLifecycleAction.approve,
+        DocumentToolbarAction.dispatch => DocumentLifecycleAction.dispatch,
+        DocumentToolbarAction.complete => DocumentLifecycleAction.complete,
+        DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
+        DocumentToolbarAction.close => DocumentLifecycleAction.close,
+        _ => null,
+      };
+
+  /// Whether [action] may run against the selected document right now.
+  ///
+  /// Permission alone used to decide this, so Approve was live on an
+  /// already-approved document and Close on a closed one; pressing either
+  /// produced a refusal the screen could have predicted. The gate states the
+  /// same rule the service enforces.
+  bool _statusAllows(DocumentToolbarAction action, String? status) {
+    final DocumentLifecycleAction? lifecycle = _lifecycleOf(action);
+    // Not a lifecycle action -- New, Print and the rest are unaffected.
+    if (lifecycle == null) return true;
+    return DocumentStatusGate.deliveryNote.allows(lifecycle, status);
   }
 
   Future<void> _load({int? requestedPage}) async {
@@ -361,11 +387,20 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                               DocumentToolbarAction.exportDocument,
                               DocumentToolbarAction.emailDocument,
                               DocumentToolbarAction.approve,
-                              DocumentToolbarAction.requestApproval,
+                              // Two buttons, not one. `requestApproval` used
+                              // to be both -- it dispatched an approved note
+                              // and completed anything else -- under a label
+                              // reading "Request approval", while dispatching
+                              // is the step that **moves the stock**.
+                              DocumentToolbarAction.dispatch,
+                              DocumentToolbarAction.complete,
                               DocumentToolbarAction.cancel,
                               DocumentToolbarAction.close,
                             ],
-                            isEnabled: (action) => selected != null && _mayRun(action),
+                            isEnabled: (action) =>
+                                selected != null &&
+                                _mayRun(action) &&
+                                _statusAllows(action, selected.status),
                             onAction: (action) async {
                               if (selected == null) return;
                               try {
@@ -373,12 +408,11 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                                   case DocumentToolbarAction.approve:
                                     await _act('/approve');
                                     break;
-                                  case DocumentToolbarAction.requestApproval:
-                                    if (selected.status == 'APPROVED') {
-                                      await _act('/dispatch');
-                                    } else {
-                                      await _act('/complete');
-                                    }
+                                  case DocumentToolbarAction.dispatch:
+                                    await _act('/dispatch');
+                                    break;
+                                  case DocumentToolbarAction.complete:
+                                    await _act('/complete');
                                     break;
                                   case DocumentToolbarAction.cancel:
                                     await _act('/cancel');

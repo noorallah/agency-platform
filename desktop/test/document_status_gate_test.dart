@@ -132,4 +132,100 @@ void main() {
       );
     });
   });
+
+  group('sales order', () {
+    const DocumentStatusGate gate = DocumentStatusGate.salesOrder;
+
+    test('only a draft can be approved', () {
+      // approve_order: "Only draft sales orders can be approved." Approval is
+      // also where the credit check runs and stock is reserved.
+      expect(gate.allows(DocumentLifecycleAction.approve, 'DRAFT'), isTrue);
+      expect(gate.allows(DocumentLifecycleAction.approve, 'APPROVED'), isFalse);
+    });
+
+    test('a cancelled or closed order is closed for updates', () {
+      // Both cancel_order and close_order refuse those two with the same
+      // message, so both gates read the same.
+      for (final DocumentLifecycleAction action in <DocumentLifecycleAction>[
+        DocumentLifecycleAction.cancel,
+        DocumentLifecycleAction.close,
+      ]) {
+        expect(gate.allows(action, 'APPROVED'), isTrue);
+        expect(gate.allows(action, 'CANCELLED'), isFalse);
+        expect(gate.allows(action, 'CLOSED'), isFalse);
+      }
+    });
+  });
+
+  group('sales invoice', () {
+    const DocumentStatusGate gate = DocumentStatusGate.salesInvoice;
+
+    test('it mirrors the purchase invoice', () {
+      // The same document one direction over, and the services agree.
+      for (final DocumentLifecycleAction action in DocumentLifecycleAction.values) {
+        for (final String status in <String>[
+          'DRAFT',
+          'APPROVED',
+          'CANCELLED',
+          'CLOSED',
+        ]) {
+          expect(
+            gate.allows(action, status),
+            DocumentStatusGate.purchaseInvoice.allows(action, status),
+            reason: '$action on $status',
+          );
+        }
+      }
+    });
+  });
+
+  group('delivery note', () {
+    const DocumentStatusGate gate = DocumentStatusGate.deliveryNote;
+
+    test('only an approved note can be dispatched', () {
+      // "Only approved delivery notes can be dispatched." Dispatching moves
+      // the stock, which is why it is its own action.
+      expect(gate.allows(DocumentLifecycleAction.dispatch, 'APPROVED'), isTrue);
+      for (final String status in <String>['DRAFT', 'DISPATCHED', 'COMPLETED']) {
+        expect(gate.allows(DocumentLifecycleAction.dispatch, status), isFalse);
+      }
+    });
+
+    test('a dispatched note can no longer be cancelled', () {
+      // cancel_note refuses DISPATCHED as well as COMPLETED, CANCELLED and
+      // CLOSED: the goods have gone.
+      expect(gate.allows(DocumentLifecycleAction.cancel, 'APPROVED'), isTrue);
+      expect(gate.allows(DocumentLifecycleAction.cancel, 'DISPATCHED'), isFalse);
+    });
+
+    test('a draft cannot be closed', () {
+      // "Draft delivery notes cannot be closed" -- the only gate here that
+      // forbids a draft, and the reason these are read off the service rather
+      // than assumed to match each other.
+      expect(gate.allows(DocumentLifecycleAction.close, 'DRAFT'), isFalse);
+      expect(gate.allows(DocumentLifecycleAction.close, 'DISPATCHED'), isTrue);
+    });
+  });
+
+  group('sales return', () {
+    const DocumentStatusGate gate = DocumentStatusGate.salesReturn;
+
+    test('only an approved return can be completed', () {
+      expect(gate.allows(DocumentLifecycleAction.complete, 'APPROVED'), isTrue);
+      expect(gate.allows(DocumentLifecycleAction.complete, 'DRAFT'), isFalse);
+    });
+
+    test('only a completed return can be closed', () {
+      // "Only completed sales returns can be closed" -- stricter than the
+      // purchase side, which closes a draft happily.
+      expect(gate.allows(DocumentLifecycleAction.close, 'COMPLETED'), isTrue);
+      expect(gate.allows(DocumentLifecycleAction.close, 'DRAFT'), isFalse);
+      expect(
+        DocumentStatusGate.purchaseReturn
+            .allows(DocumentLifecycleAction.close, 'DRAFT'),
+        isTrue,
+        reason: 'the two returns really do differ here',
+      );
+    });
+  });
 }

@@ -3281,6 +3281,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       case DocumentToolbarAction.emailDocument:
       case DocumentToolbarAction.requestApproval:
       case DocumentToolbarAction.approve:
+      case DocumentToolbarAction.dispatch:
+      case DocumentToolbarAction.complete:
       case DocumentToolbarAction.reject:
       case DocumentToolbarAction.cancel:
       case DocumentToolbarAction.archive:
