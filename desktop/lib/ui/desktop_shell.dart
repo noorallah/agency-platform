@@ -279,30 +279,10 @@ class _DesktopShellState extends State<DesktopShell> {
     if (configured == null) {
       return true;
     }
-    final String? code = _moduleCode(module.id);
+    final String? code = ModuleCatalog.businessModuleCode(module.id);
     return code == null || configured.contains(code);
   }
 
-  String? _moduleCode(AppModule module) => switch (module) {
-        AppModule.dashboard => 'DASHBOARD',
-        AppModule.administration => 'ADMINISTRATION',
-        AppModule.masters => 'MASTERS',
-        AppModule.sales => 'SALES',
-        AppModule.quotations => 'QUOTATIONS',
-        AppModule.salesOrders => 'SALES_ORDERS',
-        AppModule.deliveryNotes => 'DELIVERY_NOTES',
-        AppModule.salesInvoices => 'SALES_INVOICES',
-        AppModule.salesReturns => 'SALES_RETURNS',
-        AppModule.purchases => 'PURCHASES',
-        AppModule.purchaseInvoices => 'PURCHASE_INVOICES',
-        AppModule.purchaseReturns => 'PURCHASE_RETURNS',
-        AppModule.goodsReceipts => 'GOODS_RECEIPTS',
-        AppModule.inventory => 'INVENTORY',
-        AppModule.accounting => 'ACCOUNTING',
-        AppModule.reports => 'REPORTS',
-        AppModule.settings => 'SETTINGS',
-        AppModule.licensing => 'LICENSING',
-      };
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
