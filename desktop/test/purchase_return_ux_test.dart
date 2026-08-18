@@ -16,6 +16,11 @@ void main() {
   testWidgets('purchase return workspace renders without an active firm', (
     tester,
   ) async {
+    // The supported minimum. At the 800x600 default the six summary cards and
+    // the workspace beneath them do not fit, and an overflow fails the test.
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final Directory temp =
         Directory.systemTemp.createTempSync('purchase-return-workspace-test');
     final DesktopPreferencesService preferences =
@@ -44,6 +49,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Purchase Returns'), findsWidgets);
-    expect(find.text('Manage supplier returns, GRN matching, and accounting events.'), findsOneWidget);
+    // The old copy was the invoice description with one word changed, and
+    // returns are not about GRN matching or accounting events. It now names
+    // the step that moves stock.
+    expect(
+      find.textContaining('Completing a return is what takes the stock off'),
+      findsOneWidget,
+    );
   });
 }
