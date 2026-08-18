@@ -562,3 +562,54 @@ which nothing did until the endpoint published an ETag.
 | 20 | `document_framework` | 2026-08-10 | none — the commit-per-method defect was fixed in the 2026-08-09 pass and lifecycle, numbering and timeline events all hold | gates only |
 | 21 | `finance` | 2026-08-10 | the journal engine checked the balance on the summed-then-rounded totals but stored each leg rounded, so a document balanced at four decimals could store lines a cent apart with `is_balanced` true — and `_post_line` copies line amounts straight into the general ledger; the ledger statement was dated and ordered by the wall clock at posting rather than the journal date; line narration was collected and never displayed, the report preferring a field nothing writes | yes — no stored data was affected |
 | 22 | `sales` (territory) | 2026-08-16 | the whole reporting chain was unfed — `territory_id`/`route_id`/`salesman_id` were never populated, so three reports answered `[]` from correct endpoints; six geography reads carried no principal at all and served data to an unauthenticated caller; nineteen handlers took the bare `ResolvedFirmScope`, which FastAPI read as a **request body field**, so every geography write and `PUT /hierarchy-levels` was uncallable; two bulk assignments committed per item, so a batch refused partway left the earlier rows written; `effective_from`/`effective_to` were stored and read nowhere | yes — plus four migrations and `docs/TERRITORY_FRAMEWORK.md` |
+| 23 | `settlements` | 2026-08-18 | **none** — the first module review to find nothing. Every refusal it needs already fires, and each was driven rather than read: over-allocating an invoice, allocating more than the money that moved, the same invoice twice, another party's invoice, a zero or negative amount, a refund applied to a document, and a receipt against a vendor id. Reversal restores the invoice **and** the customer balance to the exact figures they held, and a second reversal is refused. Two concurrent settlements against one invoice end 201/409 in both directions and with a client-supplied number, so the invoice cannot be over-settled. ELEC01 could not read, list or settle anything of WHOLE01's, and its token with WHOLE01's firm header answered 403 | nothing to fix — two observations recorded below |
+
+### 23 `settlements` — what was checked, and the two things worth knowing
+
+Reviewed 2026-08-18. Chosen because it is the module handling every rupee in
+and out and the only one the table had never covered, and because the two days
+before it produced two real ledger defects in neighbouring code — both found by
+driving endpoints, neither visible to the unit suite.
+
+It found nothing. That is a result rather than an absence of effort, so here is
+what was actually exercised, all of it against a running backend on the seeded
+`WHOLE01` firm:
+
+- **Every refusal fires.** Allocating more than the invoice owes, more than the
+  money that moved, the same invoice twice (a schema-level
+  `_one_row_per_invoice` validator), another party's invoice, a zero or
+  negative amount, a refund applied to a document, and a receipt naming a
+  vendor. Each answered 422 or 404 with a message naming the actual rule.
+- **A part settlement moves both books.** The invoice went 5,841.00 → 2,920.50
+  and the customer's outstanding 59,901.23 → 56,980.73, with
+  `journal_entry_id` set.
+- **Reversal is exact.** Both figures returned to 5,841.00 and 59,901.23, the
+  mirror journal was linked, the allocation rows stayed (so the reversed
+  settlement still shows what it had cleared), and a second reversal was
+  refused by name.
+- **Firm isolation holds.** ELEC01 reading WHOLE01's customer's outstanding got
+  200 with zero rows rather than a leak; settling that invoice got 404; listing
+  receipts got its own store; and ELEC01's token with WHOLE01's `X-Firm-ID`
+  answered 403.
+
+Two observations, neither a defect:
+
+- **The concurrency protection is incidental, not declared.** Two receipts
+  racing for one invoice end 201/409, and so do two payments — including when
+  the caller supplies its own `settlement_number`, which skips number
+  reservation. Nothing in `_validate_allocations` locks the invoice: it reads
+  the outstanding and writes, and what actually serialises the pair is a
+  version collision on a row further down (`_ensure_document_setup`, and the
+  customer row on the receipt side). It holds today. It is worth knowing that
+  no code says so, because a change that stops touching those rows would open
+  the race silently, and the symptom would be an over-settled invoice rather
+  than an error.
+- **The party parameter is named three ways.** The create body takes
+  `party_id`; `GET /receipts/outstanding` takes `customer_id` and
+  `GET /payments/outstanding` takes `vendor_id`. Each is defensible on its own
+  endpoint and the pair cost a wrong call while probing. Left alone — renaming
+  a query parameter breaks clients for tidiness.
+
+Not covered, and deliberately: `RefundService` beyond its refusal to allocate,
+because the rule that a refund cannot exceed the advance a customer holds lives
+in `CustomerService` and belongs to that module's review.
