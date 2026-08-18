@@ -205,6 +205,28 @@ void main() {
       expect(find.byType(DocumentViewDialog), findsOneWidget);
     });
 
+    testWidgets('a button is disabled when the status forbids it',
+        (tester) async {
+      // The row this fake serves is DRAFT. Approve applies to a draft;
+      // completing needs an approved return, so it must be dead.
+      await open(tester);
+      await tester.tap(find.text('PRET-0001').first);
+      await tester.pumpAndSettle();
+
+      bool enabled(String label) =>
+          tester
+              .widget<OutlinedButton>(
+                find.widgetWithText(OutlinedButton, label),
+              )
+              .onPressed !=
+          null;
+
+      expect(enabled('Approve'), isTrue, reason: 'a draft can be approved');
+      expect(enabled('Complete'), isFalse,
+          reason: 'only an approved return can be completed');
+      expect(enabled('Cancel'), isTrue);
+    });
+
     testWidgets('Complete completes, and Close closes', (tester) async {
       // The defect: the button labelled Close called `/complete`, which is the
       // step that takes stock off, and `/close` was never called at all.
@@ -212,13 +234,12 @@ void main() {
       await tester.tap(find.text('PRET-0001').first);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Complete'));
-      await tester.pumpAndSettle();
-      expect(api.actions.last, endsWith('/complete'));
-
+      // Close is the one a draft allows; Complete needs an approved return
+      // and is covered by the gate tests.
       await tester.tap(find.widgetWithText(OutlinedButton, 'Close'));
       await tester.pumpAndSettle();
-      expect(api.actions.last, endsWith('/close'));
+      expect(api.actions.last, endsWith('/close'),
+          reason: 'Close used to call /complete, which posts a stock movement');
     });
   });
 }

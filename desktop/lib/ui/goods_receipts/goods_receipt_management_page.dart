@@ -15,6 +15,7 @@ import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import '../document_framework/document_status_gate.dart';
 import 'goods_receipt_editor_dialog.dart';
 import 'goods_receipt_view_dialog.dart';
 
@@ -246,14 +247,24 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   }
 
   /// Whether [action] is valid for the selected receipt's current status.
+  /// Whether the selected receipt's status allows [action].
+  ///
+  /// Delegated to the shared gate so this screen, purchase invoices and
+  /// purchase returns state the rule the same way. It used to list the
+  /// statuses that *forbid* each action; the gate lists the ones that permit
+  /// it, so a status added later is disabled until somebody decides it
+  /// belongs.
   bool _isReceiptActionAllowed(DocumentToolbarAction action) {
-    final String status = _selected?.status.trim().toUpperCase() ?? '';
-    return switch (action) {
-      DocumentToolbarAction.requestApproval => status == 'DRAFT',
-      DocumentToolbarAction.cancel => status != 'CANCELLED' && status != 'CLOSED',
-      DocumentToolbarAction.close => status != 'CLOSED',
-      _ => false,
+    final DocumentLifecycleAction? lifecycle = switch (action) {
+      // The toolbar's Complete button. `requestApproval` is the enum value it
+      // arrived with; a goods receipt has no approval step.
+      DocumentToolbarAction.requestApproval => DocumentLifecycleAction.complete,
+      DocumentToolbarAction.cancel => DocumentLifecycleAction.cancel,
+      DocumentToolbarAction.close => DocumentLifecycleAction.close,
+      _ => null,
     };
+    if (lifecycle == null) return false;
+    return DocumentStatusGate.goodsReceipt.allows(lifecycle, _selected?.status);
   }
 
   /// Run a lifecycle action against the selected receipt and reload.
