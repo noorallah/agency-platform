@@ -166,6 +166,13 @@ catalog and fails the build if any definition names one that is not there.
 RFQs and Vendor Quotations are not registered for search and must not be until
 they have records to find.
 
+## What the screens are for
+
+`docs/PURCHASE_FRAMEWORK.md` covers the workflow behind this navigation: the
+four documents, their lifecycles, which transitions post stock or a journal,
+and what purchasing depends on in other modules. Read it before changing what
+an action on one of these screens does.
+
 ## The future lifecycle
 
 The navigation is shaped for the whole procurement chain:
