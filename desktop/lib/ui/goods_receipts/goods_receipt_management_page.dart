@@ -195,12 +195,26 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
     if (!widget.hasActiveFirm || !_canCreate) return;
     try {
       final List<dynamic> results = await Future.wait<dynamic>([
+        // Both states an order can still be received against. Asking only
+        // for APPROVED was right while nothing ever moved an order off it;
+        // now that a receipt advances the order, a partly delivered one is
+        // PARTIALLY_RECEIVED, and filtering it out would make the **second**
+        // receipt of a split delivery impossible to raise.
+        //
+        // Two requests because the list endpoint takes one status per call.
         widget.api.purchases(
           page: 1,
-          pageSize: 100,
+          pageSize: maxApiPageSize,
           sortBy: 'purchase_date',
           descending: true,
           filters: const PurchaseQuery(status: 'APPROVED'),
+        ),
+        widget.api.purchases(
+          page: 1,
+          pageSize: maxApiPageSize,
+          sortBy: 'purchase_date',
+          descending: true,
+          filters: const PurchaseQuery(status: 'PARTIALLY_RECEIVED'),
         ),
         widget.api.warehouses(page: 1, pageSize: 100),
         widget.api.products(page: 1, pageSize: 100),
@@ -208,10 +222,13 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
       ]);
       if (!mounted) return;
       setState(() {
-        _receivableOrders = (results[0] as PagedResult<PurchaseOrder>).items;
-        _warehouses = (results[1] as PagedResult<WarehouseRecord>).items;
-        _products = (results[2] as PagedResult<Product>).items;
-        _features = BusinessFeatures((results[3] as List<String>).toSet());
+        _receivableOrders = [
+          ...(results[0] as PagedResult<PurchaseOrder>).items,
+          ...(results[1] as PagedResult<PurchaseOrder>).items,
+        ];
+        _warehouses = (results[2] as PagedResult<WarehouseRecord>).items;
+        _products = (results[3] as PagedResult<Product>).items;
+        _features = BusinessFeatures((results[4] as List<String>).toSet());
       });
     } on ApiException {
       if (!mounted) return;

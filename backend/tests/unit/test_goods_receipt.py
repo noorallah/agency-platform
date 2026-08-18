@@ -446,3 +446,130 @@ def test_receipt_scope_requires_membership_of_the_selected_firm() -> None:
 
     with pytest.raises(AuthorizationError):
         _firm_scope(_principal(outsider_id, {"GRN_VIEW"}), session, firm_id)
+
+
+def _order_status(session: Session, order_id: UUID) -> str:
+    session.expire_all()
+    row = session.get(PurchaseOrder, order_id)
+    assert row is not None
+    return str(row.status)
+
+
+def _approve(fixture: "_Fixture") -> None:
+    """Walk the order to APPROVED, which is where receiving begins."""
+    service = PurchaseService(fixture.session)
+    service.submit_order(
+        fixture.order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.approve_order(
+        fixture.order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+
+def test_a_part_delivery_leaves_the_order_partially_received() -> None:
+    """A half-delivered order says so.
+
+    `PARTIALLY_RECEIVED` was declared from the first migration and never
+    written, so an order that was half delivered still read APPROVED and every
+    screen had to derive "how much is left?" from the receipts.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-PART")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    # A draft receipt moves nothing, including the order.
+    assert _order_status(session, fixture.order.id) == "APPROVED"
+
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    # Four of ten.
+    assert _order_status(session, fixture.order.id) == "PARTIALLY_RECEIVED"
+
+
+def test_receiving_the_rest_marks_the_order_received() -> None:
+    """Four then six against an order of ten finishes it."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-FULL")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+
+    for quantity in ("4", "6"):
+        receipt = service.create_receipt(
+            fixture.receipt_payload(quantity),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+        service.complete_receipt(
+            receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+        )
+
+    assert _order_status(session, fixture.order.id) == "RECEIVED"
+
+
+def test_cancelling_the_receipt_walks_the_order_back() -> None:
+    """Cancelling the only receipt makes the order receivable again.
+
+    The status is derived from the completed receipts every time, so the order
+    comes back down without a second, subtractive path to get wrong.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-BACK")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert _order_status(session, fixture.order.id) == "RECEIVED"
+
+    service.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="wrong goods",
+    )
+
+    # Every receipt against it is cancelled, so it is receivable again.
+    assert _order_status(session, fixture.order.id) == "APPROVED"
+
+
+def test_a_cancelled_order_is_never_revived_by_a_receipt() -> None:
+    """Only an order already in the receiving part of its life is moved.
+
+    Receiving against a cancelled order is a different problem; quietly
+    reviving one here would hide it.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-DEAD")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    PurchaseService(session).cancel_order(
+        fixture.order.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="no longer needed",
+    )
+
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    assert _order_status(session, fixture.order.id) == "CANCELLED"
