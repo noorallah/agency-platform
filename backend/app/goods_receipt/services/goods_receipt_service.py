@@ -52,6 +52,7 @@ from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.schemas import PurchaseOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -404,6 +405,11 @@ class GoodsReceiptService(TransactionalDocumentService):
         row.status = GoodsReceiptStatus.COMPLETED.value
         row.completed_at = utc_now()
         row.updated_by = actor_id
+        # Flushed first so this receipt is COMPLETED in the database before
+        # its own quantities are summed; otherwise it would be excluded from
+        # the total it is supposed to complete.
+        self._session.flush()
+        self._resync_order_status(purchase_order, firm_id=firm_scope, actor_id=actor_id)
         self._record_event(
             firm_id=firm_scope,
             document_type=document_type,
@@ -441,6 +447,17 @@ class GoodsReceiptService(TransactionalDocumentService):
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
         )
         row.status = GoodsReceiptStatus.CANCELLED.value
+        # Flushed before the order is resynced so this receipt has already
+        # stopped being COMPLETED and drops out of its own total. Cancelling
+        # the only receipt against an order walks it back to APPROVED; the
+        # status is derived from what is still completed rather than
+        # decremented, so there is no subtractive path to get wrong.
+        self._session.flush()
+        self._resync_order_status(
+            self._purchase_order(row.purchase_order_id, firm_id=firm_scope),
+            firm_id=firm_scope,
+            actor_id=actor_id,
+        )
         row.cancel_reason = reason
         row.updated_by = actor_id
         document_type = self._ensure_document_setup(
@@ -1195,6 +1212,77 @@ class GoodsReceiptService(TransactionalDocumentService):
                     "Receipt exceeds allowed quantity for purchase order line "
                     f"{purchase_line.line_number}."
                 )
+
+    def _resync_order_status(
+        self, purchase_order: PurchaseOrder, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Move the order to match what has actually been received.
+
+        `PARTIALLY_RECEIVED` and `RECEIVED` were declared from the first
+        migration and **nothing ever wrote them**, so a fully received order
+        still read APPROVED and every screen had to derive "is this finished?"
+        from the receipts. The guards that refuse to delete or cancel a
+        RECEIVED order, and the dashboard's open count that already excludes
+        one, were written for a status no code produced.
+
+        Derived rather than incremented: the received quantity is summed from
+        the completed receipts every time, so cancelling one walks the order
+        back down without needing a second, subtractive path to get wrong.
+
+        Only ever moves an order that is already in the receiving part of its
+        life. A DRAFT, SUBMITTED, CANCELLED or CLOSED order is left exactly
+        where it is -- receiving against a cancelled order is a different
+        problem, and quietly reviving one here would hide it.
+        """
+        movable = {
+            PurchaseOrderStatus.APPROVED.value,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+            PurchaseOrderStatus.RECEIVED.value,
+        }
+        if purchase_order.status not in movable:
+            return
+
+        received = self._received_quantities_for_po(purchase_order.id, firm_id=firm_id)
+        lines = self._session.scalars(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id == purchase_order.id,
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        if not lines:
+            return
+
+        total = ZERO
+        complete = True
+        for line in lines:
+            got = received.get(line.id, ZERO)
+            total += got
+            if got < self._q(line.ordered_quantity):
+                complete = False
+
+        if complete:
+            target = PurchaseOrderStatus.RECEIVED.value
+        elif total > ZERO:
+            target = PurchaseOrderStatus.PARTIALLY_RECEIVED.value
+        else:
+            # Every receipt against it has been cancelled.
+            target = PurchaseOrderStatus.APPROVED.value
+        if target == purchase_order.status:
+            return
+
+        before = purchase_order.status
+        purchase_order.status = target
+        purchase_order.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="purchase.received_status_changed",
+            entity_type="purchase_order",
+            entity_id=purchase_order.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": before},
+            after_data={"status": target},
+        )
 
     def _received_quantities_for_po(
         self,
