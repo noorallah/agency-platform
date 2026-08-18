@@ -588,36 +588,6 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
         ModuleTabDefinition(
-          id: 'pending-receipts',
-          label: 'Pending Receipts',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'partial-receipts',
-          label: 'Partial Receipts',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'completed-receipts',
-          label: 'Completed Receipts',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'rejected-items',
-          label: 'Rejected Items',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'damaged-items',
-          label: 'Damaged Items',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'grn-history',
-          label: 'History',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
           id: 'grn-settings',
           label: 'Settings',
           requiredPermissions: ['PURCHASE_VIEW'],
@@ -808,6 +778,20 @@ abstract final class ModuleCatalog {
         AppModule.settings => 'SETTINGS',
         AppModule.licensing => 'LICENSING',
       };
+
+  /// Goods receipt tab ids that became views of the receipts workspace.
+  ///
+  /// Kept resolvable for the same reason as [purchaseTabAliases]: the last
+  /// workspace is persisted, so an upgrade must not strand somebody who left
+  /// the app on Pending Receipts.
+  static const Map<String, String> goodsReceiptTabAliases = <String, String>{
+    'pending-receipts': 'receipts',
+    'partial-receipts': 'receipts',
+    'completed-receipts': 'receipts',
+    'rejected-items': 'receipts',
+    'damaged-items': 'receipts',
+    'grn-history': 'receipts',
+  };
 
   static ModuleDefinition byId(AppModule id) =>
       modules.firstWhere((module) => module.id == id);
@@ -1193,57 +1177,18 @@ abstract final class ModuleCatalog {
   static List<WorkspaceNavigationNode> _goodsReceiptsNavigation(
     Set<String> visibleTabIds,
   ) {
-    bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
     return [
+      // One entry, not eight. The group this replaces was labelled "Reports"
+      // and held Pending, Partial and Completed Receipts, Rejected and Damaged
+      // Items and History -- six children that all opened this same workspace.
+      // Four filtered nothing at all and History was an exact duplicate of
+      // Completed. A receipt's status is a view of the list; see
+      // `GoodsReceiptView`.
       if (visibleTabIds.contains('receipts'))
         const WorkspaceNavigationNode(
           label: 'Receipts',
           path: 'receipts',
-          icon: Icons.receipt_long_outlined,
-        ),
-      if (hasAny([
-        'pending-receipts',
-        'partial-receipts',
-        'completed-receipts',
-        'rejected-items',
-        'damaged-items',
-      ]))
-        WorkspaceNavigationNode(
-          label: 'Reports',
-          icon: Icons.analytics_outlined,
-          children: [
-            if (visibleTabIds.contains('pending-receipts'))
-              const WorkspaceNavigationNode(
-                label: 'Pending Receipts',
-                path: 'pending-receipts',
-              ),
-            if (visibleTabIds.contains('partial-receipts'))
-              const WorkspaceNavigationNode(
-                label: 'Partial Receipts',
-                path: 'partial-receipts',
-              ),
-            if (visibleTabIds.contains('completed-receipts'))
-              const WorkspaceNavigationNode(
-                label: 'Completed Receipts',
-                path: 'completed-receipts',
-              ),
-            if (visibleTabIds.contains('rejected-items'))
-              const WorkspaceNavigationNode(
-                label: 'Rejected Items',
-                path: 'rejected-items',
-              ),
-            if (visibleTabIds.contains('damaged-items'))
-              const WorkspaceNavigationNode(
-                label: 'Damaged Items',
-                path: 'damaged-items',
-              ),
-          ],
-        ),
-      if (visibleTabIds.contains('grn-history'))
-        const WorkspaceNavigationNode(
-          label: 'History',
-          path: 'grn-history',
-          icon: Icons.history_outlined,
+          icon: Icons.inventory_2_outlined,
         ),
       if (visibleTabIds.contains('grn-settings'))
         const WorkspaceNavigationNode(

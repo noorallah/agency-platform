@@ -2090,8 +2090,11 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
         widget.router.current.module == AppModule.goodsReceipts.name
             ? widget.router.current.tab
             : null;
-    final String tabId = visibleTabs.any((tab) => tab.id == requestedTab)
-        ? requestedTab!
+    // A stored workspace may still name a status that became a view.
+    final String? resolved =
+        ModuleCatalog.goodsReceiptTabAliases[requestedTab] ?? requestedTab;
+    final String tabId = visibleTabs.any((tab) => tab.id == resolved)
+        ? resolved!
         : visibleTabs.first.id;
     final bool hasActiveFirm =
         widget.api.activeFirmId?.call()?.isNotEmpty == true;
