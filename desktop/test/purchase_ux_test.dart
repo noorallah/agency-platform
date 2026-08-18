@@ -140,6 +140,69 @@ void main() {
     expect(api.importFileCalls, 1);
   });
 
+  test('an update payload no longer states a status', () {
+    // The server owns the status through its lifecycle endpoints. Echoing the
+    // one we last read is what let an approved order be edited to any amount
+    // and stay approved.
+    final Json body = _purchaseOrder.toUpdateJson();
+    expect(body.containsKey('status'), isFalse);
+    expect(_purchaseOrder.toCreateJson()['status'], 'DRAFT');
+  });
+
+  test('the model refuses the edits the server refuses', () {
+    // Mirrors `PurchaseService._assert_order_editable`.
+    expect(_purchaseOrder.isEditable, isTrue);
+    for (final String status in ['PARTIALLY_RECEIVED', 'RECEIVED']) {
+      final PurchaseOrder order = _purchaseOrder.copyWith(status: status);
+      expect(order.isEditable, isFalse, reason: status);
+      expect(order.editRefusal, contains('received'));
+    }
+    for (final String status in ['CANCELLED', 'CLOSED']) {
+      final PurchaseOrder order = _purchaseOrder.copyWith(status: status);
+      expect(order.isEditable, isFalse, reason: status);
+      expect(order.editRefusal, isNotNull);
+    }
+    // Approved is editable -- it just costs the approval, which the workspace
+    // asks about before opening the editor.
+    expect(_purchaseOrder.copyWith(status: 'APPROVED').isEditable, isTrue);
+    expect(_purchaseOrder.copyWith(status: 'APPROVED').editRefusal, isNull);
+  });
+
+  testWidgets('editing an approved order warns that approval is withdrawn',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi()..status = 'APPROVED';
+    await _pumpWorkspace(tester, api: api);
+
+    await tester.tap(find.text('PO-0001').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithIcon(IconButton, Icons.edit_outlined).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Editing withdraws the approval'), findsOneWidget);
+    expect(find.textContaining('need submitting and approving again'),
+        findsOneWidget);
+
+    // Backing out leaves the editor closed.
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit Purchase Order'), findsNothing);
+  });
+
+  testWidgets('a received order cannot be edited at all', (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi()..status = 'RECEIVED';
+    await _pumpWorkspace(tester, api: api);
+
+    await tester.tap(find.text('PO-0001').first);
+    await tester.pumpAndSettle();
+
+    final Finder edit =
+        find.widgetWithIcon(IconButton, Icons.edit_outlined).first;
+    expect(tester.widget<IconButton>(edit).onPressed, isNull,
+        reason: 'the server refuses this edit, so the button must not offer it');
+  });
+
   testWidgets('open purchase order offers Submit, and moves without closing',
       (tester) async {
     _setDesktopSurface(tester);

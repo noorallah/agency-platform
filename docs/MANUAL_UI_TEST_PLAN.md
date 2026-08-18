@@ -422,6 +422,21 @@ merging, so a test left half-finished looks exactly like a defect next time.
 | 8.108 | The hierarchy settings are enforced | Turn on each of the four settings (multi-route per salesman, multi-salesman per route, leaf-only customers, max nodes per parent) and breach each in turn | Each refusal names the rule it broke. All four were stored and checked nowhere |
 | 8.109 | A customer shows the rounds that call them | Open a customer who is on two routes | Both routes listed with this customer's stop number on each. Exactly one is primary — see §12 |
 
+### 8.117–122 An edit cannot rewrite an order's status
+
+Added 2026-08-18, after driving the API and finding three ways the approval
+step could be bypassed. All three were invisible from the desktop, so these
+cases are worth running against the API as well as the screen.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.117 | **Editing an approved order withdraws approval** | Approve an order, then Edit it | A warning first: *"Editing withdraws the approval."* Accept it, change the quantity, save | The order reads **DRAFT** and its History shows `approval_withdrawn`. It must be submitted and approved again |
+| 8.118 | Backing out of that warning changes nothing | Same, but choose Cancel | The editor does not open and the order is still APPROVED |
+| 8.119 | A received order cannot be edited | Receive part of an order, then select it | **Edit is disabled.** Through the API the same edit answers 422 naming the receipts |
+| 8.120 | Cancelled and closed orders cannot be edited | Select one of each | Edit is disabled for both |
+| 8.121 | **Goods cannot be received against an unapproved order** | Via the API, POST a goods receipt against a DRAFT order | 422 — *"goods can only be received against an approved order."* Before this it was accepted, and completing it posted stock and posted to the ledger |
+| 8.122 | A submitted order keeps its status when edited | Submit an order, edit it, save | Still **SUBMITTED**. Only approval is withdrawn by an edit; nothing else moves |
+
 ### 8.110–116 Submit and Approve from inside the open order
 
 Added 2026-08-18. The action used to be reachable only from the workspace

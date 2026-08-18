@@ -245,6 +245,7 @@ class GoodsReceiptService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         purchase_order = self._purchase_order(data.purchase_order_id, firm_id=firm_id)
+        self._assert_order_receivable(purchase_order)
         branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=purchase_order.branch_id
         )
@@ -1212,6 +1213,32 @@ class GoodsReceiptService(TransactionalDocumentService):
                     "Receipt exceeds allowed quantity for purchase order line "
                     f"{purchase_line.line_number}."
                 )
+
+    def _assert_order_receivable(self, purchase_order: PurchaseOrder) -> None:
+        """Refuse a receipt against an order nobody has committed the firm to.
+
+        Nothing checked this. A draft purchase order could be received against
+        and the receipt completed, which posts stock and posts to the ledger --
+        so the approval step was bypassable entirely by any client that did not
+        happen to filter its own picker, and the order stayed DRAFT afterwards
+        because the status resync only moves an order already in the receiving
+        part of its life.
+
+        RECEIVED is allowed through so an over-receipt, where the firm permits
+        one, is still possible.
+        """
+        receivable = {
+            PurchaseOrderStatus.APPROVED.value,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+            PurchaseOrderStatus.RECEIVED.value,
+        }
+        if purchase_order.status in receivable:
+            return
+        raise ValidationError(
+            f"Purchase order {purchase_order.po_number} is "
+            f"{purchase_order.status}; goods can only be received against an "
+            "approved order."
+        )
 
     def _resync_order_status(
         self, purchase_order: PurchaseOrder, *, firm_id: UUID, actor_id: UUID
