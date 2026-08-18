@@ -33,7 +33,7 @@ extension DocumentToolbarActionDetails on DocumentToolbarAction {
         DocumentToolbarAction.printDocument => 'Print',
         DocumentToolbarAction.exportDocument => 'Export',
         DocumentToolbarAction.emailDocument => 'Email',
-        DocumentToolbarAction.requestApproval => 'Request approval',
+        DocumentToolbarAction.requestApproval => 'Submit',
         DocumentToolbarAction.approve => 'Approve',
         DocumentToolbarAction.dispatch => 'Dispatch',
         DocumentToolbarAction.complete => 'Complete',
