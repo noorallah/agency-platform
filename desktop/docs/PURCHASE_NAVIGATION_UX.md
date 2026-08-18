@@ -100,10 +100,13 @@ presets and it is unchanged.
   from the client. Closing this needs `GET /api/v1/purchases` to accept a set of
   statuses; until then the workspace status bar says *"Showing orders awaiting
   approval (SUBMITTED)"* rather than pretending otherwise.
-- **Four statuses have no segment** — `APPROVED`, `ORDERED`,
+- **Five statuses have no segment** — `APPROVED`, `ORDERED`,
   `PARTIALLY_ORDERED`, `PARTIALLY_RECEIVED`, `RECEIVED`. They appear under All
   and are selectable in the advanced filter. Six segments is already the width
-  of a narrow window; eleven would be a second navigation.
+  of a narrow window; eleven would be a second navigation. Two of these stopped
+  being hypothetical on 2026-08-18, when completing a goods receipt began
+  writing `PARTIALLY_RECEIVED` and `RECEIVED`, so a firm that receives against
+  its orders now has rows only All will show.
 
 ## Routing, and the tab ids that retired
 
@@ -136,6 +139,52 @@ Every Purchases tab requires `PURCHASE_VIEW`. A group disappears when the user
 can see none of its children — `_purchasesNavigation` guards Sourcing with
 `hasAny(['purchase-rfqs', 'vendor-quotations'])` — so an empty expander never
 appears.
+
+## Acting on an order from inside it
+
+Submit and Approve sit in the toolbar of the open purchase order as well as on
+the workspace toolbar, as of 2026-08-18. The grid buttons are the only ones
+that work without opening a document; these are the only ones that work while
+reading one, which is when the decision is actually taken.
+
+**Permission decides whether the button is rendered; status decides whether it
+is enabled.**
+
+| Order | Submit | Approve |
+| --- | --- | --- |
+| DRAFT | enabled | shown, disabled |
+| SUBMITTED | disabled | enabled |
+| APPROVED and beyond, or deleted | disabled | disabled |
+| never saved (New / Duplicate) | not shown | not shown |
+
+Someone holding `PURCHASE_APPROVE` sees Approve on a draft, greyed — the step
+exists and it is theirs, it is just not their turn yet. Someone without it
+never sees the button. The `EnterpriseApprovalPanel` above the header says
+which of those it is in words, replacing the placeholder sentence that used to
+describe the plumbing.
+
+**The dialog does not close.** It holds the order the server returned, so the
+status chip, the approval note, both buttons and the History tab all update in
+place. That is also what makes two routes to one action safe: Submit stops
+being pressable the moment the order stops being a draft, without waiting for a
+reload. A refusal appears in the dialog's own banner rather than a toast, which
+is easy to miss behind a modal.
+
+Closing after an action reloads the grid — otherwise the row behind still reads
+DRAFT — but does **not** claim the document was edited. `PurchaseEditorOutcome`
+carries `saved` for exactly that: a save says "created"/"updated", a lifecycle
+action says nothing more, having already reported itself.
+
+Gating reuses the `isDraft` / `isSubmitted` getters the workspace toolbar
+gates on, so the two routes cannot disagree about one order. Note the two
+toolbars differ in one respect on purpose: the workspace **hides** Submit and
+Approve when they do not apply, the dialog **disables** them, because in the
+dialog the row of buttons is the document's own lifecycle and a gap in it reads
+as a missing step.
+
+The other six document screens still act only from their workspace toolbar —
+see the comment on `DocumentViewDialog` for the three things to settle before
+they follow.
 
 ## Not built
 

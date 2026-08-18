@@ -422,6 +422,25 @@ merging, so a test left half-finished looks exactly like a defect next time.
 | 8.108 | The hierarchy settings are enforced | Turn on each of the four settings (multi-route per salesman, multi-salesman per route, leaf-only customers, max nodes per parent) and breach each in turn | Each refusal names the rule it broke. All four were stored and checked nowhere |
 | 8.109 | A customer shows the rounds that call them | Open a customer who is on two routes | Both routes listed with this customer's stop number on each. Exactly one is primary — see §12 |
 
+### 8.110–116 Submit and Approve from inside the open order
+
+Added 2026-08-18. The action used to be reachable only from the workspace
+toolbar, against the selected row, so approving meant closing the document you
+were reading. Both routes now exist and must stay in agreement.
+
+Run as `whole01.admin@agency.local`, which holds every purchase permission, and
+once more as a user with `PURCHASE_VIEW` only.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.110 | The buttons are in the open document | Purchases → Purchase Orders → double-click a **draft** | The dialog toolbar shows **Submit** enabled and **Approve** greyed, beside Save. The panel under the header reads *"Submit this draft to send it for approval."* |
+| 8.111 | **Acting does not close the document** | Click **Submit** | The dialog stays open. The status becomes SUBMITTED, Submit greys, Approve lights up, the message changes to *"Approve this order to commit the firm to it."*, and the **History** tab has gained an entry |
+| 8.112 | And again for approval | Click **Approve** | APPROVED, both greyed, *"No approval step is outstanding."*, History gains a second entry |
+| 8.113 | The grid behind is not left stale — and is not lied to | Close the dialog | The row reads APPROVED and is still selected. There is **no** "Purchase order updated." message: nothing was edited. Editing and saving normally must still show it |
+| 8.114 | Permission hides, status disables | Sign in with `PURCHASE_VIEW` only and open any order | Neither button is present at all — not greyed. A submitted order reads *"Waiting for someone who holds purchase approval."* |
+| 8.115 | A new order offers neither | Purchases → **New** | No Submit, no Approve, and *"Save the order before it can be sent for approval."* There is nothing on the server to act on yet |
+| 8.116 | Both routes still work, and agree | Approve one order from the grid toolbar and another from inside the dialog | Both reach APPROVED. Approving an order somebody else already approved shows the server's refusal in the dialog's **banner**, and the dialog stays usable |
+
 ### 8.60–8.63 Sub-tabs load their own data
 
 Reported from testing on 2026-08-15 and fixed the same day. Every module whose

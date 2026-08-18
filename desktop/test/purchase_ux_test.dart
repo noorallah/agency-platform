@@ -139,6 +139,147 @@ void main() {
     expect(imported, isTrue);
     expect(api.importFileCalls, 1);
   });
+
+  testWidgets('open purchase order offers Submit, and moves without closing',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi();
+    await _pumpWorkspace(tester, api: api);
+
+    await _openOrder(tester);
+
+    expect(find.text('Purchase Order'), findsWidgets);
+    expect(find.text('Submit this draft to send it for approval.'),
+        findsOneWidget);
+    expect(_enabled(tester, 'Submit'), isTrue);
+    // Present, so the person holding approval can see the step exists -- but
+    // not pressable until the draft has been submitted.
+    expect(_enabled(tester, 'Approve'), isFalse);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Submit'));
+    await tester.pumpAndSettle();
+
+    expect(api.lifecycleCalls, ['submit:po-1']);
+    // Still open, which is the whole point: you keep your place in the
+    // document you were reading.
+    expect(find.text('Purchase Order'), findsWidgets);
+    expect(_enabled(tester, 'Submit'), isFalse);
+    expect(_enabled(tester, 'Approve'), isTrue);
+    expect(find.text('Approve this order to commit the firm to it.'),
+        findsOneWidget);
+  });
+
+  testWidgets('approving from inside reloads the grid without claiming an edit',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi()..status = 'SUBMITTED';
+    await _pumpWorkspace(tester, api: api);
+
+    await _openOrder(tester);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Approve'));
+    await tester.pumpAndSettle();
+
+    expect(api.lifecycleCalls, ['approve:po-1']);
+    expect(_enabled(tester, 'Approve'), isFalse);
+
+    // Two say Close -- the toolbar's and the footer's. Both call `_close`.
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Close').last);
+    await tester.pumpAndSettle();
+
+    // The grid is reloaded -- otherwise the row behind still reads SUBMITTED
+    // -- but nothing was edited, so the workspace must not say it was.
+    expect(find.text('Purchase order updated.'), findsNothing);
+    expect(find.text('PO-0001'), findsWidgets);
+  });
+
+  testWidgets('without the permission the button is absent, not just disabled',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi()..status = 'SUBMITTED';
+    await _pumpWorkspace(
+      tester,
+      api: api,
+      // Enough to open a purchase order and nothing more.
+      permissionCodes: const ['PURCHASE_VIEW'],
+    );
+
+    await _openOrder(tester);
+
+    expect(find.widgetWithText(OutlinedButton, 'Approve'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+    expect(find.text('Waiting for someone who holds purchase approval.'),
+        findsOneWidget);
+  });
+
+  testWidgets('a new purchase order offers neither, having nothing to act on',
+      (tester) async {
+    _setDesktopSurface(tester);
+    await _pumpWorkspace(tester, api: _PurchaseApi());
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(find.text('New Purchase Order'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Submit'), findsNothing);
+    expect(find.widgetWithText(OutlinedButton, 'Approve'), findsNothing);
+    expect(find.text('Save the order before it can be sent for approval.'),
+        findsOneWidget);
+  });
+}
+
+/// Double-click the seeded row, which is how the workspace opens a document.
+Future<void> _openOrder(WidgetTester tester) async {
+  final Finder row = find.text('PO-0001').first;
+  await tester.tap(row);
+  await tester.pump(const Duration(milliseconds: 50));
+  await tester.tap(row);
+  await tester.pumpAndSettle();
+}
+
+/// Whether the dialog toolbar button reading [label] can be pressed.
+bool _enabled(WidgetTester tester, String label) {
+  final Finder finder = find.widgetWithText(OutlinedButton, label);
+  expect(finder, findsOneWidget, reason: 'no toolbar button reading $label');
+  return tester.widget<OutlinedButton>(finder).onPressed != null;
+}
+
+/// Pump the purchase orders workspace with a full set of permissions.
+Future<void> _pumpWorkspace(
+  WidgetTester tester, {
+  required _PurchaseApi api,
+  List<String> permissionCodes = const [
+    'PURCHASE_VIEW',
+    'PURCHASE_CREATE',
+    'PURCHASE_UPDATE',
+    'PURCHASE_DELETE',
+    'PURCHASE_RESTORE',
+    'PURCHASE_IMPORT',
+    'PURCHASE_EXPORT',
+    'PURCHASE_APPROVE',
+    'PURCHASE_CANCEL',
+  ],
+}) async {
+  final Directory temp =
+      Directory.systemTemp.createTempSync('purchase-dialog-test');
+  addTearDown(() => temp.deleteSync(recursive: true));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: PurchaseManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: PermissionService()
+            ..applyAccessToken(_accessToken({'permissions': permissionCodes})),
+          hasActiveFirm: true,
+          section: PurchaseSection.purchaseOrders,
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 class _PurchaseApi extends ApiClient {
@@ -151,6 +292,29 @@ class _PurchaseApi extends ApiClient {
         );
 
   int importFileCalls = 0;
+
+  /// Every lifecycle call this fake was asked to make, in order.
+  final List<String> lifecycleCalls = <String>[];
+
+  /// What `purchases()` and `purchaseOrder()` hand back. A test that wants an
+  /// order awaiting approval sets this before pumping.
+  String status = 'DRAFT';
+
+  PurchaseOrder get order => _purchaseOrder.copyWith(status: status);
+
+  @override
+  Future<PurchaseOrder> submitPurchaseOrder(String id) async {
+    lifecycleCalls.add('submit:$id');
+    status = 'SUBMITTED';
+    return order;
+  }
+
+  @override
+  Future<PurchaseOrder> approvePurchaseOrder(String id) async {
+    lifecycleCalls.add('approve:$id');
+    status = 'APPROVED';
+    return order;
+  }
 
   @override
   Future<PurchaseSummaryRecord> purchaseSummary() async =>
@@ -173,14 +337,14 @@ class _PurchaseApi extends ApiClient {
     bool descending = true,
     PurchaseQuery filters = const PurchaseQuery(),
   }) async =>
-      PagedResult(items: [_purchaseOrder], total: 1);
+      PagedResult(items: [order], total: 1);
 
   @override
   Future<PurchaseOrder> purchaseOrder(
     String id, {
     bool includeDeleted = false,
   }) async =>
-      _purchaseOrder;
+      order;
 
   @override
   Future<List<PurchaseOrderHistoryRecord>> purchaseOrderHistory(

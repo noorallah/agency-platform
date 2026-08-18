@@ -167,7 +167,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   bool get _canRestore => widget.permissions.hasPermission('PURCHASE_RESTORE');
   bool get _canImport => widget.permissions.hasPermission('PURCHASE_IMPORT');
   bool get _canExport => widget.permissions.hasPermission('PURCHASE_EXPORT');
-  bool get _canClose => widget.permissions.hasPermission('PURCHASE_APPROVE');
+  /// Approving, and closing, both take `PURCHASE_APPROVE`.
+  bool get _canApprove =>
+      widget.permissions.hasPermission('PURCHASE_APPROVE');
   bool get _canCancel => widget.permissions.hasPermission('PURCHASE_CANCEL');
 
   static const Map<String, bool> _defaultColumns = <String, bool>{
@@ -521,7 +523,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       }
     }
     if (!mounted) return;
-    final PurchaseOrder? saved = await showDialog<PurchaseOrder>(
+    final PurchaseEditorOutcome? outcome =
+        await showDialog<PurchaseEditorOutcome>(
       context: context,
       barrierDismissible: false,
       builder: (_) => PurchaseOrderEditorDialog(
@@ -535,17 +538,24 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         buyers: _buyers,
         taxProfiles: _taxProfiles,
         storageNodes: _storageNodes,
+        canSubmit: _canUpdate,
+        canApprove: _canApprove,
       ),
     );
-    if (saved == null) return;
+    if (outcome == null) return;
     if (!mounted) return;
-    NotificationService.show(
-      context,
-      'Purchase order ${mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate ? 'created' : 'updated'}.',
-      kind: AppNotificationKind.success,
-    );
+    // Only a save created or updated anything. A submit or approve run
+    // from inside the dialog has already said what it did, where it
+    // happened.
+    if (outcome.saved) {
+      NotificationService.show(
+        context,
+        'Purchase order ${mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate ? 'created' : 'updated'}.',
+        kind: AppNotificationKind.success,
+      );
+    }
     await _load();
-    _selectOrder(saved);
+    _selectOrder(outcome.order);
   }
 
   Future<void> _deleteSelected() async {
@@ -1286,7 +1296,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final bool canApproveSelected = selected != null &&
         !selected.isDeleted &&
         selected.isSubmitted &&
-        _canClose;
+        _canApprove;
     return Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -1359,7 +1369,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         IconButton(
           tooltip: 'Close',
           onPressed: selected == null ||
-                  !_canClose ||
+                  !_canApprove ||
                   selected.isDeleted ||
                   selected.status == 'CANCELLED' ||
                   selected.status == 'CLOSED'
@@ -1850,6 +1860,22 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   ];
 }
 
+/// What the editor dialog hands back when it closes.
+///
+/// A save and a lifecycle action both have to reload the grid -- otherwise the
+/// row behind an approved order still reads DRAFT -- but only one of them
+/// edited the document, and the workspace announces "created"/"updated" on
+/// anything it gets back. `saved` is what keeps that message honest.
+class PurchaseEditorOutcome {
+  const PurchaseEditorOutcome({required this.order, required this.saved});
+
+  final PurchaseOrder order;
+
+  /// True when the document itself was written; false when only its status
+  /// moved.
+  final bool saved;
+}
+
 class PurchaseOrderEditorDialog extends StatefulWidget {
   const PurchaseOrderEditorDialog({
     super.key,
@@ -1863,6 +1889,8 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
     required this.buyers,
     required this.taxProfiles,
     required this.storageNodes,
+    required this.canSubmit,
+    required this.canApprove,
   });
 
   final ApiClient api;
@@ -1875,6 +1903,14 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   final List<PlatformUser> buyers;
   final List<TaxProfileRecord> taxProfiles;
   final List<StorageNodeRecord> storageNodes;
+
+  /// Whether this user may send a draft for approval
+  /// (`PURCHASE_UPDATE`).
+  final bool canSubmit;
+
+  /// Whether this user may approve a submitted order
+  /// (`PURCHASE_APPROVE`).
+  final bool canApprove;
 
   bool get isReadOnly => mode == PurchaseDialogMode.view;
   bool get isCreating =>
@@ -1892,6 +1928,25 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       : (widget.order ?? _blankOrder());
   bool _saving = false;
   String? _error;
+
+  /// True once a lifecycle action moved this document, so the grid behind is
+  /// out of date even though nothing was edited.
+  bool _acted = false;
+
+  /// Held in state rather than built in `build`. It used to be constructed
+  /// inline in the `FutureBuilder`, which re-issued the request on every
+  /// rebuild -- every keystroke while editing -- and left no way to refresh it
+  /// on purpose once an action had added an entry.
+  Future<List<PurchaseOrderHistoryRecord>>? _historyFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyFuture = _loadHistory();
+  }
+
+  Future<List<PurchaseOrderHistoryRecord>>? _loadHistory() =>
+      _draft.id.isEmpty ? null : widget.api.purchaseOrderHistory(_draft.id);
 
   PurchaseOrder _blankOrder() => PurchaseOrder(
         id: '',
@@ -2036,8 +2091,16 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                   child: EnterpriseDocumentToolbar(
                     onAction: _handleToolbarAction,
                     isEnabled: (action) => _toolbarActionEnabled(action),
-                    actions: const [
+                    // Permission decides whether the button is here at
+                    // all; status decides whether it does anything. That is
+                    // what "someone who can approve can see that they can"
+                    // means.
+                    actions: [
                       DocumentToolbarAction.save,
+                      if (widget.canSubmit && !widget.isCreating)
+                        DocumentToolbarAction.requestApproval,
+                      if (widget.canApprove && !widget.isCreating)
+                        DocumentToolbarAction.approve,
                       DocumentToolbarAction.printDocument,
                       DocumentToolbarAction.exportDocument,
                       DocumentToolbarAction.emailDocument,
@@ -2057,8 +2120,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                         const SizedBox(height: 16),
                         EnterpriseApprovalPanel(
                           status: _draft.status,
-                          message:
-                              'Approval workflow is wired through the enterprise document framework.',
+                          message: _approvalMessage(),
                         ),
                         const SizedBox(height: 16),
                         const SectionHeader(
@@ -2799,7 +2861,29 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         ],
       );
 
-  Widget _buildHistoryTab() => widget.order == null
+  /// What this order is waiting for, in the words of the buttons above it.
+  ///
+  /// This read "Approval workflow is wired through the enterprise document
+  /// framework", which describes the plumbing to somebody who wants to know
+  /// whose turn it is.
+  String _approvalMessage() {
+    if (_draft.id.isEmpty) {
+      return 'Save the order before it can be sent for approval.';
+    }
+    if (_draft.isDraft) {
+      return widget.canSubmit
+          ? 'Submit this draft to send it for approval.'
+          : 'This draft has to be submitted before anyone can approve it.';
+    }
+    if (_draft.isSubmitted) {
+      return widget.canApprove
+          ? 'Approve this order to commit the firm to it.'
+          : 'Waiting for someone who holds purchase approval.';
+    }
+    return 'No approval step is outstanding.';
+  }
+
+  Widget _buildHistoryTab() => _historyFuture == null
       ? const StandardEmptyState(
           type: EmptyStateType.noRecords,
           title: 'No history yet',
@@ -2807,7 +2891,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
               'History becomes available after the purchase order is saved.',
         )
       : FutureBuilder<List<PurchaseOrderHistoryRecord>>(
-          future: widget.api.purchaseOrderHistory(widget.order!.id),
+          future: _historyFuture,
           builder: (context, snapshot) {
             final List<PurchaseOrderHistoryRecord> rows =
                 snapshot.data ?? const [];
@@ -2868,7 +2952,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           ? await widget.api.createPurchaseOrder(_draft)
           : await widget.api.updatePurchaseOrder(_draft);
       if (!mounted) return;
-      Navigator.of(context).pop(saved);
+      Navigator.of(context)
+          .pop(PurchaseEditorOutcome(order: saved, saved: true));
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() => _error = exception.message);
@@ -3262,8 +3347,61 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   bool _toolbarActionEnabled(DocumentToolbarAction action) => switch (action) {
         DocumentToolbarAction.save => !widget.isReadOnly && !_saving,
         DocumentToolbarAction.close => !_saving,
+        // The same `isDraft` / `isSubmitted` getters the workspace toolbar
+        // gates on, so the two routes to one action cannot disagree about one
+        // order. An empty id is an order that has never been saved.
+        DocumentToolbarAction.requestApproval => widget.canSubmit &&
+            !_saving &&
+            _draft.id.isNotEmpty &&
+            !_draft.isDeleted &&
+            _draft.isDraft,
+        DocumentToolbarAction.approve => widget.canApprove &&
+            !_saving &&
+            _draft.id.isNotEmpty &&
+            !_draft.isDeleted &&
+            _draft.isSubmitted,
         _ => false,
       };
+
+  /// Move the document along without closing it.
+  ///
+  /// The dialog then holds the **returned** order, so the status chip, the
+  /// approval note and both buttons re-gate the moment the server answers --
+  /// which is what makes offering these here as well as on the grid safe:
+  /// Submit stops being pressable the instant the order stops being a draft.
+  ///
+  /// A refusal goes to the banner this dialog already shows rather than to a
+  /// toast, which is easy to miss behind a modal, and is how `_save` reports.
+  Future<void> _runLifecycle(
+    Future<PurchaseOrder> Function() action, {
+    required String done,
+  }) async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final PurchaseOrder updated = await action();
+      if (!mounted) return;
+      setState(() {
+        _draft = updated;
+        _acted = true;
+        _historyFuture = _loadHistory();
+      });
+      NotificationService.show(
+        context,
+        done,
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
 
   void _handleToolbarAction(DocumentToolbarAction action) {
     switch (action) {
@@ -3275,12 +3413,30 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
       case DocumentToolbarAction.close:
         _close();
         break;
+      case DocumentToolbarAction.requestApproval:
+        if (_toolbarActionEnabled(action)) {
+          unawaited(
+            _runLifecycle(
+              () => widget.api.submitPurchaseOrder(_draft.id),
+              done: '${_draft.poNumber} submitted for approval.',
+            ),
+          );
+        }
+        break;
+      case DocumentToolbarAction.approve:
+        if (_toolbarActionEnabled(action)) {
+          unawaited(
+            _runLifecycle(
+              () => widget.api.approvePurchaseOrder(_draft.id),
+              done: '${_draft.poNumber} approved.',
+            ),
+          );
+        }
+        break;
       case DocumentToolbarAction.newDocument:
       case DocumentToolbarAction.printDocument:
       case DocumentToolbarAction.exportDocument:
       case DocumentToolbarAction.emailDocument:
-      case DocumentToolbarAction.requestApproval:
-      case DocumentToolbarAction.approve:
       case DocumentToolbarAction.dispatch:
       case DocumentToolbarAction.complete:
       case DocumentToolbarAction.reject:
@@ -3290,7 +3446,12 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     }
   }
 
-  void _close() => Navigator.of(context).pop();
+  /// Close, telling the workspace whether anything moved.
+  ///
+  /// `null` means nothing happened and the grid can be left alone.
+  void _close() => Navigator.of(context).pop(
+        _acted ? PurchaseEditorOutcome(order: _draft, saved: false) : null,
+      );
 }
 
 class PurchaseImportWizard extends StatefulWidget {

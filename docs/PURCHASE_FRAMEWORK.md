@@ -64,27 +64,49 @@ needs `PURCHASE_APPROVE`; a user with only `PURCHASE_UPDATE` sees Submit and
 not Approve, so the person raising an order need not be the one committing the
 firm's money.
 
-### The four statuses nothing sets
+**Both steps are reachable from two places**, as of 2026-08-18: the workspace
+toolbar, acting on the selected row, and the toolbar inside the open order
+itself. The second is the one that matches how the decision is actually made
+— you read the lines, then approve — and it does not close the document: the
+dialog keeps the order the server returned, so the status, the approval note
+and both buttons re-gate in place and the timeline picks up the new entry.
 
-`PurchaseOrderStatus` also declares `PARTIALLY_ORDERED`, `ORDERED`,
-`PARTIALLY_RECEIVED` and `RECEIVED`. **No code moves an order into any of
-them.** `GoodsReceiptService` never imports `PurchaseService`, and completing a
-receipt leaves the order exactly where it was.
+**Permission decides whether the button is there; status decides whether it
+does anything.** No `PURCHASE_APPROVE` and there is no Approve button at all,
+which is the point — somebody who can approve can see that they can, and
+somebody who cannot is not shown a control they will never be able to press. An
+unsaved order offers neither.
 
-So an order that has been received in full still reads **APPROVED**. The
-`ORDERED` value that does appear in `purchase_service.py` is a *line* status,
-not the order's.
+### Receiving moves the order, ordering does not
 
-Two consequences worth knowing before relying on them:
+`GoodsReceiptService._resync_order_status` writes `PARTIALLY_RECEIVED` and
+`RECEIVED` as receipts complete, and walks the order back down — to
+`PARTIALLY_RECEIVED`, then to `APPROVED` — as they are cancelled. The received
+quantity is **summed from the completed receipts** every time rather than
+incremented, so cancelling retraces the same path instead of needing a second,
+subtractive implementation to get wrong.
 
-- the Purchase Orders status bar offers no Received segment, because there
-  would never be a row in it;
+Only an order already in the receiving part of its life is moved. A DRAFT,
+SUBMITTED, CANCELLED or CLOSED order is left alone: receiving against a
+cancelled order is a different problem, and quietly reviving one here would
+hide it.
+
+**Existing orders were not backfilled.** The resync is event-driven, so an
+order fully received before 2026-08-18 still reads APPROVED until its next
+receipt event. Sweeping them would rewrite live document status in every firm
+store, which deserves its own change.
+
+`PARTIALLY_ORDERED` and `ORDERED` are still declared and still unwritten. The
+`ORDERED` that appears in `purchase_service.py` is a *line* status, not the
+order's.
+
+Two things follow that are easy to trip on:
+
+- the Purchase Orders status bar offers no Received segment, so a received
+  order is visible under All and through the advanced filter, not as its own
+  view;
 - "what is still outstanding" is computed from the receipts themselves
-  (below), never read off the order.
-
-Advancing the order alongside its receipts is a real gap, not a subtlety. It
-needs a decision about who owns the transition — the receipt, or a service
-above both.
+  (below), never read off the order's status.
 
 ### What a line carries
 
