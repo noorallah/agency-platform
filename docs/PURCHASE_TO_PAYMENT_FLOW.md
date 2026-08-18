@@ -190,7 +190,7 @@ STEP 7  PY-2026-2027-000001 POSTED 1180.00   <-- money leaves
 | Action | Stock | Ledger |
 | --- | --- | --- |
 | Cancel a **draft** receipt | nothing to undo | nothing to undo |
-| Cancel a **completed** receipt | reversed, line by line | **not reversed — see the gap below** |
+| Cancel a **completed** receipt | reversed, line by line | mirror journal cancels it; refused outright once the receipt has been invoiced |
 | Purchase return, completed | stock goes back off | posted |
 | Reverse a settlement | — | mirror journal cancels it; allocations stop clearing invoices but still record what they had cleared |
 
@@ -204,29 +204,49 @@ split.
 
 ## Known gaps
 
-### Cancelling a completed receipt does not reverse its journal
+### Fixed: cancelling a completed receipt reverses its journal
 
-**Found on 2026-08-18 by driving it.** The stock comes back off correctly; the
-journal entry stays posted, and nothing raises a reversing one.
+Until 2026-08-18 the stock came back off and the journal stayed posted:
+`GoodsReceiptService._reverse_inventory` called
+`InventoryService.reverse_transaction` and stopped there, and `reverse_entry`
+was never called for a goods receipt. The general ledger's Inventory balance
+drifted **above** the warehouse by the value of every cancelled receipt, and
+Goods Received Not Invoiced carried a permanent liability for goods the firm
+handed back.
+
+Cancelling now posts a mirror entry, and every account nets to zero across the
+pair:
 
 ```
-complete:  stock 895 -> 905   journals raised: 1
-cancel:    stock 905 -> 895   journals now:    1   (still POSTED)
+complete: stock 895 -> 905   journals 1
+cancel:   stock 905 -> 895   journals 2
+  GRN-...-000015     [REVERSED]  Dr 1000 Inventory / Cr 1000 GRNI
+  GRN-...-000015-REV [POSTED]    Cr 1000 Inventory / Dr 1000 GRNI
+  net per account: {Inventory: 0.00, GRNI: 0.00}
 ```
 
-`GoodsReceiptService._reverse_inventory` calls
-`InventoryService.reverse_transaction` and stops there;
-`DocumentPostingService.post_goods_receipt` has exactly one caller, on the
-complete path, and `reverse_entry` is never called for a goods receipt.
+Two things the lookup has to get right. `reverse_entry` **copies the source
+module and id onto the mirror it posts**, so a query filtering only on POSTED
+would find that mirror on a second pass and reverse the reversal; the original
+is identified by `reversal_of_id IS NULL`. And a receipt cancelled before it
+was completed posted nothing, so there is nothing to take back — that returns
+quietly rather than failing.
 
-The consequence: the general ledger's Inventory balance drifts **above** the
-warehouse by the value of every cancelled receipt, and *Goods Received Not
-Invoiced* carries a permanent liability for goods the firm handed back. Neither
-self-corrects, and the stock ledger and the GL cannot be reconciled once it has
-happened.
+### A receipt that has been invoiced cannot be cancelled
 
-`CLAUDE.md` describes cancellation as reversing the receipt. That is true of
-stock and false of the ledger.
+The other half of the same fix, because reversing there does not balance.
+Receiving posts `Dr Inventory / Cr GRNI`; approving the invoice clears that
+accrual and raises a payable. Reversing the receipt afterwards would debit the
+accrual a **second** time and leave it with a balance nobody can explain, while
+the payable stayed exactly where it was.
+
+So it is refused, naming what to do instead: cancel the purchase invoice first
+if the invoice was wrong, or raise a **purchase return** if the goods are going
+back — a return credits the supplier as well as taking the stock off, which is
+the part cancelling the receipt could never do.
+
+A **cancelled** invoice does not hold the receipt; the refusal is about a live
+bill, not any bill that ever existed.
 
 ### Purchase price variance is posted but not surfaced
 

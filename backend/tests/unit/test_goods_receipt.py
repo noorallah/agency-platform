@@ -37,6 +37,7 @@ from app.core.exceptions import (
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import customer as _customer_models  # noqa: F401
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
@@ -48,6 +49,7 @@ from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderUpdate
 from app.purchase.services import PurchaseService
+from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -690,3 +692,233 @@ def test_a_received_order_refuses_an_edit() -> None:
         )
 
     assert _order_status(session, fixture.order.id) == "PARTIALLY_RECEIVED"
+
+
+def _receipt_journals(session: Session, receipt_id: UUID) -> list[JournalEntry]:
+    """Every journal entry raised against one goods receipt, oldest first."""
+    return list(
+        session.scalars(
+            select(JournalEntry)
+            .where(
+                JournalEntry.source_module == "goods_receipt",
+                JournalEntry.source_id == receipt_id,
+                JournalEntry.is_deleted.is_(False),
+            )
+            .order_by(JournalEntry.created_at)
+        ).all()
+    )
+
+
+def test_cancelling_a_completed_receipt_reverses_its_journal() -> None:
+    """The stock came back; the ledger did not.
+
+    `_reverse_inventory` put the stock back and nothing put the ledger back --
+    `post_goods_receipt` had one caller, on the complete path, and
+    `reverse_entry` was never called for a receipt. The general ledger's
+    inventory balance drifted above the warehouse by the value of every
+    cancelled receipt, and goods received not invoiced kept a liability for
+    goods that had gone back.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-REV")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    posted = _receipt_journals(session, receipt.id)
+    assert len(posted) == 1
+    assert posted[0].status == JournalStatus.POSTED.value
+    original_debit = posted[0].total_debit
+
+    service.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="sent back",
+    )
+
+    entries = _receipt_journals(session, receipt.id)
+    assert len(entries) == 2, "cancelling must raise a mirror entry"
+    original, mirror = entries
+    assert original.status == JournalStatus.REVERSED.value
+    assert mirror.reversal_of_id == original.id
+    assert mirror.total_debit == original_debit
+    # Every account nets to nothing once the pair is taken together, which is
+    # the only way the stock ledger and the GL can still be reconciled.
+    net: dict[UUID, Decimal] = {}
+    for entry in entries:
+        for line in entry.lines:
+            net[line.ledger_account_id] = (
+                net.get(line.ledger_account_id, Decimal("0"))
+                + line.debit_amount
+                - line.credit_amount
+            )
+    assert set(net.values()) == {Decimal("0")}, net
+
+
+def test_cancelling_twice_does_not_reverse_the_reversal() -> None:
+    """`reverse_entry` copies the source ids onto the mirror it posts.
+
+    So a lookup that only filtered on POSTED would find that mirror on a second
+    pass and reverse the reversal, putting the original back on the books.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-TWICE")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    for _ in range(3):
+        service.cancel_receipt(
+            receipt.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="again",
+        )
+
+    entries = _receipt_journals(session, receipt.id)
+    assert len(entries) == 2
+    assert [entry.status for entry in entries] == [
+        JournalStatus.REVERSED.value,
+        JournalStatus.POSTED.value,
+    ]
+
+
+def test_an_uncompleted_receipt_cancels_without_a_journal() -> None:
+    """Nothing was posted, so there is nothing to take back."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-NOJRNL")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+
+    service.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="never arrived",
+    )
+
+    assert _receipt_journals(session, receipt.id) == []
+
+
+def _bill_the_receipt(
+    session: Session, fixture: "_Fixture", receipt: GoodsReceipt, *, status: str
+) -> None:
+    """Put a purchase invoice against the receipt, at the given status.
+
+    Written straight to the tables rather than through `PurchaseInvoiceService`
+    because the guard under test is a question about data state -- is anything
+    billing this receipt? -- and building a real invoice would test the invoice
+    module instead.
+    """
+    invoice = PurchaseInvoice(
+        firm_id=fixture.firm.id,
+        vendor_id=fixture.vendor.id,
+        branch_id=fixture.branch.id,
+        invoice_number=f"PI-{status}-{receipt.grn_number}",
+        invoice_date=date(2026, 8, 2),
+        supplier_invoice_number=f"SUP-{status}",
+        supplier_invoice_date=date(2026, 8, 2),
+        status=status,
+        created_by=fixture.actor_id,
+        updated_by=fixture.actor_id,
+    )
+    session.add(invoice)
+    session.flush()
+    line = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).first()
+    assert line is not None
+    session.add(
+        PurchaseInvoiceLine(
+            purchase_invoice_id=invoice.id,
+            firm_id=fixture.firm.id,
+            line_number=1,
+            source_document_type="GOODS_RECEIPT",
+            source_document_id=receipt.id,
+            source_document_number=receipt.grn_number,
+            source_document_line_id=line.id,
+            source_document_line_number=line.line_number,
+            product_id=fixture.product.id,
+            received_quantity=Decimal("10"),
+            current_invoice_quantity=Decimal("10"),
+            unit_price=Decimal("100"),
+            created_by=fixture.actor_id,
+            updated_by=fixture.actor_id,
+        )
+    )
+    session.flush()
+
+
+def test_an_invoiced_receipt_cannot_be_cancelled() -> None:
+    """Reversing it would leave the accrual and the payable disagreeing.
+
+    Receiving posted `Dr Inventory / Cr goods received not invoiced`; approving
+    the invoice cleared that accrual and raised a payable. Reversing the
+    receipt now debits the accrual a second time and leaves it with a balance
+    nobody can explain, while the payable stays exactly where it was. Handing
+    goods back after they have been billed is a purchase return.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-BILLED")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    _bill_the_receipt(session, fixture, receipt, status="APPROVED")
+
+    with pytest.raises(ValidationError, match="has been invoiced"):
+        service.cancel_receipt(
+            receipt.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="sent back",
+        )
+
+    session.expire_all()
+    assert _order_status(session, fixture.order.id) == "RECEIVED"
+    assert len(_receipt_journals(session, receipt.id)) == 1
+
+
+def test_a_cancelled_invoice_does_not_hold_the_receipt() -> None:
+    """The refusal is about a live bill, not any bill that ever existed."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-UNBILLED")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    _bill_the_receipt(session, fixture, receipt, status="CANCELLED")
+
+    service.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="sent back",
+    )
+
+    assert len(_receipt_journals(session, receipt.id)) == 2

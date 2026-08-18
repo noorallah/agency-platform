@@ -27,7 +27,9 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import (
     GoodsReceipt,
     GoodsReceiptAttachment,
@@ -53,6 +55,11 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
+from app.purchase_invoice.models import (
+    PurchaseInvoice,
+    PurchaseInvoiceLine,
+)
+from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -443,10 +450,14 @@ class GoodsReceiptService(TransactionalDocumentService):
             GoodsReceiptStatus.CLOSED.value,
         }:
             return row
+        self._assert_receipt_cancellable(row, firm_scope=firm_scope)
         before = row.status
         reversed_lines = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
         )
+        # The stock is back off the shelf; take the journal off the books too,
+        # or the ledger keeps a debit for goods the firm no longer holds.
+        self._reverse_receipt_journal(row, firm_scope=firm_scope, actor_id=actor_id)
         row.status = GoodsReceiptStatus.CANCELLED.value
         # Flushed before the order is resynced so this receipt has already
         # stopped being COMPLETED and drops out of its own total. Cancelling
@@ -510,6 +521,84 @@ class GoodsReceiptService(TransactionalDocumentService):
             return ZERO
         net = self._q(line.net_amount - line.tax_amount)
         return net / received
+
+    def _assert_receipt_cancellable(
+        self, receipt: GoodsReceipt, *, firm_scope: UUID
+    ) -> None:
+        """Refuse to cancel a receipt a supplier has already billed for.
+
+        The accounting cannot be unwound from here. Receiving posted
+        `Dr Inventory / Cr goods received not invoiced`; approving the invoice
+        cleared that accrual and raised a payable. Reversing the receipt now
+        would debit the accrual a second time and leave it with a balance
+        nobody can explain, while the payable stayed exactly where it was.
+
+        Handing goods back after they have been invoiced is a purchase return,
+        which credits the supplier as well as taking the stock off. Cancel the
+        invoice first if it was the invoice that was wrong.
+        """
+        billed = self._session.scalar(
+            select(PurchaseInvoiceLine.id)
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoiceLine.source_document_id == receipt.id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoice.firm_id == firm_scope,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
+            )
+            .limit(1)
+        )
+        if billed is None:
+            return
+        raise ValidationError(
+            f"Goods receipt {receipt.grn_number} has been invoiced, so "
+            "cancelling it would leave the accrual and the payable "
+            "disagreeing. Cancel the purchase invoice first, or raise a "
+            "purchase return."
+        )
+
+    def _reverse_receipt_journal(
+        self, receipt: GoodsReceipt, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Cancel the journal completing this receipt wrote, if it wrote one.
+
+        `_reverse_inventory` put the stock back and nothing put the ledger
+        back: `post_goods_receipt` had exactly one caller, on the complete
+        path, and `reverse_entry` was never called for a receipt. So the
+        general ledger's inventory balance drifted **above** the warehouse by
+        the value of every cancelled receipt, and goods received not invoiced
+        carried a liability for goods that had gone back. Neither self-corrects
+        and the two ledgers cannot be reconciled afterwards.
+
+        `reversal_of_id IS NULL` matters: `reverse_entry` copies the source
+        module and id onto the mirror it posts, so without it a second pass
+        would find that mirror -- itself POSTED -- and reverse the reversal.
+        """
+        entry_id = self._session.scalar(
+            select(JournalEntry.id).where(
+                JournalEntry.firm_id == firm_scope,
+                JournalEntry.source_module == "goods_receipt",
+                JournalEntry.source_id == receipt.id,
+                JournalEntry.status == JournalStatus.POSTED.value,
+                JournalEntry.reversal_of_id.is_(None),
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if entry_id is None:
+            # A receipt cancelled before it was completed posted nothing, and
+            # a firm that received stock before posting existed has no entry
+            # to take back either.
+            return
+        JournalEntryEngine(self._session).reverse_entry(
+            entry_id,
+            firm_id=firm_scope,
+            reference_number=f"{receipt.grn_number}-REV",
+            actor_id=actor_id,
+        )
 
     def _reverse_inventory(
         self,

@@ -422,6 +422,21 @@ merging, so a test left half-finished looks exactly like a defect next time.
 | 8.108 | The hierarchy settings are enforced | Turn on each of the four settings (multi-route per salesman, multi-salesman per route, leaf-only customers, max nodes per parent) and breach each in turn | Each refusal names the rule it broke. All four were stored and checked nowhere |
 | 8.109 | A customer shows the rounds that call them | Open a customer who is on two routes | Both routes listed with this customer's stop number on each. Exactly one is primary — see §12 |
 
+### 8.123–126 Cancelling a receipt puts the ledger back too
+
+Added 2026-08-18. Until then cancelling a completed goods receipt took the
+stock back off and left the journal posted, so the general ledger's inventory
+balance drifted above the warehouse by the value of every cancelled receipt.
+Nothing in the desktop showed it; it was found by driving the API and reading
+the journals.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.123 | Stock and ledger move together | Receive an order in full, complete the receipt, note the stock figure and the journal | `Dr Inventory / Cr Goods Received Not Invoiced`, at cost and excluding tax |
+| 8.124 | **Cancelling reverses both** | Cancel that receipt | Stock returns to what it was **and** a second journal appears — the original reads REVERSED, the mirror POSTED, and every account nets to zero across the pair |
+| 8.125 | Cancelling twice changes nothing further | Cancel the same receipt again | Still exactly two journal entries. The mirror carries the same source ids as the original, so a careless lookup would reverse the reversal |
+| 8.126 | **An invoiced receipt is refused** | Receive, complete, raise and approve a purchase invoice against it, then cancel the receipt | 422 naming the invoice. Stock unchanged, still one journal. Cancel the invoice first, or raise a purchase return — a return credits the supplier, which cancelling the receipt never could |
+
 ### 8.117–122 An edit cannot rewrite an order's status
 
 Added 2026-08-18, after driving the API and finding three ways the approval
