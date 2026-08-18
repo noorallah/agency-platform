@@ -16,6 +16,12 @@ void main() {
   testWidgets('delivery note workspace renders without an active firm', (
     tester,
   ) async {
+    // The supported minimum. At the 800x600 default the six summary cards and
+    // the workspace beneath them do not fit, and an overflow fails the test.
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     final Directory temp =
         Directory.systemTemp.createTempSync('delivery-note-workspace-test');
     final DesktopPreferencesService preferences =
@@ -45,7 +51,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Delivery Notes'), findsWidgets);
-    expect(find.text('Manage dispatches, reservation release, and inventory deduction.'), findsOneWidget);
+    // Plainer than "reservation release and inventory deduction", and it
+    // names the step that actually moves stock.
+    expect(
+      find.textContaining('Dispatching a note is what moves the stock'),
+      findsOneWidget,
+    );
   });
 }
 

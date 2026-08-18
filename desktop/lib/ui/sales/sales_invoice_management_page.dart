@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_notice.dart';
 
@@ -41,7 +42,6 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
   String? _error;
   List<Map<String, dynamic>> _invoices = const [];
   Map<String, dynamic>? _selected;
-  final List<DocumentTimelineSnapshot> _history = const [];
   Map<String, dynamic> _summary = const {};
 
   @override
@@ -189,189 +189,222 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         amount: '${invoice['grand_total'] ?? '0'}',
       );
 
-  @override
-  Widget build(BuildContext context) {
-    final Map<String, dynamic>? selected = _selected;
-    final DocumentHeaderSnapshot header = selected == null
-        ? const DocumentHeaderSnapshot(documentTypeCode: 'SALES_INVOICE', documentTypeName: 'Sales Invoice', documentNumber: '-', documentDate: '-', status: 'DRAFT')
-        : DocumentHeaderSnapshot(
-            documentTypeCode: 'SALES_INVOICE',
-            documentTypeName: 'Sales Invoice',
-            documentNumber: '${selected['invoice_number'] ?? '-'}',
-            documentDate: '${selected['invoice_date'] ?? '-'}',
-            status: '${selected['status'] ?? 'DRAFT'}',
-            reference: (selected['reference_number'] as String?) ?? '',
-            remarks: (selected['remarks'] as String?) ?? '',
-          );
-    final DocumentTotalsSnapshot totals = DocumentTotalsSnapshot(
-      subtotal: '${selected?['subtotal'] ?? '0'}',
-      discount: '${selected?['line_discount_total'] ?? '0'}',
-      tax: '${selected?['tax_total'] ?? '0'}',
-      charges: '${selected?['additional_charges'] ?? '0'}',
-      roundOff: '${selected?['round_off'] ?? '0'}',
-      grandTotal: '${selected?['grand_total'] ?? '0'}',
-    );
-    final List<DocumentLineSnapshot> lines = selected == null
-        ? const []
-        : ((selected['lines'] as List?) ?? const []).whereType<Map>().map((row) {
-            final Map<String, dynamic> item = Map<String, dynamic>.from(row);
-            return DocumentLineSnapshot(
-              lineNumber: (item['line_number'] as num?)?.toInt() ?? 0,
-              product: '${item['product_id'] ?? ''}',
-              description: (item['description'] as String?) ?? '',
-              uom: '${item['invoice_uom_id'] ?? ''}',
-              quantity: '${item['current_invoice_quantity'] ?? '0'}',
-              freeQuantity: '${item['free_quantity'] ?? '0'}',
-              unitPrice: '${item['unit_price'] ?? '0'}',
-              discount: '${item['discount_amount'] ?? '0'}',
-              taxProfile: '${item['tax_profile_id'] ?? ''}',
-              amount: '${item['gross_amount'] ?? '0'}',
-              netAmount: '${item['net_amount'] ?? '0'}',
-              remarks: 'Delivered: ${item['delivered_quantity'] ?? '0'} ${item['remarks'] ?? ''}',
-            );
-          }).toList(growable: false);
+  DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
+      DocumentHeaderSnapshot(
+        documentTypeCode: 'SALES_INVOICE',
+        documentTypeName: 'Sales Invoice',
+        documentNumber: '${row['invoice_number'] ?? '-'}',
+        documentDate: '${row['invoice_date'] ?? '-'}',
+        status: '${row['status'] ?? 'DRAFT'}',
+        reference: (row['reference_number'] as String?) ?? '',
+        remarks: (row['remarks'] as String?) ?? '',
+      );
 
-    return EnterpriseWorkspace(
-      title: 'Sales Invoices',
-      description: 'Manage customer invoices and track accounts receivable.',
-      breadcrumbs: const ['Workspace', 'Sales Invoices'],
-      content: Column(
-        children: [
-          if (_loading) const LinearProgressIndicator(minHeight: 2),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-            child: SummaryCards(children: [
-              _card('Total', '${_summary['total'] ?? 0}'),
-              _card('Draft', '${_summary['draft'] ?? 0}'),
-              _card('Approved', '${_summary['approved'] ?? 0}'),
-              _card('Pending', '${_summary['pending_invoices'] ?? 0}'),
-              _card('Overdue', '${_summary['overdue_invoices'] ?? 0}'),
-            ]),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Card(
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: TextField(
-                              controller: _search,
-                              decoration: const InputDecoration(labelText: 'Search sales invoices', prefixIcon: Icon(Icons.search)),
-                              onSubmitted: (_) => _load(),
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _invoices.length,
-                              separatorBuilder: (_, __) => const Divider(height: 1),
-                              itemBuilder: (context, index) {
-                                final Map<String, dynamic> row = _invoices[index];
-                                return ListTile(
-                                  selected: _selected?['id'] == row['id'],
-                                  title: Text('${row['invoice_number'] ?? '-'}'),
-                                  subtitle: Text('${row['invoice_date'] ?? '-'} • ${row['status'] ?? ''}'),
-                                  trailing: Text('${row['grand_total'] ?? '0'}'),
-                                  onTap: () async {
-                                    setState(() => _selected = row);
-                                    await _load();
-                                  },
-                                );
-                              },
-                            ),
-                          ),
-                          WorkspacePager(
-                            page: _page,
-                            pageSize: _rowsPerPage,
-                            total: _total,
-                            onPageChanged: (next) =>
-                                _load(requestedPage: next),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 4,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          EnterpriseDocumentToolbar(
-                            actions: const [
-                              DocumentToolbarAction.newDocument,
-                              DocumentToolbarAction.printDocument,
-                              DocumentToolbarAction.exportDocument,
-                              DocumentToolbarAction.emailDocument,
-                              DocumentToolbarAction.approve,
-                              DocumentToolbarAction.cancel,
-                              DocumentToolbarAction.close,
-                            ],
-                            isEnabled: (action) =>
-                                selected != null &&
-                                _mayRun(action) &&
-                                _statusAllows(action, selected['status'] as String?),
-                            onAction: (action) async {
-                              if (selected == null) return;
-                              try {
-                                switch (action) {
-                                  case DocumentToolbarAction.approve:
-                                    await _warnOnCredit(selected);
-                                    await _act('/approve');
-                                    break;
-                                  case DocumentToolbarAction.cancel:
-                                    await _act('/cancel');
-                                    break;
-                                  case DocumentToolbarAction.close:
-                                    await _act('/close');
-                                    break;
-                                  default:
-                                    if (mounted) {
-                                      // ignore: use_build_context_synchronously
-                                      NotificationService.show(context, 'Placeholder action for sales invoices.', kind: AppNotificationKind.information);
-                                    }
-                                }
-                              } on ApiException catch (error) {
-                                if (mounted) {
-                                  // ignore: use_build_context_synchronously
-                                  NotificationService.show(context, error.message, kind: AppNotificationKind.error);
-                                }
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentHeader(header: header),
-                          const SizedBox(height: 12),
-                          EnterpriseDocumentLines(lines: lines),
-                          const SizedBox(height: 12),
-                          EnterpriseTotalsPanel(totals: totals),
-                          const SizedBox(height: 12),
-                          EnterpriseTimeline(entries: _history),
-                          const SizedBox(height: 12),
-                          EnterpriseApprovalPanel(status: header.status, message: 'Approval workflow placeholder.'),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            ),
-        ],
+  DocumentTotalsSnapshot _totalsFor(Map<String, dynamic> row) =>
+      DocumentTotalsSnapshot(
+        subtotal: '${row['subtotal'] ?? '0'}',
+        discount: '${row['line_discount_total'] ?? '0'}',
+        tax: '${row['tax_total'] ?? '0'}',
+        charges: '${row['additional_charges'] ?? '0'}',
+        roundOff: '${row['round_off'] ?? '0'}',
+        grandTotal: '${row['grand_total'] ?? '0'}',
+      );
+
+  List<DocumentLineSnapshot> _linesFor(Map<String, dynamic> row) =>
+      ((row['lines'] as List?) ?? const []).whereType<Map>().map((line) {
+        final Map<String, dynamic> item = Map<String, dynamic>.from(line);
+        return DocumentLineSnapshot(
+          lineNumber: (item['line_number'] as num?)?.toInt() ?? 0,
+          product: '${item['product_id'] ?? ''}',
+          description: (item['description'] as String?) ?? '',
+          uom: '${item['invoice_uom_id'] ?? ''}',
+          packaging: '${item['packaging_type_id'] ?? ''}',
+          quantity: '${item['current_invoice_quantity'] ?? '0'}',
+          unitPrice: '${item['unit_price'] ?? '0'}',
+          discount: '${item['discount_amount'] ?? '0'}',
+          taxProfile: '${item['tax_profile_id'] ?? ''}',
+          amount: '${item['gross_amount'] ?? '0'}',
+          netAmount: '${item['net_amount'] ?? '0'}',
+          remarks: (item['remarks'] as String?) ?? '',
+        );
+      }).toList(growable: false);
+
+  /// Select a row. Selecting no longer costs a request.
+  void _selectInvoice(Map<String, dynamic> row) {
+    setState(() => _selected = row);
+  }
+
+  /// Show one invoice: header, lines, totals and timeline.
+  Future<void> _openInvoice(Map<String, dynamic> row) async {
+    setState(() => _selected = row);
+    List<DocumentTimelineSnapshot> history = const [];
+    try {
+      final Map<String, dynamic> timeline = _unwrap(
+        await widget.api.documentHistory('sales-invoices', row['id']),
+      );
+      history = ((timeline['data'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) =>
+              DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false);
+    } on ApiException {
+      history = const [];
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => DocumentViewDialog(
+        title: '${row['invoice_number'] ?? '-'}',
+        subtitle: 'Sales invoice dated ${row['invoice_date'] ?? '-'}',
+        icon: Icons.receipt_long_outlined,
+        header: _headerFor(row),
+        lines: _linesFor(row),
+        totals: _totalsFor(row),
+        history: history,
       ),
     );
   }
+
+  /// Run a lifecycle action, warning first where the firm's credit policy
+  /// says to.
+  ///
+  /// Before the approval, not after: the document has to be counted once in
+  /// the exposure it is being checked against. A warning and never a block --
+  /// the server refuses when the policy says Block.
+  Future<void> _run(DocumentToolbarAction action, String suffix) async {
+    final Map<String, dynamic>? selected = _selected;
+    if (selected == null) return;
+    if (action == DocumentToolbarAction.approve) {
+      await _warnOnCredit(selected);
+    }
+    await _act(suffix);
+  }
+
+  @override
+  Widget build(BuildContext context) => EnterpriseWorkspace(
+        title: 'Sales Invoices',
+        description:
+            'Manage customer invoices, receivables, and accounting events.',
+        breadcrumbs: const ['Workspace', 'Sales Invoices'],
+        content: Column(
+          children: [
+            if (_loading) const LinearProgressIndicator(minHeight: 2),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              child: SummaryCards(children: [
+                _card('Total', '${_summary['total'] ?? 0}'),
+                _card('Draft', '${_summary['draft'] ?? 0}'),
+                _card('Approved', '${_summary['approved'] ?? 0}'),
+                _card('Pending', '${_summary['pending_invoices'] ?? 0}'),
+                _card('Overdue', '${_summary['overdue_invoices'] ?? 0}'),
+              ]),
+            ),
+            // Bounded, so the layout below has a height to divide.
+            Expanded(child: _buildGridWorkspace()),
+          ],
+        ),
+      );
+
+  Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
+        toolbar: _buildToolbar(),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search invoice number, reference...',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+        primaryContent: !widget.hasActiveFirm
+            ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
+            : _error != null && !_loading
+                ? WorkspaceEmptyState(
+                    title: 'Sales invoices unavailable',
+                    message: _error!,
+                  )
+                : _invoices.isEmpty && !_loading
+                    ? StandardEmptyState(
+                        type: _search.text.trim().isEmpty
+                            ? EmptyStateType.noRecords
+                            : EmptyStateType.noSearchResults,
+                      )
+                    : _buildInvoiceGrid(),
+        // No side pane. It sat at `flex: 4` against a `flex: 3` list.
+        detailsPanel: null,
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: _selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      );
+
+  Widget _buildToolbar() => WorkspaceToolbar(
+        actions: const [ToolbarAction.view, ToolbarAction.refresh],
+        isEnabled: (action) =>
+            !_loading &&
+            switch (action) {
+              ToolbarAction.view => _selected != null,
+              ToolbarAction.refresh => true,
+              _ => false,
+            },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.view:
+              final Map<String, dynamic>? selected = _selected;
+              if (selected != null) unawaited(_openInvoice(selected));
+            case ToolbarAction.refresh:
+              unawaited(_load());
+            default:
+              break;
+          }
+        },
+        trailing: [
+          _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _actionButton(DocumentToolbarAction.cancel, '/cancel'),
+          _actionButton(DocumentToolbarAction.close, '/close'),
+        ],
+      );
+
+  /// A lifecycle button, disabled unless permission **and** the selected
+  /// invoice's status allow it.
+  Widget _actionButton(DocumentToolbarAction action, String suffix) => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _selected == null ||
+                  !_mayRun(action) ||
+                  !_statusAllows(action, _selected?['status'] as String?)
+              ? null
+              : () => unawaited(_run(action, suffix)),
+          icon: Icon(action.icon, size: 18),
+          label: Text(action.label),
+        ),
+      );
+
+  Widget _buildInvoiceGrid() => EnterpriseDataGrid<Map<String, dynamic>>(
+        columns: const [
+          GridColumn(key: 'number', label: 'Invoice Number'),
+          GridColumn(key: 'date', label: 'Invoice Date'),
+          GridColumn(key: 'reference', label: 'Reference'),
+          GridColumn(key: 'status', label: 'Status'),
+          GridColumn(key: 'total', label: 'Grand Total'),
+        ],
+        items: _invoices,
+        id: (item) => '${item['id']}',
+        selectedId: _selected == null ? null : '${_selected!['id']}',
+        cells: (item) => [
+          '${item['invoice_number'] ?? '-'}',
+          '${item['invoice_date'] ?? '-'}',
+          '${item['reference_number'] ?? ''}',
+          '${item['status'] ?? ''}',
+          '${item['grand_total'] ?? '0'}',
+        ],
+        onSelect: _selectInvoice,
+        onOpen: (item) => unawaited(_openInvoice(item)),
+        total: _total,
+        pageOffset: (_page - 1) * _rowsPerPage,
+        rowsPerPage: _rowsPerPage,
+        onPageChanged: (offset) {
+          final int next = offset ~/ _rowsPerPage + 1;
+          if (next != _page) _load(requestedPage: next);
+        },
+      );
 
   Widget _card(String label, String value) => Card(
         child: Padding(
