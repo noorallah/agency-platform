@@ -416,6 +416,28 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     for (final VendorAddress row in widget.vendor?.addresses ?? const [])
       _EditableAddress.from(row),
   ];
+
+  /// The four collections this dialog used to show a sentence about.
+  ///
+  /// Every one of them round-trips through the API and could only be filled
+  /// by import or by calling it directly: the tabs said "bank details are
+  /// supported with primary flag" and offered no field to type one into.
+  late final List<_EditableContact> _contacts = <_EditableContact>[
+    for (final VendorContact row in widget.vendor?.contacts ?? const [])
+      _EditableContact.from(row),
+  ];
+  late final List<_EditableBank> _banks = <_EditableBank>[
+    for (final VendorBankAccount row in widget.vendor?.bankAccounts ?? const [])
+      _EditableBank.from(row),
+  ];
+  late final List<_EditableTax> _taxes = <_EditableTax>[
+    for (final VendorTaxDetail row in widget.vendor?.taxDetails ?? const [])
+      _EditableTax.from(row),
+  ];
+  late final List<_EditableNote> _notes = <_EditableNote>[
+    for (final VendorNote row in widget.vendor?.notes ?? const [])
+      _EditableNote.from(row),
+  ];
   late final TextEditingController _code =
       TextEditingController(text: widget.vendor?.code ?? '');
   late final TextEditingController _name =
@@ -450,6 +472,18 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
 
   @override
   void dispose() {
+    for (final row in _contacts) {
+      row.dispose();
+    }
+    for (final row in _banks) {
+      row.dispose();
+    }
+    for (final row in _taxes) {
+      row.dispose();
+    }
+    for (final row in _notes) {
+      row.dispose();
+    }
     _tabs.dispose();
     _code.dispose();
     _name.dispose();
@@ -491,17 +525,11 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   controller: _tabs,
                   children: [
                     _generalTab(),
-                    const _PlaceholderTab(
-                        label: 'Contacts are managed in API payload.'),
+                    _contactsTab(),
                     _addressTab(),
-                    const _PlaceholderTab(
-                        label: 'Bank details are supported with primary flag.'),
-                    const _PlaceholderTab(
-                        label:
-                            'Tax details support GST, PAN, TAN, FSSAI and profile fields.'),
-                    const _PlaceholderTab(
-                        label:
-                            'Notes and history are persisted as vendor notes.'),
+                    _bankTab(),
+                    _taxTab(),
+                    _notesTab(),
                   ],
                 ),
               ),
@@ -579,6 +607,266 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           const SizedBox(height: 12),
           _field(_remarks, 'Remarks', maxLines: 3),
         ],
+      );
+
+  /// A card list with an Add button, shared by the four collection tabs.
+  ///
+  /// Same shape as the address tab above it: the count, an Add, and one card
+  /// per row that can be removed. Written once because four near-identical
+  /// hand-rolled copies is how the "Primary" rule ends up meaning something
+  /// different on each tab.
+  Widget _collectionTab({
+    required String noun,
+    required int count,
+    required String emptyMessage,
+    required VoidCallback onAdd,
+    required Widget Function(int index) card,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(count == 0 ? 'No $noun yet' : '$count $noun'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => setState(onAdd),
+                  icon: const Icon(Icons.add),
+                  label: Text('Add $noun'),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: count == 0
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(emptyMessage, textAlign: TextAlign.center),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: count,
+                    itemBuilder: (context, index) => Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: card(index),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      );
+
+  /// One "Primary" checkbox that demotes the rest.
+  ///
+  /// The API keeps one primary per collection, so the choice is made here
+  /// rather than letting the save be refused for a rule the form knows.
+  Widget _primaryBox({
+    required bool value,
+    required VoidCallback demoteOthers,
+    required ValueChanged<bool> onChanged,
+  }) =>
+      CheckboxListTile(
+        contentPadding: EdgeInsets.zero,
+        value: value,
+        title: const Text('Primary'),
+        onChanged: (next) => setState(() {
+          demoteOthers();
+          onChanged(next ?? false);
+        }),
+      );
+
+  Widget _removeButton(String tooltip, VoidCallback onRemove) => IconButton(
+        tooltip: tooltip,
+        onPressed: () => setState(onRemove),
+        icon: const Icon(Icons.delete_outline),
+      );
+
+  Widget _contactsTab() => _collectionTab(
+        noun: 'contact(s)',
+        count: _contacts.length,
+        emptyMessage: 'Who to call at this vendor. One contact can be marked '
+            'primary; the rest stay on the record.',
+        onAdd: () => _contacts.add(_EditableContact.empty()),
+        card: (index) {
+          final _EditableContact row = _contacts[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Expanded(child: _field(row.name, 'Name')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.designation, 'Designation')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.department, 'Department')),
+                _removeButton(
+                  'Remove contact',
+                  () => _contacts.removeAt(index),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(
+                  child: _field(row.phone, 'Phone', helper: phoneHelperText),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _field(row.mobile, 'Mobile', helper: phoneHelperText),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.email, 'Email')),
+              ]),
+              _primaryBox(
+                value: row.isPrimary,
+                demoteOthers: () {
+                  for (final other in _contacts) {
+                    other.isPrimary = false;
+                  }
+                },
+                onChanged: (next) => row.isPrimary = next,
+              ),
+            ],
+          );
+        },
+      );
+
+  Widget _bankTab() => _collectionTab(
+        noun: 'account(s)',
+        count: _banks.length,
+        emptyMessage: 'Where this vendor is paid. The primary account is what '
+            'a payment defaults to.',
+        onAdd: () => _banks.add(_EditableBank.empty()),
+        card: (index) {
+          final _EditableBank row = _banks[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Expanded(child: _field(row.bankName, 'Bank')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.accountName, 'Account name')),
+                _removeButton('Remove account', () => _banks.removeAt(index)),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _field(row.accountNumber, 'Account number')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.ifsc, 'IFSC')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.branch, 'Branch')),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _field(row.upiId, 'UPI id')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.swiftCode, 'SWIFT')),
+              ]),
+              _primaryBox(
+                value: row.isPrimary,
+                demoteOthers: () {
+                  for (final other in _banks) {
+                    other.isPrimary = false;
+                  }
+                },
+                onChanged: (next) => row.isPrimary = next,
+              ),
+            ],
+          );
+        },
+      );
+
+  Widget _taxTab() => _collectionTab(
+        noun: 'registration(s)',
+        count: _taxes.length,
+        emptyMessage: 'The registrations this vendor trades under. One selling '
+            'from two states has two GSTINs, and only one of them is primary.',
+        onAdd: () => _taxes.add(_EditableTax.empty()),
+        card: (index) {
+          final _EditableTax row = _taxes[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Expanded(child: _field(row.gstin, 'GSTIN')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.pan, 'PAN')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.tan, 'TAN')),
+                _removeButton(
+                  'Remove registration',
+                  () => _taxes.removeAt(index),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: _field(row.fssai, 'FSSAI')),
+                const SizedBox(width: 12),
+                Expanded(child: _field(row.drugLicense, 'Drug licence')),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _field(row.importExportCode, 'Import/export code'),
+                ),
+              ]),
+              _primaryBox(
+                value: row.isPrimary,
+                demoteOthers: () {
+                  for (final other in _taxes) {
+                    other.isPrimary = false;
+                  }
+                },
+                onChanged: (next) => row.isPrimary = next,
+              ),
+            ],
+          );
+        },
+      );
+
+  Widget _notesTab() => _collectionTab(
+        noun: 'note(s)',
+        count: _notes.length,
+        emptyMessage: 'What somebody needs to know before dealing with this '
+            'vendor. Notes sit on the record; the audit trail is separate.',
+        onAdd: () => _notes.add(_EditableNote.empty()),
+        card: (index) {
+          final _EditableNote row = _notes[index];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                SizedBox(
+                  width: 200,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: row.noteType,
+                    decoration: const InputDecoration(labelText: 'Type'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'GENERAL', child: Text('General')),
+                      DropdownMenuItem(
+                          value: 'PAYMENT', child: Text('Payment')),
+                      DropdownMenuItem(
+                          value: 'QUALITY', child: Text('Quality')),
+                      DropdownMenuItem(
+                          value: 'DELIVERY', child: Text('Delivery')),
+                    ],
+                    onChanged: (value) => setState(
+                      () => row.noteType = value ?? 'GENERAL',
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                _removeButton('Remove note', () => _notes.removeAt(index)),
+              ]),
+              const SizedBox(height: 8),
+              _field(row.note, 'Note', maxLines: 3),
+            ],
+          );
+        },
       );
 
   Widget _field(TextEditingController controller, String label,
@@ -739,29 +1027,278 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'mobile': _mobile.text.trim(),
         'remarks': _remarks.text.trim(),
         'business_attributes': const <String, dynamic>{},
-        // Addresses are edited here, so they are sent. The other five
-        // collections are deliberately **absent**, not empty: this dialog does
-        // not edit them, the API replaces rather than merges, and sending `[]`
-        // destroyed a vendor's contacts, bank accounts, tax details,
-        // attachments and notes every time somebody corrected a phone number.
-        // Omitting them means "leave them alone".
+        // Five of the six collections are edited here, so they are sent --
+        // the API replaces rather than merges, and what is on screen is the
+        // record. `attachments` stays **absent**, not empty: nothing in this
+        // client uploads a file, and sending `[]` for a collection the dialog
+        // cannot edit is what destroyed a vendor's addresses, contacts, bank
+        // accounts, tax details and notes every time somebody corrected a
+        // phone number. Absent means leave them alone.
         'addresses': [for (final row in _addresses) row.toJson()],
+        'contacts': [for (final row in _contacts) row.toJson()],
+        // The write schema names these `banking` and `tax`; the response
+        // calls the same collections `bank_accounts` and `tax_details`. The
+        // schema forbids extra fields, so sending the response's names is a
+        // 422 rather than a silent no-op -- which is the better failure, and
+        // still one worth not shipping.
+        'banking': [for (final row in _banks) row.toJson()],
+        'tax': [for (final row in _taxes) row.toJson()],
+        'notes': [for (final row in _notes) row.toJson()],
       };
 }
 
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({required this.label});
+/// One vendor contact while it is being edited.
+class _EditableContact {
+  _EditableContact({
+    required this.id,
+    required this.name,
+    required this.department,
+    required this.designation,
+    required this.phone,
+    required this.mobile,
+    required this.email,
+    required this.isPrimary,
+    required this.status,
+  });
 
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => Center(
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
+  factory _EditableContact.from(VendorContact row) => _EditableContact(
+        id: row.id,
+        name: TextEditingController(text: row.name),
+        department: TextEditingController(text: row.department),
+        designation: TextEditingController(text: row.designation),
+        phone: TextEditingController(text: row.phone),
+        mobile: TextEditingController(text: row.mobile),
+        email: TextEditingController(text: row.email),
+        isPrimary: row.isPrimary,
+        status: row.status.isEmpty ? 'ACTIVE' : row.status,
       );
+
+  factory _EditableContact.empty() => _EditableContact(
+        id: '',
+        name: TextEditingController(),
+        department: TextEditingController(),
+        designation: TextEditingController(),
+        phone: TextEditingController(),
+        mobile: TextEditingController(),
+        email: TextEditingController(),
+        isPrimary: false,
+        status: 'ACTIVE',
+      );
+
+  /// Empty while the row is new. Sent back so the server reconciles the row
+  /// rather than replacing it, which would lose what it is referenced by.
+  final String id;
+  final TextEditingController name;
+  final TextEditingController department;
+  final TextEditingController designation;
+  final TextEditingController phone;
+  final TextEditingController mobile;
+  final TextEditingController email;
+  bool isPrimary;
+  String status;
+
+  void dispose() {
+    name.dispose();
+    department.dispose();
+    designation.dispose();
+    phone.dispose();
+    mobile.dispose();
+    email.dispose();
+  }
+
+  Json toJson() => <String, dynamic>{
+        if (id.isNotEmpty) 'id': id,
+        'name': name.text.trim(),
+        'department': _orNull(department),
+        'designation': _orNull(designation),
+        'phone': _orNull(phone),
+        'mobile': _orNull(mobile),
+        'email': _orNull(email),
+        'is_primary': isPrimary,
+        'status': status,
+      };
+}
+
+/// One vendor bank account while it is being edited.
+class _EditableBank {
+  _EditableBank({
+    required this.id,
+    required this.bankName,
+    required this.accountName,
+    required this.accountNumber,
+    required this.ifsc,
+    required this.branch,
+    required this.upiId,
+    required this.swiftCode,
+    required this.isPrimary,
+  });
+
+  factory _EditableBank.from(VendorBankAccount row) => _EditableBank(
+        id: row.id,
+        bankName: TextEditingController(text: row.bankName),
+        accountName: TextEditingController(text: row.accountName),
+        accountNumber: TextEditingController(text: row.accountNumber),
+        ifsc: TextEditingController(text: row.ifsc),
+        branch: TextEditingController(text: row.branch),
+        upiId: TextEditingController(text: row.upiId),
+        swiftCode: TextEditingController(text: row.swiftCode),
+        isPrimary: row.isPrimary,
+      );
+
+  factory _EditableBank.empty() => _EditableBank(
+        id: '',
+        bankName: TextEditingController(),
+        accountName: TextEditingController(),
+        accountNumber: TextEditingController(),
+        ifsc: TextEditingController(),
+        branch: TextEditingController(),
+        upiId: TextEditingController(),
+        swiftCode: TextEditingController(),
+        isPrimary: false,
+      );
+
+  final String id;
+  final TextEditingController bankName;
+  final TextEditingController accountName;
+  final TextEditingController accountNumber;
+  final TextEditingController ifsc;
+  final TextEditingController branch;
+  final TextEditingController upiId;
+  final TextEditingController swiftCode;
+  bool isPrimary;
+
+  void dispose() {
+    bankName.dispose();
+    accountName.dispose();
+    accountNumber.dispose();
+    ifsc.dispose();
+    branch.dispose();
+    upiId.dispose();
+    swiftCode.dispose();
+  }
+
+  Json toJson() => <String, dynamic>{
+        if (id.isNotEmpty) 'id': id,
+        'bank_name': bankName.text.trim(),
+        'account_name': accountName.text.trim(),
+        'account_number': accountNumber.text.trim(),
+        // Upper-cased server-side too; doing it here keeps what was typed and
+        // what was stored the same thing on screen.
+        'ifsc': _orNull(ifsc, upper: true),
+        'branch': _orNull(branch),
+        'upi_id': _orNull(upiId),
+        'swift_code': _orNull(swiftCode, upper: true),
+        'is_primary': isPrimary,
+      };
+}
+
+/// One vendor tax registration while it is being edited.
+class _EditableTax {
+  _EditableTax({
+    required this.id,
+    required this.gstin,
+    required this.pan,
+    required this.tan,
+    required this.fssai,
+    required this.drugLicense,
+    required this.importExportCode,
+    required this.isPrimary,
+  });
+
+  factory _EditableTax.from(VendorTaxDetail row) => _EditableTax(
+        id: row.id,
+        gstin: TextEditingController(text: row.gstin),
+        pan: TextEditingController(text: row.pan),
+        tan: TextEditingController(text: row.tan),
+        fssai: TextEditingController(text: row.fssai),
+        drugLicense: TextEditingController(text: row.drugLicense),
+        importExportCode: TextEditingController(text: row.importExportCode),
+        isPrimary: row.isPrimary,
+      );
+
+  factory _EditableTax.empty() => _EditableTax(
+        id: '',
+        gstin: TextEditingController(),
+        pan: TextEditingController(),
+        tan: TextEditingController(),
+        fssai: TextEditingController(),
+        drugLicense: TextEditingController(),
+        importExportCode: TextEditingController(),
+        isPrimary: false,
+      );
+
+  final String id;
+  final TextEditingController gstin;
+  final TextEditingController pan;
+  final TextEditingController tan;
+  final TextEditingController fssai;
+  final TextEditingController drugLicense;
+  final TextEditingController importExportCode;
+  bool isPrimary;
+
+  void dispose() {
+    gstin.dispose();
+    pan.dispose();
+    tan.dispose();
+    fssai.dispose();
+    drugLicense.dispose();
+    importExportCode.dispose();
+  }
+
+  Json toJson() => <String, dynamic>{
+        if (id.isNotEmpty) 'id': id,
+        'gstin': _orNull(gstin, upper: true),
+        'pan': _orNull(pan, upper: true),
+        'tan': _orNull(tan, upper: true),
+        'fssai': _orNull(fssai, upper: true),
+        'drug_license': _orNull(drugLicense, upper: true),
+        'import_export_code': _orNull(importExportCode, upper: true),
+        'is_primary': isPrimary,
+      };
+}
+
+/// One vendor note while it is being edited.
+class _EditableNote {
+  _EditableNote({
+    required this.id,
+    required this.note,
+    required this.noteType,
+  });
+
+  factory _EditableNote.from(VendorNote row) => _EditableNote(
+        id: row.id,
+        note: TextEditingController(text: row.note),
+        noteType: row.noteType.isEmpty ? 'GENERAL' : row.noteType,
+      );
+
+  factory _EditableNote.empty() => _EditableNote(
+        id: '',
+        note: TextEditingController(),
+        noteType: 'GENERAL',
+      );
+
+  final String id;
+  final TextEditingController note;
+  String noteType;
+
+  void dispose() => note.dispose();
+
+  Json toJson() => <String, dynamic>{
+        if (id.isNotEmpty) 'id': id,
+        'note': note.text.trim(),
+        'note_type': noteType,
+      };
+}
+
+/// The trimmed text, or null when the field was left blank.
+///
+/// The API's optional strings are nullable and length-capped; sending an empty
+/// string where it expects null or a real value is how a "required" validator
+/// ends up refusing a row nobody filled in.
+String? _orNull(TextEditingController controller, {bool upper = false}) {
+  final String value = controller.text.trim();
+  if (value.isEmpty) return null;
+  return upper ? value.toUpperCase() : value;
 }
 
 /// One vendor address while it is being edited.
