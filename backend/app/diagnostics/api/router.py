@@ -15,9 +15,10 @@ so nothing is lost by requiring a caller we can name.
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy.orm import Session
 
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -73,8 +74,11 @@ def report_client_errors(
 @router.get("/errors", response_model=PaginatedResponse[ErrorReportGroupResponse])
 def list_error_groups(
     principal: DiagnosticsViewPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    # Bounded on the parameter, not by constructing PaginationParams in the
+    # body: the model enforces the same ceiling, but a violation raised after
+    # routing surfaces as a 500 rather than a 422 naming the limit.
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     source: Literal["CLIENT", "SERVER"] | None = None,
     db: Session = Depends(get_db),

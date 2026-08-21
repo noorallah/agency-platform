@@ -5,12 +5,15 @@ import '../../core/security/permission_service.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'audit_log_page.dart';
+import 'diagnostics_page.dart';
 
 /// The settings workspace.
 ///
-/// One tab is real. The audit trail has been written by every mutation since
-/// the platform started -- and enforced append-only by a database trigger in
-/// every store -- with nothing in the client able to read it.
+/// Two tabs are real, and both exist because the server had been recording
+/// something nothing could read: the audit trail, written by every mutation
+/// and held append-only by a database trigger in every store, and the error
+/// reports the desktop has been queueing to disk and flushing since the crash
+/// reporter was written.
 class SystemSettingsWorkspace extends StatelessWidget {
   const SystemSettingsWorkspace({
     super.key,
@@ -37,6 +40,10 @@ class SystemSettingsWorkspace extends StatelessWidget {
               api: api,
               permissions: permissions,
               firmLabel: firmLabel,
+            ),
+          'diagnostics' => DiagnosticsPage(
+              api: api,
+              permissions: permissions,
             ),
           _ => const StandardEmptyState(
               type: EmptyStateType.noRecords,
