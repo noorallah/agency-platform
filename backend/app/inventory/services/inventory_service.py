@@ -18,7 +18,8 @@ from sqlalchemy.sql import Select
 
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
-from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.business.gating import resolve_profile_id
+from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.money import quantize_money
@@ -477,12 +478,14 @@ class InventoryService:
         self, data: InventoryCreate, *, firm_id: UUID, actor_id: UUID
     ) -> InventoryRecord:
         """Create a stock projection for a product location."""
-        branch, warehouse, storage_node, product, profile = self._validate_references(
-            firm_id=firm_id,
-            branch_id=data.branch_id,
-            warehouse_id=data.warehouse_id,
-            storage_node_id=data.storage_node_id,
-            product_id=data.product_id,
+        branch, warehouse, storage_node, product, profile_id = (
+            self._validate_references(
+                firm_id=firm_id,
+                branch_id=data.branch_id,
+                warehouse_id=data.warehouse_id,
+                storage_node_id=data.storage_node_id,
+                product_id=data.product_id,
+            )
         )
         locator = self._storage_locator(storage_node.id if storage_node else None)
         if (
@@ -506,7 +509,7 @@ class InventoryService:
             storage_node_id=storage_node.id if storage_node else None,
             storage_locator=locator,
             product_id=product.id,
-            business_profile_id=profile.id if profile is not None else None,
+            business_profile_id=profile_id,
             minimum_level=data.minimum_level,
             maximum_level=data.maximum_level,
             reorder_level=data.reorder_level,
@@ -3151,7 +3154,7 @@ class InventoryService:
         actor_id: UUID,
         batch_id: UUID | None = None,
     ) -> InventoryRecord:
-        _, _, storage_node, _, profile = self._validate_references(
+        _, _, storage_node, _, profile_id = self._validate_references(
             firm_id=firm_id,
             branch_id=branch_id,
             warehouse_id=warehouse_id,
@@ -3177,7 +3180,7 @@ class InventoryService:
             storage_locator=locator,
             product_id=product_id,
             batch_id=batch_id,
-            business_profile_id=profile.id if profile is not None else None,
+            business_profile_id=profile_id,
             current_quantity=ZERO,
             reserved_quantity=ZERO,
             available_quantity=ZERO,
@@ -3364,7 +3367,7 @@ class InventoryService:
     ) -> list[OpeningStockLine]:
         items: list[OpeningStockLine] = []
         seen: set[tuple[UUID, str, str]] = set()
-        profile = self._resolved_profile(firm_id)
+        profile_id = self._resolved_profile_id(firm_id)
         for index, line in enumerate(lines, start=1):
             product = self._session.scalar(
                 select(Product).where(
@@ -3407,7 +3410,7 @@ class InventoryService:
                     product_id=product.id,
                     storage_node_id=storage_node.id if storage_node else None,
                     storage_locator=locator,
-                    business_profile_id=profile.id if profile is not None else None,
+                    business_profile_id=profile_id,
                     quantity=line.quantity,
                     unit_cost=line.unit_cost,
                     entered_quantity=line.entered_quantity,
@@ -3461,9 +3464,7 @@ class InventoryService:
         warehouse_id: UUID,
         storage_node_id: UUID | None,
         product_id: UUID,
-    ) -> tuple[
-        Branch, Warehouse, WarehouseStorageNode | None, Product, BusinessProfile | None
-    ]:
+    ) -> tuple[Branch, Warehouse, WarehouseStorageNode | None, Product, UUID | None]:
         branch = self._session.scalar(
             select(Branch).where(
                 Branch.id == branch_id,
@@ -3505,7 +3506,13 @@ class InventoryService:
         )
         if product is None:
             raise ValidationError("Product does not belong to the active firm.")
-        return branch, warehouse, storage_node, product, self._resolved_profile(firm_id)
+        return (
+            branch,
+            warehouse,
+            storage_node,
+            product,
+            self._resolved_profile_id(firm_id),
+        )
 
     def _validate_branch_warehouse_scope(
         self, *, firm_id: UUID, branch_id: UUID, warehouse_id: UUID
@@ -3543,31 +3550,15 @@ class InventoryService:
         if self._session.scalar(statement) is not None:
             raise ConflictError("Opening stock reference number already exists.")
 
-    def _resolved_profile(self, firm_id: UUID) -> BusinessProfile | None:
-        assignment = self._session.scalar(
-            select(FirmBusinessProfile).where(
-                FirmBusinessProfile.firm_id == firm_id,
-                FirmBusinessProfile.is_deleted.is_(False),
-                FirmBusinessProfile.is_active.is_(True),
-            )
-        )
-        if assignment is not None:
-            profile = self._session.scalar(
-                select(BusinessProfile).where(
-                    BusinessProfile.id == assignment.business_profile_id,
-                    BusinessProfile.is_deleted.is_(False),
-                    BusinessProfile.status == "ACTIVE",
-                )
-            )
-            if profile is not None:
-                return profile
-        return self._session.scalar(
-            select(BusinessProfile).where(
-                BusinessProfile.is_deleted.is_(False),
-                BusinessProfile.status == "ACTIVE",
-                BusinessProfile.is_default.is_(True),
-            )
-        )
+    def _resolved_profile_id(self, firm_id: UUID) -> UUID | None:
+        """Return the profile a stock row is filed under, default included.
+
+        Delegated to ``resolve_profile_id``: a private copy answers a different
+        profile from the gate the moment either changes, and this one is
+        stamped onto rows that outlive the request. Nothing here needs the
+        profile object -- only its id -- so the id form is what it takes.
+        """
+        return resolve_profile_id(self._session, firm_id)
 
     def _storage_locator(self, storage_node_id: UUID | None) -> str:
         return str(storage_node_id) if storage_node_id is not None else "ROOT"

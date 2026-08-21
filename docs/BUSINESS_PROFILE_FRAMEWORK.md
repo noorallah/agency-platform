@@ -695,11 +695,18 @@ amendment? Treat it as its own design round.
   about the same firm. Both divergences are fixed: the tax engine skipped every
   profile-scoped rule for an unassigned firm, and territory stamped its
   hierarchy and nodes with no profile at all. `app/uom`, `app/tax` and
-  `app/sales` now share the one resolver; `app/products` and `app/inventory`
-  still carry their own copies, which do fall back to the default but differ on
-  an empty catalogue (products raises, inventory returns None). `20260821_0095`
-  fills the profile on the hierarchy configs, territories and beat plans the
-  old resolver left NULL, per firm store.
+  `app/uom`, `app/tax`, `app/sales`, `app/products` and `app/inventory` all go
+  through it now -- `resolve_profile_id` for the id, `resolve_profile` for the
+  row -- and `test_every_module_resolves_the_same_business_profile` fails the
+  build if one of them starts answering differently. `20260821_0095` fills the
+  profile on the hierarchy configs, territories and beat plans the old
+  resolvers left NULL, per firm store.
+- **An assigned profile decides even when it is INACTIVE.** Products, inventory
+  and territory each demanded `status = 'ACTIVE'` on the assignment and fell
+  back to the default when it was not, while the gate went on enforcing the
+  assigned one -- a form offering a field the save refuses, which is the
+  disagreement this framework exists to prevent. `status` gates the *default*
+  only. Deactivating a profile does not move its firms off it; reassign them.
 - **A store with no default profile enforces nothing.** `resolve_capabilities`
   returns empty capabilities rather than denying everything, so an unseeded
   catalogue degrades instead of causing an outage. Do not "fix" this by raising.

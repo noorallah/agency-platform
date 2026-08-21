@@ -13,12 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
-from app.business.gating import assert_feature_fields, resolve_capabilities
-from app.business.models import (
-    BusinessProfile,
-    CategoryAttributeRule,
-    FirmBusinessProfile,
+from app.business.gating import (
+    assert_feature_fields,
+    resolve_capabilities,
+    resolve_profile,
 )
+from app.business.models import BusinessProfile, CategoryAttributeRule
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
@@ -731,33 +731,19 @@ class ProductService:
         return statement, count
 
     def _resolved_profile(self, firm_id: UUID) -> BusinessProfile:
-        assignment = self._session.scalar(
-            select(FirmBusinessProfile).where(
-                FirmBusinessProfile.firm_id == firm_id,
-                FirmBusinessProfile.is_deleted.is_(False),
-                FirmBusinessProfile.is_active.is_(True),
-            )
-        )
-        if assignment is not None:
-            profile = self._session.scalar(
-                select(BusinessProfile).where(
-                    BusinessProfile.id == assignment.business_profile_id,
-                    BusinessProfile.is_deleted.is_(False),
-                    BusinessProfile.status == "ACTIVE",
-                )
-            )
-            if profile is not None:
-                return profile
-        default_profile = self._session.scalar(
-            select(BusinessProfile).where(
-                BusinessProfile.is_deleted.is_(False),
-                BusinessProfile.status == "ACTIVE",
-                BusinessProfile.is_default.is_(True),
-            )
-        )
-        if default_profile is None:
+        """Return the profile whose attribute rules shape a product form.
+
+        Delegated to ``resolve_profile`` so this answers exactly what
+        ``resolve_capabilities`` answers two lines above it in ``metadata``:
+        a private copy that filtered the assignment differently would offer a
+        field the gate then refuses on save. The refusal stays here rather than
+        in the resolver -- a form cannot be rendered without a profile to shape
+        it, where a gate with no profile is right to enforce nothing.
+        """
+        profile = resolve_profile(self._session, firm_id)
+        if profile is None:
             raise ValidationError("No active business profile is configured.")
-        return default_profile
+        return profile
 
     def _category_attribute_ids(
         self, profile_id: UUID, category_id: UUID | None
