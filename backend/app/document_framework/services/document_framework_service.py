@@ -162,7 +162,7 @@ class DocumentFrameworkService:
             "name": row.name,
             "category": row.category,
         }
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -287,7 +287,7 @@ class DocumentFrameworkService:
             firm_id, data.document_type_id, data.code, current_id=row.id
         )
         before = {"code": row.code, "name": row.name, "sort_order": row.sort_order}
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -440,7 +440,7 @@ class DocumentFrameworkService:
             "name": row.name,
             "next_sequence": row.next_sequence,
         }
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
