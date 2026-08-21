@@ -3,12 +3,13 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.config.settings import Settings
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -39,8 +40,8 @@ def _actor_id(principal: Principal) -> UUID:
 @router.get("", response_model=PaginatedResponse[FirmResponse])
 def list_firms(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["name", "code", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.schemas import AuditLogFilters, AuditLogResponse
 from app.common.audit.services import AuditLogReader
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db, get_platform_db
 from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -93,8 +94,8 @@ def audit_scope(
 @router.get("", response_model=PaginatedResponse[AuditLogResponse])
 def list_audit_logs(
     scope: Annotated[AuditScope, Depends(audit_scope)],
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     action: str | None = None,
     entity_type: str | None = None,
     entity_id: UUID | None = None,

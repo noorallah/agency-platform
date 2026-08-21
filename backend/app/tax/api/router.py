@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -84,8 +85,8 @@ TaxRuleSimulateScope = Annotated[
 @router.get("/systems", response_model=PaginatedResponse[TaxSystemResponse])
 def list_tax_systems(
     scope: TaxViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     country_id: UUID | None = None,
     business_profile_id: UUID | None = None,
@@ -341,8 +342,8 @@ def get_tax_setup(
 @router.get("/components", response_model=PaginatedResponse[TaxComponentResponse])
 def list_tax_components(
     scope: TaxViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     tax_system_id: UUID | None = None,
     status: TaxStatus | None = None,
@@ -470,8 +471,8 @@ def bulk_restore_components(
 @router.get("/profiles", response_model=PaginatedResponse[TaxProfileResponse])
 def list_tax_profiles(
     scope: TaxViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     tax_system_id: UUID | None = None,
     business_profile_id: UUID | None = None,
@@ -807,8 +808,8 @@ def tax_history(
 @router.get("/rules", response_model=PaginatedResponse[TaxRuleResponse])
 def list_tax_rules(
     scope: TaxRuleViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     country_id: UUID | None = None,
     business_profile_id: UUID | None = None,

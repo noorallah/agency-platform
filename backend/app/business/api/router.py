@@ -36,6 +36,7 @@ from app.business.schemas import (
     IdentifierList,
 )
 from app.business.services import BusinessProfileFrameworkService
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
     firm_store_session,
     get_db,
@@ -80,8 +81,8 @@ def _actor_id(principal: Principal) -> UUID:
 @router.get("/profiles", response_model=PaginatedResponse[BusinessProfileResponse])
 def list_profiles(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -152,8 +153,8 @@ def delete_profile(
 @router.get("/features", response_model=PaginatedResponse[BusinessFeatureResponse])
 def list_features(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -209,8 +210,8 @@ def delete_feature(
 @router.get("/modules", response_model=PaginatedResponse[BusinessModuleResponse])
 def list_modules(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -267,8 +268,8 @@ def delete_module(
 )
 def list_attribute_definitions(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
