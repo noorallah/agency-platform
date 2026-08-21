@@ -13,6 +13,7 @@ from app.business.gating import (
     require_feature,
     require_module,
     resolve_capabilities,
+    resolve_profile_id,
 )
 from app.business.models import (
     BusinessFeature,
@@ -25,6 +26,9 @@ from app.business.models import (
 from app.core.database.base import Base
 from app.core.exceptions import AuthorizationError
 from app.firms.models import Firm
+from app.inventory.services import InventoryService
+from app.products.services import ProductService
+from app.sales.services import SalesTerritoryService
 
 
 class _Request:
@@ -344,3 +348,63 @@ def test_module_visibility_does_not_decide_whether_a_write_is_refused() -> None:
     assert _call(require_module("SALES"), _Request("POST"), capabilities) is (
         capabilities
     )
+
+
+def test_every_module_resolves_the_same_business_profile() -> None:
+    """Four modules ask this question; they must not answer it four ways.
+
+    Each carried a private copy of the resolver, and they disagreed: tax and
+    territory read the assignment alone and answered None for an unassigned
+    firm, where the gate answers the platform default. A stock row, a territory
+    and a tax decision then belonged to different industries in the same firm.
+    """
+    session = _session()
+    firm = _firm(session, "DRIFT")
+    default = _profile(session, "GENERIC", is_default=True)
+    pharmacy = _profile(session, "PHARMACY")
+    _assign(session, firm, pharmacy)
+
+    def answers() -> set[UUID | None]:
+        return {
+            resolve_profile_id(session, firm.id),
+            ProductService(session)._resolved_profile(firm.id).id,
+            InventoryService(session)._resolved_profile_id(firm.id),
+            SalesTerritoryService(session)._profile_id(firm.id),
+        }
+
+    assert answers() == {pharmacy.id}
+
+    assignment = session.query(FirmBusinessProfile).one()
+    assignment.is_active = False
+    session.commit()
+
+    # Unassigned is not "no industry": it is the platform default.
+    assert answers() == {default.id}
+
+
+def test_an_inactive_assigned_profile_still_decides_for_every_module() -> None:
+    """Whatever the gate is judging a firm by is what its forms must render.
+
+    Products, inventory and territory each demanded ``status = 'ACTIVE'`` on
+    the assigned profile and fell back to the default when it was not, while
+    the gate went on enforcing the assigned one. That is the disagreement the
+    framework exists to prevent -- a form offering a field the save refuses --
+    so the shared resolver's answer is now the only answer.
+    """
+    session = _session()
+    firm = _firm(session, "PAUSED")
+    _profile(session, "GENERIC", is_default=True)
+    assigned = _profile(session, "PHARMACY")
+    _assign(session, firm, assigned)
+    assigned.status = "INACTIVE"
+    session.commit()
+
+    capabilities = resolve_capabilities(session, firm.id)
+
+    assert capabilities.profile_code == "PHARMACY"
+    assert {
+        resolve_profile_id(session, firm.id),
+        ProductService(session)._resolved_profile(firm.id).id,
+        InventoryService(session)._resolved_profile_id(firm.id),
+        SalesTerritoryService(session)._profile_id(firm.id),
+    } == {assigned.id}

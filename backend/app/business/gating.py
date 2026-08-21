@@ -73,7 +73,7 @@ def resolve_capabilities(
     mapping rows at all, so seeding the missing rows would only have hidden it.
     One rule, both paths.
     """
-    profile = _resolved_profile(session, firm_id)
+    profile = resolve_profile(session, firm_id)
     if profile is None:
         # No profile and no platform default: enforce nothing rather than
         # locking every firm out on a configuration gap.
@@ -140,12 +140,18 @@ def resolve_profile_id(session: Session, firm_id: UUID | None) -> UUID | None:
     itself: two resolvers drift, and this one already handles the assignment,
     the platform default, and the case where neither exists.
     """
-    profile = _resolved_profile(session, firm_id)
+    profile = resolve_profile(session, firm_id)
     return None if profile is None else profile.id
 
 
-def _resolved_profile(session: Session, firm_id: UUID | None) -> BusinessProfile | None:
-    """Return the firm's assigned profile, or the platform default."""
+def resolve_profile(session: Session, firm_id: UUID | None) -> BusinessProfile | None:
+    """Return the firm's assigned profile, or the platform default.
+
+    Public for the same reason ``resolve_profile_id`` is: a module that needs
+    the profile row itself -- its code, for a response, or its settings -- must
+    not re-resolve the assignment locally. Callers wanting only the id should
+    take ``resolve_profile_id``.
+    """
     if firm_id is not None:
         assigned = session.scalar(
             select(BusinessProfile)
