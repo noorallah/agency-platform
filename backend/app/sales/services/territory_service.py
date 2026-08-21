@@ -13,7 +13,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.branches.models import Branch, Warehouse
-from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.business.gating import resolve_profile_id
+from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.database.entity import BaseEntity
@@ -3744,23 +3745,16 @@ class SalesTerritoryService:
         )
 
     def _profile_id(self, firm_id: UUID) -> UUID | None:
-        assignment = self._session.scalar(
-            select(FirmBusinessProfile).where(
-                FirmBusinessProfile.firm_id == firm_id,
-                FirmBusinessProfile.is_deleted.is_(False),
-                FirmBusinessProfile.is_active.is_(True),
-            )
-        )
-        if assignment is None:
-            return None
-        profile = self._session.scalar(
-            select(BusinessProfile).where(
-                BusinessProfile.id == assignment.business_profile_id,
-                BusinessProfile.is_deleted.is_(False),
-                BusinessProfile.status == "ACTIVE",
-            )
-        )
-        return profile.id if profile is not None else None
+        """Return the profile a firm operates under, default included.
+
+        Delegated to ``resolve_profile_id`` rather than resolving the
+        assignment here: an unassigned firm falls back to the platform default
+        profile, so a territory it creates is stamped with the same profile the
+        gate judges it by. The local resolver returned None instead, which
+        recorded an unassigned firm's hierarchy as belonging to no industry at
+        all and made it invisible to a ``business_profile_id`` filter.
+        """
+        return resolve_profile_id(self._session, firm_id)
 
     def _commit(self) -> None:
         try:

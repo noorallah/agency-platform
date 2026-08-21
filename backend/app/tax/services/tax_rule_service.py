@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
-from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -806,8 +806,12 @@ class TaxRuleService:
                 context.get("tax_profile_id"), firm_scope=firm_scope
             )
         if context.get("business_profile_id") is None:
-            context["business_profile_id"] = self._firm_business_profile(
-                firm_scope=firm_scope
+            # resolve_profile_id, not a local query: an unassigned firm falls
+            # back to the platform default profile, the same answer the gate
+            # gives. Reading the assignment directly returned None, so every
+            # profile-scoped rule silently skipped a firm nobody had assigned.
+            context["business_profile_id"] = resolve_profile_id(
+                self._session, firm_scope
             )
         return context
 
@@ -825,27 +829,6 @@ class TaxRuleService:
                 TaxProfile.firm_id == firm_scope,
                 TaxProfile.is_deleted.is_(False),
                 TaxSystem.is_deleted.is_(False),
-            )
-        )
-
-    def _firm_business_profile(self, *, firm_scope: UUID) -> UUID | None:
-        """Return the firm's active business profile assignment, if any.
-
-        ``firm_business_profiles`` is firm-owned, so this stays on the request
-        session; ``firms`` itself lives only in the platform schema and must not
-        be resolved here.
-        """
-        return self._session.scalar(
-            select(FirmBusinessProfile.business_profile_id)
-            .join(
-                BusinessProfile,
-                BusinessProfile.id == FirmBusinessProfile.business_profile_id,
-            )
-            .where(
-                FirmBusinessProfile.firm_id == firm_scope,
-                FirmBusinessProfile.is_active.is_(True),
-                FirmBusinessProfile.is_deleted.is_(False),
-                BusinessProfile.is_deleted.is_(False),
             )
         )
 

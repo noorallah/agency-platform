@@ -689,6 +689,17 @@ amendment? Treat it as its own design round.
 - **Blank is not populated.** `assert_feature_fields` ignores `None`, empty
   strings and collections, and `False`. A zero *number* is populated, because
   somebody typed it. Clearing a field is always allowed.
+- **Resolve the profile through `resolve_profile_id`, never with a local
+  query.** A module that reads `firm_business_profiles` itself answers None for
+  an unassigned firm, where the gate answers GENERIC, and the two then disagree
+  about the same firm. Both divergences are fixed: the tax engine skipped every
+  profile-scoped rule for an unassigned firm, and territory stamped its
+  hierarchy and nodes with no profile at all. `app/uom`, `app/tax` and
+  `app/sales` now share the one resolver; `app/products` and `app/inventory`
+  still carry their own copies, which do fall back to the default but differ on
+  an empty catalogue (products raises, inventory returns None). `20260821_0095`
+  fills the profile on the hierarchy configs, territories and beat plans the
+  old resolver left NULL, per firm store.
 - **A store with no default profile enforces nothing.** `resolve_capabilities`
   returns empty capabilities rather than denying everything, so an unseeded
   catalogue degrades instead of causing an outage. Do not "fix" this by raising.
