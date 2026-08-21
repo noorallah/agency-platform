@@ -18,8 +18,10 @@ from app.business.models import (
 )
 from app.business.schemas import (
     BusinessFeatureCreate,
+    BusinessFeatureUpdate,
     BusinessModuleCreate,
     BusinessProfileCreate,
+    BusinessProfileUpdate,
     FirmBusinessProfileAssign,
 )
 from app.business.services import BusinessProfileFrameworkService
@@ -574,3 +576,88 @@ def test_a_firm_still_cannot_hold_two_live_assignments() -> None:
         )
     ).all()
     assert len(live) == 1
+
+
+def test_an_update_that_omits_a_field_leaves_it_alone() -> None:
+    """A write schema gives every optional field a default.
+
+    ``model_dump()`` therefore returns a value for a field the caller never
+    mentioned, and assigning all of them writes that default over live data.
+    It has shipped twice -- a vendor lost its addresses, a branch its street
+    lines -- and these eight update methods were the last with the shape.
+
+    ``default_enabled`` is the one that bites hardest here: it is the fallback
+    every profile without an explicit mapping row inherits, so flipping it by
+    omission silently changes what firms on those profiles can do.
+    """
+    session = _session_factory()()
+    actor = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    feature = service.create_feature(
+        BusinessFeatureCreate(
+            code="BARCODE",
+            name="Barcode",
+            description="Scan a barcode.",
+            category="OPERATIONS",
+            default_enabled=True,
+            is_active=True,
+        ),
+        actor,
+    )
+
+    # A rename, and nothing else.
+    service.update_feature(
+        feature.id,
+        BusinessFeatureUpdate.model_construct(
+            **BusinessFeatureUpdate(code="BARCODE", name="Barcode scanning").model_dump(
+                include={"code", "name"}
+            )
+        ),
+        actor,
+    )
+
+    assert feature.name == "Barcode scanning"
+    assert feature.default_enabled is True, "omitted, so it must not flip"
+    assert feature.is_active is True
+    assert feature.description == "Scan a barcode."
+    assert feature.category == "OPERATIONS"
+
+
+def test_renaming_the_default_profile_does_not_demote_it() -> None:
+    """Renaming the default profile must not quietly demote it.
+
+    Reading it off the model instead makes an omission mean False: the profile
+    that *is* the default demotes nobody and is then written back as not
+    default, which leaves a store with no default at all -- and a store with no
+    default enforces nothing.
+    """
+    session = _session_factory()()
+    actor = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    generic = service.create_profile(
+        BusinessProfileCreate(
+            code="GENERIC",
+            name="Generic",
+            industry_type="GENERIC",
+            is_default=True,
+        ),
+        actor,
+    )
+    service.create_profile(
+        BusinessProfileCreate(code="PHARMACY", name="Pharmacy", industry_type="PHARMA"),
+        actor,
+    )
+
+    service.update_profile(
+        generic.id,
+        BusinessProfileUpdate.model_construct(
+            code="GENERIC",
+            name="Generic business",
+            industry_type="GENERIC",
+        ),
+        actor,
+    )
+
+    assert generic.name == "Generic business"
+    assert generic.is_default is True
+    assert generic.status == "ACTIVE"

@@ -119,10 +119,18 @@ class BusinessProfileFrameworkService:
     ) -> BusinessProfile:
         profile = self.get_profile(profile_id)
         self._assert_unique(BusinessProfile, data.code, current_id=profile.id)
-        if data.is_default:
+        # exclude_unset, so a payload that mentions only the name leaves the
+        # status, the default flag and the settings alone. An explicit null
+        # still clears -- that is the distinction that makes a partial client
+        # safe without stopping a complete one emptying a field.
+        values = data.model_dump(exclude_unset=True)
+        # Read from the values, not the model: `data.is_default` is False when
+        # the caller never mentioned it, which would demote nothing and then
+        # write that False over a profile that *is* the default.
+        if values.get("is_default", profile.is_default):
             self._unset_default_profiles(except_id=profile.id)
         before: dict[str, object] = {"code": profile.code, "status": profile.status}
-        for field, value in data.model_dump().items():
+        for field, value in values.items():
             setattr(profile, field, value)
         profile.updated_by = actor_id
         record_audit(
@@ -207,7 +215,7 @@ class BusinessProfileFrameworkService:
     ) -> BusinessFeature:
         feature = self.get_feature(feature_id)
         self._assert_unique(BusinessFeature, data.code, current_id=feature.id)
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(feature, field, value)
         feature.updated_by = actor_id
         record_audit(
@@ -324,7 +332,7 @@ class BusinessProfileFrameworkService:
     ) -> BusinessModule:
         module = self.get_module(module_id)
         self._assert_unique(BusinessModule, data.code, current_id=module.id)
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(module, field, value)
         module.updated_by = actor_id
         record_audit(
@@ -427,7 +435,7 @@ class BusinessProfileFrameworkService:
         self._assert_unique(AttributeDefinition, data.code, current_id=row.id)
         if data.applicable_business_profile_id is not None:
             self.get_profile(data.applicable_business_profile_id)
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -492,7 +500,7 @@ class BusinessProfileFrameworkService:
         if data.business_profile_id is not None:
             self.get_profile(data.business_profile_id)
         self.get_attribute(data.attribute_definition_id)
-        for field, value in data.model_dump().items():
+        for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
