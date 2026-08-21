@@ -40,6 +40,7 @@ from app.branches.schemas import (
 from app.branches.services import BranchWarehouseService
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -153,8 +154,8 @@ def _warehouse_filters(
 @router.get("/branches", response_model=PaginatedResponse[BranchResponse])
 def list_branches(
     scope: BranchViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "status", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -459,8 +460,8 @@ def export_branches(
 @router.get("/warehouses", response_model=PaginatedResponse[WarehouseResponse])
 def list_warehouses(
     scope: WarehouseViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "status", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",

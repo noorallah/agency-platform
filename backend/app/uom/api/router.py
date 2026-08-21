@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -212,8 +213,8 @@ def delete_packaging_type(
 )
 def list_conversion_rules(
     scope: UomViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     product_id: UUID | None = None,
     business_profile_id: UUID | None = None,
     from_uom_id: UUID | None = None,

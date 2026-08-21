@@ -3,11 +3,12 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
 from app.core.config.settings import Settings
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -235,8 +236,8 @@ def list_my_firms(
 @router.get("/users", response_model=PaginatedResponse[UserResponse], tags=["Users"])
 def list_users(
     principal: UserViewPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["email", "full_name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -402,8 +403,8 @@ def set_user_firms(
 @router.get("/roles", response_model=PaginatedResponse[RoleResponse], tags=["Roles"])
 def list_roles(
     principal: PlatformPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "code",
     sort_direction: Literal["asc", "desc"] = "asc",
@@ -546,8 +547,8 @@ def list_role_permissions(
 )
 def list_permissions(
     principal: PermissionViewPrincipal,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "code",
     sort_direction: Literal["asc", "desc"] = "asc",

@@ -564,7 +564,7 @@ def delete_geo_locality(
 @router.get("", response_model=PaginatedResponse[TerritoryResponse])
 def list_territories(
     scope: TerritoryViewScope,
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "status", "created_at"] = "created_at",
@@ -861,7 +861,7 @@ def bulk_move(
 @router.get("/beat-plans", response_model=PaginatedResponse[BeatPlanResponse])
 def list_beat_plans(
     scope: TerritoryViewScope,
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     include_deleted: bool = False,
@@ -999,7 +999,7 @@ def customer_routes(
 )
 def assignable_customers(
     scope: TerritoryViewScope,
-    page: int = 1,
+    page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     territory_id: UUID | None = None,
     search: str | None = None,

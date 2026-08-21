@@ -29,6 +29,7 @@ from app.batch_serial.schemas import (
 from app.batch_serial.services import BatchSerialService
 from app.business.gating import require_feature
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -57,8 +58,8 @@ SerialDeleteScope = Annotated[ResolvedFirmScope, firm_permission_scope("SERIAL_D
 @router.get("/batches", response_model=PaginatedResponse[BatchResponse])
 def list_batches(
     scope: BatchViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal[
         "created_at", "updated_at", "batch_number", "expiry_date", "status"
@@ -193,8 +194,8 @@ def delete_batch(
 @router.get("/lots", response_model=PaginatedResponse[LotResponse])
 def list_lots(
     scope: BatchViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["created_at", "updated_at", "lot_number", "status"] = "updated_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -300,8 +301,8 @@ def delete_lot(
 @router.get("/serials", response_model=PaginatedResponse[SerialResponse])
 def list_serials(
     scope: SerialViewScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal[
         "created_at", "updated_at", "serial_number", "status"

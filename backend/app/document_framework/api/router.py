@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import RequiredFirmScope
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ConflictError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -58,8 +59,8 @@ def _actor_id(principal: Principal) -> UUID:
 @router.get("/document-types", response_model=PaginatedResponse[DocumentTypeResponse])
 def list_document_types(
     scope: RequiredFirmScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     sort_by: Literal["code", "name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
@@ -131,8 +132,8 @@ def delete_document_type(
 @router.get("/document-states", response_model=PaginatedResponse[DocumentStateResponse])
 def list_document_states(
     scope: RequiredFirmScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     document_type_id: UUID | None = None,
     sort_by: Literal["code", "name", "sort_order", "created_at"] = "sort_order",
@@ -205,8 +206,8 @@ def delete_document_state(
 )
 def list_numbering_rules(
     scope: RequiredFirmScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     document_type_id: UUID | None = None,
     sort_by: Literal["code", "name", "next_sequence", "created_at"] = "created_at",
@@ -308,8 +309,8 @@ def preview_numbering_rule(
 def list_document_timeline(
     document_id: UUID,
     scope: RequiredFirmScope,
-    page: int = 1,
-    page_size: int = 20,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[DocumentLifecycleEventResponse]:
