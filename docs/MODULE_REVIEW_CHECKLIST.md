@@ -107,10 +107,13 @@ support gets "it closed" and nothing else.
 - [ ] Business-critical operations call `log_operation` / `operation`
       (`app/core/logging`) or `AppLog.operation`, so "did it post?" is
       answerable from the log rather than inferred.
-- [ ] **Still to support:** a triage screen. Reports now reach
-      `error_reports` from both the client and the server, but they are read
-      with SQL or `GET /api/v1/diagnostics/errors`; the grouped Administration
-      view does not exist yet.
+- [x] **A triage screen exists** as of 2026-08-21 — Settings › Diagnostics
+      (`desktop/lib/ui/settings/diagnostics_page.dart`), faults collapsed by
+      fingerprint with their occurrences, stack trace and breadcrumbs. It read
+      real data on its first run and immediately surfaced a live defect: 28
+      `ValidationError`s on `GET /api/v1/products`, a `page_size=200` request
+      answered with a 500 because the handler builds `PaginationParams` in its
+      body instead of bounding the query parameter.
 
 ### Gates
 
@@ -487,7 +490,7 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `sales_return` | 15 | 0 | 0 | `test_sales_return_module` | typed |
 | `quotation` | 14 | 0 | 0 | `test_quotation_module` | typed |
 | `settlements` | 12 | 0 | 0 | `test_settlements` | typed — receipts, payments, refunds |
-| `diagnostics` | 3 | 0 | 0 | `test_diagnostics_module` | **none** |
+| `diagnostics` | 3 | 0 | 0 | `test_diagnostics_module` | triage screen — Settings › Diagnostics |
 
 As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
 matches only `api_client.dart`. The five document workspaces share
@@ -523,9 +526,9 @@ was.
 movement, no journal — and check that expiry stays derived from `valid_until`
 rather than acquiring a stored flag.
 
-**4. `diagnostics` (3)** — small, and the only module on the board with no
-desktop surface at all. The Diagnostics section of this checklist calls for a
-triage screen that still does not exist.
+**4. `diagnostics` (3)** — small, and until 2026-08-21 the only module on the
+board with no desktop surface at all. The triage screen is built; the module
+itself has still had no review pass.
 
 Then a second pass over anything the four PRs of 2026-08-15 touched, since two
 defects in `customers` survived its 2026-08-10 review: that pass found nothing

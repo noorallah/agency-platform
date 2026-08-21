@@ -12,6 +12,7 @@ import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
+import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
@@ -207,6 +208,43 @@ class ApiClient {
     } on ApiException {
       return false;
     }
+  }
+
+  /// Faults collapsed by fingerprint, most recently seen first.
+  ///
+  /// Reports live in the **platform** store rather than per firm: a crash is
+  /// telemetry for whoever maintains the product, and a fault split across
+  /// firm stores could not be counted or ranked. The server resolves that
+  /// itself, so no firm header decides what comes back.
+  Future<PagedResult<ErrorReportGroup>> errorGroups({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? source,
+  }) =>
+      _list(
+        '/api/v1/diagnostics/errors',
+        ErrorReportGroup.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (source != null && source.isNotEmpty) 'source': source,
+        },
+      );
+
+  /// The individual occurrences of one fault, newest first.
+  Future<List<ErrorReport>> errorOccurrences(String fingerprint) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/diagnostics/errors/${Uri.encodeComponent(fingerprint)}',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => ErrorReport.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
   }
 
   /// Build a firm's dedicated database, schema and tables.

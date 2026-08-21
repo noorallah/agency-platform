@@ -733,9 +733,26 @@ abstract final class ModuleCatalog {
       icon: Icons.settings_outlined,
       description: 'Application settings workspace.',
       workspaceTemplate: WorkspaceTemplateType.settings,
-      requiredPermissions: ['SETTINGS_VIEW'],
+      // Any one of the three, not all: SYSTEM_AUDITOR holds AUDIT_LOG_VIEW and
+      // DIAGNOSTICS_VIEW and no SETTINGS_VIEW, so demanding all of them hid
+      // the workspace from the one role that exists to read what is in it.
+      // The tabs carry their own codes, so seeing the module is not seeing
+      // both trails.
+      requiredPermissions: ['SETTINGS_VIEW', 'AUDIT_LOG_VIEW', 'DIAGNOSTICS_VIEW'],
+      requiresAnyPermission: true,
       tabs: [
-        ModuleTabDefinition(id: 'audit-logs', label: 'Audit Logs'),
+        ModuleTabDefinition(
+          id: 'audit-logs',
+          label: 'Audit Logs',
+          requiredPermissions: ['AUDIT_LOG_VIEW'],
+        ),
+        // Its own permission: the audit trail and the crash log answer to
+        // different people, and DIAGNOSTICS_VIEW is seeded separately.
+        ModuleTabDefinition(
+          id: 'diagnostics',
+          label: 'Diagnostics',
+          requiredPermissions: ['DIAGNOSTICS_VIEW'],
+        ),
       ],
     ),
   ];
