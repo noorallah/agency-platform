@@ -474,7 +474,7 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `customers` | 17 | 0 | 0 | `test_customer_management` | typed |
 | `products` | 17 | 0 | 0 | `test_product_master` | typed |
 | `search` | 1 | 0 | 0 | `test_global_search` | typed |
-| `vendors` | 23 | 0 | 0 | `test_vendor_management`, `test_vendor_collections_survive_an_edit` | typed |
+| `vendors` | 23 | 0 | 0 | `test_vendor_management`, `test_vendor_collections_survive_an_edit` | typed — all six tabs are forms as of 2026-08-21, except attachments |
 | `purchase` | 12 | 0 | 0 | `test_purchase_management` | typed |
 | `batch_serial` | 17 | 0 | 0 | `test_batch_serial_expiry` | typed |
 | `goods_receipt` | 16 | 0 | 0 | `test_goods_receipt` | typed |

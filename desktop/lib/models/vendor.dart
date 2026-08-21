@@ -104,6 +104,130 @@ class VendorAddress {
       };
 }
 
+/// One bank account money is paid into.
+class VendorBankAccount {
+  const VendorBankAccount({
+    required this.id,
+    required this.bankName,
+    required this.accountName,
+    required this.accountNumber,
+    required this.ifsc,
+    required this.branch,
+    required this.upiId,
+    required this.swiftCode,
+    required this.isPrimary,
+  });
+
+  final String id;
+  final String bankName;
+  final String accountName;
+  final String accountNumber;
+  final String ifsc;
+  final String branch;
+  final String upiId;
+  final String swiftCode;
+  final bool isPrimary;
+
+  factory VendorBankAccount.fromJson(Json json) => VendorBankAccount(
+        id: stringValue(json['id']),
+        bankName: stringValue(json['bank_name']),
+        accountName: stringValue(json['account_name']),
+        accountNumber: stringValue(json['account_number']),
+        ifsc: stringValue(json['ifsc']),
+        branch: stringValue(json['branch']),
+        upiId: stringValue(json['upi_id']),
+        swiftCode: stringValue(json['swift_code']),
+        isPrimary: boolValue(json['is_primary']),
+      );
+
+  Json toJson() => {
+        if (id.isNotEmpty) 'id': id,
+        'bank_name': bankName,
+        'account_name': accountName,
+        'account_number': accountNumber,
+        'ifsc': ifsc.isEmpty ? null : ifsc,
+        'branch': branch.isEmpty ? null : branch,
+        'upi_id': upiId.isEmpty ? null : upiId,
+        'swift_code': swiftCode.isEmpty ? null : swiftCode,
+        'is_primary': isPrimary,
+      };
+}
+
+/// One set of a vendor's registrations.
+///
+/// The vendor record carries a `gstin` and a `pan` of its own; these rows are
+/// the per-registration detail — a vendor trading from two states has two
+/// GSTINs, and only one of them is primary.
+class VendorTaxDetail {
+  const VendorTaxDetail({
+    required this.id,
+    required this.gstin,
+    required this.pan,
+    required this.tan,
+    required this.fssai,
+    required this.drugLicense,
+    required this.importExportCode,
+    required this.isPrimary,
+  });
+
+  final String id;
+  final String gstin;
+  final String pan;
+  final String tan;
+  final String fssai;
+  final String drugLicense;
+  final String importExportCode;
+  final bool isPrimary;
+
+  factory VendorTaxDetail.fromJson(Json json) => VendorTaxDetail(
+        id: stringValue(json['id']),
+        gstin: stringValue(json['gstin']),
+        pan: stringValue(json['pan']),
+        tan: stringValue(json['tan']),
+        fssai: stringValue(json['fssai']),
+        drugLicense: stringValue(json['drug_license']),
+        importExportCode: stringValue(json['import_export_code']),
+        isPrimary: boolValue(json['is_primary']),
+      );
+
+  Json toJson() => {
+        if (id.isNotEmpty) 'id': id,
+        'gstin': gstin.isEmpty ? null : gstin,
+        'pan': pan.isEmpty ? null : pan,
+        'tan': tan.isEmpty ? null : tan,
+        'fssai': fssai.isEmpty ? null : fssai,
+        'drug_license': drugLicense.isEmpty ? null : drugLicense,
+        'import_export_code':
+            importExportCode.isEmpty ? null : importExportCode,
+        'is_primary': isPrimary,
+      };
+}
+
+/// One note kept against a vendor.
+class VendorNote {
+  const VendorNote({
+    required this.id,
+    required this.note,
+    required this.noteType,
+  });
+
+  final String id;
+  final String note;
+  final String noteType;
+
+  factory VendorNote.fromJson(Json json) => VendorNote(
+        id: stringValue(json['id']),
+        note: stringValue(json['note']),
+        noteType: stringValue(json['note_type']),
+      );
+
+  Json toJson() => {
+        if (id.isNotEmpty) 'id': id,
+        'note': note,
+        'note_type': noteType.isEmpty ? 'GENERAL' : noteType,
+      };
+}
+
 class Vendor {
   const Vendor({
     required this.id,
@@ -133,6 +257,9 @@ class Vendor {
     required this.isDeleted,
     required this.contacts,
     required this.addresses,
+    this.bankAccounts = const [],
+    this.taxDetails = const [],
+    this.notes = const [],
   });
 
   final String id;
@@ -167,6 +294,9 @@ class Vendor {
   final bool isDeleted;
   final List<VendorContact> contacts;
   final List<VendorAddress> addresses;
+  final List<VendorBankAccount> bankAccounts;
+  final List<VendorTaxDetail> taxDetails;
+  final List<VendorNote> notes;
 
   factory Vendor.fromJson(Json json) => Vendor(
         id: stringValue(json['id']),
@@ -200,6 +330,12 @@ class Vendor {
             _objects(json['contacts']).map(VendorContact.fromJson).toList(),
         addresses:
             _objects(json['addresses']).map(VendorAddress.fromJson).toList(),
+        bankAccounts: _objects(json['bank_accounts'])
+            .map(VendorBankAccount.fromJson)
+            .toList(),
+        taxDetails:
+            _objects(json['tax_details']).map(VendorTaxDetail.fromJson).toList(),
+        notes: _objects(json['notes']).map(VendorNote.fromJson).toList(),
       );
 }
 
