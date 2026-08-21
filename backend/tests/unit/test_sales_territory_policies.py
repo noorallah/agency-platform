@@ -22,12 +22,13 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.business.models import BusinessProfile
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
-from app.sales.models import SalesHierarchyConfig
+from app.sales.models import SalesHierarchyConfig, SalesTerritoryNode
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
@@ -421,3 +422,40 @@ def test_a_clean_import_creates_every_row() -> None:
     )
 
     assert [row.code for row in created] == ["IMP-A", "IMP-B"]
+
+
+def test_an_unassigned_firm_stamps_the_default_business_profile() -> None:
+    """A firm with no assignment operates under the platform default profile.
+
+    The service resolved the assignment itself and recorded None for a firm
+    nobody had assigned, so its hierarchy and every node under it belonged to
+    no industry at all and answered nothing to a business_profile_id filter --
+    while the gate had already decided that firm runs as GENERIC.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "NOPROF")
+    actor = uuid4()
+    default_profile = BusinessProfile(
+        code="GENERIC",
+        name="Generic",
+        industry_type="GENERIC",
+        status="ACTIVE",
+        is_default=True,
+        default_settings={},
+        created_by=actor,
+        updated_by=actor,
+    )
+    session.add(default_profile)
+    session.commit()
+    service = SalesTerritoryService(session)
+
+    node_id = _node(service, firm.id, actor, "NP-A")
+
+    config = session.scalar(
+        select(SalesHierarchyConfig).where(SalesHierarchyConfig.firm_id == firm.id)
+    )
+    node = session.get(SalesTerritoryNode, node_id)
+    assert config is not None
+    assert config.business_profile_id == default_profile.id
+    assert node is not None
+    assert node.business_profile_id == default_profile.id

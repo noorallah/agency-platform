@@ -989,6 +989,41 @@ def test_a_profile_scoped_rule_fires_without_an_explicit_profile_id() -> None:
     assert result.zero_rated is True
 
 
+def test_an_unassigned_firm_matches_the_default_profile_rule() -> None:
+    """A firm with no assignment is judged by the platform default profile.
+
+    The tax engine read ``firm_business_profiles`` directly and answered None
+    for an unassigned firm, so every profile-scoped rule skipped it -- while
+    ``resolve_capabilities`` had already decided that firm operates under
+    GENERIC. Two resolvers, two answers, and the tax one charged full rate.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    default_profile = session.query(BusinessProfile).first()
+    assert default_profile.is_default is True
+    assert session.query(FirmBusinessProfile).count() == 0
+    profile = _priced_profile(
+        session, firm, actor_id, system, percent="5", included_in_price=False
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            business_profile_id=default_profile.id,
+            code="DEFAULT_ZERO",
+            name="Default profile scoped",
+            priority=1,
+            status="ACTIVE",
+            actions=[{"sequence": 1, "action_type": "ZERO_RATED"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    result = _document_style_simulation(session, firm, actor_id, profile.id)
+
+    assert result.matched_rule_id is not None
+    assert result.zero_rated is True
+
+
 def test_tax_inside_the_price_is_extracted_not_added() -> None:
     """An inclusive component was computed as exclusive and billed on top.
 
