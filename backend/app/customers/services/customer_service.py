@@ -156,8 +156,20 @@ class CustomerService:
         """Replace customer fields and reconcile addresses and contacts."""
         customer = self.get(customer_id, firm_scope=firm_scope)
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
+        # Partial on update: a field the caller never mentioned keeps what the
+        # row holds. Every optional field on the write model has a default, so
+        # dumping in full turns an omission into an instruction -- the shape
+        # that cost a vendor its addresses and reset an approved order to
+        # draft. An explicit null still clears, which is what keeps a complete
+        # client able to empty a field.
+        values = self._customer_values(data, partial=True)
+        # The dump is untyped, so the figure is read back as a Decimal before
+        # any of the balance arithmetic below touches it.
+        opening_balance = Decimal(
+            str(values.get("opening_balance", customer.opening_balance))
+        )
         if (
-            customer.opening_balance != data.opening_balance
+            customer.opening_balance != opening_balance
             and self._repository.has_receivable_transactions(customer.id)
         ):
             raise ValidationError(
@@ -166,10 +178,16 @@ class CustomerService:
         before = self._audit_snapshot(customer)
         # Read before the field loop below overwrites it: whether the opening
         # balance moved is what decides if any of the balance work runs at all.
-        balance_changed = customer.opening_balance != data.opening_balance
-        for field, value in self._customer_values(data).items():
+        balance_changed = customer.opening_balance != opening_balance
+        if "name" in values or "display_name" in values:
+            # Only recomputed when one of the two was actually sent. The
+            # fallback is the stored name rather than the sent one, so clearing
+            # the display name alone leaves the customer named after itself.
+            values["display_name"] = (
+                values.get("display_name") or values.get("name") or customer.name
+            )
+        for field, value in values.items():
             setattr(customer, field, value)
-        customer.display_name = data.display_name or data.name
         if balance_changed:
             # Only reachable when the customer has no receivable activity --
             # the guard above refuses it otherwise -- so recomputing the
@@ -184,15 +202,22 @@ class CustomerService:
             (
                 customer.current_outstanding,
                 customer.unapplied_advance_balance,
-            ) = self._normalize_customer_balances(data.opening_balance)
+            ) = self._normalize_customer_balances(opening_balance)
             self._reset_opening_balance_transaction(
                 customer=customer,
-                amount=data.opening_balance,
+                amount=opening_balance,
                 actor_id=actor_id,
             )
         customer.updated_by = actor_id
-        self._reconcile_addresses(customer, data.addresses, actor_id)
-        self._reconcile_contacts(customer, data.contacts, actor_id)
+        # Both collections are replaced rather than merged, so reconciling one
+        # the caller never sent would soft-delete every row in it -- the defect
+        # that destroyed a vendor's addresses, contacts and bank accounts when
+        # somebody corrected a phone number. Sending an empty list still
+        # clears; saying nothing leaves them alone.
+        if "addresses" in data.model_fields_set:
+            self._reconcile_addresses(customer, data.addresses, actor_id)
+        if "contacts" in data.model_fields_set:
+            self._reconcile_contacts(customer, data.contacts, actor_id)
         record_audit(
             self._session,
             action="customer.updated",
@@ -485,11 +510,24 @@ class CustomerService:
     @staticmethod
     def _customer_values(
         data: CustomerCreate | CustomerUpdate,
+        *,
+        partial: bool = False,
     ) -> dict[str, object]:
-        values = data.model_dump(exclude={"addresses", "contacts"}, mode="python")
-        values["customer_type"] = data.customer_type.value
-        values["status"] = data.status.value
-        values["display_name"] = data.display_name or data.name
+        """Return the column values a write model carries.
+
+        ``partial`` dumps only what the caller actually sent, which is right on
+        update and wrong on create -- there a default really is the value to
+        store, and a new customer needs every column filled.
+        """
+        values = data.model_dump(
+            exclude={"addresses", "contacts"}, mode="python", exclude_unset=partial
+        )
+        if "customer_type" in values:
+            values["customer_type"] = data.customer_type.value
+        if "status" in values:
+            values["status"] = data.status.value
+        if not partial:
+            values["display_name"] = data.display_name or data.name
         return values
 
     #: Which geography level fills which free-text column, and what to read

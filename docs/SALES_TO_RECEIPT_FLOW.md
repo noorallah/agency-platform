@@ -312,6 +312,52 @@ rather than distorting inventory.
 
 ---
 
+## What a line is discounted by
+
+One rule, in `app/core/utils/pricing.py`, and every sales and purchase document
+calls it. In order:
+
+1. an **explicit amount** — what somebody typed in currency,
+2. else an **explicit percentage**,
+3. else the **customer's standing discount** (`customers.default_discount_percent`),
+4. else nothing.
+
+**`None` and `0` are different answers.** Saying nothing takes the customer's
+arrangement; sending zero refuses it for this line. That distinction is the
+reason the discount fields on the line-write schemas are `Decimal | None` with
+no default rather than defaulting to zero, and it is what makes "this customer
+gets ten percent, except on clearance stock" expressible at all.
+
+**The rate is read on the server, not sent by the client.** There is no
+sales-order or sales-invoice line editor in the desktop, conversions happen on
+the server, and an API client would otherwise bypass the arrangement. The
+quotation editor is the one screen that types lines, and it *shows* the rate --
+prefilled, labelled with where it came from, and overridable -- because a
+salesman who cannot see the discount cannot tell that it applied.
+
+**An invoice inherits from the line it bills**, rather than re-reading the
+customer: a price agreed on an order in March must not be rewritten by an edit
+to the customer master in August. A rate inherits as itself; an absolute amount
+is pro-rated by the share being billed.
+
+**The discount reduces the taxable value**, so it is applied before tax and the
+ledger books revenue net of it. A ten-thousand line at ten percent posts
+`Dr Trade Receivables 10,620 / Cr Sales 9,000 / Cr Output Tax 1,620` — a trade
+discount is never an expense.
+
+Two refusals: a discount larger than the line, and a percentage above a
+hundred. Neither was refused before 2026-08-23 outside `goods_receipt`; both
+produced a negative taxable value, which the tax helpers read as zero tax while
+the negative flowed on into the document total.
+
+**Until 2026-08-23 the percentage was stored and never applied** by
+`sales_invoice`, `sales_return`, `purchase_invoice` or `purchase_return`. All
+four read the discount *amount* alone for both the tax base and the subtotal,
+so a ten percent order was invoiced at full price with `discount_percent = 10`
+sitting on the line as a lie. The three documents upstream of the invoice did
+apply it, which is what made the gap hard to see: the order looked right and
+the bill did not match it.
+
 ## Two rules worth carrying
 
 **Stock moves at dispatch; money moves at invoice approval.** They are

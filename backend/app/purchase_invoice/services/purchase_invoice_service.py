@@ -16,6 +16,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -980,6 +981,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
+            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
+            charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
+            gross_amount = self._q(invoice_quantity * unit_price)
+            line_discount = self._line_discount(
+                spec=spec, source_line=source_line, gross=gross_amount
+            )
+            discount_amount = line_discount.amount
             tax_amount = self._tax_amount(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
@@ -991,16 +999,12 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 invoice_value=self._line_net_amount(
                     quantity=invoice_quantity,
-                    unit_price=Decimal(str(spec.get("unit_price", ZERO))),
-                    discount_amount=Decimal(str(spec.get("discount_amount", ZERO))),
-                    charges_amount=Decimal(str(spec.get("charges_amount", ZERO))),
+                    unit_price=unit_price,
+                    discount_amount=discount_amount,
+                    charges_amount=charges_amount,
                 ),
                 actor_id=actor_id,
             )
-            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
-            discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
-            charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
-            gross_amount = self._q(invoice_quantity * unit_price)
             net_amount = self._q(
                 gross_amount - discount_amount + charges_amount + tax_amount
             )
@@ -1019,9 +1023,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
                 unit_price=unit_price,
-                discount_percent=self._q(
-                    Decimal(str(spec.get("discount_percent", ZERO)))
-                ),
+                discount_percent=line_discount.percent,
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
@@ -1398,6 +1400,35 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
+
+    def _line_discount(
+        self,
+        *,
+        spec: dict[str, object],
+        source_line: object,
+        gross: Decimal,
+    ) -> LineDiscount:
+        """Return the discount for one line.
+
+        What the line itself says wins; where it says nothing, the **rate** on
+        the source line carries over. A rate is inherited and an absolute
+        amount is not, because a rate does not care about quantity: this
+        document may cover part of the source line, and copying a whole-line
+        amount onto a part of it would discount more than was ever agreed.
+
+        The percentage was stored and never applied before this: the tax base
+        and the subtotal were both computed from the amount alone, so a line
+        carrying `10` was billed at full price.
+        """
+        percent = spec.get("discount_percent")
+        amount = spec.get("discount_amount")
+        if percent is None and amount is None:
+            percent = getattr(source_line, "discount_percent", None) or None
+        return resolve_line_discount(
+            gross=gross,
+            percent=None if percent is None else Decimal(str(percent)),
+            amount=None if amount is None else Decimal(str(amount)),
+        )
 
     def _line_net_amount(
         self,

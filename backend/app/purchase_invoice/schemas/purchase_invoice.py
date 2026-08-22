@@ -75,11 +75,13 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     unit_price: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    discount_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    #: None means the caller said nothing, so the rate on the source line
+    #: carries over. Zero means they said no discount on this one.
+    discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
     )
-    discount_amount: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     charges_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4

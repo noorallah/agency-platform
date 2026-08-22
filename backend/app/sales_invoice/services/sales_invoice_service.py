@@ -17,6 +17,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -1180,6 +1181,22 @@ class SalesInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
+            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
+            charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
+            gross_amount = self._q(invoice_quantity * unit_price)
+            # Resolved before the tax call, not after it. The percentage never
+            # reached this module: it was stored on the line and the tax base
+            # and the subtotal were both computed from the amount alone, so a
+            # ten percent order was billed at full price with `10` sitting on
+            # the invoice line as a lie.
+            line_discount = self._invoice_line_discount(
+                spec=spec,
+                source_line=source_line,
+                gross=gross_amount,
+                invoice_quantity=invoice_quantity,
+                source_quantity=source_quantity,
+            )
+            discount_amount = line_discount.amount
             line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
@@ -1191,17 +1208,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 invoice_value=self._line_net_amount(
                     quantity=invoice_quantity,
-                    unit_price=Decimal(str(spec.get("unit_price", ZERO))),
-                    discount_amount=Decimal(str(spec.get("discount_amount", ZERO))),
-                    charges_amount=Decimal(str(spec.get("charges_amount", ZERO))),
+                    unit_price=unit_price,
+                    discount_amount=discount_amount,
+                    charges_amount=charges_amount,
                 ),
                 actor_id=actor_id,
             )
             tax_amount = line_tax.total
-            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
-            discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
-            charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
-            gross_amount = self._q(invoice_quantity * unit_price)
             net_amount = self._q(
                 gross_amount - discount_amount + charges_amount + tax_amount
             )
@@ -1220,9 +1233,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
                 unit_price=unit_price,
-                discount_percent=self._q(
-                    Decimal(str(spec.get("discount_percent", ZERO)))
-                ),
+                discount_percent=line_discount.percent,
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
@@ -1709,6 +1720,47 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
+
+    def _invoice_line_discount(
+        self,
+        *,
+        spec: dict[str, object],
+        source_line: object,
+        gross: Decimal,
+        invoice_quantity: Decimal,
+        source_quantity: Decimal,
+    ) -> LineDiscount:
+        """Return the discount for one invoice line.
+
+        What the line itself says wins. Where it says nothing, the discount is
+        **inherited from the document being billed** rather than re-read from
+        the customer: a price agreed on an order in March is not rewritten by
+        an edit to the customer master in August. It is the same reasoning that
+        stops this module re-deriving territory and salesman.
+
+        A percentage inherits cleanly across a partial invoice, because a rate
+        does not care about quantity. An absolute amount is pro-rated by the
+        share being billed -- and across several partial invoices that can
+        leave a residual of a fraction of a paisa, which nothing trues up. At
+        four decimal places that is under a paisa per line, and a percentage
+        has no residual at all.
+        """
+        percent = spec.get("discount_percent")
+        amount = spec.get("discount_amount")
+        if percent is None and amount is None:
+            inherited_percent = getattr(source_line, "discount_percent", None)
+            inherited_amount = getattr(source_line, "discount_amount", None)
+            if inherited_percent:
+                percent = inherited_percent
+            elif inherited_amount and source_quantity > ZERO:
+                amount = self._q(
+                    Decimal(str(inherited_amount)) * invoice_quantity / source_quantity
+                )
+        return resolve_line_discount(
+            gross=gross,
+            percent=None if percent is None else Decimal(str(percent)),
+            amount=None if amount is None else Decimal(str(amount)),
+        )
 
     def _line_net_amount(
         self,

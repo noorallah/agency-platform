@@ -52,6 +52,13 @@ class Customer(BaseEntity):
     credit_limit: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: What this customer is normally given off a line, before anything is
+    #: typed on a document. A standing arrangement rather than a one-off deal:
+    #: whoever raises the document may override it freely, including down to
+    #: nothing, and what they chose is what the line records.
+    default_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     opening_balance: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )

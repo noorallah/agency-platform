@@ -687,6 +687,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     'website': _controller(widget.customer?.website),
     'notes': _controller(widget.customer?.notes),
     'credit_limit': _controller(widget.customer?.creditLimit ?? '0.00'),
+    'default_discount_percent':
+        _controller(widget.customer?.defaultDiscountPercent ?? '0'),
     'opening_balance': _controller(widget.customer?.openingBalance ?? '0.00'),
     'payment_terms_days':
         _controller(widget.customer?.paymentTermsDays.toString() ?? '0'),
@@ -822,6 +824,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'alternate_phone': _nullable('alternate_phone'),
         'website': _nullable('website'),
         'credit_limit': _fields['credit_limit']!.text.trim(),
+        'default_discount_percent':
+            _fields['default_discount_percent']!.text.trim().isEmpty
+                ? '0'
+                : _fields['default_discount_percent']!.text.trim(),
         'opening_balance': _fields['opening_balance']!.text.trim(),
         'payment_terms_days':
             int.tryParse(_fields['payment_terms_days']!.text.trim()) ?? 0,
@@ -993,6 +999,12 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           if (_error != null) _errorBanner(),
           _responsiveFields([
             _number('credit_limit', 'Credit limit', nonNegative: true),
+            _number(
+              'default_discount_percent',
+              'Default discount %',
+              nonNegative: true,
+              maximum: 100,
+            ),
             _number('opening_balance', 'Opening balance'),
             _number(
               'payment_terms_days',
@@ -1352,6 +1364,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     String label, {
     bool integer = false,
     bool nonNegative = false,
+    num? maximum,
   }) =>
       TextFormField(
         controller: _fields[key],
@@ -1363,6 +1376,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               : double.tryParse(value ?? '');
           if (parsed == null) return '$label must be a number.';
           if (nonNegative && parsed < 0) return '$label cannot be negative.';
+          // Caught here as well as on the server, which answers a schema
+          // error naming a limit the form never mentioned.
+          if (maximum != null && parsed > maximum) {
+            return '$label cannot be more than $maximum.';
+          }
           return null;
         },
       );

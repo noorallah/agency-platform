@@ -74,6 +74,12 @@ class SalesOrder(BaseEntity):
     outstanding_balance_snapshot: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: The customer's standing discount when this document was raised. The
+    #: rate is a starting point and every line may override it, so this says
+    #: what it would have been rather than what any line was charged.
+    customer_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )

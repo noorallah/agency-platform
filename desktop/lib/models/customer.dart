@@ -146,6 +146,7 @@ class Customer {
     required this.alternatePhone,
     required this.website,
     required this.creditLimit,
+    required this.defaultDiscountPercent,
     required this.openingBalance,
     required this.paymentTermsDays,
     required this.currencyCode,
@@ -181,6 +182,10 @@ class Customer {
   final String alternatePhone;
   final String website;
   final String creditLimit;
+
+  /// The rate every sales line starts at. A document may override it
+  /// freely; zero means no standing arrangement.
+  final String defaultDiscountPercent;
   final String openingBalance;
   final int paymentTermsDays;
   final String currencyCode;
@@ -220,6 +225,10 @@ class Customer {
         creditLimit: stringValue(json['credit_limit']).isEmpty
             ? '0.00'
             : stringValue(json['credit_limit']),
+        defaultDiscountPercent:
+            stringValue(json['default_discount_percent']).isEmpty
+                ? '0'
+                : stringValue(json['default_discount_percent']),
         openingBalance: stringValue(json['opening_balance']).isEmpty
             ? '0.00'
             : stringValue(json['opening_balance']),

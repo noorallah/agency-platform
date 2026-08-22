@@ -28,6 +28,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -998,7 +999,11 @@ class SalesReturnService(TransactionalDocumentService):
                 if spec.get("unit_price") is not None
                 else _decimal(getattr(source_line, "unit_price", ZERO))
             )
-            discount_amount = self._q(_decimal(spec.get("discount_amount")))
+            gross_amount = self._q(return_quantity * unit_price)
+            line_discount = self._line_discount(
+                spec=spec, source_line=source_line, gross=gross_amount
+            )
+            discount_amount = line_discount.amount
             charges_amount = self._q(_decimal(spec.get("charges_amount")))
             tax_profile_id = _optional_uuid(spec.get("tax_profile_id")) or getattr(
                 source_line, "tax_profile_id", None
@@ -1018,7 +1023,6 @@ class SalesReturnService(TransactionalDocumentService):
                 ),
                 actor_id=actor_id,
             )
-            gross_amount = self._q(return_quantity * unit_price)
             net_amount = self._q(
                 gross_amount - discount_amount + charges_amount + tax_amount
             )
@@ -1045,7 +1049,7 @@ class SalesReturnService(TransactionalDocumentService):
                     is_damaged=bool(spec.get("is_damaged", False)),
                     is_expired=bool(spec.get("is_expired", False)),
                     unit_price=unit_price,
-                    discount_percent=self._q(_decimal(spec.get("discount_percent"))),
+                    discount_percent=line_discount.percent,
                     discount_amount=discount_amount,
                     charges_amount=charges_amount,
                     gross_amount=gross_amount,
@@ -1372,6 +1376,35 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 .order_by(SalesReturnLine.line_number.asc())
             ).all()
+        )
+
+    def _line_discount(
+        self,
+        *,
+        spec: dict[str, object],
+        source_line: object,
+        gross: Decimal,
+    ) -> LineDiscount:
+        """Return the discount for one line.
+
+        What the line itself says wins; where it says nothing, the **rate** on
+        the source line carries over. A rate is inherited and an absolute
+        amount is not, because a rate does not care about quantity: this
+        document may cover part of the source line, and copying a whole-line
+        amount onto a part of it would discount more than was ever agreed.
+
+        The percentage was stored and never applied before this: the tax base
+        and the subtotal were both computed from the amount alone, so a line
+        carrying `10` was billed at full price.
+        """
+        percent = spec.get("discount_percent")
+        amount = spec.get("discount_amount")
+        if percent is None and amount is None:
+            percent = getattr(source_line, "discount_percent", None) or None
+        return resolve_line_discount(
+            gross=gross,
+            percent=None if percent is None else Decimal(str(percent)),
+            amount=None if amount is None else Decimal(str(amount)),
         )
 
     def _tax_amount(
