@@ -157,4 +157,7 @@ def test_the_newest_version_of_a_rule_wins(temp_session: Session) -> None:
     )
 
     assert result.conversion_factor == Decimal("15.0000000000")
-    assert result.version == 2
+    # The rule's published revision, which is what a document line records.
+    # It was called `version` on the wire until the concurrency counter needed
+    # that name; the two are separate fields now.
+    assert result.version_number == 2
