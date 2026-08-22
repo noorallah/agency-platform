@@ -87,9 +87,36 @@ Future<void> _open(
   // it, pumpAndSettle returns before the picker's future completes.
   await tester.runAsync(() async {
     await tester.tap(find.widgetWithText(OutlinedButton, 'Choose file'));
-    await Future<void>.delayed(const Duration(milliseconds: 50));
   });
-  await tester.pumpAndSettle();
+  // Then wait for the parse to land rather than for a fixed 50ms. That sleep
+  // was long enough on an idle machine and not on a loaded one: this test
+  // failed three times on 2026-08-22 while another suite was running, each
+  // time passing on its own, which reads exactly like a real regression until
+  // you re-run it.
+  await _waitForParse(tester);
+}
+
+/// Pump until the dialog has counted the rows it just read.
+///
+/// A parsed file renders one of two sentences -- "N rows ready." or "X of N
+/// rows are usable." -- so the word they share is the signal. Polling for
+/// "it parsed" rather than for a particular outcome keeps this helper shared:
+/// which sentence, and which row errors, is what each test asserts.
+Future<void> _waitForParse(
+  WidgetTester tester, {
+  Duration limit = const Duration(seconds: 10),
+}) async {
+  bool parsed() =>
+      find.textContaining('rows ').evaluate().isNotEmpty ||
+      find.textContaining('could not be read').evaluate().isNotEmpty;
+
+  final Stopwatch elapsed = Stopwatch()..start();
+  while (!parsed() && elapsed.elapsed < limit) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pumpAndSettle();
+  }
 }
 
 void main() {
