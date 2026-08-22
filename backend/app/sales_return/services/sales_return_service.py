@@ -648,8 +648,15 @@ class SalesReturnService(TransactionalDocumentService):
             # It took stock in, credited the customer and moved cost out of
             # sales. All three have to come back out together, or cancelling
             # leaves the firm holding goods it has been paid for.
-            self._reverse_inventory(row, firm_scope=firm_scope, actor_id=actor_id)
-            self._reverse_postings(row, firm_scope=firm_scope, actor_id=actor_id)
+            stock_value = self._reverse_inventory(
+                row, firm_scope=firm_scope, actor_id=actor_id
+            )
+            self._reverse_postings(
+                row,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                stock_value=stock_value,
+            )
             self._reverse_receivable(
                 row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
             )
@@ -791,22 +798,37 @@ class SalesReturnService(TransactionalDocumentService):
 
     def _reverse_inventory(
         self, row: SalesReturn, *, firm_scope: UUID, actor_id: UUID
-    ) -> None:
-        """Take back out the stock a completed return brought in."""
+    ) -> Decimal:
+        """Take back out the stock a completed return brought in.
+
+        Returns what the movements actually removed. The goods came in at the
+        average of the day the return completed and leave at the average of the
+        day it is cancelled, and the cost journal has to follow the second
+        figure rather than mirror the first.
+        """
+        movement_ids: list[UUID] = []
         for line in self._lines_of(row.id):
             if line.inventory_transaction_id is None:
                 continue
-            self._inventory.reverse_transaction(
+            movement = self._inventory.reverse_transaction(
                 line.inventory_transaction_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 reason=f"Cancelled sales return {row.return_number}",
             )
+            if movement is not None:
+                movement_ids.append(movement.id)
             line.inventory_transaction_id = None
             line.updated_by = actor_id
+        return self._movement_value(movement_ids)
 
     def _reverse_postings(
-        self, row: SalesReturn, *, firm_scope: UUID, actor_id: UUID
+        self,
+        row: SalesReturn,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        stock_value: Decimal,
     ) -> None:
         """Mirror both journals a completed return posted.
 
@@ -814,17 +836,24 @@ class SalesReturnService(TransactionalDocumentService):
         they answer separate questions, and reversing only the money would
         leave the goods valued as though they were still on the shelf.
         """
-        engine = JournalEntryEngine(self._session)
-        for entry_id, suffix in (
-            (row.journal_entry_id, "REV"),
-            (row.cost_journal_entry_id, "COST-REV"),
-        ):
-            if entry_id is None:
-                continue
-            engine.reverse_entry(
-                entry_id,
+        # The credit note mirrors exactly: it is what the customer was told
+        # they are owed, and cancelling makes the whole of it void.
+        if row.journal_entry_id is not None:
+            JournalEntryEngine(self._session).reverse_entry(
+                row.journal_entry_id,
                 firm_id=firm_scope,
-                reference_number=f"{row.return_number}-{suffix}",
+                reference_number=f"{row.return_number}-REV",
+                actor_id=actor_id,
+            )
+        # The cost entry does not. It brought goods in at the average of the
+        # day the return completed; they leave at the average of today, and
+        # mirroring credits inventory with a figure no movement removed.
+        if row.cost_journal_entry_id is not None:
+            self._posting.reverse_goods_return_to_stock(
+                firm_id=firm_scope,
+                entry_id=row.cost_journal_entry_id,
+                document_number=row.return_number,
+                stock_value=stock_value,
                 actor_id=actor_id,
             )
         row.journal_entry_id = None

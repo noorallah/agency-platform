@@ -2050,3 +2050,60 @@ def test_the_ledger_statement_shows_the_line_narration_it_was_given() -> None:
     )
 
     assert report.lines[0].description == "Cash from Vijaya Super Stores"
+
+
+def test_reversing_a_returned_goods_cost_uses_what_the_movement_removed() -> None:
+    """The goods leave at today's average, not the one they arrived at.
+
+    A completed sales return brings stock in at the average of that day and
+    posts it. Cancelling sends the goods back out at whatever the average is
+    then -- a different number the moment anything else has been received --
+    and mirroring the original entry credits inventory with a figure no
+    movement removed.
+
+    Found on 2026-08-22 by completing a return on a seeded store, receiving
+    twenty units at four times the price, and cancelling: the books parted by
+    16.45. It is the third of the same family, after `goods_receipt` and
+    `purchase_return` the same day.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor
+    )
+    session.commit()
+    posting = DocumentPostingService(session)
+    document_id = uuid4()
+
+    came_in = posting.post_goods_return_to_stock(
+        firm_id=firm.id,
+        document_id=document_id,
+        document_number="SR-AVG",
+        return_date=date(2026, 4, 10),
+        cost_amount=Decimal("400.00"),
+        source_module="sales_return",
+        actor_id=actor,
+    )
+    assert came_in is not None
+
+    # The average has moved since; the movement out is worth less.
+    reversal = posting.reverse_goods_return_to_stock(
+        firm_id=firm.id,
+        entry_id=came_in.id,
+        document_number="SR-AVG",
+        stock_value=Decimal("250.00"),
+        actor_id=actor,
+    )
+
+    assert reversal.reversal_of_id == came_in.id
+    assert reversal.total_debit == reversal.total_credit == Decimal("250.00")
+    inventory_leg = next(
+        line for line in reversal.lines if line.credit_amount == Decimal("250.00")
+    )
+    assert inventory_leg.credit_amount == Decimal("250.00"), (
+        "inventory is credited with what left the shelf, not the 400.00 that " "arrived"
+    )
+    # Both legs are the same figure, so the difference stays in cost of goods
+    # sold and no third account is needed.
+    assert len(reversal.lines) == 2
