@@ -251,6 +251,35 @@ afterwards.
 
 ---
 
+## Sending the bill
+
+`GET /api/v1/sales-invoices/{id}/print` returns the invoice as a PDF, rendered
+on the backend so the layout is right in one place and so the same bytes can be
+attached to an email when that arrives. Viewing is the permission: a printed
+bill shows nothing the screen does not.
+
+**Everything statutory is read from the record, never recomputed.** The tax
+components come from `sales_invoice_line_taxes`, the place of supply and the
+due date from the invoice itself. Rules are effective-dated, so asking the tax
+engine again at print time can answer differently from what the customer was
+billed -- which is the whole reason those columns exist.
+
+What a firm owns is the matter around that spine, in
+`document_print_templates`, one row per firm per document type:
+
+| Fixed for every firm | The firm's to set |
+| --- | --- |
+| The document title's presence, both GSTINs, invoice number and date | Title wording, accent colour, letterhead note |
+| Place of supply, reverse-charge flag | Bank block, terms, declaration, jurisdiction |
+| HSN per line, rate and amount per tax component | Optional columns: discount, batch, expiry |
+| The HSN-wise tax summary, total in words | Which copies to print, page size, margins |
+
+A firm that has configured nothing still prints a correct tax invoice: the
+platform defaults live in code rather than in seeded rows, so a new firm needs
+no setup to bill somebody.
+
+---
+
 ## Goods coming back
 
 `POST /api/v1/sales-returns` — `DRAFT → APPROVED → COMPLETED → CLOSED`, or

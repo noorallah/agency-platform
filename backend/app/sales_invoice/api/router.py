@@ -32,6 +32,9 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSummary,
 )
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_invoice.services.invoice_print_service import (
+    SalesInvoicePrintService,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-invoices",
@@ -365,6 +368,36 @@ def import_sales_invoices(
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
     return ApiResponse(data=[service.invoice_response(row) for row in rows])
+
+
+@router.get(
+    "/{invoice_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_sales_invoice(
+    invoice_id: UUID,
+    scope: SalesInvoiceViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one invoice as the PDF a customer is sent.
+
+    Rendered here rather than in the client so the layout is right in one
+    place, and so the same bytes can be attached to an email later. Viewing is
+    the permission: printing a bill shows nothing the screen does not.
+    """
+    pdf, filename = SalesInvoicePrintService(db).render(
+        invoice_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={
+            # `inline` so a desktop or browser viewer opens it rather than
+            # dropping a file the user then has to find.
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
 
 
 @router.get(

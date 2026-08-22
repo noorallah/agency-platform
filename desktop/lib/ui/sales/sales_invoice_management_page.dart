@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -357,6 +359,44 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         ),
       );
 
+  /// Save the bill and hand it to whatever opens PDFs on this machine.
+  ///
+  /// Saved rather than shown in a viewer of our own: the file is the thing the
+  /// customer is sent, and the operating system already has a reader for it.
+  Future<void> _printInvoice(Map<String, dynamic> invoice) async {
+    final String number = '${invoice['invoice_number'] ?? 'invoice'}';
+    try {
+      final List<int> pdf = await widget.api.salesInvoicePdf(
+        invoice['id'] as String,
+      );
+      final FileSaveLocation? location = await getSaveLocation(
+        suggestedName: '$number.pdf',
+      );
+      if (location == null) return;
+      await File(location.path).writeAsBytes(pdf, flush: true);
+      if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '', location.path]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [location.path]);
+      } else {
+        await Process.run('xdg-open', [location.path]);
+      }
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '$number saved.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   void _selectView(SalesInvoiceView view) {
     if (view == _view) return;
     setState(() {
@@ -437,6 +477,18 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           }
         },
         trailing: [
+          // Printing shows nothing the screen does not, so viewing is enough;
+          // what it needs is an invoice selected to print.
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: OutlinedButton.icon(
+              onPressed: _selected == null
+                  ? null
+                  : () => unawaited(_printInvoice(_selected!)),
+              icon: const Icon(Icons.print_outlined, size: 18),
+              label: const Text('Print'),
+            ),
+          ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),

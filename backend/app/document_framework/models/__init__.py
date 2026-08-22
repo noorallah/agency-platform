@@ -6,12 +6,14 @@ from app.document_framework.models.document_framework import (
     DocumentLine,
     DocumentNumberingRule,
     DocumentNumberSequence,
+    DocumentPrintTemplate,
     DocumentStateDefinition,
     DocumentTotal,
     DocumentTypeDefinition,
 )
 
 __all__ = [
+    "DocumentPrintTemplate",
     "DocumentHeader",
     "DocumentLifecycleEvent",
     "DocumentLine",

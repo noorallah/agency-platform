@@ -15,6 +15,8 @@ from app.document_framework.schemas.document_framework import (
     DocumentNumberingRuleUpdate,
     DocumentPdfContract,
     DocumentPrintContract,
+    DocumentPrintTemplateResponse,
+    DocumentPrintTemplateWrite,
     DocumentStateCreate,
     DocumentStateResponse,
     DocumentStateUpdate,
@@ -26,6 +28,8 @@ from app.document_framework.schemas.document_framework import (
 )
 
 __all__ = [
+    "DocumentPrintTemplateResponse",
+    "DocumentPrintTemplateWrite",
     "DocumentApprovalContract",
     "DocumentAttachmentContract",
     "DocumentEmailContract",

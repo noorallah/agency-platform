@@ -3810,6 +3810,13 @@ class ApiClient {
     }
   }
 
+  /// The invoice as the PDF a customer is sent.
+  ///
+  /// Rendered by the backend, so the layout is right in one place and the same
+  /// bytes are what an email will attach when that arrives.
+  Future<List<int>> salesInvoicePdf(String id) =>
+      downloadBytes('/api/v1/sales-invoices/$id/print');
+
   Future<List<int>> downloadBytes(
     String path, {
     Map<String, String>? query,
