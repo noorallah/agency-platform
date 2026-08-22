@@ -370,10 +370,10 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         invoice['id'] as String,
       );
       if (!mounted) return;
-      await savePrintedDocument(
+      await printDocument(
         context,
         bytes: pdf,
-        suggestedName: '$number.pdf',
+        documentName: number,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;

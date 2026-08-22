@@ -1170,10 +1170,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     try {
       final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
       if (!mounted) return;
-      await savePrintedDocument(
+      await printDocument(
         context,
         bytes: pdf,
-        suggestedName: '${order.poNumber}.pdf',
+        documentName: order.poNumber,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -1993,10 +1993,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     try {
       final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
       if (!mounted) return;
-      await savePrintedDocument(
+      await printDocument(
         context,
         bytes: pdf,
-        suggestedName: '${order.poNumber}.pdf',
+        documentName: order.poNumber,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;

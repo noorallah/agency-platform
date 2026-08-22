@@ -268,6 +268,34 @@ void main() {
           <String, String>{'status': 'APPROVED'});
     });
 
+    testWidgets('the invoice workspace offers Print and its settings',
+        (tester) async {
+      // The button and the dialog behind it are covered elsewhere; what this
+      // asserts is that they are on the screen at all. A control that exists
+      // in the source and never renders is the shape this module spent a day
+      // removing.
+      tester.view.physicalSize = const Size(1600, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final Directory temp =
+          Directory.systemTemp.createTempSync('document-navigation-print');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SalesInvoiceManagementPage(
+            api: _RecordingApi(),
+            preferences: DesktopPreferencesService(directory: temp),
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(OutlinedButton, 'Print'), findsOneWidget);
+      expect(find.byTooltip('Print settings'), findsOneWidget);
+    });
+
     testWidgets('sales invoices narrow the same way', (tester) async {
       tester.view.physicalSize = const Size(1600, 1000);
       tester.view.devicePixelRatio = 1;
