@@ -101,6 +101,15 @@ class QuotationCreate(QuotationSchema):
     )
     round_off: Decimal = Field(default=Decimal("0"), max_digits=18, decimal_places=4)
     quotation_number: str | None = Field(default=None, max_length=60)
+    #: A discount on the whole document, taken off what the lines discounted
+    #: to and split across them so the tax is charged on the reduced value.
+    #: An amount beats a rate, exactly as on a line.
+    bill_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    bill_discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     lines: list[QuotationLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[QuotationAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -211,6 +220,8 @@ class QuotationLineResponse(QuotationSchema):
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal
+    #: This line's share of the document's bill discount.
+    bill_discount_amount: Decimal
     net_amount: Decimal
     warehouse_id: UUID | None
     remarks: str | None
@@ -242,6 +253,9 @@ class QuotationResponse(QuotationSchema):
     status: QuotationStatus
     #: The customer's standing discount on the day this was raised.
     customer_discount_percent: Decimal
+    #: What was taken off the whole document, and the rate it represents.
+    bill_discount_percent: Decimal
+    bill_discount_amount: Decimal
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal

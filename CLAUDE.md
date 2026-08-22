@@ -262,6 +262,26 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   An invoice **inherits from the line it bills** rather than re-reading the
   customer, so an edit to the master in August cannot rewrite a price agreed in
   March; a rate inherits as itself, an amount is pro-rated by the share billed.
+- **A discount on the whole document reaches the lines, and therefore the tax.**
+  `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
+  delivery note or sales invoice is resolved by `resolve_bill_discount` and
+  split by `apportion` (`app/core/utils/pricing.py`) across the lines in
+  proportion to what each is worth *after* its own discount, then stored on
+  each line as `bill_discount_amount`. Three things follow. It comes off what
+  the lines discounted to, **never off the gross** -- off the gross each
+  discount is computed as though the other had not happened. The share has to
+  be **stored and taxed**, not derived at print time: `header_discount_amount`
+  on a purchase order is subtracted *after* tax, so it reduces no taxable value
+  and the counterparty pays tax on money they were never charged -- that shape
+  is deliberately not copied to sales. And the rounding residual goes to the
+  **largest** line so the shares sum exactly to the figure they split; a
+  document whose lines do not add up to its own total is one no reconciliation
+  can accept. A conversion carries the *deal* and re-splits it, because copying
+  each line's share agrees only while both documents hold the same lines; a
+  sales return **inherits** its share pro-rata from the line it credits, since
+  crediting the undiscounted figure hands back more than was charged. All four
+  sales services price every line before taxing any of them for this reason --
+  `sales_invoice` carries the intermediate state in `_PricedInvoiceLine`.
 - **`app/settlements` is money in and money out**, and it is one document for both directions: a receipt from a customer and a payment to a vendor differ only in signs. It posts to the general ledger through `DocumentPostingService.post_settlement`, and `settlements.journal_entry_id` is NOT NULL because the defect it exists to close is a settlement that never reached the ledger. ****A customer's opening balance posts** `Dr Accounts Receivable / Cr Opening Balance Equity` as of 2026-08-15, and is refused outright when the firm has no chart of accounts or open period -- a balance nobody can book is one the firm should not be told it has recorded. Revising one or deleting the customer mirrors the entry, traced through `customer_receivable_transactions.journal_entry_id`. `CustomerService.post_receivable_transaction` still moves a customer balance without writing a journal** -- it is the older, lower-level path and the two books drift by every rupee recorded through it, so record money through `/api/v1/receipts` and `/api/v1/payments` instead. What an invoice still owes is derived from `settlement_allocations`, never stored on the invoice. A settlement is reversed rather than edited or deleted: a mirror journal cancels it, the allocations stop clearing invoices but still record what they had cleared, and `CustomerService.reverse_receivable_transaction` puts the customer's balances back by the **deltas stored on the original row** -- never recomputed, because a receipt of 500 against an outstanding 300 splits into 300 of balance and 200 of advance and only that row remembers the split.
 - `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. Automatic GL posting from invoices is **not** built: it needs a per-firm control-account mapping design. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
 - Config is `pydantic-settings` reading `backend/config/.env` with the `AGENCY_` prefix; env vars override the file. `config/.env` is never committed. Staging/production refuse to start with the development JWT key or without an explicit bootstrap admin password.

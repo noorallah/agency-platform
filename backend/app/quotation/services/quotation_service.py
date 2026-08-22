@@ -25,7 +25,12 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.core.utils.pricing import resolve_line_discount
+from app.core.utils.pricing import (
+    LineDiscount,
+    apportion,
+    resolve_bill_discount,
+    resolve_line_discount,
+)
 from app.customers.models import Customer
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -604,6 +609,11 @@ class QuotationService(TransactionalDocumentService):
                 remarks=row.remarks,
                 additional_charges=row.additional_charges,
                 round_off=row.round_off,
+                # The deal carries over as the deal, not as each line's share
+                # of it. The order re-splits it across whatever lines it ends
+                # up with, which keeps the two documents' arithmetic the same
+                # rather than merely similar.
+                bill_discount_amount=row.bill_discount_amount,
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -684,7 +694,13 @@ class QuotationService(TransactionalDocumentService):
     def _apply_children(
         self, row: SalesQuotation, data: QuotationCreate, *, actor_id: UUID
     ) -> None:
-        totals = self._replace_lines(row, lines=data.lines, actor_id=actor_id)
+        totals = self._replace_lines(
+            row,
+            lines=data.lines,
+            bill_percent=data.bill_discount_percent,
+            bill_amount=data.bill_discount_amount,
+            actor_id=actor_id,
+        )
         row.line_discount_total = totals["line_discount_total"]
         row.subtotal = totals["subtotal"]
         row.tax_total = totals["tax_total"]
@@ -705,11 +721,40 @@ class QuotationService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _bill_discount_shares(
+        self,
+        row: SalesQuotation,
+        *,
+        percent: Decimal | None,
+        amount: Decimal | None,
+        taxables: list[Decimal],
+    ) -> list[Decimal]:
+        """Resolve the document's own discount and split it across the lines.
+
+        Taken off what the lines already discounted to, never off the gross --
+        off the gross, the two discounts are each computed as though the other
+        had not happened, and the pair takes off more than either was agreed to.
+
+        What is written back onto the header is the amount actually applied and
+        the rate it represents, rather than whatever the caller sent, so the
+        two figures on the document agree with each other and with its lines.
+        """
+        resolved = resolve_bill_discount(
+            taxable=self._q(sum(taxables, ZERO)),
+            percent=percent,
+            amount=amount,
+        )
+        row.bill_discount_percent = resolved.percent
+        row.bill_discount_amount = resolved.amount
+        return apportion(resolved.amount, taxables)
+
     def _replace_lines(
         self,
         row: SalesQuotation,
         *,
         lines: list[QuotationLineWrite],
+        bill_percent: Decimal | None,
+        bill_amount: Decimal | None,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         """Reconcile the lines on their line number.
@@ -738,6 +783,16 @@ class QuotationService(TransactionalDocumentService):
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
+
+        # Every line is priced before any of them is written, because a
+        # discount on the whole bill has to be split across the lines *before*
+        # tax is asked for. Tax is charged per line, so a document-level
+        # deduction that never reaches a taxable value reduces no tax -- which
+        # is what `header_discount_amount` does on a purchase order, and the
+        # reason that shape is not copied here.
+        products: list[Product] = []
+        priced: list[LineDiscount] = []
+        grosses: list[Decimal] = []
         for item in lines:
             product = self._session.scalar(
                 select(Product).where(
@@ -746,16 +801,35 @@ class QuotationService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for quotation line.")
-            quantity = self._q(item.quantity)
-            gross = self._q(quantity * self._q(item.unit_price))
-            line_discount = resolve_line_discount(
-                gross=gross,
-                percent=item.discount_percent,
-                amount=item.discount_amount,
-                customer_default=customer_discount,
+            products.append(product)
+            gross = self._q(self._q(item.quantity) * self._q(item.unit_price))
+            grosses.append(gross)
+            priced.append(
+                resolve_line_discount(
+                    gross=gross,
+                    percent=item.discount_percent,
+                    amount=item.discount_amount,
+                    customer_default=customer_discount,
+                )
             )
+        shares = self._bill_discount_shares(
+            row,
+            percent=bill_percent,
+            amount=bill_amount,
+            taxables=[
+                self._q(gross - line.amount)
+                for gross, line in zip(grosses, priced, strict=True)
+            ],
+        )
+
+        for index, item in enumerate(lines):
+            product = products[index]
+            line_discount = priced[index]
+            quantity = self._q(item.quantity)
+            gross = grosses[index]
             discount = line_discount.amount
-            taxable = self._q(gross - discount)
+            bill_share = shares[index]
+            taxable = self._q(gross - discount - bill_share)
             tax = self._tax_amount(
                 quotation_date=row.quotation_date,
                 firm_id=row.firm_id,
@@ -787,6 +861,7 @@ class QuotationService(TransactionalDocumentService):
             line.unit_price = self._q(item.unit_price)
             line.discount_percent = line_discount.percent
             line.discount_amount = discount
+            line.bill_discount_amount = bill_share
             line.gross_amount = gross
             line.tax_profile_id = item.tax_profile_id
             line.tax_amount = tax
@@ -1042,6 +1117,8 @@ class QuotationService(TransactionalDocumentService):
             remarks=row.remarks,
             status=QuotationStatus(row.status),
             customer_discount_percent=row.customer_discount_percent,
+            bill_discount_percent=row.bill_discount_percent,
+            bill_discount_amount=row.bill_discount_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,

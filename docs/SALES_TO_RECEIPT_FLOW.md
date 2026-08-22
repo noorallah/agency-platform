@@ -358,6 +358,45 @@ sitting on the line as a lie. The three documents upstream of the invoice did
 apply it, which is what made the gap hard to see: the order looked right and
 the bill did not match it.
 
+## A discount on the whole bill
+
+A firm that agrees ten percent off an order should not have to type it on every
+line. `bill_discount_percent` / `bill_discount_amount` on a quotation, sales
+order, delivery note or sales invoice carry the deal; the same precedence
+applies (an amount beats a rate), and the header stores the amount applied and
+the rate it represents.
+
+**It comes off what the lines already discounted to, never off the gross.** Off
+the gross, each discount is computed as though the other had not happened and
+the two together take off more than either was agreed to. A 15,000 document
+with 500 of line discounts takes 10% of 14,500, not of 15,000.
+
+**It is split across the lines and stored there**, in `bill_discount_amount` on
+each line, in proportion to what each line is worth after its own discount.
+That is the whole point: tax is charged per line, so a document-level deduction
+that never reaches a taxable value reduces no tax, and the customer pays tax on
+money they were never charged. The purchase order's `header_discount_amount` is
+exactly that shape -- subtracted after tax -- and was deliberately not copied.
+
+Rounding: the shares are quantised and the residual goes to the **largest**
+line, so they sum exactly to the figure they split. A document whose lines do
+not add up to its own total is one no reconciliation can accept.
+
+**A conversion carries the deal, not the shares.** Converting a quotation gives
+the order the bill discount amount and lets it re-split across whatever lines
+it ends up with; copying each line's share would agree only for as long as the
+two documents held the same lines.
+
+**A return inherits its share** from the invoice or delivery line it credits,
+pro-rated by how much of the line is coming back. Crediting the undiscounted
+figure would hand back more than was ever charged. A return has no bill
+discount of its own to negotiate.
+
+**The printed bill states it** as three rows -- what the lines came to, what
+was taken off, what is being taxed -- so the arithmetic is followable. The
+line-level "Disc." column stays what was agreed on that line; a share of a
+document-level deal is not a line discount and is not shown as one.
+
 ## Two rules worth carrying
 
 **Stock moves at dispatch; money moves at invoice approval.** They are

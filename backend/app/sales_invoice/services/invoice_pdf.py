@@ -169,12 +169,21 @@ class InvoiceDocument:
     buyer: PartyBlock
     ship_to: PartyBlock | None
     lines: tuple[InvoiceLineBlock, ...]
+
     taxable_total: Decimal
     tax_total: Decimal
     charges: Decimal
     round_off: Decimal
     grand_total: Decimal
     currency_symbol: str = "Rs."
+    #: What came off the whole document, above the line discounts. Stated on
+    #: its own row rather than folded into the taxable value, because a
+    #: customer who negotiated it looks for it by name.
+    bill_discount: Decimal = ZERO
+
+    #: What the lines came to before that deduction. Printed only where there
+    #: is a deduction to explain.
+    gross_before_bill_discount: Decimal = ZERO
     references: tuple[tuple[str, str], ...] = ()
     #: What the two address blocks are called. A bill is billed to and shipped
     #: to; an order is placed with a supplier and delivered to a warehouse.
@@ -537,7 +546,13 @@ class InvoicePdfRenderer:
 
     def _totals(self, document: InvoiceDocument, width: float) -> Table:
         """Draw the amount in words beside the figures it spells."""
-        rows: list[list[str]] = [["Taxable value", _money(document.taxable_total)]]
+        rows: list[list[str]] = []
+        if document.bill_discount:
+            # Three rows rather than one, so the arithmetic is followable: what
+            # the lines came to, what was taken off, what is being taxed.
+            rows.append(["Lines", _money(document.gross_before_bill_discount)])
+            rows.append(["Discount on bill", f"-{_money(document.bill_discount)}"])
+        rows.append(["Taxable value", _money(document.taxable_total)])
         totals_by_code: dict[str, Decimal] = {}
         for line in document.lines:
             for code, _, amount in line.taxes:

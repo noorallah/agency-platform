@@ -17,7 +17,11 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.core.utils.pricing import resolve_line_discount
+from app.core.utils.pricing import (
+    apportion,
+    resolve_bill_discount,
+    resolve_line_discount,
+)
 from app.customers.models import Customer
 from app.delivery_note.models import (
     DeliveryNote,
@@ -299,7 +303,13 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._session.flush()
-        totals = self._replace_lines(row, lines=data.lines, actor_id=actor_id)
+        totals = self._replace_lines(
+            row,
+            lines=data.lines,
+            bill_percent=data.bill_discount_percent,
+            bill_amount=data.bill_discount_amount,
+            actor_id=actor_id,
+        )
         row.total_ordered_quantity = totals["total_ordered_quantity"]
         row.total_previously_delivered_quantity = totals[
             "total_previously_delivered_quantity"
@@ -385,7 +395,13 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
-        totals = self._replace_lines(row, lines=data.lines, actor_id=actor_id)
+        totals = self._replace_lines(
+            row,
+            lines=data.lines,
+            bill_percent=data.bill_discount_percent,
+            bill_amount=data.bill_discount_amount,
+            actor_id=actor_id,
+        )
         row.total_ordered_quantity = totals["total_ordered_quantity"]
         row.total_previously_delivered_quantity = totals[
             "total_previously_delivered_quantity"
@@ -679,6 +695,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             total_current_delivery_quantity=row.total_current_delivery_quantity,
             total_free_quantity=row.total_free_quantity,
             customer_discount_percent=row.customer_discount_percent,
+            bill_discount_percent=row.bill_discount_percent,
+            bill_discount_amount=row.bill_discount_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
@@ -926,11 +944,39 @@ class DeliveryNoteService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _bill_discount_shares(
+        self,
+        row: DeliveryNote,
+        *,
+        percent: Decimal | None,
+        amount: Decimal | None,
+        taxables: list[Decimal],
+    ) -> list[Decimal]:
+        """Resolve the document's own discount and split it across the lines.
+
+        Taken off what the lines already discounted to, never off the gross --
+        off the gross, the two discounts are each computed as though the other
+        had not happened, and the pair takes off more than either was agreed to.
+
+        What is written back onto the header is the amount actually applied and
+        the rate it represents, rather than whatever the caller sent.
+        """
+        resolved = resolve_bill_discount(
+            taxable=self._q(sum(taxables, ZERO)),
+            percent=percent,
+            amount=amount,
+        )
+        row.bill_discount_percent = resolved.percent
+        row.bill_discount_amount = resolved.amount
+        return apportion(resolved.amount, taxables)
+
     def _replace_lines(
         self,
         row: DeliveryNote,
         *,
         lines: list[DeliveryNoteLineWrite],
+        bill_percent: Decimal | None,
+        bill_amount: Decimal | None,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         # Lines are matched on their line number and updated in place;
@@ -963,7 +1009,40 @@ class DeliveryNoteService(TransactionalDocumentService):
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
-        for item in lines:
+
+        # Priced before the loop below writes anything, because a discount on
+        # the whole document has to be split across the lines *before* tax is
+        # asked for. Tax is charged per line, so a document-level deduction
+        # that never reaches a taxable value reduces no tax -- which is what
+        # `header_discount_amount` does on a purchase order, and the reason
+        # that shape is not copied here. Nothing in this pass touches the
+        # database, so every validation below still runs in its own order.
+        priced = [
+            resolve_line_discount(
+                gross=self._q(
+                    self._q(item.current_delivery_quantity) * self._q(item.unit_price)
+                ),
+                percent=item.discount_percent,
+                amount=item.discount_amount,
+                customer_default=customer_discount,
+            )
+            for item in lines
+        ]
+        shares = self._bill_discount_shares(
+            row,
+            percent=bill_percent,
+            amount=bill_amount,
+            taxables=[
+                self._q(
+                    self._q(item.current_delivery_quantity) * self._q(item.unit_price)
+                    - line.amount
+                )
+                for item, line in zip(lines, priced, strict=True)
+            ],
+        )
+
+        for index, item in enumerate(lines):
+            bill_share = shares[index]
             source_line = source_lines.get(item.sales_order_line_id)
             if source_line is None:
                 raise ValidationError(
@@ -1017,14 +1096,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             remaining_qty = self._q(ordered_qty - previous_delivered - delivered_qty)
             short_qty = self._q(remaining_qty if remaining_qty > ZERO else ZERO)
             gross = self._q(current_qty * self._q(item.unit_price))
-            line_discount = resolve_line_discount(
-                gross=gross,
-                percent=item.discount_percent,
-                amount=item.discount_amount,
-                customer_default=customer_discount,
-            )
+            line_discount = priced[index]
             discount = line_discount.amount
-            taxable = self._q(gross - discount)
+            taxable = self._q(gross - discount - bill_share)
             tax = self._tax_amount(
                 delivery_date=row.delivery_date,
                 firm_id=row.firm_id,
@@ -1063,6 +1137,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 unit_price=self._q(item.unit_price),
                 discount_percent=line_discount.percent,
                 discount_amount=discount,
+                bill_discount_amount=bill_share,
                 gross_amount=gross,
                 tax_profile_id=item.tax_profile_id,
                 tax_amount=tax,

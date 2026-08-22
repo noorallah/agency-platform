@@ -53,6 +53,7 @@ def resolve_line_discount(
     percent: Decimal | None = None,
     amount: Decimal | None = None,
     customer_default: Decimal | None = None,
+    subject: str = "the line amount",
 ) -> LineDiscount:
     """Return the discount for one line.
 
@@ -64,6 +65,9 @@ def resolve_line_discount(
         amount: The currency figure the caller asked for, or None.
         customer_default: The customer's standing discount, used only when the
             caller said nothing at all.
+        subject: What the refusal calls the thing the discount cannot exceed.
+            The same rule serves a line and a whole document, and a message
+            naming the wrong one sends the reader looking in the wrong place.
 
     Returns:
         The amount to deduct, the percentage it represents, and which of the
@@ -90,7 +94,7 @@ def resolve_line_discount(
     if applied < ZERO:
         raise ValidationError("A discount cannot be negative.")
     if applied > gross:
-        raise ValidationError("Discount cannot exceed the line amount.")
+        raise ValidationError(f"Discount cannot exceed {subject}.")
 
     # Derived rather than echoed, so the two figures on the line always agree.
     # A zero-value line has no rate to speak of; recording the asked-for
@@ -101,3 +105,80 @@ def resolve_line_discount(
         else quantize_money(percent or customer_default or ZERO)
     )
     return LineDiscount(amount=applied, percent=rate, source=source)
+
+
+def resolve_bill_discount(
+    *,
+    taxable: Decimal,
+    percent: Decimal | None = None,
+    amount: Decimal | None = None,
+) -> LineDiscount:
+    """Return the discount taken off a whole document.
+
+    Same precedence as a line: what was typed in currency beats a rate, and the
+    rate recorded is derived from the amount applied so the pair on the header
+    agrees with itself.
+
+    Args:
+        taxable: What the lines come to after their own discounts. The bill
+            discount comes off this, never off the gross, or two discounts
+            would each be computed as though the other had not happened.
+        percent: The rate asked for, or None.
+        amount: The currency figure asked for, or None.
+
+    Returns:
+        The amount to take off the document and the rate it represents.
+
+    Raises:
+        ValidationError: If it is negative, or larger than the document.
+
+    """
+    return resolve_line_discount(
+        gross=taxable,
+        percent=percent,
+        amount=amount,
+        subject="what the lines come to",
+    )
+
+
+def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
+    """Split one figure across lines in proportion to their value.
+
+    A discount on the whole bill has to reach the individual lines, because tax
+    is charged per line and a document-level deduction that never touches a
+    taxable value reduces no tax -- which is what ``header_discount_amount``
+    does on a purchase order, deliberately not copied here.
+
+    Rounding is the whole difficulty. Quantising each share independently
+    leaves a residual of a few paise that belongs to nobody, and a document
+    whose lines do not sum to its own total is one no reconciliation can
+    accept. The residual is given to the **largest** line, where it is the
+    smallest proportional distortion and where a paisa is least likely to
+    change a rate anybody reads.
+
+    Args:
+        total: The figure to split. Zero returns zeros.
+        weights: What each line is worth. Lines worth nothing get nothing;
+            if every line is worth nothing there is nothing to split against,
+            and the whole figure goes to the first line rather than vanishing.
+
+    Returns:
+        One share per weight, summing exactly to ``total``.
+
+    """
+    if not weights:
+        return []
+    total = quantize_money(total)
+    if total == ZERO:
+        return [ZERO for _ in weights]
+
+    basis = sum(weights, ZERO)
+    if basis <= ZERO:
+        return [total] + [ZERO for _ in weights[1:]]
+
+    shares = [quantize_money(total * weight / basis) for weight in weights]
+    residual = total - sum(shares, ZERO)
+    if residual != ZERO:
+        largest = max(range(len(weights)), key=lambda index: weights[index])
+        shares[largest] = quantize_money(shares[largest] + residual)
+    return shares

@@ -1097,6 +1097,8 @@ def _invoice_one_line(
     order_line: SalesOrderLine,
     quantity: Decimal = Decimal("4"),
     discount_percent: Decimal | None = None,
+    bill_discount_percent: Decimal | None = None,
+    bill_discount_amount: Decimal | None = None,
 ) -> SalesInvoiceResponse:
     """Bill one order line and return the response the client would see."""
     service = SalesInvoiceService(session)
@@ -1106,6 +1108,8 @@ def _invoice_one_line(
             branch_id=branch_id,
             invoice_date=date(2026, 8, 4),
             allow_direct_sales_order=True,
+            bill_discount_percent=bill_discount_percent,
+            bill_discount_amount=bill_discount_amount,
             lines=[
                 SalesInvoiceLineWrite(
                     source_document_type=SalesInvoiceSourceType.SALES_ORDER,
@@ -1219,3 +1223,85 @@ def test_an_inherited_amount_is_pro_rated_across_a_partial_invoice() -> None:
 
     assert response.line_discount_total == Decimal("20.0000")
     assert response.grand_total == Decimal("180.0000")
+
+
+def test_a_bill_discount_reduces_the_tax_the_customer_is_charged() -> None:
+    """The whole point of splitting it across the lines.
+
+    A document-level deduction subtracted after tax -- the shape
+    `header_discount_amount` takes on a purchase order -- leaves the customer
+    paying tax on money they were never charged. Driven through a real GST
+    profile, because a fixture with no tax cannot tell the two shapes apart.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    profile = _gst_profile(session, firm=firm, actor_id=actor_id)
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            bill_discount_percent=Decimal("10"),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                    tax_profile_id=profile.id,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    response = service.invoice_response(invoice)
+    # 1,000 gross, 100 off the whole bill, so 900 taxable rather than 1,000.
+    assert response.bill_discount_amount == Decimal("100.0000")
+    assert response.subtotal == Decimal("900.0000")
+    # 18% of 900, not of 1,000: the tax followed the value down.
+    assert response.tax_total == Decimal("162.0000")
+    assert response.grand_total == Decimal("1062.0000")
+    assert response.lines[0].bill_discount_amount == Decimal("100.0000")
+    # And the stored breakup agrees, because it is what was charged.
+    stored = list(session.scalars(select(SalesInvoiceLineTax)).all())
+    assert {row.base_amount for row in stored} == {Decimal("900.0000")}
+
+
+def test_the_line_keeps_its_own_discount_apart_from_its_share() -> None:
+    """Two different facts about the line, so two columns.
+
+    What the salesman agreed on this line is not the same as this line's share
+    of a deal struck on the whole document, and the printed bill shows them
+    separately.
+    """
+    setup = _Billing(_session_factory()())
+
+    response = setup.bill(
+        discount_percent=Decimal("10"), bill_discount_amount=Decimal("36")
+    )
+
+    line = response.lines[0]
+    assert line.discount_amount == Decimal("40.0000")
+    assert line.discount_percent == Decimal("10.0000")
+    assert line.bill_discount_amount == Decimal("36.0000")
+    assert response.subtotal == Decimal("324.0000")

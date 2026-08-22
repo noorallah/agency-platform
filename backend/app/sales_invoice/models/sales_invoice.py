@@ -93,6 +93,15 @@ class SalesInvoice(BaseEntity):
     total_current_invoice_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: A discount on the whole document, negotiated once rather than typed on
+    #: every line. It comes off what the lines discounted to, and each line
+    #: carries its share so the tax is charged on the discounted value.
+    bill_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     line_discount_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -214,6 +223,11 @@ class SalesInvoiceLine(BaseEntity):
         UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT")
     )
     tax_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: This line's share of the document's bill discount. Stored rather than
+    #: derived at print time, because it is what the tax was computed on.
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     net_amount: Mapped[Decimal] = mapped_column(

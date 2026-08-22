@@ -69,6 +69,7 @@ class Quotation {
     required this.paymentTerms,
     required this.deliveryTerms,
     required this.status,
+    this.billDiscountPercent = '0',
     required this.subtotal,
     required this.taxTotal,
     required this.grandTotal,
@@ -101,6 +102,9 @@ class Quotation {
   final String paymentTerms;
   final String deliveryTerms;
   final String status;
+  /// What was taken off the whole offer, as a rate. Zero means none.
+  final String billDiscountPercent;
+
   final String subtotal;
   final String taxTotal;
   final String grandTotal;
@@ -141,6 +145,10 @@ class Quotation {
         paymentTerms: stringValue(json['payment_terms']),
         deliveryTerms: stringValue(json['delivery_terms']),
         status: stringValue(json['status']),
+        billDiscountPercent:
+            stringValue(json['bill_discount_percent']).isEmpty
+                ? '0'
+                : stringValue(json['bill_discount_percent']),
         subtotal: stringValue(json['subtotal']),
         taxTotal: stringValue(json['tax_total']),
         grandTotal: stringValue(json['grand_total']),
