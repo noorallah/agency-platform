@@ -4,7 +4,9 @@ How the Purchases module is laid out, and the one rule that shapes it:
 
 > **Purchase order statuses are views and filters, not modules.**
 
-Written 2026-08-16, when the module went from eleven sidebar entries to five.
+Written 2026-08-16, when the module went from eleven sidebar entries to five;
+four since 2026-08-22, when the two that had no backend were removed rather
+than reserved.
 
 ## What it looked like, and why it changed
 
@@ -37,9 +39,6 @@ is a way of looking at what you are already on.
 Purchases
 ├── Dashboard              purchase-dashboard
 ├── Purchase Orders        purchase-orders
-├── Sourcing ▾             (group header, no path of its own)
-│   ├── RFQs               purchase-rfqs        → not built
-│   └── Vendor Quotations  vendor-quotations    → not built
 ├── Analytics              purchase-analytics   → not built
 └── Settings               purchase-settings
 ```
@@ -136,9 +135,10 @@ Two filters, both already generic:
   falling back to the module's own when a tab declares none.
 
 Every Purchases tab requires `PURCHASE_VIEW`. A group disappears when the user
-can see none of its children — `_purchasesNavigation` guards Sourcing with
-`hasAny(['purchase-rfqs', 'vendor-quotations'])` — so an empty expander never
-appears.
+can see none of its children — guard any group you add with a `hasAny([...])`
+over its child ids, so an empty expander never appears. Purchases has no group
+left to guard since Sourcing went; `_salesNavigation` and its siblings show the
+pattern.
 
 ## Acting on an order from inside it
 
@@ -188,16 +188,25 @@ they follow.
 
 ## Not built
 
-RFQs, Vendor Quotations and Analytics render `WorkspaceEmptyState` through
-`_buildPlaceholderSection()`. There is no model, table, service, endpoint or API
-client method for any of them.
+Analytics renders `WorkspaceEmptyState` through `_buildPlaceholderSection()`.
+There is no model, table, service, endpoint or API client method behind it.
 
-They keep their nav entries deliberately: the group is the extension point, so
-the module they belong to can arrive without another navigation redesign.
+**RFQs and Vendor Quotations were removed on 2026-08-22**, along with the
+Sourcing group that held them. They had been kept as an extension point on the
+argument that the navigation would then not have to change again when the
+backend arrived. That trade was the wrong way round: the cost of adding a menu
+entry later is one catalog line, while the cost of shipping one now is a user
+who clicks it, reads that the API "does not yet expose" the screen, and learns
+that this application's menu is not to be trusted. A navigation entry is a
+promise the product keeps.
+
+Both ids stay resolvable in `purchaseTabAliases`, pointing at Purchase Orders —
+the last workspace is persisted, so somebody who closed the app on RFQs must
+land somewhere real rather than on the fallback tab.
 
 **Sales quotations are a different thing.** `sales_quotations` is customer-side
 and lives under Sales. A vendor quotation is a supplier's response to an RFQ.
-Keep them distinct in naming and in search.
+Keep them distinct in naming and in search, if the latter is ever built.
 
 ## Global search
 
@@ -212,8 +221,8 @@ Six other definitions had the same defect and are fixed with it;
 `tests/unit/test_search_navigation_targets.py` reads the tab ids out of this
 catalog and fails the build if any definition names one that is not there.
 
-RFQs and Vendor Quotations are not registered for search and must not be until
-they have records to find.
+RFQs and Vendor Quotations are not registered for search — there is nothing to
+find, which is also why their screens no longer exist.
 
 ## What the screens are for
 
@@ -231,9 +240,12 @@ RFQ → Vendor Quotation → Purchase Order → Goods Receipt
     → Purchase Invoice → Purchase Return → Supplier Payment
 ```
 
-The first two go under **Sourcing**. Purchase Order is where it is. The last
-four are already separate modules drawn beneath Purchases. Nothing about adding
-them requires moving anything that exists.
+Purchase Order is where it is, and the last four are already separate modules
+drawn beneath Purchases. The first two exist nowhere: build the backend first,
+then add a Sourcing group with `hasAny(['purchase-rfqs', 'vendor-quotations'])`
+and drop the two ids out of `purchaseTabAliases`. Adding them requires moving
+nothing that exists, which is the whole reason they did not need to be
+pre-announced in the menu.
 
 ## Components reused
 

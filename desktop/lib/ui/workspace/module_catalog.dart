@@ -503,16 +503,6 @@ abstract final class ModuleCatalog {
           label: 'Purchase Orders',
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
-        ModuleTabDefinition(
-          id: 'purchase-rfqs',
-          label: 'RFQs',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'vendor-quotations',
-          label: 'Vendor Quotations',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
         // `draft-orders`, `open-orders`, `cancelled-orders`, `closed-orders`
         // and `purchase-history` used to be tabs of their own. Each opened the
         // same workspace with one filter preset, so five sidebar entries led to
@@ -821,6 +811,13 @@ abstract final class ModuleCatalog {
   /// upgrade would drop anybody who left the app on Draft Orders back to the
   /// Dashboard, with nothing to explain why.
   static const Map<String, String> purchaseTabAliases = <String, String>{
+    // RFQs and Vendor Quotations went the same way on 2026-08-22, for a
+    // different reason: they had no backend at all. `grep -ri rfq backend/app`
+    // found nothing -- no model, no endpoint, no service -- so the two tabs
+    // rendered a sentence saying the API "does not yet expose" them. A menu
+    // entry that cannot do anything is a promise the product does not keep.
+    'purchase-rfqs': 'purchase-orders',
+    'vendor-quotations': 'purchase-orders',
     'draft-orders': 'purchase-orders',
     'open-orders': 'purchase-orders',
     'cancelled-orders': 'purchase-orders',
@@ -1138,7 +1135,6 @@ abstract final class ModuleCatalog {
   static List<WorkspaceNavigationNode> _purchasesNavigation(
     Set<String> visibleTabIds,
   ) {
-    bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
     return [
       if (visibleTabIds.contains('purchase-dashboard'))
         const WorkspaceNavigationNode(
@@ -1155,26 +1151,6 @@ abstract final class ModuleCatalog {
           label: 'Purchase Orders',
           path: 'purchase-orders',
           icon: Icons.receipt_long_outlined,
-        ),
-      // The procurement lifecycle begins before a purchase order. Neither
-      // child has a backend yet, so both open the placeholder — the group
-      // exists so that when they arrive the navigation does not change again.
-      if (hasAny(['purchase-rfqs', 'vendor-quotations']))
-        WorkspaceNavigationNode(
-          label: 'Sourcing',
-          icon: Icons.request_quote_outlined,
-          children: [
-            if (visibleTabIds.contains('purchase-rfqs'))
-              const WorkspaceNavigationNode(
-                label: 'RFQs',
-                path: 'purchase-rfqs',
-              ),
-            if (visibleTabIds.contains('vendor-quotations'))
-              const WorkspaceNavigationNode(
-                label: 'Vendor Quotations',
-                path: 'vendor-quotations',
-              ),
-          ],
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

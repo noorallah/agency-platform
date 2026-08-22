@@ -28,8 +28,6 @@ import '../../models/document_framework.dart';
 enum PurchaseSection {
   dashboard,
   purchaseOrders,
-  rfqs,
-  vendorQuotations,
   analytics,
   settings,
 }
@@ -1001,10 +999,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       ),
       child: switch (widget.section) {
         PurchaseSection.dashboard => _buildDashboard(),
-        PurchaseSection.rfqs ||
-        PurchaseSection.vendorQuotations ||
-        PurchaseSection.analytics =>
-          _buildPlaceholderSection(),
+        PurchaseSection.analytics => _buildPlaceholderSection(),
         PurchaseSection.settings => _buildSettings(),
         _ => _buildGridWorkspace(),
       },
@@ -1174,8 +1169,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
 
   Widget _buildPlaceholderSection() {
     final String label = switch (widget.section) {
-      PurchaseSection.rfqs => 'RFQs',
-      PurchaseSection.vendorQuotations => 'Vendor Quotations',
       PurchaseSection.analytics => 'Analytics',
       _ => 'Workspace',
     };
