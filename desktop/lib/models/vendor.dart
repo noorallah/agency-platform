@@ -228,6 +228,31 @@ class VendorNote {
       };
 }
 
+/// One vendor category or type -- the two masters a vendor record points at.
+///
+/// The same four columns serve both, so one record does: they differ only in
+/// which table they live in and which field on `vendors` names them.
+class VendorClassification {
+  const VendorClassification({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.description,
+    required this.isActive,
+  });
+
+  final String id, code, name, description;
+  final bool isActive;
+
+  factory VendorClassification.fromJson(Json json) => VendorClassification(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
 class Vendor {
   const Vendor({
     required this.id,

@@ -263,6 +263,52 @@ def import_branches(
     return ApiResponse(data=payloads)
 
 
+# Above `/branches/{id}` on purpose: FastAPI matches in declaration order, so
+# that route read "export" as an id and answered 422. Unreachable from the
+# day it was written until 2026-08-22.
+@router.get("/branches/export")
+def export_branches(
+    scope: BranchWarehouseExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Stream the filtered branches as CSV."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Code", "Name", "Status", "Email", "Phone", "Mobile"])
+    page = 1
+    service = BranchWarehouseService(db)
+    while True:
+        rows, _ = service.list_branches(
+            firm_scope=scope.firm_id,
+            filters=BranchListFilters(),
+            page=page,
+            page_size=1000,
+            search=search,
+            sort_by="code",
+            descending=False,
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.code,
+                    row.name,
+                    row.status,
+                    row.email or "",
+                    row.phone or "",
+                    row.mobile or "",
+                ]
+            )
+        if len(rows) < 1000:
+            break
+        page += 1
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="branches.csv"'},
+    )
+
+
 @router.get("/branches/{branch_id}", response_model=ApiResponse[BranchResponse])
 def get_branch(
     branch_id: UUID,
@@ -414,49 +460,6 @@ def bulk_branch_status(
     return ApiResponse(data={"affected": affected})
 
 
-@router.get("/branches/export")
-def export_branches(
-    scope: BranchWarehouseExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> StreamingResponse:
-    """Stream the filtered branches as CSV."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Code", "Name", "Status", "Email", "Phone", "Mobile"])
-    page = 1
-    service = BranchWarehouseService(db)
-    while True:
-        rows, _ = service.list_branches(
-            firm_scope=scope.firm_id,
-            filters=BranchListFilters(),
-            page=page,
-            page_size=1000,
-            search=search,
-            sort_by="code",
-            descending=False,
-        )
-        for row in rows:
-            writer.writerow(
-                [
-                    row.code,
-                    row.name,
-                    row.status,
-                    row.email or "",
-                    row.phone or "",
-                    row.mobile or "",
-                ]
-            )
-        if len(rows) < 1000:
-            break
-        page += 1
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="branches.csv"'},
-    )
-
-
 @router.get("/warehouses", response_model=PaginatedResponse[WarehouseResponse])
 def list_warehouses(
     scope: WarehouseViewScope,
@@ -558,6 +561,54 @@ def import_warehouses(
         data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=[WarehouseResponse.model_validate(row) for row in rows])
+
+
+# Above `/warehouses/{id}` on purpose: FastAPI matches in declaration order, so
+# that route read "export" as an id and answered 422. Unreachable from the
+# day it was written until 2026-08-22.
+@router.get("/warehouses/export")
+def export_warehouses(
+    scope: BranchWarehouseExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Stream the filtered warehouses as CSV."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        ["Code", "Name", "Branch ID", "Status", "Capacity", "Capacity Unit"]
+    )
+    page = 1
+    service = BranchWarehouseService(db)
+    while True:
+        rows, _ = service.list_warehouses(
+            firm_scope=scope.firm_id,
+            filters=WarehouseListFilters(),
+            page=page,
+            page_size=1000,
+            search=search,
+            sort_by="code",
+            descending=False,
+        )
+        for row in rows:
+            writer.writerow(
+                [
+                    row.code,
+                    row.name,
+                    str(row.branch_id),
+                    row.status,
+                    str(row.capacity or ""),
+                    row.capacity_unit or "",
+                ]
+            )
+        if len(rows) < 1000:
+            break
+        page += 1
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="warehouses.csv"'},
+    )
 
 
 @router.get("/warehouses/{warehouse_id}", response_model=ApiResponse[WarehouseResponse])
@@ -697,51 +748,6 @@ def bulk_warehouse_status(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data={"affected": affected})
-
-
-@router.get("/warehouses/export")
-def export_warehouses(
-    scope: BranchWarehouseExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> StreamingResponse:
-    """Stream the filtered warehouses as CSV."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        ["Code", "Name", "Branch ID", "Status", "Capacity", "Capacity Unit"]
-    )
-    page = 1
-    service = BranchWarehouseService(db)
-    while True:
-        rows, _ = service.list_warehouses(
-            firm_scope=scope.firm_id,
-            filters=WarehouseListFilters(),
-            page=page,
-            page_size=1000,
-            search=search,
-            sort_by="code",
-            descending=False,
-        )
-        for row in rows:
-            writer.writerow(
-                [
-                    row.code,
-                    row.name,
-                    str(row.branch_id),
-                    row.status,
-                    str(row.capacity or ""),
-                    row.capacity_unit or "",
-                ]
-            )
-        if len(rows) < 1000:
-            break
-        page += 1
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="warehouses.csv"'},
-    )
 
 
 @router.get(

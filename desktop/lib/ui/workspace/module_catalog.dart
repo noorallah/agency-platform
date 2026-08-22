@@ -241,6 +241,16 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['VENDOR_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'vendor-categories',
+          label: 'Vendor Categories',
+          requiredPermissions: ['VENDOR_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'vendor-types',
+          label: 'Vendor Types',
+          requiredPermissions: ['VENDOR_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'branches',
           label: 'Branches',
           requiredPermissions: ['BRANCH_VIEW'],
@@ -988,11 +998,31 @@ abstract final class ModuleCatalog {
           path: 'products',
           icon: Icons.inventory_2_outlined,
         ),
-      if (visibleTabIds.contains('vendors'))
-        const WorkspaceNavigationNode(
+      // Vendors and the two masters a vendor record points at. `category_id`
+      // and `type_id` have been columns on `vendors` from the start and the
+      // API has always accepted both; until 2026-08-22 neither could be set,
+      // because nothing could create the row to point at.
+      if (hasAny(['vendors', 'vendor-categories', 'vendor-types']))
+        WorkspaceNavigationNode(
           label: 'Vendors',
-          path: 'vendors',
           icon: Icons.local_shipping_outlined,
+          children: [
+            if (visibleTabIds.contains('vendors'))
+              const WorkspaceNavigationNode(
+                label: 'Vendors',
+                path: 'vendors',
+              ),
+            if (visibleTabIds.contains('vendor-categories'))
+              const WorkspaceNavigationNode(
+                label: 'Categories',
+                path: 'vendor-categories',
+              ),
+            if (visibleTabIds.contains('vendor-types'))
+              const WorkspaceNavigationNode(
+                label: 'Types',
+                path: 'vendor-types',
+              ),
+          ],
         ),
       if (hasAny([
         'branches',

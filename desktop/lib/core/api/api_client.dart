@@ -897,6 +897,43 @@ class ApiClient {
         ),
       );
 
+  /// The firm's vendor categories.
+  ///
+  /// `sortBy` and `descending` are here because `ResourceDefinition.load`
+  /// requires the shape; the endpoint orders by name and offers no choice, so
+  /// they are accepted and ignored rather than sent as a parameter nothing
+  /// reads.
+  Future<PagedResult<VendorClassification>> vendorCategories({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) =>
+      _list(
+        '/api/v1/vendors/categories',
+        VendorClassification.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+      );
+
+  /// The firm's vendor types.
+  Future<PagedResult<VendorClassification>> vendorTypes({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) =>
+      _list(
+        '/api/v1/vendors/types',
+        VendorClassification.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+      );
+
   Future<PagedResult<Vendor>> vendors({
     int page = 1,
     String search = '',

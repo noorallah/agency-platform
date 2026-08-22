@@ -262,6 +262,179 @@ def import_vendors(
     return ApiResponse(data=[VendorResponse.model_validate(item) for item in vendors])
 
 
+# The two masters come first on purpose. FastAPI matches in declaration
+# order, so `/{vendor_id}` below would read "categories" as a vendor id and
+# answer 422 -- which is exactly what it did until 2026-08-22, making both
+# lists unreachable from the day they were written. Same trap as
+# `sales_territories`, whose /{territory_id} hid four literal paths.
+@router.get("/categories", response_model=PaginatedResponse[VendorCategoryResponse])
+def list_vendor_categories(
+    scope: VendorViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[VendorCategoryResponse]:
+    """List vendor categories."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor categories.")
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = VendorService(db).list_categories(
+        firm_id=scope.firm_id,
+        include_deleted=include_deleted,
+        page=params.page,
+        page_size=params.page_size,
+        search=search,
+    )
+    return PaginatedResponse(
+        data=[VendorCategoryResponse.model_validate(item) for item in rows],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/categories",
+    response_model=ApiResponse[VendorCategoryResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_vendor_category(
+    data: VendorCategoryWrite,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorCategoryResponse]:
+    """Create vendor category."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor categories.")
+    row = VendorService(db).create_category(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=VendorCategoryResponse.model_validate(row))
+
+
+@router.put(
+    "/categories/{category_id}", response_model=ApiResponse[VendorCategoryResponse]
+)
+def update_vendor_category(
+    category_id: UUID,
+    data: VendorCategoryWrite,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorCategoryResponse]:
+    """Change vendor category."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor categories.")
+    row = VendorService(db).update_category(
+        category_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=VendorCategoryResponse.model_validate(row))
+
+
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vendor_category(
+    category_id: UUID,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Soft delete vendor category."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor categories.")
+    VendorService(db).delete_category(
+        category_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/types", response_model=PaginatedResponse[VendorTypeResponse])
+def list_vendor_types(
+    scope: VendorViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    include_deleted: bool = False,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[VendorTypeResponse]:
+    """List vendor types."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor types.")
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = VendorService(db).list_types(
+        firm_id=scope.firm_id,
+        include_deleted=include_deleted,
+        page=params.page,
+        page_size=params.page_size,
+        search=search,
+    )
+    return PaginatedResponse(
+        data=[VendorTypeResponse.model_validate(item) for item in rows],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/types",
+    response_model=ApiResponse[VendorTypeResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_vendor_type(
+    data: VendorTypeWrite,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorTypeResponse]:
+    """Create vendor type."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor types.")
+    row = VendorService(db).create_type(
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=VendorTypeResponse.model_validate(row))
+
+
+@router.put("/types/{type_id}", response_model=ApiResponse[VendorTypeResponse])
+def update_vendor_type(
+    type_id: UUID,
+    data: VendorTypeWrite,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorTypeResponse]:
+    """Change vendor type."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor types.")
+    row = VendorService(db).update_type(
+        type_id,
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=VendorTypeResponse.model_validate(row))
+
+
+@router.delete("/types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_vendor_type(
+    type_id: UUID,
+    scope: VendorCategoryManageScope,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Soft delete vendor type."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for vendor types.")
+    VendorService(db).delete_type(
+        type_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{vendor_id}", response_model=ApiResponse[VendorResponse])
 def get_vendor(
     vendor_id: UUID,
@@ -427,152 +600,3 @@ def bulk_profile_vendors(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data={"affected": affected})
-
-
-@router.get("/categories", response_model=ApiResponse[list[VendorCategoryResponse]])
-def list_vendor_categories(
-    scope: VendorViewScope,
-    include_deleted: bool = False,
-    db: Session = Depends(get_db),
-) -> ApiResponse[list[VendorCategoryResponse]]:
-    """List vendor categories."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor categories.")
-    rows = VendorService(db).list_categories(
-        firm_id=scope.firm_id,
-        include_deleted=include_deleted,
-    )
-    return ApiResponse(
-        data=[VendorCategoryResponse.model_validate(item) for item in rows]
-    )
-
-
-@router.post(
-    "/categories",
-    response_model=ApiResponse[VendorCategoryResponse],
-    status_code=status.HTTP_201_CREATED,
-)
-def create_vendor_category(
-    data: VendorCategoryWrite,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[VendorCategoryResponse]:
-    """Create vendor category."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor categories.")
-    row = VendorService(db).create_category(
-        data,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return ApiResponse(data=VendorCategoryResponse.model_validate(row))
-
-
-@router.put(
-    "/categories/{category_id}", response_model=ApiResponse[VendorCategoryResponse]
-)
-def update_vendor_category(
-    category_id: UUID,
-    data: VendorCategoryWrite,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[VendorCategoryResponse]:
-    """Change vendor category."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor categories.")
-    row = VendorService(db).update_category(
-        category_id,
-        data,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return ApiResponse(data=VendorCategoryResponse.model_validate(row))
-
-
-@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_vendor_category(
-    category_id: UUID,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Soft delete vendor category."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor categories.")
-    VendorService(db).delete_category(
-        category_id,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-@router.get("/types", response_model=ApiResponse[list[VendorTypeResponse]])
-def list_vendor_types(
-    scope: VendorViewScope,
-    include_deleted: bool = False,
-    db: Session = Depends(get_db),
-) -> ApiResponse[list[VendorTypeResponse]]:
-    """List vendor types."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor types.")
-    rows = VendorService(db).list_types(
-        firm_id=scope.firm_id, include_deleted=include_deleted
-    )
-    return ApiResponse(data=[VendorTypeResponse.model_validate(item) for item in rows])
-
-
-@router.post(
-    "/types",
-    response_model=ApiResponse[VendorTypeResponse],
-    status_code=status.HTTP_201_CREATED,
-)
-def create_vendor_type(
-    data: VendorTypeWrite,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[VendorTypeResponse]:
-    """Create vendor type."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor types.")
-    row = VendorService(db).create_type(
-        data,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return ApiResponse(data=VendorTypeResponse.model_validate(row))
-
-
-@router.put("/types/{type_id}", response_model=ApiResponse[VendorTypeResponse])
-def update_vendor_type(
-    type_id: UUID,
-    data: VendorTypeWrite,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> ApiResponse[VendorTypeResponse]:
-    """Change vendor type."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor types.")
-    row = VendorService(db).update_type(
-        type_id,
-        data,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return ApiResponse(data=VendorTypeResponse.model_validate(row))
-
-
-@router.delete("/types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_vendor_type(
-    type_id: UUID,
-    scope: VendorCategoryManageScope,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Soft delete vendor type."""
-    if scope.firm_id is None:
-        raise ValidationError("X-Firm-ID is required for vendor types.")
-    VendorService(db).delete_type(
-        type_id,
-        firm_id=scope.firm_id,
-        actor_id=scope.actor_id,
-    )
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
