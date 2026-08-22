@@ -128,39 +128,39 @@ def list_sales_invoices(
 # redirects cannot create an invoice at all.
 @router.post(
     "",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_201_CREATED,
 )
 def create_sales_invoice(
     scope: SalesInvoiceCreateScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceCreate,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Create a new sales invoice."""
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.get(
     "/{invoice_id}",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice(
     scope: SalesInvoiceViewScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Get a specific sales invoice."""
     service = SalesInvoiceService(db)
     row = service.get_invoice(invoice_id, firm_scope=scope.firm_id)
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.put(
     "/{invoice_id}",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
 def update_sales_invoice(
@@ -168,36 +168,36 @@ def update_sales_invoice(
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: SalesInvoiceCreate,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Update an existing sales invoice."""
     service = SalesInvoiceService(db)
     row = service.update_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.post(
     "/{invoice_id}/approve",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
 def approve_sales_invoice(
     scope: SalesInvoiceApproveScope,
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.approve_invoice(
         invoice_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.post(
     "/{invoice_id}/cancel",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
 def cancel_sales_invoice(
@@ -205,7 +205,7 @@ def cancel_sales_invoice(
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Cancel a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.cancel_invoice(
@@ -214,12 +214,12 @@ def cancel_sales_invoice(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.post(
     "/{invoice_id}/close",
-    response_model=SalesInvoiceResponse,
+    response_model=ApiResponse[SalesInvoiceResponse],
     status_code=status.HTTP_200_OK,
 )
 def close_sales_invoice(
@@ -227,7 +227,7 @@ def close_sales_invoice(
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: ActionReasonRequest,
-) -> SalesInvoiceResponse:
+) -> ApiResponse[SalesInvoiceResponse]:
     """Close a sales invoice."""
     service = SalesInvoiceService(db)
     row = service.close_invoice(
@@ -236,7 +236,7 @@ def close_sales_invoice(
         actor_id=scope.actor_id,
         reason=data.reason,
     )
-    return service.invoice_response(row)
+    return ApiResponse(data=service.invoice_response(row))
 
 
 @router.get(
@@ -352,19 +352,19 @@ def get_sales_invoice_reconciliation(
 
 @router.post(
     "/import",
-    response_model=list[SalesInvoiceResponse],
+    response_model=ApiResponse[list[SalesInvoiceResponse]],
     status_code=status.HTTP_201_CREATED,
 )
 def import_sales_invoices(
     scope: SalesInvoiceImportScope,
     db: Annotated[Session, Depends(get_db)],
     data: SalesInvoiceImportRequest,
-) -> list[SalesInvoiceResponse]:
+) -> ApiResponse[list[SalesInvoiceResponse]]:
     """Import multiple sales invoices."""
     service = SalesInvoiceService(db)
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
-    return [service.invoice_response(row) for row in rows]
+    return ApiResponse(data=[service.invoice_response(row) for row in rows])
 
 
 @router.get(
