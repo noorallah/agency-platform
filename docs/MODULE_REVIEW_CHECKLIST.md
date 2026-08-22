@@ -70,6 +70,14 @@ ones that produced a defect during the platform pass.
       **(found a real bug — seven `sales_invoice` endpoints answered with the
       bare model)**. `tests/unit/test_response_envelope_conventions.py` fails
       the build on the next one.
+- [ ] **A new endpoint the desktop will call, or a new screen calling one,
+      leaves both sides agreeing.** The desktop's paths and this application's
+      route table are compared by `tests/unit/test_desktop_calls_reach_a_route.py`
+      **(found a real bug -- the Refunds screen's Reverse button answered 405,
+      because one page serves three settlement directions and only two had the
+      route)**. Watch the families in `_FAMILIES`: a path a variable fills in
+      cannot be resolved from the text, so each is checked by member in a test
+      of its own, and adding an unchecked one is how that defect survived.
 - [ ] `page` and `page_size` declare their bounds **on the query parameter**,
       not by constructing `PaginationParams` in the handler body
       **(found a real bug — 44 endpoints, 28 recorded 500s across four of
