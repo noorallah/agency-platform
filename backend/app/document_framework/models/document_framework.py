@@ -9,12 +9,14 @@ from sqlalchemy import (
     Boolean,
     Date,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -163,6 +165,79 @@ class DocumentLifecycleEvent(BaseEntity):
     email_recipient: Mapped[str | None] = mapped_column(String(255))
     occurred_at: Mapped[datetime] = mapped_column(
         UTCDateTime, nullable=False, server_default=func.now()
+    )
+
+
+class DocumentPrintTemplate(BaseEntity):
+    """Store what one firm prints around a document of one type.
+
+    The statutory spine of a tax invoice is not configurable -- the words
+    *Tax Invoice*, both parties' GSTINs, the HSN per line, the rate and amount
+    per component, the tax summary and the total in words are what make it a
+    tax invoice, and a firm that could switch them off could configure itself
+    out of compliance. What a firm does own is everything around that: its
+    letterhead, its bank block, its terms, which optional columns it wants and
+    what paper it prints on.
+
+    One row per firm per document type, so the same table serves a delivery
+    note or a purchase order when either learns to print.
+    """
+
+    __tablename__ = "document_print_templates"
+    __table_args__ = (
+        Index(
+            "UQ_document_print_templates_firm_type",
+            "firm_id",
+            "document_type",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: `SALES_INVOICE` today. The renderer decides what it can draw.
+    document_type: Mapped[str] = mapped_column(String(40), nullable=False)
+
+    #: The banner across the top. A firm may say "Tax Invoice" or "Bill of
+    #: Supply" -- both are real documents -- but not remove it.
+    title_text: Mapped[str] = mapped_column(
+        String(60), nullable=False, default="TAX INVOICE", server_default="TAX INVOICE"
+    )
+    #: Hex, used for the title bar and the table headings.
+    accent_color: Mapped[str] = mapped_column(
+        String(9), nullable=False, default="#0B3D6B", server_default="#0B3D6B"
+    )
+    header_note: Mapped[str | None] = mapped_column(Text)
+
+    show_bank_details: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    bank_details: Mapped[str | None] = mapped_column(Text)
+    terms: Mapped[str | None] = mapped_column(Text)
+    declaration: Mapped[str | None] = mapped_column(Text)
+    jurisdiction: Mapped[str | None] = mapped_column(String(200))
+    footer_note: Mapped[str | None] = mapped_column(Text)
+    signatory_text: Mapped[str | None] = mapped_column(String(200))
+
+    #: Optional columns. HSN is not among them: a tax invoice states it.
+    show_discount_column: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    show_batch_column: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    show_expiry_column: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    #: Which copies to print, in order. Empty means the original alone.
+    copy_labels: Mapped[list[str] | None] = mapped_column(JSON)
+    page_size: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="A4", server_default="A4"
+    )
+    margin_mm: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2), nullable=False, default=Decimal("12"), server_default="12"
     )
 
 

@@ -61,6 +61,11 @@ class SalesInvoice(BaseEntity):
     invoice_number: Mapped[str] = mapped_column(String(60), nullable=False)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     customer_invoice_number: Mapped[str | None] = mapped_column(String(120))
+    #: The state the supply was made in, copied from the customer's billing
+    #: address when the invoice is raised. It decides CGST + SGST against IGST,
+    #: and it is stored rather than derived because a customer who moves must
+    #: not silently change the tax treatment of an invoice already issued.
+    place_of_supply: Mapped[str | None] = mapped_column(String(120))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))
@@ -238,6 +243,60 @@ class SalesInvoiceLine(BaseEntity):
     manufacturing_date: Mapped[date | None] = mapped_column(Date)
     remarks: Mapped[str | None] = mapped_column(Text)
     accounting_event_reference: Mapped[str | None] = mapped_column(String(120))
+
+
+class SalesInvoiceLineTax(BaseEntity):
+    """Store the tax components one invoice line was actually charged.
+
+    A line has always carried a single `tax_amount`, which is what the customer
+    pays and is useless on a printed bill: a tax invoice has to state each
+    component -- CGST 9% 90.00, SGST 9% 90.00 -- and the rate it was charged at.
+    That breakup was computed by the rule engine at save time and then thrown
+    away, surviving only in `tax_rule_execution_logs`, which the retention job
+    prunes. Rules are effective-dated, so re-deriving it at print time can
+    disagree with what the customer was billed; the only honest answer is to
+    keep what was charged, on the document that charged it.
+
+    `tax_component_id` carries no foreign key on purpose. It says which
+    catalogue row produced this line at the time, and the catalogue moves on --
+    a RESTRICT would stop a firm ever retiring a component, and a CASCADE would
+    erase the evidence. The code, label and percentage beside it are the record.
+    """
+
+    __tablename__ = "sales_invoice_line_taxes"
+    __table_args__ = (
+        Index("IX_sales_invoice_line_taxes_line", "sales_invoice_line_id"),
+        Index("IX_sales_invoice_line_taxes_firm", "firm_id"),
+    )
+
+    sales_invoice_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_invoice_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tax_component_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    component_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    component_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    percentage: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    base_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Tax already inside the price, which the bill shows but does not add.
+    included_in_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Whether the buyer may claim it as input credit.
+    recoverable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class SalesInvoiceAttachment(BaseEntity):

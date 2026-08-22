@@ -14,6 +14,10 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_secure_storage: ^10.0.0
+  # Opens the operating system's print dialog with a preview, and takes
+  # pre-rendered bytes -- the backend already produces the PDF, so nothing
+  # here lays a document out a second time.
+  printing: ^5.13.0
   window_manager: ^0.5.2
 
 dev_dependencies:

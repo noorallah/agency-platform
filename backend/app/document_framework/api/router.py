@@ -26,6 +26,8 @@ from app.document_framework.schemas import (
     DocumentNumberingRuleCreate,
     DocumentNumberingRuleResponse,
     DocumentNumberingRuleUpdate,
+    DocumentPrintTemplateResponse,
+    DocumentPrintTemplateWrite,
     DocumentStateCreate,
     DocumentStateResponse,
     DocumentStateUpdate,
@@ -33,7 +35,10 @@ from app.document_framework.schemas import (
     DocumentTypeResponse,
     DocumentTypeUpdate,
 )
-from app.document_framework.services import DocumentFrameworkService
+from app.document_framework.services import (
+    DocumentFrameworkService,
+    DocumentPrintTemplateService,
+)
 
 router = APIRouter(
     prefix="/api/v1/document-framework",
@@ -345,3 +350,45 @@ def create_document_event(
     row = _service(db).record_event(scope.firm_id, data, _actor_id(principal))
     db.commit()
     return ApiResponse(data=DocumentLifecycleEventResponse.model_validate(row))
+
+
+@router.get(
+    "/print-templates/{document_type}",
+    response_model=ApiResponse[DocumentPrintTemplateResponse],
+)
+def get_print_template(
+    document_type: str,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DocumentPrintTemplateResponse]:
+    """Return the firm's print template, or the platform default.
+
+    A firm that has configured nothing still prints a correct bill, so this
+    answers with the defaults rather than a 404 -- and says which it gave.
+    """
+    return ApiResponse(
+        data=DocumentPrintTemplateService(db).get(
+            document_type, firm_scope=scope.firm_id
+        )
+    )
+
+
+@router.put(
+    "/print-templates/{document_type}",
+    response_model=ApiResponse[DocumentPrintTemplateResponse],
+)
+def set_print_template(
+    document_type: str,
+    payload: DocumentPrintTemplateWrite,
+    scope: RequiredFirmScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DocumentPrintTemplateResponse]:
+    """Create or replace the firm's print template for one document type."""
+    data = DocumentPrintTemplateService(db).set(
+        document_type,
+        payload,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=data, message="Print template saved.")

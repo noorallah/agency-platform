@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -359,3 +360,40 @@ class DocumentTimelineEntry(DocumentFrameworkSchema):
     actor: str | None = None
     remarks: str | None = None
     details: dict[str, object] | None = None
+
+
+class DocumentPrintTemplateWrite(DocumentFrameworkSchema):
+    """Everything a firm may change about a printed document.
+
+    Deliberately nothing statutory: the words *Tax Invoice* can be reworded --
+    a Bill of Supply is a real document too -- but the parties' GSTINs, the HSN
+    per line, the rate and amount per tax component, the tax summary and the
+    total in words are what make a tax invoice one, and none of them is here.
+    """
+
+    title_text: str = Field(default="TAX INVOICE", min_length=2, max_length=60)
+    accent_color: str = Field(default="#0B3D6B", pattern=r"^#[0-9A-Fa-f]{6}$")
+    header_note: str | None = None
+    show_bank_details: bool = True
+    bank_details: str | None = Field(default=None, max_length=1000)
+    terms: str | None = Field(default=None, max_length=2000)
+    declaration: str | None = Field(default=None, max_length=1000)
+    jurisdiction: str | None = Field(default=None, max_length=200)
+    footer_note: str | None = Field(default=None, max_length=500)
+    signatory_text: str | None = Field(default=None, max_length=200)
+    show_discount_column: bool = True
+    show_batch_column: bool = False
+    show_expiry_column: bool = False
+    #: In print order. Empty prints the original alone.
+    copy_labels: list[str] = Field(default_factory=list, max_length=4)
+    page_size: Literal["A4", "A5"] = "A4"
+    margin_mm: Decimal = Field(default=Decimal("12"), ge=5, le=40)
+
+
+class DocumentPrintTemplateResponse(DocumentPrintTemplateWrite):
+    """One firm's template, or the platform default it has not overridden."""
+
+    id: UUID | None = None
+    document_type: str
+    #: False where no row exists yet and these are the platform defaults.
+    is_customised: bool = False

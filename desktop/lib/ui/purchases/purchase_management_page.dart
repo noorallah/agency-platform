@@ -22,6 +22,8 @@ import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/print_settings_dialog.dart';
+import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 
 /// A destination in the Purchases module -- one sidebar entry each.
@@ -1150,6 +1152,39 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   ///
   /// Scrollable because six segments do not fit a narrow window, and a
   /// segmented button clips rather than wraps.
+  /// How this firm prints its orders: copies, letterhead, terms, paper.
+  Future<void> _openPrintSettings() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => PrintSettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        documentType: 'PURCHASE_ORDER',
+        documentLabel: 'purchase order',
+      ),
+    );
+  }
+
+  /// Print the selected order.
+  Future<void> _printOrder(PurchaseOrder order) async {
+    try {
+      final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: order.poNumber,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   Widget _buildViewBar() => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: SegmentedButton<PurchaseOrderView>(
@@ -1425,13 +1460,17 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ),
         IconButton(
           tooltip: 'Print',
-          onPressed: () {
-            NotificationService.show(
-              context,
-              'Print is reserved for the next transactional phase.',
-            );
-          },
+          // It showed a toast saying print was "reserved for the next
+          // transactional phase" from the day it was drawn. It prints now.
+          onPressed: _selected == null
+              ? null
+              : () => unawaited(_printOrder(_selected!)),
           icon: const Icon(Icons.print_outlined),
+        ),
+        IconButton(
+          tooltip: 'Print settings',
+          onPressed: () => unawaited(_openPrintSettings()),
+          icon: const Icon(Icons.tune_outlined),
         ),
         IconButton(
           tooltip: 'Saved views',
@@ -1949,6 +1988,26 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
 }
 
 class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
+  /// Print the order this dialog is showing.
+  Future<void> _printFromDialog(PurchaseOrder order) async {
+    try {
+      final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: order.poNumber,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   late PurchaseOrder _draft = widget.mode == PurchaseDialogMode.duplicate
       ? _duplicateDraft(widget.order!)
       : (widget.order ?? _blankOrder());
@@ -2128,8 +2187,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                       if (widget.canApprove && !widget.isCreating)
                         DocumentToolbarAction.approve,
                       DocumentToolbarAction.printDocument,
-                      DocumentToolbarAction.exportDocument,
-                      DocumentToolbarAction.emailDocument,
+                      // Export and Email were beside this and did nothing at
+                      // all -- no handler, no endpoint, no SMTP anywhere in
+                      // the platform. Removed rather than left apologising;
+                      // email returns when there is something behind it.
                       DocumentToolbarAction.close,
                     ],
                   ),
@@ -3459,8 +3520,12 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           );
         }
         break;
-      case DocumentToolbarAction.newDocument:
       case DocumentToolbarAction.printDocument:
+        if (widget.order != null) {
+          unawaited(_printFromDialog(widget.order!));
+        }
+        break;
+      case DocumentToolbarAction.newDocument:
       case DocumentToolbarAction.exportDocument:
       case DocumentToolbarAction.emailDocument:
       case DocumentToolbarAction.dispatch:

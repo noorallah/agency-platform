@@ -62,6 +62,13 @@ live **only** in the platform schema, and a tenant session cannot see them.
 Business services never learn which storage mode a firm uses — they receive a
 session and stay ignorant on purpose.
 
+The sale is the mirror image and reads in half the time once the purchase
+chain has landed: [`SALES_TO_RECEIPT_FLOW.md`](SALES_TO_RECEIPT_FLOW.md), driven
+the same way on 2026-08-22. The shape to notice is that **stock and money move
+at different moments** -- goods leave when a delivery note is dispatched, and
+the customer is billed when the invoice is approved, which is why cost of goods
+sold belongs to the note and revenue to the invoice.
+
 **Check yourself:**
 
 1. A firm-owned service needs a salesman's name. Where does it get it, and why

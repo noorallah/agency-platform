@@ -38,6 +38,9 @@ from app.purchase.schemas import (
     PurchaseType,
 )
 from app.purchase.services import PurchaseService
+from app.purchase.services.purchase_print_service import (
+    PurchaseOrderPrintService,
+)
 
 router = APIRouter(
     prefix="/api/v1/purchases",
@@ -245,6 +248,32 @@ def export_purchase_orders(
         iter([text]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="purchase_orders.csv"'},
+    )
+
+
+@router.get(
+    "/{order_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_purchase_order(
+    order_id: UUID,
+    scope: PurchaseViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one purchase order as the PDF a supplier is sent.
+
+    The same renderer the sales invoice uses, given an order's shape -- an
+    order is placed with a supplier and delivered to a warehouse, and states no
+    place of supply and no tax summary because it charges nobody.
+    """
+    pdf, filename = PurchaseOrderPrintService(db).render(
+        order_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

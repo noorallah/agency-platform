@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.branches.models import Branch, Warehouse
+from app.business.models import BusinessProfile
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.common.scope import (
@@ -33,7 +34,11 @@ from app.core.exceptions import ValidationError
 from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
-from app.customers.models import CreditControlSettings, Customer
+from app.customers.models import (
+    CreditControlSettings,
+    Customer,
+    CustomerAddress,
+)
 from app.customers.schemas import CreditEnforcement
 from app.finance.models import (
     GLPosting,
@@ -48,6 +53,7 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.identity.system_seed import SYSTEM_PERMISSION_CODES
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
+from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_invoice.api.router import (
     ActionReasonRequest,
@@ -63,7 +69,7 @@ from app.sales_invoice.api.router import (
     get_sales_invoice_timeline,
     list_sales_invoices,
 )
-from app.sales_invoice.models import SalesInvoice
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine, SalesInvoiceLineTax
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -75,6 +81,14 @@ from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
+from app.tax.schemas import (
+    TaxComponentWrite,
+    TaxProfileWrite,
+    TaxRuleWrite,
+    TaxSystemWrite,
+)
+from app.tax.services.tax_framework_service import TaxFrameworkService
+from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
 
 
@@ -624,3 +638,412 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
         )
     ).all()
     assert len(reversals) == 1, "one mirror entry, named after the invoice"
+
+
+def _order_line_for(
+    session: Session,
+    *,
+    firm: object,
+    branch: object,
+    warehouse: object,
+    customer: object,
+    product: object,
+) -> tuple[object, object]:
+    """Raise an approved-shaped sales order and return it with its line."""
+    order = SalesOrderService(session).create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    return order, line
+
+
+def test_the_invoice_records_when_payment_falls_due() -> None:
+    """The customer carries the terms and the invoice carried NULL.
+
+    Nothing put the two together, so every traced invoice had no due date at
+    all -- and a printed bill has to say when it is payable.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.payment_terms_days = 21
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    invoice = SalesInvoiceService(session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert invoice.due_date == date(2026, 8, 25), "21 days from the invoice date"
+
+
+def test_a_due_date_the_caller_gives_is_not_overwritten() -> None:
+    """Deriving fills the gap; it does not overrule the person raising it."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.payment_terms_days = 21
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    invoice = SalesInvoiceService(session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            due_date=date(2026, 9, 30),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert invoice.due_date == date(2026, 9, 30)
+
+
+def test_the_invoice_fixes_the_place_of_supply_when_it_is_raised() -> None:
+    """It decides CGST + SGST against IGST, so it cannot follow the customer.
+
+    Reading it through the customer at print time would let an address change
+    rewrite the tax treatment of an invoice already issued.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    session.add(
+        CustomerAddress(
+            customer_id=customer.id,
+            address_type="BILLING",
+            address_line1="23 Market Road",
+            city="Pune",
+            state="Maharashtra",
+            country="IN",
+            postal_code="411001",
+            is_default_billing=True,
+        )
+    )
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert invoice.place_of_supply == "Maharashtra"
+    assert service.invoice_response(invoice).place_of_supply == "Maharashtra"
+
+    # The customer moves. The issued invoice does not.
+    address = session.scalar(
+        select(CustomerAddress).where(CustomerAddress.customer_id == customer.id)
+    )
+    assert address is not None
+    address.state = "Karnataka"
+    session.commit()
+    session.refresh(invoice)
+    assert invoice.place_of_supply == "Maharashtra"
+
+
+def _gst_profile(session: Session, *, firm: object, actor_id: UUID) -> object:
+    """Return an 18% tax split into two 9% components, the way GST is charged."""
+    country = GeoCountry(
+        code="IN",
+        name="India",
+        iso2="IN",
+        iso3="IND",
+        phone_code="+91",
+        is_active=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    business_profile = BusinessProfile(
+        code="GENERIC",
+        name="Generic",
+        industry_type="GENERIC",
+        status="ACTIVE",
+        is_default=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+        default_settings={},
+    )
+    session.add_all([country, business_profile])
+    session.commit()
+
+    framework = TaxFrameworkService(session)
+    system = framework.create_system(
+        TaxSystemWrite(
+            country_id=country.id, code="GST", name="Goods and Services Tax"
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    components = [
+        framework.create_component(
+            TaxComponentWrite(
+                tax_system_id=system.id,
+                code=code,
+                name=name,
+                label=name,
+                percentage="9",
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+        for code, name in (("CGST", "Central GST"), ("SGST", "State GST"))
+    ]
+    profile = framework.create_profile(
+        TaxProfileWrite(
+            tax_system_id=system.id,
+            business_profile_id=business_profile.id,
+            code="GST_18_LOCAL",
+            name="GST 18 local",
+            components=[
+                {
+                    "tax_component_id": component.id,
+                    "percentage": "9",
+                    "calculation_order": order,
+                }
+                for order, component in enumerate(components, start=1)
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            business_profile_id=business_profile.id,
+            code="SALES_DEFAULT",
+            name="Sales default",
+            priority=50,
+            status="ACTIVE",
+            actions=[
+                {
+                    "sequence": 1,
+                    "action_type": "APPLY_TAX_PROFILE",
+                    "target_tax_profile_id": profile.id,
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return profile
+
+
+def test_the_line_keeps_the_tax_it_charged_component_by_component() -> None:
+    """One `tax_amount` cannot be printed on a tax invoice.
+
+    A bill has to state CGST 9% 90.00 and SGST 9% 90.00, not "180.00 of tax".
+    The breakup was computed by the rule engine and discarded, surviving only
+    in `tax_rule_execution_logs`, which the retention job prunes -- and rules
+    are effective-dated, so asking the engine again later can answer
+    differently from what the customer was billed.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    profile = _gst_profile(session, firm=firm, actor_id=actor_id)
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                    tax_profile_id=profile.id,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    stored = list(
+        session.scalars(
+            select(SalesInvoiceLineTax).order_by(SalesInvoiceLineTax.sequence.asc())
+        ).all()
+    )
+    assert [row.component_code for row in stored] == ["CGST", "SGST"]
+    assert [row.percentage for row in stored] == [Decimal("9.0000"), Decimal("9.0000")]
+    assert [row.amount for row in stored] == [Decimal("90.0000"), Decimal("90.0000")]
+    assert {row.base_amount for row in stored} == {Decimal("1000.0000")}
+    assert sum(row.amount for row in stored) == invoice.tax_total
+
+    response = service.invoice_response(invoice)
+    line = response.lines[0]
+    assert line.tax_amount == Decimal("180.0000")
+    assert [component.component_code for component in line.taxes] == ["CGST", "SGST"]
+    assert line.tax_profile_id == profile.id, (
+        "the line records the profile that produced the tax, not the one the "
+        "caller happened to send"
+    )
+
+
+def test_a_line_records_the_profile_the_product_resolved() -> None:
+    """A client that names no profile still gets one, and the line says which.
+
+    `tax_profile_id` was written straight from the request body, so an invoice
+    raised without naming a profile stored NULL even though the engine had
+    resolved one from the product.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    profile = _gst_profile(session, firm=firm, actor_id=actor_id)
+    # A product names a tax *group*, not a version: the rate a document carries
+    # is decided by its own date, so a rate change needs no product edit.
+    product.tax_profile_group_code = profile.group_code
+    session.commit()
+    order, order_line = _order_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+
+    invoice = SalesInvoiceService(session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    line = session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert line is not None
+    assert line.tax_profile_id == profile.id

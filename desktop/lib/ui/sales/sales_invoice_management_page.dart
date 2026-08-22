@@ -11,6 +11,8 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/print_settings_dialog.dart';
+import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
 
 /// A named view over the one sales invoice list.
@@ -357,6 +359,45 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         ),
       );
 
+  /// Save the bill and hand it to whatever opens PDFs on this machine.
+  ///
+  /// Saved rather than shown in a viewer of our own: the file is the thing the
+  /// customer is sent, and the operating system already has a reader for it.
+  Future<void> _printInvoice(Map<String, dynamic> invoice) async {
+    final String number = '${invoice['invoice_number'] ?? 'invoice'}';
+    try {
+      final List<int> pdf = await widget.api.salesInvoicePdf(
+        invoice['id'] as String,
+      );
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: number,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// How this firm prints its bills: copies, letterhead, terms, paper.
+  Future<void> _openPrintSettings() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => PrintSettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        documentType: 'SALES_INVOICE',
+        documentLabel: 'sales invoice',
+      ),
+    );
+  }
+
   void _selectView(SalesInvoiceView view) {
     if (view == _view) return;
     setState(() {
@@ -437,6 +478,25 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           }
         },
         trailing: [
+          // Printing shows nothing the screen does not, so viewing is enough;
+          // what it needs is an invoice selected to print.
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: OutlinedButton.icon(
+              onPressed: _selected == null
+                  ? null
+                  : () => unawaited(_printInvoice(_selected!)),
+              icon: const Icon(Icons.print_outlined, size: 18),
+              label: const Text('Print'),
+            ),
+          ),
+          // Beside Print, because that is where somebody stands when they
+          // find the copies wrong.
+          IconButton(
+            tooltip: 'Print settings',
+            onPressed: () => unawaited(_openPrintSettings()),
+            icon: const Icon(Icons.tune_outlined, size: 18),
+          ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
