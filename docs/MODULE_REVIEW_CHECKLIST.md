@@ -695,7 +695,7 @@ in `CustomerService` and belongs to that module's review.
 | 31 | `quotation` | 2026-08-22 | **none.** The negatives were asserted against a running backend rather than read: creating, sending, accepting and converting a quotation left the customer's outstanding, the unapplied advance, every reserved and on-hand quantity and the journal count **identical**. Conversion builds the order through `SalesOrderService.create_order`, so credit control, tax at the order's date and numbering all happen on the order; a second conversion is refused by name ("already became SO-2026-2027-000013"). Expiry stays derived from `valid_until` — an expired quotation cannot be accepted or converted, and nothing writes an EXPIRED status | nothing to fix |
 | 32 | `diagnostics` | 2026-08-22 | **two, both in the part that had no test.** (1) Every server-recorded fault carried a NULL request id — 28 of 28 — so the screenshot-to-traceback join the module exists for could never be made: the handler read a context variable that `CoreRequestMiddleware` has already reset, because a bare-`Exception` handler is served by `ServerErrorMiddleware` from outside it. (2) Server faults grouped by exception type alone: the fingerprint hashed the **first** five frames, which are always the ASGI plumbing, so 28 `ValidationError`s from **four** endpoints shared one identity and the screen showed whichever context came first | yes — `request_id_for` reads `request.state`, and the fingerprint takes this codebase's frames nearest the raise; both proven on the four stored tracebacks |
 | 33 | **second pass** over the nine modules first reviewed 2026-08-09 (`sales_invoice`, `goods_receipt`, `firms`, `purchase_invoice`, `purchase_return`, `delivery_note`, `sales_order`, `tax`, `uom`) | 2026-08-22 | **one, and it is data rather than code.** Two of the three stores fail the stock-versus-ledger invariant, and the drift is exactly the stock value backed out by goods-receipt reversals whose journal was never mirrored: `firm_shared` out by 52,582.436 against 52,582.437 of such reversals, `wholesale_hub` out by 3,971.21 with 4,009.67 attributable and 38.46 left over. Every one of those cancellations happened on 2026-08-18 -- the day the fix landed -- and the only one carrying a mirror is the last. The code is right; nobody backfilled what the defect had already written. Nothing else moved: every period balances, customers match the receivable account, settlements all reached the ledger, approved invoices all posted, no stock row is negative or fails `available = current - reserved - blocked`, and nothing is left reserved in any store | the verifier now names this cause when the arithmetic agrees; the demo data itself wants a re-seed |
-| 34 | **cancel paths**, driven on freshly seeded data (`goods_receipt`, `delivery_note`, `sales_invoice`, `purchase_invoice`, `sales_order`, `sales_return`) | 2026-08-22 | **one, and it is live.** Cancelling a completed goods receipt reverses the journal at the price the goods came in at and the stock at today's moving average, so the two disagree by whatever the average has moved since. Measured on ELEC01: a receipt of 60 units at 134.00 posted 8,040.00; cancelling mirrored the full 8,040.00 out of the inventory account while the stock reversal removed 60 × 95.876591 = 5,752.60, leaving the store out by 2,287.42 -- from balanced to broken in one request. Every other cancel path held: the receipt and delivery-note refusals fire for stated reasons, and the sales-invoice, purchase-invoice and sales-order cancels each left all five checks passing | **not fixed -- it needs a decision.** Which side is right is an accounting question, and the difference has to land in some account. Written up below and in `docs/BACKLOG.md` |
+| 34 | **cancel paths**, driven on freshly seeded data (`goods_receipt`, `delivery_note`, `sales_invoice`, `purchase_invoice`, `sales_order`, `sales_return`) | 2026-08-22 | **one, and it is live.** Cancelling a completed goods receipt reverses the journal at the price the goods came in at and the stock at today's moving average, so the two disagree by whatever the average has moved since. Measured on ELEC01: a receipt of 60 units at 134.00 posted 8,040.00; cancelling mirrored the full 8,040.00 out of the inventory account while the stock reversal removed 60 × 95.876591 = 5,752.60, leaving the store out by 2,287.42 -- from balanced to broken in one request. Every other cancel path held: the receipt and delivery-note refusals fire for stated reasons, and the sales-invoice, purchase-invoice and sales-order cancels each left all five checks passing | yes -- the reversal now credits inventory with what the movement removed and books the gap to `PURCHASE_PRICE_VARIANCE`, the account `post_purchase_return` already uses for the same reason. Driven on ELEC01: the sequence that put it 2,287.42 out leaves all five checks passing, and the entry reads Dr goods received not invoiced 12,000.00 / Cr inventory 11,943.90 / Cr variance 56.10 against a movement of 11,943.8959 |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -850,13 +850,26 @@ say why in the code: *"stock leaves at the moving average it was carried at, and
 the two are routinely different."* By that convention the ledger follows the
 movement, and the receipt cancel is the odd one out.
 
-**It is not fixed here, because the difference has to go somewhere.** Posting
-the mirror at the movement value leaves 2,287.42 unaccounted for, and under
-weighted-average costing that residue is a real valuation adjustment that
-belongs in a named account. Choosing that account is an accounting decision, not
-a refactor. The alternative — unwinding the average to what it was before the
-receipt — is a change to the valuation engine rather than to this method.
-Recorded in `docs/BACKLOG.md` as an open decision with both options.
+**Fixed the way the codebase already leans.** The difference had to land in a
+named account, and one already existed for exactly this: `PURCHASE_PRICE_VARIANCE`,
+which `post_purchase_return` uses when goods leave at an average that disagrees
+with the price on the document. So a cancelled receipt now debits goods received
+not invoiced in full — the firm owes nobody for goods it handed back — credits
+inventory with what the warehouse actually removed, and books the gap to the
+variance account:
+
+```
+Dr Goods Received Not Invoiced  12,000.00
+Cr Inventory                    11,943.90     ← the movement removed 11,943.8959
+Cr Purchase Price Variance          56.10
+```
+
+`reverse_entry` grew a `lines` parameter for it: a reversal that is not a mirror
+still wants everything else a reversal is — the link back, the original marked
+REVERSED, one audit row. The other option, unwinding the moving average to what
+it was before the receipt, would have been a change to the valuation engine
+rather than to this method, and would still have to answer for stock that has
+since been sold.
 
 **What this pass cost and returned.** One store had to be regenerated
 afterwards (`generate_transaction_history.py --firm ELEC01 --years 3 --reset

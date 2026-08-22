@@ -50,6 +50,12 @@ GOODS_ISSUE_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
 )
 
+GOODS_RECEIPT_REVERSAL_PURPOSES = (
+    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
+    ControlAccountPurpose.INVENTORY,
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+)
+
 PURCHASE_INVOICE_PURPOSES = (
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
     ControlAccountPurpose.INPUT_TAX,
@@ -1165,6 +1171,89 @@ class DocumentPostingService:
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def reverse_goods_receipt(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        document_number: str,
+        stock_value: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Take a cancelled receipt off the books at what the stock gave back.
+
+        The accrual goes in full: the firm does not owe a supplier for goods it
+        has handed back, so goods received not invoiced is debited with
+        everything the receipt raised. Inventory is credited with what the
+        warehouse actually removed, which is the moving average the stock is
+        carried at today and not the price on the receipt.
+
+        Those two are the same number only until something else is received at
+        another price. When they differ the gap is a purchase price variance,
+        the same account `post_purchase_return` uses for the same reason --
+        goods bought at several prices sit at one average, and any document
+        that moves them at a different figure leaves a difference the P&L has
+        to carry. Mirroring the original entry instead credited inventory with
+        a number no movement ever removed: measured on a seeded store, 8,040.00
+        mirrored out against 5,752.60 of stock, leaving it 2,287.42 out.
+
+        Args:
+            firm_id: The owning firm.
+            entry_id: The entry the receipt posted when it completed.
+            document_number: The receipt number, used as the reference.
+            stock_value: What the reversing movements actually took out.
+            actor_id: The user cancelling the receipt.
+
+        Returns:
+            The posted reversal.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, GOODS_RECEIPT_REVERSAL_PURPOSES)
+        original = self._journals.get_entry(entry_id, firm_id=firm_id)
+        accrued = quantize_ledger(
+            sum(
+                (line.debit_amount for line in original.lines),
+                start=ZERO,
+            )
+        )
+        stock = quantize_ledger(quantize_money(stock_value))
+        variance = accrued - stock
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED
+                ],
+                debit_amount=accrued,
+                description=f"Cancelled {document_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                credit_amount=stock,
+                description=f"Stock returned off {document_number}",
+            ),
+        ]
+        if variance != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+                    ],
+                    debit_amount=-variance if variance < ZERO else ZERO,
+                    credit_amount=variance if variance > ZERO else ZERO,
+                    description=(f"Valuation difference cancelling {document_number}"),
+                )
+            )
+        return self._journals.reverse_entry(
+            entry_id,
+            firm_id=firm_id,
+            reference_number=f"{document_number}-REV",
+            actor_id=actor_id,
+            lines=lines,
+        )
 
     def post_purchase_invoice(
         self,

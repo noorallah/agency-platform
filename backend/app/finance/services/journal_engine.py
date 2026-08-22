@@ -228,8 +228,21 @@ class JournalEntryEngine:
         accounting_period_id: UUID | None = None,
         journal_date: date | None = None,
         actor_id: UUID,
+        lines: list[JournalLineData] | None = None,
     ) -> JournalEntry:
-        """Create and post a mirror entry that cancels a posted entry."""
+        """Create and post an entry that cancels a posted entry.
+
+        A mirror by default: every line flipped, which is right whenever what
+        is being undone is worth exactly what it was worth when it happened.
+
+        ``lines`` is for when it is not. Cancelling a goods receipt gives the
+        stock back at today's moving average, not at the price it arrived at,
+        and mirroring the original there credits inventory with a number no
+        movement ever removed -- which put a store 2,287.42 out in a single
+        request. The caller supplies the entry it wants and keeps the rest of
+        what a reversal is: the link back, the original marked REVERSED, and
+        one audit row saying so.
+        """
         original = self.get_entry(journal_entry_id, firm_id=firm_id)
         if original.status != JournalStatus.POSTED.value:
             raise ValidationError("Only posted entries can be reversed.")
@@ -240,7 +253,7 @@ class JournalEntryEngine:
         if not (period.starts_on <= target_date <= period.ends_on):
             target_date = period.starts_on
 
-        reversal_lines = [
+        reversal_lines = lines or [
             JournalLineData(
                 ledger_account_id=line.ledger_account_id,
                 cost_center_id=line.cost_center_id,

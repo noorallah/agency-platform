@@ -14,7 +14,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -37,14 +37,24 @@ from app.core.exceptions import (
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.customers.models import customer as _customer_models  # noqa: F401
-from app.finance.models import JournalEntry, JournalStatus
+from app.finance.models import (
+    FirmControlAccount,
+    GLPosting,
+    JournalEntry,
+    JournalStatus,
+)
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate
 from app.goods_receipt.services import GoodsReceiptService
 from app.identity.models import UserFirm
-from app.inventory.models import InventoryRecord, InventoryTransaction
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    ProductValuation,
+)
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderUpdate
@@ -922,3 +932,103 @@ def test_a_cancelled_invoice_does_not_hold_the_receipt() -> None:
     )
 
     assert len(_receipt_journals(session, receipt.id)) == 2
+
+
+def _inventory_account_balance(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the inventory control account currently holds."""
+    total = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .select_from(GLPosting)
+        .join(
+            FirmControlAccount,
+            FirmControlAccount.ledger_account_id == GLPosting.ledger_account_id,
+        )
+        .where(
+            FirmControlAccount.firm_id == firm_id,
+            FirmControlAccount.purpose == ControlAccountPurpose.INVENTORY.value,
+            FirmControlAccount.is_deleted.is_(False),
+            GLPosting.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def _stock_value(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the warehouse says its stock is worth."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(ProductValuation.total_value), 0)).where(
+            ProductValuation.firm_id == firm_id,
+            ProductValuation.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def test_cancelling_a_receipt_credits_what_the_stock_actually_gave_back() -> None:
+    """Mirroring the original entry breaks the books once the average moves.
+
+    A receipt brings stock in at the price on the receipt. Cancelling it takes
+    the stock back out at the moving average the warehouse carries it at, and
+    those are the same number only until something else is received at another
+    price. `_reverse_receipt_journal` mirrored the original entry regardless,
+    so inventory was credited with a figure no movement ever removed.
+
+    Found on 2026-08-22 by cancelling one receipt on a seeded store: 8,040.00
+    mirrored out of the inventory account against 5,752.60 of stock removed,
+    leaving the store 2,287.42 out in a single request -- the same invariant
+    `scripts/verify_sample_data.py` checks first.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-AVG")
+    service = GoodsReceiptService(session)
+
+    dear = service.create_receipt(
+        fixture.receipt_payload("5"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        dear.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    # A second receipt at a quarter of the price drags the average down, which
+    # is all it takes for the two figures to part company.
+    cheap_payload = fixture.receipt_payload("5")
+    cheap_payload.lines[0].unit_price = Decimal("25")
+    cheap = service.create_receipt(
+        cheap_payload, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        cheap.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    session.expire_all()
+    assert _stock_value(session, fixture.firm.id) == _inventory_account_balance(
+        session, fixture.firm.id
+    ), "the two books start in step"
+
+    service.cancel_receipt(
+        dear.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="sent back",
+    )
+    session.expire_all()
+
+    # The invariant the whole thing exists for: what the warehouse holds and
+    # what the ledger says it holds are the same number.
+    assert _stock_value(session, fixture.firm.id) == _inventory_account_balance(
+        session, fixture.firm.id
+    )
+
+    entries = _receipt_journals(session, dear.id)
+    original, reversal = entries
+    assert original.status == JournalStatus.REVERSED.value
+    assert reversal.reversal_of_id == original.id
+    assert reversal.total_debit == reversal.total_credit, "and it balances"
+    # The accrual goes back in full -- the firm owes nobody for goods it handed
+    # back -- while inventory is credited only with what left the shelf.
+    accrual = sum(line.debit_amount for line in reversal.lines if line.debit_amount > 0)
+    assert accrual == original.total_debit

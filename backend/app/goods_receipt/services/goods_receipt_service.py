@@ -29,7 +29,6 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
-from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import (
     GoodsReceipt,
     GoodsReceiptAttachment,
@@ -452,12 +451,16 @@ class GoodsReceiptService(TransactionalDocumentService):
             return row
         self._assert_receipt_cancellable(row, firm_scope=firm_scope)
         before = row.status
-        reversed_lines = self._reverse_inventory(
+        reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
         )
         # The stock is back off the shelf; take the journal off the books too,
-        # or the ledger keeps a debit for goods the firm no longer holds.
-        self._reverse_receipt_journal(row, firm_scope=firm_scope, actor_id=actor_id)
+        # or the ledger keeps a debit for goods the firm no longer holds -- and
+        # take it off at what the shelf actually gave back, not at what the
+        # receipt paid.
+        self._reverse_receipt_journal(
+            row, firm_scope=firm_scope, actor_id=actor_id, stock_value=stock_value
+        )
         row.status = GoodsReceiptStatus.CANCELLED.value
         # Flushed before the order is resynced so this receipt has already
         # stopped being COMPLETED and drops out of its own total. Cancelling
@@ -562,7 +565,12 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
 
     def _reverse_receipt_journal(
-        self, receipt: GoodsReceipt, *, firm_scope: UUID, actor_id: UUID
+        self,
+        receipt: GoodsReceipt,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        stock_value: Decimal,
     ) -> None:
         """Cancel the journal completing this receipt wrote, if it wrote one.
 
@@ -593,10 +601,17 @@ class GoodsReceiptService(TransactionalDocumentService):
             # a firm that received stock before posting existed has no entry
             # to take back either.
             return
-        JournalEntryEngine(self._session).reverse_entry(
-            entry_id,
+        # Not a mirror. The accrual goes back in full -- the firm owes nobody
+        # for goods it handed back -- while inventory is credited with what the
+        # warehouse actually removed, and the difference is a purchase price
+        # variance, exactly as it is on a purchase return. Mirroring credited
+        # inventory at the receipt price and put a seeded store 2,287.42 out in
+        # one request.
+        DocumentPostingService(self._session).reverse_goods_receipt(
             firm_id=firm_scope,
-            reference_number=f"{receipt.grn_number}-REV",
+            entry_id=entry_id,
+            document_number=receipt.grn_number,
+            stock_value=stock_value,
             actor_id=actor_id,
         )
 
@@ -607,12 +622,18 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         reason: str | None,
-    ) -> int:
+    ) -> tuple[int, Decimal]:
         """Undo the stock this receipt posted, if it had already been completed.
 
         A cancelled receipt that keeps its goods-receipt movements leaves stock
         the firm never accepted, so cancellation has to reverse each posted line
         and forget its movement.
+
+        Returns what the reversal actually took out as well as how many lines
+        it touched, because the journal has to follow the stock rather than the
+        receipt: goods leave at the moving average they are carried at, which
+        is only the price they arrived at until something else arrives at
+        another one.
 
         Args:
             receipt: The receipt being cancelled.
@@ -621,10 +642,11 @@ class GoodsReceiptService(TransactionalDocumentService):
             reason: Optional cancellation reason, stored on the reversal.
 
         Returns:
-            The number of lines whose stock movement was reversed.
+            How many lines were reversed, and the stock value they removed.
 
         """
         reversed_lines = 0
+        movement_ids: list[UUID] = []
         for line in self._session.scalars(
             select(GoodsReceiptLine).where(
                 GoodsReceiptLine.goods_receipt_id == receipt.id,
@@ -634,16 +656,30 @@ class GoodsReceiptService(TransactionalDocumentService):
         ).all():
             if line.inventory_transaction_id is None:
                 continue
-            self._inventory.reverse_transaction(
+            movement = self._inventory.reverse_transaction(
                 line.inventory_transaction_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 reason=reason or f"Goods receipt {receipt.grn_number} cancelled.",
             )
+            if movement is not None:
+                movement_ids.append(movement.id)
             line.inventory_transaction_id = None
             line.updated_by = actor_id
             reversed_lines += 1
-        return reversed_lines
+        return reversed_lines, self._movement_value(movement_ids)
+
+    def _movement_value(self, movement_ids: list[UUID]) -> Decimal:
+        """Return what the stock ledger says those movements were worth."""
+        if not movement_ids:
+            return Decimal("0")
+        total = self._session.scalar(
+            select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                StockLedgerEntry.transaction_id.in_(movement_ids),
+                StockLedgerEntry.is_deleted.is_(False),
+            )
+        )
+        return Decimal(str(total or 0))
 
     def close_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
