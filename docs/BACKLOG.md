@@ -132,6 +132,50 @@ Also unresolved, and cheap to decide later: the repository has an ignored
 `installer/` directory holding a small tenancy-config helper from an earlier
 attempt. It is not wired to anything. Either fold it in or delete it.
 
+### An `.exe` -- asked 2026-08-22, deferred by the owner
+
+Their words: *"installer will do later"*. Do not build one unprompted; this
+section is here so the thinking does not have to be redone.
+
+The batch file already does what an installer is usually wanted for. Proven end
+to end on a developer machine on 2026-08-22: prerequisites checked, `.env` left
+alone, venv found, database present, all four stores migrated to head, built
+client found, backend answering `/health` on 127.0.0.1:8000, and the client
+launched -- both processes up from one double-click. What it does when things
+are **missing** is the part that has never been exercised (see above).
+
+Three shapes, in increasing order of what they actually buy:
+
+1. **Leave it as scripts.** `install.bat` is already the double-click entry
+   point; Windows will not run an unsigned `.ps1` from Explorer, which is the
+   only reason the wrapper exists. The honest gap here is not the file
+   extension -- it is that the clean-machine paths are unproven. Proving them
+   costs a spare Windows box and buys more than any packaging would.
+
+2. **Wrap the script in a self-extracting `.exe`.** An hour or two, and
+   cosmetic: it still needs the repository checkout, Python, PostgreSQL, and
+   Flutter to build the client. Worth doing only if somebody's process refuses
+   to run a `.bat`.
+
+3. **A real distributable.** Inno Setup shipping the built
+   `agency_desktop.exe` and a frozen backend (PyInstaller over uvicorn), so the
+   target machine needs neither Python nor Flutter. This is the only shape that
+   makes "hand it to a customer" true, and it needs four decisions first:
+
+   - **PostgreSQL: bundle or require?** Bundling means shipping a database
+     server and owning its upgrades; requiring it means the installer stops on
+     a machine that has none, which is what it does today.
+   - **Where does data live?** `%ProgramData%` for a service install, or a
+     per-user directory. `config\.env` holds the signing key and must survive
+     an upgrade -- the same rule the script already follows.
+   - **Service or foreground?** A backend that only runs while somebody is
+     logged in is not the same product as one that starts with the machine.
+   - **Signing.** An unsigned installer gets a SmartScreen warning, and telling
+     users to click past that teaches them the wrong habit.
+
+   The migrations are the easy part -- `migrate_all_stores.py` already
+   enumerates every store from the registry, and an upgrade is the same call.
+
 ## 4. A skill for resetting and regenerating demo data — done
 
 `.claude/skills/reset-demo-data/SKILL.md` carries the sequence and the traps:
