@@ -806,6 +806,80 @@ void main() {
       expect(line.containsKey('free_quantity'), isFalse);
     });
 
+
+    testWidgets('the line carries all three money fields, in reading order',
+        (tester) async {
+      // Quantity, free, price, discount -- what is being sold, what is thrown
+      // in, what it costs, what comes off. A screenshot cannot be taken of
+      // this app, so the order is asserted rather than looked at.
+      final _QuoteApi api = _QuoteApi(customerDiscount: '10');
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      for (final String label in <String>[
+        'Quantity',
+        'Free',
+        'Unit price',
+        'Discount %',
+      ]) {
+        expect(
+          find.widgetWithText(TextFormField, label),
+          findsOneWidget,
+          reason: '\$label is missing from the line editor',
+        );
+      }
+      // And the offer-wide one, which is not a property of any line.
+      expect(
+        find.widgetWithText(TextFormField, 'Discount on the whole offer %'),
+        findsOneWidget,
+      );
+
+      final Offset quantity =
+          tester.getTopLeft(find.widgetWithText(TextFormField, 'Quantity'));
+      final Offset free =
+          tester.getTopLeft(find.widgetWithText(TextFormField, 'Free'));
+      final Offset price =
+          tester.getTopLeft(find.widgetWithText(TextFormField, 'Unit price'));
+      final Offset discount =
+          tester.getTopLeft(find.widgetWithText(TextFormField, 'Discount %'));
+      expect(quantity.dx, lessThan(free.dx));
+      expect(free.dx, lessThan(price.dx));
+      expect(price.dx, lessThan(discount.dx));
+    });
+
+    testWidgets('both discounts and the free goods reach one payload together',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi(customerDiscount: '10');
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '10');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '1000');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Free'), '1');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Discount on the whole offer %'),
+        '10',
+      );
+      await tester.pumpAndSettle();
+
+      // 10,000 gross, the customer's 10% off the line leaves 9,000, then 10%
+      // of the offer leaves 8,100. The free unit is outside all of it.
+      expect(find.textContaining('Quoted before tax: 8100.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      expect(api.created!['bill_discount_percent'], '10');
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line['discount_percent'], '10');
+      expect(line['free_quantity'], '1');
+    });
+
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
