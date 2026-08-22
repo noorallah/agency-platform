@@ -150,6 +150,10 @@ class InvoiceLineBlock:
     discount: Decimal
     taxable: Decimal
     total: Decimal
+    #: Supplied free with this line, charged for at nothing. Printed beside
+    #: the quantity rather than in a column of its own, which would be empty
+    #: on almost every bill: "10 + 1 free" is what the storekeeper counted.
+    free_quantity: Decimal = ZERO
     batch: str | None = None
     expiry: str | None = None
     #: (code, percentage, amount) as recorded on the line.
@@ -468,7 +472,12 @@ class InvoicePdfRenderer:
                 str(line.number),
                 Paragraph(line.description, self._body),
                 line.hsn or "",
-                _quantity(line.quantity),
+                (
+                    f"{_quantity(line.quantity)} + "
+                    f"{_quantity(line.free_quantity)} free"
+                    if line.free_quantity
+                    else _quantity(line.quantity)
+                ),
                 line.uom or "",
                 _money(line.rate),
             ]

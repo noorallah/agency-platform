@@ -20,14 +20,20 @@ class _LineDraft {
     String quantity = '1',
     String unitPrice = '0',
     String discount = '0',
+    String free = '',
   })  : quantity = TextEditingController(text: quantity),
         unitPrice = TextEditingController(text: unitPrice),
-        discount = TextEditingController(text: discount);
+        discount = TextEditingController(text: discount),
+        free = TextEditingController(text: free);
 
   String? productId;
   final TextEditingController quantity;
   final TextEditingController unitPrice;
   final TextEditingController discount;
+
+  /// Goods thrown in with this line. Charged for at nothing, so it never
+  /// enters the line's value -- but stock moves for it, and the bill says so.
+  final TextEditingController free;
 
   /// True once somebody typed in the discount box.
   ///
@@ -53,6 +59,7 @@ class _LineDraft {
     quantity.dispose();
     unitPrice.dispose();
     discount.dispose();
+    free.dispose();
   }
 }
 
@@ -145,6 +152,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           discount: line.discountPercent,
+          free: (double.tryParse(line.freeQuantity) ?? 0) > 0
+              ? line.freeQuantity
+              : '',
         )..discountEdited = true);
       }
     }
@@ -241,6 +251,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     if (picked != null) setState(() => _validUntil = picked);
   }
 
+  /// Goods given away cannot be a negative number of goods.
+  String? _freeQuantity(String? value) {
+    final String text = (value ?? '').trim();
+    if (text.isEmpty) return null;
+    final double? parsed = double.tryParse(text);
+    if (parsed == null) return 'Enter a quantity.';
+    if (parsed < 0) return 'Cannot be negative.';
+    return null;
+  }
+
   /// A rate the server would refuse, caught before the round trip.
   String? _percentage(String? value) {
     final String text = (value ?? '').trim();
@@ -287,6 +307,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             // and an empty string is a schema error.
             if (_lines[index].discount.text.trim().isNotEmpty)
               'discount_percent': _lines[index].discount.text.trim(),
+            if (_lines[index].free.text.trim().isNotEmpty)
+              'free_quantity': _lines[index].free.text.trim(),
           },
       ],
     };
@@ -349,6 +371,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                 decoration: const InputDecoration(labelText: 'Unit price'),
                 keyboardType: TextInputType.number,
                 validator: (value) => _positive(value, 'price'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: TextFormField(
+                controller: line.free,
+                decoration: const InputDecoration(labelText: 'Free'),
+                keyboardType: TextInputType.number,
+                validator: _freeQuantity,
                 onChanged: (_) => setState(() {}),
               ),
             ),

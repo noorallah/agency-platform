@@ -159,6 +159,7 @@ class _PricedInvoiceLine:
     unit_price: Decimal
     charges_amount: Decimal
     gross_amount: Decimal
+    free_quantity: Decimal
     discount: LineDiscount
 
 
@@ -436,6 +437,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.total_already_invoiced_quantity = line_totals[
             "total_already_invoiced_quantity"
         ]
+        row.total_free_quantity = line_totals["total_free_quantity"]
         row.total_current_invoice_quantity = line_totals[
             "total_current_invoice_quantity"
         ]
@@ -576,6 +578,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.total_already_invoiced_quantity = line_totals[
             "total_already_invoiced_quantity"
         ]
+        row.total_free_quantity = line_totals["total_free_quantity"]
         row.total_current_invoice_quantity = line_totals[
             "total_current_invoice_quantity"
         ]
@@ -895,6 +898,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
             total_current_invoice_quantity=row.total_current_invoice_quantity,
+            total_free_quantity=row.total_free_quantity,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
             line_discount_total=row.line_discount_total,
@@ -1264,6 +1268,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 invoice_quantity=invoice_quantity,
                 source_quantity=source_quantity,
             )
+            free_quantity = self._invoice_free_quantity(
+                spec=spec,
+                source_line=source_line,
+                invoice_quantity=invoice_quantity,
+                source_quantity=source_quantity,
+            )
             priced.append(
                 _PricedInvoiceLine(
                     index=index,
@@ -1278,6 +1288,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     unit_price=unit_price,
                     charges_amount=charges_amount,
                     gross_amount=gross_amount,
+                    free_quantity=free_quantity,
                     discount=line_discount,
                 )
             )
@@ -1309,6 +1320,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             unit_price = item.unit_price
             charges_amount = item.charges_amount
             gross_amount = item.gross_amount
+            free_quantity = item.free_quantity
             line_discount = item.discount
             bill_share = shares[position]
             discount_amount = self._q(line_discount.amount + bill_share)
@@ -1349,6 +1361,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 delivered_quantity=source_quantity,
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
+                free_quantity=free_quantity,
                 unit_price=unit_price,
                 discount_percent=line_discount.percent,
                 discount_amount=line_discount.amount,
@@ -1399,6 +1412,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             totals["total_source_quantity"] += source_quantity
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
+            totals["total_free_quantity"] += free_quantity
             totals["line_discount_total"] += discount_amount
             # subtotal is the taxable base: gross less discount, before tax and
             # before charges. Line charges used to be folded in here, which made
@@ -1839,6 +1853,41 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
 
+    def _invoice_free_quantity(
+        self,
+        *,
+        spec: dict[str, object],
+        source_line: SourceLine,
+        invoice_quantity: Decimal,
+        source_quantity: Decimal,
+    ) -> Decimal:
+        """Return how much this line supplies free.
+
+        Inherited from the document being billed rather than typed again, and
+        pro-rated by the share being billed: half an order invoiced carries
+        half the free goods it was promised. An explicit figure wins, and an
+        explicit zero refuses the inheritance.
+
+        Refused above what the source line offered, because an invoice states
+        what was supplied and the goods left on somebody else's document. A
+        bill claiming free goods nobody dispatched is a bill the warehouse
+        cannot reconcile.
+        """
+        offered = self._q(
+            Decimal(str(getattr(source_line, "free_quantity", ZERO) or ZERO))
+        )
+        asked = spec.get("free_quantity")
+        if asked is None:
+            if offered <= ZERO or source_quantity <= ZERO:
+                return ZERO
+            return self._q(offered * invoice_quantity / source_quantity)
+        claimed = self._q(Decimal(str(asked)))
+        if claimed > offered:
+            raise ValidationError(
+                "Free quantity exceeds what the source document supplied free."
+            )
+        return claimed
+
     def _invoice_line_discount(
         self,
         *,
@@ -2127,6 +2176,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             current_invoice_quantity=row.current_invoice_quantity,
             unit_price=row.unit_price,
             discount_percent=row.discount_percent,
+            free_quantity=row.free_quantity,
             discount_amount=row.discount_amount,
             bill_discount_amount=row.bill_discount_amount,
             charges_amount=row.charges_amount,
