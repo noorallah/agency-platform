@@ -1099,6 +1099,7 @@ def _invoice_one_line(
     discount_percent: Decimal | None = None,
     bill_discount_percent: Decimal | None = None,
     bill_discount_amount: Decimal | None = None,
+    free_quantity: Decimal | None = None,
 ) -> SalesInvoiceResponse:
     """Bill one order line and return the response the client would see."""
     service = SalesInvoiceService(session)
@@ -1119,6 +1120,7 @@ def _invoice_one_line(
                     current_invoice_quantity=quantity,
                     unit_price=Decimal("100"),
                     discount_percent=discount_percent,
+                    free_quantity=free_quantity,
                 )
             ],
         ),
@@ -1305,3 +1307,60 @@ def test_the_line_keeps_its_own_discount_apart_from_its_share() -> None:
     assert line.discount_percent == Decimal("10.0000")
     assert line.bill_discount_amount == Decimal("36.0000")
     assert response.subtotal == Decimal("324.0000")
+
+def test_a_bill_states_what_was_given_away() -> None:
+    """`free_quantity` existed on three documents and not on the invoice.
+
+    So goods could be promised, ordered and dispatched free and then not be
+    stated on the document the customer actually reads. A bill showing ten
+    units when eleven arrived is a bill the customer queries, and the answer
+    was nowhere on it.
+    """
+    setup = _Billing(_session_factory()())
+    setup.order_line.free_quantity = Decimal("1")
+    setup.session.commit()
+
+    response = setup.bill()
+
+    assert response.lines[0].free_quantity == Decimal("1.0000")
+    assert response.total_free_quantity == Decimal("1.0000")
+    # Free is free: it is outside the gross and outside the tax base.
+    assert response.lines[0].gross_amount == Decimal("400.0000")
+    assert response.grand_total == Decimal("400.0000")
+
+
+def test_free_goods_are_pro_rated_across_a_partial_invoice() -> None:
+    """Half the order billed carries half the goods it was promised free."""
+    setup = _Billing(_session_factory()())
+    setup.order_line.free_quantity = Decimal("2")
+    setup.session.commit()
+
+    response = setup.bill(quantity=Decimal("2"))
+
+    assert response.lines[0].free_quantity == Decimal("1.0000")
+
+
+def test_a_bill_cannot_invent_free_goods() -> None:
+    """The goods left on somebody else's document.
+
+    A bill claiming free goods nobody dispatched is one the warehouse cannot
+    reconcile, so it is refused rather than recorded.
+    """
+    setup = _Billing(_session_factory()())
+    setup.order_line.free_quantity = Decimal("1")
+    setup.session.commit()
+
+    with pytest.raises(ValidationError, match="exceeds what the source document"):
+        setup.bill(free_quantity=Decimal("5"))
+
+
+def test_a_bill_can_decline_to_pass_on_free_goods() -> None:
+    """An explicit zero refuses the inheritance, as everywhere else here."""
+    setup = _Billing(_session_factory()())
+    setup.order_line.free_quantity = Decimal("1")
+    setup.session.commit()
+
+    response = setup.bill(free_quantity=Decimal("0"))
+
+    assert response.lines[0].free_quantity == Decimal("0")
+    assert response.total_free_quantity == Decimal("0")

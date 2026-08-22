@@ -155,6 +155,7 @@ class SalesInvoicePrintService:
                     or "",
                     hsn=product.hsn_sac if product else None,
                     quantity=line.current_invoice_quantity,
+                    free_quantity=line.free_quantity,
                     uom=(unit.code if unit else None),
                     rate=line.unit_price,
                     discount=line.discount_amount,

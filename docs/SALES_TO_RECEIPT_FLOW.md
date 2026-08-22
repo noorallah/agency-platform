@@ -397,6 +397,32 @@ was taken off, what is being taxed -- so the arithmetic is followable. The
 line-level "Disc." column stays what was agreed on that line; a share of a
 document-level deal is not a line discount and is not shown as one.
 
+## Giving goods away
+
+`free_quantity` on a line is goods supplied at nil value. It is outside the
+gross and outside the tax base -- nothing is charged for it -- but stock moves
+for it, so it is real inventory leaving the warehouse.
+
+It existed on quotation, sales order and delivery note lines and **not on the
+sales invoice**, so a firm could promise, order and dispatch goods free and
+then not state them on the document the customer actually reads. A bill showing
+ten units when eleven arrived is a bill the customer queries, and the answer
+was nowhere on it. The invoice carries it as of 2026-08-23.
+
+**The invoice inherits it from the line it bills**, pro-rated by the share
+being billed, the same way an absolute discount is. An explicit figure wins and
+an explicit zero refuses the inheritance.
+
+**It cannot exceed what the source line offered.** The goods left on somebody
+else's document; a bill claiming free goods nobody dispatched is one the
+warehouse cannot reconcile, so it is refused rather than recorded.
+
+The printed bill shows it beside the quantity -- "10 + 1 free" -- rather than
+in a column of its own, which would be empty on almost every bill.
+
+The desktop's quotation editor is where a line is given away. It had no field
+for it on any screen, so free goods were unreachable without going to the API.
+
 ## Two rules worth carrying
 
 **Stock moves at dispatch; money moves at invoice approval.** They are

@@ -75,6 +75,12 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     unit_price: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
+    #: Supplied free with this line. None inherits whatever the source line
+    #: offered, pro-rated by the share being billed; zero refuses it.
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
+
     #: None means the caller said nothing, so the customer's standing
     #: discount applies. Zero means they said no discount.
     discount_percent: Decimal | None = Field(
@@ -260,6 +266,9 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal
+    #: Supplied free with this line, charged for at nothing.
+    free_quantity: Decimal
+
     #: This line's share of the document's bill discount.
     bill_discount_amount: Decimal
     net_amount: Decimal
@@ -310,6 +319,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal
     total_current_invoice_quantity: Decimal
+    #: How much was supplied free across the document.
+    total_free_quantity: Decimal
+
     #: What was taken off the whole document, and the rate it represents.
     bill_discount_percent: Decimal
     bill_discount_amount: Decimal

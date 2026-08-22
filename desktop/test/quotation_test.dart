@@ -758,6 +758,54 @@ void main() {
       expect(api.created!.containsKey('bill_discount_percent'), isFalse);
     });
 
+
+    testWidgets('a line can throw goods in free', (tester) async {
+      // The field existed on the backend for quotations, orders and delivery
+      // notes and on no screen at all, so nobody could offer free goods
+      // without going to the API.
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '10');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Free'), '1');
+      await tester.pumpAndSettle();
+
+      // Free is free: the line's value is the ten, not the eleven.
+      expect(find.text('Line 1: 1000.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line['free_quantity'], '1');
+    });
+
+    testWidgets('a line that gives nothing away says nothing', (tester) async {
+      // Absent, not zero: the server reads absent as "inherit whatever the
+      // source line offered", and there is nothing to inherit from here.
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '10');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line.containsKey('free_quantity'), isFalse);
+    });
+
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);
