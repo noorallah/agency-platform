@@ -29,6 +29,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.models import StockLedgerEntry
@@ -653,8 +654,13 @@ class PurchaseReturnService(TransactionalDocumentService):
         }:
             raise ValidationError("This purchase return can no longer be cancelled.")
         before = row.status
-        reversed_lines = self._reverse_inventory(
+        reversed_lines, stock_value = self._reverse_inventory(
             row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        # The goods are back on the shelf; the payable, the input tax and the
+        # inventory credit have to come back off the books with them.
+        self._reverse_posting(
+            row, firm_scope=firm_scope, actor_id=actor_id, stock_value=stock_value
         )
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -691,11 +697,16 @@ class PurchaseReturnService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         reason: str | None,
-    ) -> int:
+    ) -> tuple[int, Decimal]:
         """Undo the stock this return moved out, if it had already completed.
 
         Completing a return takes goods off the shelf. Cancelling it afterwards
         must put them back, otherwise the firm loses stock it still holds.
+
+        Reports what the movements actually put back as well as how many lines
+        they covered, because the journal has to be taken off the books at that
+        figure rather than at the one the return was priced at -- goods come
+        back at the average the stock is carried at now.
 
         Args:
             document: The return being cancelled.
@@ -704,10 +715,11 @@ class PurchaseReturnService(TransactionalDocumentService):
             reason: Optional cancellation reason, stored on the reversal.
 
         Returns:
-            The number of lines whose stock movement was reversed.
+            How many lines were reversed, and the value they put back.
 
         """
         reversed_lines = 0
+        movement_ids: list[UUID] = []
         for line in self._session.scalars(
             select(PurchaseReturnLine).where(
                 PurchaseReturnLine.purchase_return_id == document.id,
@@ -717,16 +729,73 @@ class PurchaseReturnService(TransactionalDocumentService):
         ).all():
             if line.inventory_transaction_id is None:
                 continue
-            self._inventory.reverse_transaction(
+            movement = self._inventory.reverse_transaction(
                 line.inventory_transaction_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 reason=reason or f"Purchase return {document.return_number} cancelled.",
             )
+            if movement is not None:
+                movement_ids.append(movement.id)
             line.inventory_transaction_id = None
             line.updated_by = actor_id
             reversed_lines += 1
-        return reversed_lines
+        return reversed_lines, self._movement_value(movement_ids)
+
+    def _movement_value(self, movement_ids: list[UUID]) -> Decimal:
+        """Return what the stock ledger says those movements were worth."""
+        if not movement_ids:
+            return ZERO
+        total = self._session.scalar(
+            select(func.coalesce(func.sum(StockLedgerEntry.total_cost), 0)).where(
+                StockLedgerEntry.transaction_id.in_(movement_ids),
+                StockLedgerEntry.is_deleted.is_(False),
+            )
+        )
+        return Decimal(str(total or 0))
+
+    def _reverse_posting(
+        self,
+        document: PurchaseReturn,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        stock_value: Decimal,
+    ) -> None:
+        """Take the completion's journal back off the books.
+
+        Nothing did this until 2026-08-22. Completing a return debited payables
+        for the supplier's credit note, reversed the input tax and credited
+        inventory; cancelling put the goods back on the shelf and left every
+        one of those postings standing, so the firm still showed the supplier
+        owing it for goods it had kept. `goods_receipt` carried the same defect
+        until 2026-08-18 -- this is its mirror, found by cancelling one on
+        seeded data and watching the store go 199.07 out.
+
+        `reversal_of_id IS NULL` matters for the same reason it does there:
+        `reverse_entry` copies the source ids onto the mirror it posts, so
+        without it a second pass would reverse the reversal.
+        """
+        entry_id = self._session.scalar(
+            select(JournalEntry.id).where(
+                JournalEntry.firm_id == firm_scope,
+                JournalEntry.source_module == "purchase_return",
+                JournalEntry.source_id == document.id,
+                JournalEntry.status == JournalStatus.POSTED.value,
+                JournalEntry.reversal_of_id.is_(None),
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if entry_id is None:
+            # A return cancelled before it completed posted nothing.
+            return
+        self._posting.reverse_purchase_return(
+            firm_id=firm_scope,
+            entry_id=entry_id,
+            return_number=document.return_number,
+            stock_value=stock_value,
+            actor_id=actor_id,
+        )
 
     def close_return(
         self,
