@@ -14,6 +14,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
+import '../../models/print_template.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../models/sales_return.dart';
@@ -3809,6 +3810,35 @@ class ApiClient {
       );
     }
   }
+
+  /// How this firm prints one kind of document.
+  ///
+  /// Answers with the platform defaults where the firm has saved nothing, so a
+  /// new firm prints a correct document without configuring anything.
+  Future<PrintTemplate> printTemplate(String documentType) async =>
+      PrintTemplate.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/document-framework/print-templates/$documentType',
+          ),
+        ),
+      );
+
+  /// Save this firm's print settings for one kind of document.
+  Future<PrintTemplate> savePrintTemplate(
+    String documentType,
+    PrintTemplate template,
+  ) async =>
+      PrintTemplate.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/document-framework/print-templates/$documentType',
+            body: template.toJson(),
+          ),
+        ),
+      );
 
   /// The purchase order as the PDF a supplier is sent.
   Future<List<int>> purchaseOrderPdf(String id) =>

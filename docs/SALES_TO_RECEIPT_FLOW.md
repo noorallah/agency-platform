@@ -278,6 +278,14 @@ A firm that has configured nothing still prints a correct tax invoice: the
 platform defaults live in code rather than in seeded rows, so a new firm needs
 no setup to bill somebody.
 
+**How many copies is a preference, set from beside the Print button.** Each
+copy prints as its own page set, labelled so the reader knows which one they
+are holding -- Original for Recipient, Duplicate for Transporter, Triplicate
+for Supplier are offered without anybody typing them, and a firm may name them
+whatever it likes. Choosing none prints one unlabelled copy. Reading the
+settings needs only the permission to see the document; changing them needs
+`PLATFORM_SETTINGS`.
+
 ---
 
 ## Goods coming back

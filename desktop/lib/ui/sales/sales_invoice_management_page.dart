@@ -11,6 +11,7 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
 
@@ -384,6 +385,19 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     }
   }
 
+  /// How this firm prints its bills: copies, letterhead, terms, paper.
+  Future<void> _openPrintSettings() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => PrintSettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        documentType: 'SALES_INVOICE',
+        documentLabel: 'sales invoice',
+      ),
+    );
+  }
+
   void _selectView(SalesInvoiceView view) {
     if (view == _view) return;
     setState(() {
@@ -475,6 +489,13 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
               icon: const Icon(Icons.print_outlined, size: 18),
               label: const Text('Print'),
             ),
+          ),
+          // Beside Print, because that is where somebody stands when they
+          // find the copies wrong.
+          IconButton(
+            tooltip: 'Print settings',
+            onPressed: () => unawaited(_openPrintSettings()),
+            icon: const Icon(Icons.tune_outlined, size: 18),
           ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),

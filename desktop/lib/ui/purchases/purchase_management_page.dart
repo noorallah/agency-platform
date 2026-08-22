@@ -22,6 +22,7 @@ import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 
@@ -1151,6 +1152,19 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   ///
   /// Scrollable because six segments do not fit a narrow window, and a
   /// segmented button clips rather than wraps.
+  /// How this firm prints its orders: copies, letterhead, terms, paper.
+  Future<void> _openPrintSettings() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => PrintSettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        documentType: 'PURCHASE_ORDER',
+        documentLabel: 'purchase order',
+      ),
+    );
+  }
+
   /// Print the selected order.
   Future<void> _printOrder(PurchaseOrder order) async {
     try {
@@ -1452,6 +1466,11 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               ? null
               : () => unawaited(_printOrder(_selected!)),
           icon: const Icon(Icons.print_outlined),
+        ),
+        IconButton(
+          tooltip: 'Print settings',
+          onPressed: () => unawaited(_openPrintSettings()),
+          icon: const Icon(Icons.tune_outlined),
         ),
         IconButton(
           tooltip: 'Saved views',
