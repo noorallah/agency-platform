@@ -67,6 +67,18 @@ ones that produced a defect during the platform pass.
 - [ ] Every mutation emits `record_audit` with before/after data.
 - [ ] Responses use `ApiResponse` / `PaginatedResponse`; lists accept only the
       whitelisted `page`, `page_size`, `search`, `sort_by`, `sort_direction`.
+- [ ] `page` and `page_size` declare their bounds **on the query parameter**,
+      not by constructing `PaginationParams` in the handler body
+      **(found a real bug — 44 endpoints, 28 recorded 500s on
+      `GET /api/v1/products`)**. `tests/unit/test_pagination_conventions.py`
+      fails the build on the next one.
+- [ ] An update dumps with `exclude_unset=True`, and anything read out of that
+      dump to decide something takes the row as its fallback
+      **(found a real bug — three times: vendors, branches, business
+      profiles)**. Create still dumps in full; there a default is the value.
+- [ ] Update endpoints accept `If-Match` and every response returning one
+      versioned record publishes the version — in the body **and** as an
+      `ETag`. Every module with a record to edit does as of 2026-08-22.
 - [ ] Date filters use `datetime.combine(date, time.min/max, UTC)` — not naive
       local dates **(found a real bug — audit filters)**.
 - [ ] Money is `Numeric(18, 2)` quantized at the boundary, never float.
@@ -79,13 +91,24 @@ ones that produced a defect during the platform pass.
 - [ ] It passes **standalone**, not only inside the full suite.
 - [ ] Covers: firm isolation, permission denial, validation failures, and the
       module's lifecycle transitions — not just the happy path.
+- [ ] **Every new guard was run against the unfixed code first.** A test written
+      after the fix proves the code compiles, not that it caught anything — and
+      two of the guards written on 2026-08-21 failed for the wrong reason on
+      that first run (a renamed method, not the behaviour), which only showed up
+      because they were run at all.
 
 ### Desktop
 
 - [ ] Endpoint paths live in `api_client.dart`, not inlined in pages via the
       untyped `api.request(...)` escape hatch.
 - [ ] Backend capabilities have UI, or are explicitly `available: false` in
-      `module_catalog.dart` rather than silently absent.
+      `module_catalog.dart` rather than silently absent. **A tab describing a
+      capability in prose is not UI** — four vendor tabs said things like "bank
+      details are supported with primary flag" and offered no field to type one
+      into, so four collections could only be filled by import.
+- [ ] A screen that saves an existing record sends the version it read, and
+      says something true about the typing when the save is refused —
+      `saveFailureMessage(..., changesKept:)`.
 - [ ] Screens compose the shared workspace framework instead of bespoke shells.
 
 ### Diagnostics
@@ -450,6 +473,45 @@ suite; both fell out of driving the endpoint over HTTP against seeded data.
       after seeding. It caught both of these within minutes, and it names the
       symptom precisely: "a balance moved without a journal".
 
+### Defects the 2026-08-21 cross-cutting passes added to this list
+
+Eight PRs (#109–#116) over two days, none of them a single-module review. What
+they have in common is that each defect lived in the space *between* modules —
+a second copy of a resolver, a rule written down and unenforced, a screen that
+could not read what the server had been recording.
+
+- [ ] **One question, one resolver.** Five modules each carried a private copy
+      of "which business profile does this firm operate under", and they did not
+      agree: `tax` and `sales` answered None for an unassigned firm where the
+      gate answered the platform default, so every profile-scoped tax rule
+      skipped that firm and its territories were filed under no industry at all
+      **(found a real bug)**. Before writing a lookup, grep for one.
+- [ ] **A second copy drifts in more than one way at once.**
+      `InventoryService` kept its own conversion-rule resolver, and it matched a
+      line's stored *revision* against the *concurrency counter* — agreeing only
+      until somebody edited a rule — **and** ordered by `product_id DESC`, the
+      NULL-ordering defect fixed in `uom` a fortnight earlier and never carried
+      across **(found a real bug — twice in twelve lines)**.
+- [ ] **A name that means two things blocks the fix for both.** `uom` exposed a
+      conversion rule's published revision as `version`, which is the one name
+      the concurrency counter needs, so the module could not be given
+      `If-Match` at all. Renaming the revision to `version_number` — the column's
+      name, and how `tax` always spelled it — unblocked it and surfaced the
+      inventory defect above.
+- [ ] **A rule in `CLAUDE.md` is not a rule until something checks it.** The
+      `page_size` bound had been written down for months while 44 handlers
+      ignored it. What turned it into a defect with a count was a screen that
+      could read the crash log.
+- [ ] **Telemetry nobody can read is telemetry nobody acts on.** The desktop had
+      queued crash reports to disk and flushed them to the server since the
+      crash reporter was written, and nothing could read one back. The first run
+      of the triage screen surfaced 28 live 500s.
+- [ ] **A save that changes nothing does not move the version.** A second save
+      carrying the same `If-Match` is therefore accepted — correct, since the
+      record did not change, and the reason a concurrency probe has to change
+      something to see the refusal. The first pass of one here did not, and read
+      as a broken precondition.
+
 ## Module inventory
 
 **Endpoint counts re-measured 2026-08-15** by counting route decorators under
@@ -490,7 +552,7 @@ on `@router.` misses it entirely. That is how it stayed off this table.
 | `sales_return` | 15 | 0 | 0 | `test_sales_return_module` | typed |
 | `quotation` | 14 | 0 | 0 | `test_quotation_module` | typed |
 | `settlements` | 12 | 0 | 0 | `test_settlements` | typed — receipts, payments, refunds |
-| `diagnostics` | 3 | 0 | 0 | `test_diagnostics_module` | triage screen — Settings › Diagnostics |
+| `diagnostics` | 3 | 0 | 0 | `test_diagnostics_module` | triage screen — Settings › Diagnostics (2026-08-21) |
 
 As of 2026-08-10 no page holds an endpoint path: `grep -rn "'/api/v1/" lib/`
 matches only `api_client.dart`. The five document workspaces share
@@ -509,11 +571,8 @@ numbers that used to sort this list are now zero everywhere.
 What is left is the four modules built **after** the review passes ended, none
 of which has had one:
 
-**1. `settlements` (12 endpoints)** — money in and money out, and the only
-module whose defining constraint is a NOT NULL foreign key to a journal entry.
-Worth a pass for the reversal path specifically: a reversal puts balances back
-by the deltas stored on the original row rather than recomputing them, and that
-is the kind of rule a later change breaks quietly.
+**1. `settlements` (12 endpoints)** — **reviewed 2026-08-18**, row 23 below.
+It found nothing, which is recorded there along with what was actually driven.
 
 **2. `sales_return` (15)** — moves three books at once (stock, the customer's
 account, the ledger) and any of them failing must fail the whole document.
@@ -527,8 +586,13 @@ movement, no journal — and check that expiry stays derived from `valid_until`
 rather than acquiring a stored flag.
 
 **4. `diagnostics` (3)** — small, and until 2026-08-21 the only module on the
-board with no desktop surface at all. The triage screen is built; the module
-itself has still had no review pass.
+board with no desktop surface at all. The triage screen is built (#111); the
+module itself has still had no review pass.
+
+The three that remain — `sales_return`, `quotation`, `diagnostics` — are the
+whole of the unreviewed list. Everything else has had a pass, and the
+cross-cutting sweeps of 2026-08-21/22 (rows 24–27) covered the classes of
+defect that turned out to span modules rather than sit inside one.
 
 Then a second pass over anything the four PRs of 2026-08-15 touched, since two
 defects in `customers` survived its 2026-08-10 review: that pass found nothing
@@ -566,6 +630,12 @@ which nothing did until the endpoint published an ETag.
 | 21 | `finance` | 2026-08-10 | the journal engine checked the balance on the summed-then-rounded totals but stored each leg rounded, so a document balanced at four decimals could store lines a cent apart with `is_balanced` true — and `_post_line` copies line amounts straight into the general ledger; the ledger statement was dated and ordered by the wall clock at posting rather than the journal date; line narration was collected and never displayed, the report preferring a field nothing writes | yes — no stored data was affected |
 | 22 | `sales` (territory) | 2026-08-16 | the whole reporting chain was unfed — `territory_id`/`route_id`/`salesman_id` were never populated, so three reports answered `[]` from correct endpoints; six geography reads carried no principal at all and served data to an unauthenticated caller; nineteen handlers took the bare `ResolvedFirmScope`, which FastAPI read as a **request body field**, so every geography write and `PUT /hierarchy-levels` was uncallable; two bulk assignments committed per item, so a batch refused partway left the earlier rows written; `effective_from`/`effective_to` were stored and read nowhere | yes — plus four migrations and `docs/TERRITORY_FRAMEWORK.md` |
 | 23 | `settlements` | 2026-08-18 | **none** — the first module review to find nothing. Every refusal it needs already fires, and each was driven rather than read: over-allocating an invoice, allocating more than the money that moved, the same invoice twice, another party's invoice, a zero or negative amount, a refund applied to a document, and a receipt against a vendor id. Reversal restores the invoice **and** the customer balance to the exact figures they held, and a second reversal is refused. Two concurrent settlements against one invoice end 201/409 in both directions and with a client-supplied number, so the invoice cannot be over-settled. ELEC01 could not read, list or settle anything of WHOLE01's, and its token with WHOLE01's firm header answered 403 | nothing to fix — two observations recorded below |
+| 24 | **business profile resolution** (`tax`, `sales`, `products`, `inventory`, `uom`) | 2026-08-21 | five private copies of one resolver, and they disagreed: `tax` and `sales` answered None for an unassigned firm where the gate answered the platform default, so every profile-scoped tax rule skipped that firm and its hierarchy, nodes and beat plans recorded no industry at all. `products` and `inventory` fell back correctly but each demanded `status = 'ACTIVE'` on the *assigned* profile, so a deactivated profile put GENERIC's fields on the form while the gate went on enforcing the assigned one | yes — #109, #110, plus `20260821_0095` to fill the NULLs and a guard that all four resolvers answer alike |
+| 25 | **`diagnostics` surface** | 2026-08-21 | the module had no desktop screen at all, so crash reports had been collected for months with no way to read one. Not a defect in the module — a hole in the product | yes — #111, Settings › Diagnostics, faults collapsed by fingerprint |
+| 26 | **pagination bounds** (all 23 routers) | 2026-08-21 | 44 handlers took a bare `page_size: int = 20` and built `PaginationParams` in the body, so an over-cap request answered **500** instead of a 422 naming the limit; `page: int = 1` had the same shape, so `page=0` was a 500 too. The rule had been in `CLAUDE.md` for months. The new triage screen is what turned it into a defect with a count: 28 stored `ValidationError`s from `GET /api/v1/products` over three days | yes — #112, plus `tests/unit/test_pagination_conventions.py` |
+| 27 | **optimistic concurrency** (`uom`, `tax`, `batch_serial`, `inventory`, `sales`, `business`) | 2026-08-22 | six modules were still last-one-wins. `uom` was blocked by a name: a conversion rule's published revision was exposed as `version`, which the counter needs. Renaming it to `version_number` unblocked the wiring and surfaced `InventoryService`'s private copy of the rule resolver matching a line's revision against the counter — and ordering by `product_id DESC`, the NULL-ordering defect fixed in `uom` and never carried across | yes — #115, #116; 31 updates across the six (uom 6, tax 6, sales 9, business 5, batch_serial 3, inventory 2), taking the platform to 42 endpoints accepting the header, and `publish_version` covers the services that return response models rather than rows |
+| 28 | **partial updates** (`business`, `document_framework`) | 2026-08-21 | the last eight full-dump updates. `update_profile` was the worst: it read `is_default` off the model, so renaming the default profile demoted it and left the store with no default — and a store with no default enforces nothing, so one rename would have switched off business-profile gating for every unassigned firm | yes — #114 |
+| 29 | **`vendors` editor** | 2026-08-21 | four of the six tabs described a capability in prose and offered no field: contacts, banking, tax and notes round-tripped through the API and could only be filled by import. The model dropped three of the four collections on the way in | yes — #113 |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -616,3 +686,33 @@ Two observations, neither a defect:
 Not covered, and deliberately: `RefundService` beyond its refusal to allocate,
 because the rule that a refund cannot exceed the advance a customer holds lives
 in `CustomerService` and belongs to that module's review.
+
+### 24–29 the cross-cutting passes — how they were found
+
+Six of these are not module reviews. They are what a module review keeps almost
+finding: a rule that holds in one module and not its neighbour, a name that
+means two things, a screen that cannot see what the server records.
+
+Three things produced all of them, and are worth reusing:
+
+**Answering "which module is incomplete" honestly.** The list that started this
+run came from reading the catalogue against the code rather than the docs — it
+is how `diagnostics` and the vendor tabs surfaced, both of which every previous
+pass had walked past because the module's own tests were green.
+
+**Building the screen that reads the telemetry.** The `page_size` sweep did not
+come from a review. It came from the triage screen's first contact with real
+data, which listed 28 identical 500s and named the endpoint. A defect nobody can
+see is one every pass will keep missing.
+
+**Renaming the thing that means two things.** `uom`'s `version` collision had
+been recorded in `CLAUDE.md` as a reason not to wire `If-Match` there — a
+decision deferred rather than a difficulty. Resolving the name immediately
+exposed a second copy of a resolver getting both the column and the ordering
+wrong, and the ordering half could not have been reported by a test: the unit
+suite runs on SQLite, where NULLs sort the other way round.
+
+Two habits carried over from the earlier passes did the actual verifying:
+**drive it against a running backend** (every one of these was confirmed on the
+seeded firms, and restored afterwards), and **make the guard fail first** — each
+new test was run against the unfixed code before the fix was kept.
