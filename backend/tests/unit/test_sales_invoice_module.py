@@ -384,7 +384,9 @@ def test_sales_invoice_cancel_endpoint_passes_the_reason_through() -> None:
         invoice_id=invoice_id,
         data=ActionReasonRequest(reason="duplicate"),
     )
-    assert result.status == SalesInvoiceStatus.CANCELLED
+    # The envelope, like every other module: the record is under `data`.
+    assert result.data is not None
+    assert result.data.status == SalesInvoiceStatus.CANCELLED
     assert (
         service.get_invoice(invoice_id, firm_scope=firm.id).cancel_reason == "duplicate"
     )
