@@ -48,6 +48,7 @@ class InventoryRecord {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   final String id;
@@ -90,6 +91,11 @@ class InventoryRecord {
   final String createdAt;
   final String updatedAt;
 
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
+
   factory InventoryRecord.fromJson(Json json) => InventoryRecord(
         id: stringValue(json['id']),
         firmId: stringValue(json['firm_id']),
@@ -126,6 +132,7 @@ class InventoryRecord {
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 

@@ -117,6 +117,8 @@ class InventoryResponse(InventorySchema):
     """Expose one inventory projection row."""
 
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     firm_id: UUID
     branch_id: UUID
     branch_code: str
@@ -397,6 +399,8 @@ class OpeningStockBatchResponse(InventorySchema):
     """Expose one opening-stock batch."""
 
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     firm_id: UUID
     branch_id: UUID
     branch_code: str

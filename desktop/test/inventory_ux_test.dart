@@ -489,6 +489,9 @@ class _InventoryImportApi extends ApiClient {
   int postOpeningStockCalls = 0;
   int adjustmentCalls = 0;
   int updateCalls = 0;
+  /// What the screen sent as `If-Match`.
+  int? sentVersion;
+
 
   @override
   Future<PagedResult<InventoryRecord>> inventory({
@@ -531,8 +534,13 @@ class _InventoryImportApi extends ApiClient {
   }
 
   @override
-  Future<InventoryRecord> updateInventoryRecord(String id, Json data) async {
+  Future<InventoryRecord> updateInventoryRecord(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async {
     updateCalls++;
+    sentVersion = expectedVersion;
     return _inventory;
   }
 

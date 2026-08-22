@@ -94,6 +94,7 @@ class SalesTerritory {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   final String id;
@@ -118,6 +119,11 @@ class SalesTerritory {
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
 
   factory SalesTerritory.fromJson(Json json) => SalesTerritory(
         id: stringValue(json['id']),
@@ -149,7 +155,8 @@ class SalesTerritory {
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
-      );
+      version: (json['version'] as num?)?.toInt() ?? 0,
+    );
 }
 
 /// A kind of round the firm runs: a sales beat, a collection round.
@@ -160,6 +167,7 @@ class TerritoryRouteTypeRecord {
     required this.name,
     this.description = '',
     required this.isActive,
+    this.version = 0,
   });
 
   final String id;
@@ -167,6 +175,11 @@ class TerritoryRouteTypeRecord {
   final String name;
   final String description;
   final bool isActive;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
 
   String get label => '$code  $name';
 
@@ -177,7 +190,8 @@ class TerritoryRouteTypeRecord {
         name: stringValue(json['name']),
         description: stringValue(json['description']),
         isActive: json['is_active'] as bool? ?? true,
-      );
+      version: (json['version'] as num?)?.toInt() ?? 0,
+    );
 }
 
 /// One customer's place on a round.
@@ -252,6 +266,7 @@ class BeatPlanRecord {
     required this.isActive,
     required this.notes,
     required this.stops,
+    this.version = 0,
   });
 
   final String id;
@@ -273,6 +288,11 @@ class BeatPlanRecord {
   final String notes;
   final List<BeatPlanStopRecord> stops;
 
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
+
   factory BeatPlanRecord.fromJson(Json json) => BeatPlanRecord(
         id: stringValue(json['id']),
         territoryId: stringValue(json['territory_id']),
@@ -293,7 +313,8 @@ class BeatPlanRecord {
             if (row is Map)
               BeatPlanStopRecord.fromJson(Map<String, dynamic>.from(row)),
         ],
-      );
+      version: (json['version'] as num?)?.toInt() ?? 0,
+    );
 }
 
 /// One leg of a beat plan. A stop is a territory, not an outlet — the outlets

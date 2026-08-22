@@ -37,6 +37,7 @@ class BatchRecord {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   final String id;
@@ -68,6 +69,11 @@ class BatchRecord {
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
 
   factory BatchRecord.fromJson(Json json) {
     final Json d = json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
@@ -101,6 +107,7 @@ class BatchRecord {
       isDeleted: boolValue(d['is_deleted']),
       createdAt: stringValue(d['created_at']),
       updatedAt: stringValue(d['updated_at']),
+  version: (d['version'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -130,6 +137,7 @@ class LotRecord {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   final String id;
@@ -155,6 +163,11 @@ class LotRecord {
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
 
   factory LotRecord.fromJson(Json json) {
     final Json d = json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
@@ -182,6 +195,7 @@ class LotRecord {
       isDeleted: boolValue(d['is_deleted']),
       createdAt: stringValue(d['created_at']),
       updatedAt: stringValue(d['updated_at']),
+  version: (d['version'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -213,6 +227,7 @@ class SerialRecord {
     required this.isDeleted,
     required this.createdAt,
     required this.updatedAt,
+    this.version = 0,
   });
 
   final String id;
@@ -240,6 +255,11 @@ class SerialRecord {
   final bool isDeleted;
   final String createdAt;
   final String updatedAt;
+
+  /// The optimistic-concurrency version this record was read at, sent back
+  /// as `If-Match` on save so a concurrent edit is refused rather than
+  /// silently overwritten. Zero means the server published none.
+  final int version;
 
   factory SerialRecord.fromJson(Json json) {
     final Json d = json.containsKey('data') ? Map<String, dynamic>.from(json['data'] as Map) : json;
@@ -269,6 +289,7 @@ class SerialRecord {
       isDeleted: boolValue(d['is_deleted']),
       createdAt: stringValue(d['created_at']),
       updatedAt: stringValue(d['updated_at']),
+  version: (d['version'] as num?)?.toInt() ?? 0,
     );
   }
 }

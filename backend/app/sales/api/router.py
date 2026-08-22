@@ -24,6 +24,7 @@ from app.common.scope import (
     ResolvedFirmScope,
     firm_permission_scope,
 )
+from app.core.concurrency import ExpectedVersion, publish_version
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -175,12 +176,19 @@ def update_route_type(
     route_type_id: UUID,
     payload: RouteTypeWrite,
     scope: TerritoryUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[RouteTypeResponse]:
     """Rename a route type, or retire it by clearing its active flag."""
     data = _service(db).update_route_type(
-        route_type_id, payload, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        route_type_id,
+        payload,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, data.version)
     return ApiResponse(data=data)
 
 
@@ -392,12 +400,19 @@ def update_geo_country(
     payload: GeoCountryWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoCountryResponse]:
     """Replace one country's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_country(country_id, payload, actor_id=scope.actor_id)
+    row = _service(db).update_country(
+        country_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete("/geo/countries/{country_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -421,12 +436,19 @@ def update_geo_state(
     payload: GeoStateWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoStateResponse]:
     """Replace one state's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_state(state_id, payload, actor_id=scope.actor_id)
+    row = _service(db).update_state(
+        state_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete("/geo/states/{state_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -450,12 +472,19 @@ def update_geo_district(
     payload: GeoDistrictWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoDistrictResponse]:
     """Replace one district's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_district(district_id, payload, actor_id=scope.actor_id)
+    row = _service(db).update_district(
+        district_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete("/geo/districts/{district_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -479,12 +508,19 @@ def update_geo_city(
     payload: GeoCityWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoCityResponse]:
     """Replace one city's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_city(city_id, payload, actor_id=scope.actor_id)
+    row = _service(db).update_city(
+        city_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete("/geo/cities/{city_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -508,14 +544,19 @@ def update_geo_postal_code(
     payload: GeoPostalCodeWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoPostalCodeResponse]:
     """Replace one postal code's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_postal_code(
-            postal_code_id, payload, actor_id=scope.actor_id
-        )
+    row = _service(db).update_postal_code(
+        postal_code_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete(
@@ -541,12 +582,19 @@ def update_geo_locality(
     payload: GeoLocalityWrite,
     _: PlatformPrincipal,
     scope: RequiredFirmScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[GeoLocalityResponse]:
     """Replace one locality's editable fields."""
-    return ApiResponse(
-        data=_service(db).update_locality(locality_id, payload, actor_id=scope.actor_id)
+    row = _service(db).update_locality(
+        locality_id,
+        payload,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
+    return ApiResponse(data=row)
 
 
 @router.delete("/geo/localities/{locality_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -637,14 +685,18 @@ def update_territory(
     territory_id: UUID,
     payload: TerritoryUpdate,
     scope: TerritoryUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TerritoryResponse]:
     row = _service(db).update_territory(
         territory_id,
         payload,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
     return ApiResponse(data=row)
 
 
@@ -912,14 +964,18 @@ def update_beat_plan(
     beat_plan_id: UUID,
     payload: BeatPlanUpdate,
     scope: TerritoryUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BeatPlanResponse]:
     row = _service(db).update_beat_plan(
         beat_plan_id,
         payload,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    publish_version(response, row.version)
     return ApiResponse(data=row)
 
 

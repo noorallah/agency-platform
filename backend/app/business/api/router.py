@@ -36,6 +36,7 @@ from app.business.schemas import (
     IdentifierList,
 )
 from app.business.services import BusinessProfileFrameworkService
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
     firm_store_session,
@@ -134,9 +135,14 @@ def update_profile(
     profile_id: UUID,
     data: BusinessProfileUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BusinessProfileResponse]:
-    row = _service(db).update_profile(profile_id, data, _actor_id(principal))
+    row = _service(db).update_profile(
+        profile_id, data, _actor_id(principal), expected_version
+    )
+    set_etag(response, row)
     return ApiResponse(data=BusinessProfileResponse.model_validate(row))
 
 
@@ -191,9 +197,14 @@ def update_feature(
     feature_id: UUID,
     data: BusinessFeatureUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BusinessFeatureResponse]:
-    row = _service(db).update_feature(feature_id, data, _actor_id(principal))
+    row = _service(db).update_feature(
+        feature_id, data, _actor_id(principal), expected_version
+    )
+    set_etag(response, row)
     return ApiResponse(data=BusinessFeatureResponse.model_validate(row))
 
 
@@ -246,9 +257,14 @@ def update_module(
     module_id: UUID,
     data: BusinessModuleUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BusinessModuleResponse]:
-    row = _service(db).update_module(module_id, data, _actor_id(principal))
+    row = _service(db).update_module(
+        module_id, data, _actor_id(principal), expected_version
+    )
+    set_etag(response, row)
     return ApiResponse(data=BusinessModuleResponse.model_validate(row))
 
 
@@ -307,9 +323,14 @@ def update_attribute_definition(
     attribute_id: UUID,
     data: AttributeDefinitionUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[AttributeDefinitionResponse]:
-    row = _service(db).update_attribute(attribute_id, data, _actor_id(principal))
+    row = _service(db).update_attribute(
+        attribute_id, data, _actor_id(principal), expected_version
+    )
+    set_etag(response, row)
     return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
 
 
@@ -361,9 +382,14 @@ def update_category_rule(
     rule_id: UUID,
     data: CategoryAttributeRuleUpdate,
     principal: PlatformPrincipal,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
-    row = _service(db).update_category_rule(rule_id, data, _actor_id(principal))
+    row = _service(db).update_category_rule(
+        rule_id, data, _actor_id(principal), expected_version
+    )
+    set_etag(response, row)
     return ApiResponse(data=CategoryAttributeRuleResponse.model_validate(row))
 
 

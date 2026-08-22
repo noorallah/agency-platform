@@ -46,6 +46,9 @@ class _GeoApi extends ApiClient {
   final List<String> requested = <String>[];
   Json? created;
   Json? updated;
+
+  /// What the screen sent as `If-Match`.
+  int? sentVersion;
   String? deleted;
 
   @override
@@ -92,8 +95,10 @@ class _GeoApi extends ApiClient {
   Future<GeoPlaceRecord> updateGeoPlace(
     GeoLevel level,
     String id,
-    Json body,
-  ) async {
+    Json body, {
+    int? expectedVersion,
+  }) async {
+    sentVersion = expectedVersion;
     updated = <String, dynamic>{'level': level.path, 'id': id, ...body};
     return GeoPlaceRecord.fromJson(level, <String, dynamic>{'id': id, ...body});
   }

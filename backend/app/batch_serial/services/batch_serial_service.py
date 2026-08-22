@@ -30,6 +30,7 @@ from app.batch_serial.schemas.batch_serial import (
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -401,10 +402,17 @@ class BatchSerialService:
         return batch
 
     def update_batch(
-        self, *, firm_scope: UUID, actor_id: UUID, batch_id: UUID, data: BatchUpdate
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        batch_id: UUID,
+        data: BatchUpdate,
+        expected_version: int | None = None,
     ) -> BatchRecord:
         """Change a batch."""
         record = self.get_batch(firm_scope=firm_scope, batch_id=batch_id)
+        assert_version(record.version, expected_version)
         before: dict[str, object] = {
             "status": record.status,
             "batch_number": record.batch_number,
@@ -676,10 +684,17 @@ class BatchSerialService:
         return record
 
     def update_lot(
-        self, *, firm_scope: UUID, actor_id: UUID, lot_id: UUID, data: LotUpdate
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        lot_id: UUID,
+        data: LotUpdate,
+        expected_version: int | None = None,
     ) -> LotRecord:
         """Change a lot."""
         record = self.get_lot(firm_scope=firm_scope, lot_id=lot_id)
+        assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
         assert_feature_fields(
             self._session,
@@ -847,10 +862,17 @@ class BatchSerialService:
         return record
 
     def update_serial(
-        self, *, firm_scope: UUID, actor_id: UUID, serial_id: UUID, data: SerialUpdate
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        serial_id: UUID,
+        data: SerialUpdate,
+        expected_version: int | None = None,
     ) -> SerialNumber:
         """Change a serial number."""
         record = self.get_serial(firm_scope=firm_scope, serial_id=serial_id)
+        assert_version(record.version, expected_version)
         update_data = data.model_dump(exclude_unset=True)
         assert_feature_fields(
             self._session,

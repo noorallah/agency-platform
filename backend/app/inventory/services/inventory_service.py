@@ -21,6 +21,7 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import resolve_profile_id
 from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.money import quantize_money
 from app.finance.services.document_posting import DocumentPostingService
@@ -564,11 +565,13 @@ class InventoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> InventoryRecord:
         """Change a projection's thresholds and status."""
         row = self.get_inventory_record(
             inventory_id, firm_scope=firm_scope, include_deleted=True
         )
+        assert_version(row.version, expected_version)
         self._validate_references(
             firm_id=firm_scope,
             branch_id=data.branch_id,
@@ -899,11 +902,13 @@ class InventoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> OpeningStockBatch:
         """Change a draft opening-stock batch."""
         batch = self.get_opening_stock_batch(
             batch_id, firm_scope=firm_scope, include_deleted=True
         )
+        assert_version(batch.version, expected_version)
         if batch.status != "DRAFT":
             raise ValidationError("Only draft opening stock batches can be edited.")
         self._validate_branch_warehouse_scope(
@@ -2776,6 +2781,7 @@ class InventoryService:
                 "batch_number": batch_number,
                 "batch_expiry_date": batch_expiry,
                 "id": row.id,
+                "version": row.version,
                 "firm_id": row.firm_id,
                 "branch_id": row.branch_id,
                 "branch_code": self._lookup_branch_code(row.branch_id),
@@ -2898,6 +2904,7 @@ class InventoryService:
         return OpeningStockBatchResponse.model_validate(
             {
                 "id": row.id,
+                "version": row.version,
                 "firm_id": row.firm_id,
                 "branch_id": row.branch_id,
                 "branch_code": self._lookup_branch_code(row.branch_id),

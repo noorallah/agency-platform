@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.business.models import BusinessProfile
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
@@ -34,6 +34,7 @@ from app.sales.schemas import (
     TerritoryAssignSalesmenRequest,
     TerritoryCreate,
     TerritoryListFilters,
+    TerritoryUpdate,
 )
 from app.sales.schemas.territory import (
     HierarchyLevelInput,
@@ -459,3 +460,40 @@ def test_an_unassigned_firm_stamps_the_default_business_profile() -> None:
     assert config.business_profile_id == default_profile.id
     assert node is not None
     assert node.business_profile_id == default_profile.id
+
+
+def test_a_territory_refuses_a_write_aimed_at_an_older_version() -> None:
+    """The precondition travels even though the service returns a response.
+
+    `app/sales` builds its response models in the service, so the router never
+    holds the row -- `publish_version` puts the same number in the ETag that
+    `set_etag` would have taken off the entity.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TCONC")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    node_id = _node(service, firm.id, actor, "TC-A")
+    node = service.get_territory(node_id, firm_scope=firm.id)
+    read_at = node.version
+
+    def rename(to: str, expected: int | None) -> None:
+        service.update_territory(
+            node_id,
+            TerritoryUpdate(
+                code=node.code,
+                name=to,
+                hierarchy_level_id=node.hierarchy_level_id,
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+            expected_version=expected,
+        )
+
+    rename("First rename", read_at)
+
+    with pytest.raises(ConflictError):
+        rename("Second rename", read_at)
+
+    rename("No precondition", None)
+    assert service.get_territory(node_id, firm_scope=firm.id).name == "No precondition"

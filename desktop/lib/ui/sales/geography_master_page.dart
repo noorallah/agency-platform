@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -141,8 +142,12 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
         await widget.api
             .createGeoPlace(_level, saved.toJson(parentId: _parentId));
       } else {
-        await widget.api
-            .updateGeoPlace(_level, current.id, saved.toJson(parentId: _parentId));
+        await widget.api.updateGeoPlace(
+          _level,
+          current.id,
+          saved.toJson(parentId: _parentId),
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
       if (!mounted) return;
@@ -155,7 +160,7 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
       if (!mounted) return;
       NotificationService.show(
         context,
-        exception.message,
+        saveFailureMessage(exception, 'place', changesKept: false),
         kind: AppNotificationKind.error,
       );
     }

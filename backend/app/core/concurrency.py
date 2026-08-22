@@ -88,7 +88,23 @@ def set_etag(response: Response, entity: BaseEntity) -> None:
         entity: The record whose version is being published.
 
     """
-    response.headers["ETag"] = f'"{entity.version}"'
+    publish_version(response, entity.version)
+
+
+def publish_version(response: Response, version: int) -> None:
+    """Publish a version when the entity itself is not in hand.
+
+    ``app/sales`` builds its response models in the service and hands those
+    back, so the router never sees the row. The header has to carry the same
+    value either way, so both paths end here rather than formatting the tag
+    twice and drifting.
+
+    Args:
+        response: The response being returned to the caller.
+        version: The version a client must send back to update this record.
+
+    """
+    response.headers["ETag"] = f'"{version}"'
 
 
 ExpectedVersion = Annotated[int | None, Depends(parse_if_match)]

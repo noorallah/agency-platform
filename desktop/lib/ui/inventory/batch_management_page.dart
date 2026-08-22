@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -1034,7 +1035,11 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
         if (_remarks.text.isNotEmpty) 'remarks': _remarks.text.trim(),
       };
       if (widget.existing != null) {
-        await widget.api.updateBatch(widget.existing!.id, data);
+        await widget.api.updateBatch(
+          widget.existing!.id,
+          data,
+          expectedVersion: preconditionFor(widget.existing!.version),
+        );
       } else {
         await widget.api.createBatch(data);
       }
@@ -1042,8 +1047,13 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(exception.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saveFailureMessage(exception, 'batch', changesKept: false),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1202,7 +1212,11 @@ class _LotFormDialogState extends State<_LotFormDialog> {
         if (_remarks.text.isNotEmpty) 'remarks': _remarks.text.trim(),
       };
       if (widget.existing != null) {
-        await widget.api.updateLot(widget.existing!.id, data);
+        await widget.api.updateLot(
+          widget.existing!.id,
+          data,
+          expectedVersion: preconditionFor(widget.existing!.version),
+        );
       } else {
         await widget.api.createLot(data);
       }
@@ -1210,8 +1224,13 @@ class _LotFormDialogState extends State<_LotFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(exception.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saveFailureMessage(exception, 'lot', changesKept: false),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1363,7 +1382,11 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
         if (_remarks.text.isNotEmpty) 'remarks': _remarks.text.trim(),
       };
       if (widget.existing != null) {
-        await widget.api.updateSerial(widget.existing!.id, data);
+        await widget.api.updateSerial(
+          widget.existing!.id,
+          data,
+          expectedVersion: preconditionFor(widget.existing!.version),
+        );
       } else {
         await widget.api.createSerial(data);
       }
@@ -1371,8 +1394,13 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(exception.message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saveFailureMessage(exception, 'serial number', changesKept: false),
+          ),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }

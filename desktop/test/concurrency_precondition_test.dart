@@ -12,6 +12,10 @@ import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/quotation.dart';
+import 'package:agency_desktop/models/batch_serial.dart';
+import 'package:agency_desktop/models/geography.dart';
+import 'package:agency_desktop/models/inventory.dart';
+import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/models/tax_framework.dart';
 import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/models/vendor.dart';
@@ -120,6 +124,41 @@ void main() {
 
     test('tax rule', () {
       expect(TaxRuleRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('batch', () {
+      expect(BatchRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('lot', () {
+      expect(LotRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('serial', () {
+      expect(SerialRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('inventory record', () {
+      expect(InventoryRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('territory', () {
+      expect(SalesTerritory.fromJson(_row('code')).version, 5);
+    });
+
+    test('beat plan', () {
+      expect(BeatPlanRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('route type', () {
+      expect(TerritoryRouteTypeRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('a place', () {
+      expect(
+        GeoPlaceRecord.fromJson(GeoLevel.city, _row('code')).version,
+        5,
+      );
     });
   });
 

@@ -17,6 +17,7 @@ from app.business.gating import resolve_profile_id
 from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -152,6 +153,7 @@ class SalesTerritoryService:
         return [
             RouteTypeResponse(
                 id=row.id,
+                version=row.version,
                 code=row.code,
                 name=row.name,
                 description=row.description,
@@ -203,9 +205,11 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> RouteTypeResponse:
         """Replace one route type's editable fields."""
         row = self._route_type(route_type_id, firm_scope)
+        assert_version(row.version, expected_version)
         self._assert_unique_route_type_code(firm_scope, payload.code, current_id=row.id)
         row.code = payload.code
         row.name = payload.name
@@ -294,6 +298,7 @@ class SalesTerritoryService:
     def _route_type_response(row: RouteTypeMaster) -> RouteTypeResponse:
         return RouteTypeResponse(
             id=row.id,
+            version=row.version,
             code=row.code,
             name=row.name,
             description=row.description,
@@ -304,6 +309,7 @@ class SalesTerritoryService:
         return [
             GeoCountryResponse(
                 id=row.id,
+                version=row.version,
                 code=row.code,
                 name=row.name,
                 iso2=row.iso2,
@@ -335,6 +341,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoCountryResponse(
             id=row.id,
+            version=row.version,
             code=row.code,
             name=row.name,
             iso2=row.iso2,
@@ -350,6 +357,7 @@ class SalesTerritoryService:
         return [
             GeoStateResponse(
                 id=row.id,
+                version=row.version,
                 country_id=row.country_id,
                 code=row.code,
                 name=row.name,
@@ -373,6 +381,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoStateResponse(
             id=row.id,
+            version=row.version,
             country_id=row.country_id,
             code=row.code,
             name=row.name,
@@ -388,6 +397,7 @@ class SalesTerritoryService:
         return [
             GeoDistrictResponse(
                 id=row.id,
+                version=row.version,
                 state_id=row.state_id,
                 code=row.code,
                 name=row.name,
@@ -411,6 +421,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoDistrictResponse(
             id=row.id,
+            version=row.version,
             state_id=row.state_id,
             code=row.code,
             name=row.name,
@@ -424,6 +435,7 @@ class SalesTerritoryService:
         return [
             GeoCityResponse(
                 id=row.id,
+                version=row.version,
                 district_id=row.district_id,
                 code=row.code,
                 name=row.name,
@@ -445,6 +457,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoCityResponse(
             id=row.id,
+            version=row.version,
             district_id=row.district_id,
             code=row.code,
             name=row.name,
@@ -460,6 +473,7 @@ class SalesTerritoryService:
         return [
             GeoPostalCodeResponse(
                 id=row.id,
+                version=row.version,
                 city_id=row.city_id,
                 postal_code=row.postal_code,
                 is_active=row.is_active,
@@ -483,6 +497,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoPostalCodeResponse(
             id=row.id,
+            version=row.version,
             city_id=row.city_id,
             postal_code=row.postal_code,
             is_active=row.is_active,
@@ -497,6 +512,7 @@ class SalesTerritoryService:
         return [
             GeoLocalityResponse(
                 id=row.id,
+                version=row.version,
                 postal_code_id=row.postal_code_id,
                 name=row.name,
                 is_active=row.is_active,
@@ -518,6 +534,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoLocalityResponse(
             id=row.id,
+            version=row.version,
             postal_code_id=row.postal_code_id,
             name=row.name,
             is_active=row.is_active,
@@ -537,10 +554,16 @@ class SalesTerritoryService:
     # points at the row.
 
     def update_country(
-        self, country_id: UUID, payload: GeoCountryWrite, *, actor_id: UUID
+        self,
+        country_id: UUID,
+        payload: GeoCountryWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoCountryResponse:
         """Rename a country, or retire it by clearing its active flag."""
         row = self._geo_row(GeoCountry, country_id, "Country")
+        assert_version(row.version, expected_version)
         self._assert_geo_code_free(GeoCountry, payload.code, current_id=row.id)
         row.code = payload.code
         row.name = payload.name
@@ -571,10 +594,16 @@ class SalesTerritoryService:
         self._commit()
 
     def update_state(
-        self, state_id: UUID, payload: GeoStateWrite, *, actor_id: UUID
+        self,
+        state_id: UUID,
+        payload: GeoStateWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoStateResponse:
         """Replace one state's editable fields."""
         row = self._geo_row(GeoState, state_id, "State")
+        assert_version(row.version, expected_version)
         self._geo_row(GeoCountry, payload.country_id, "Country")
         self._assert_geo_code_free(GeoState, payload.code, current_id=row.id)
         row.country_id = payload.country_id
@@ -586,6 +615,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoStateResponse(
             id=row.id,
+            version=row.version,
             country_id=row.country_id,
             code=row.code,
             name=row.name,
@@ -610,10 +640,16 @@ class SalesTerritoryService:
         self._commit()
 
     def update_district(
-        self, district_id: UUID, payload: GeoDistrictWrite, *, actor_id: UUID
+        self,
+        district_id: UUID,
+        payload: GeoDistrictWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoDistrictResponse:
         """Replace one district's editable fields."""
         row = self._geo_row(GeoDistrict, district_id, "District")
+        assert_version(row.version, expected_version)
         self._geo_row(GeoState, payload.state_id, "State")
         self._assert_geo_code_free(GeoDistrict, payload.code, current_id=row.id)
         row.state_id = payload.state_id
@@ -625,6 +661,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoDistrictResponse(
             id=row.id,
+            version=row.version,
             state_id=row.state_id,
             code=row.code,
             name=row.name,
@@ -649,10 +686,16 @@ class SalesTerritoryService:
         self._commit()
 
     def update_city(
-        self, city_id: UUID, payload: GeoCityWrite, *, actor_id: UUID
+        self,
+        city_id: UUID,
+        payload: GeoCityWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoCityResponse:
         """Replace one city's editable fields."""
         row = self._geo_row(GeoCity, city_id, "City")
+        assert_version(row.version, expected_version)
         self._geo_row(GeoDistrict, payload.district_id, "District")
         self._assert_geo_code_free(GeoCity, payload.code, current_id=row.id)
         row.district_id = payload.district_id
@@ -664,6 +707,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoCityResponse(
             id=row.id,
+            version=row.version,
             district_id=row.district_id,
             code=row.code,
             name=row.name,
@@ -689,10 +733,16 @@ class SalesTerritoryService:
         self._commit()
 
     def update_postal_code(
-        self, postal_code_id: UUID, payload: GeoPostalCodeWrite, *, actor_id: UUID
+        self,
+        postal_code_id: UUID,
+        payload: GeoPostalCodeWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoPostalCodeResponse:
         """Replace one postal code's editable fields."""
         row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
+        assert_version(row.version, expected_version)
         self._geo_row(GeoCity, payload.city_id, "City")
         row.city_id = payload.city_id
         row.postal_code = payload.postal_code
@@ -702,6 +752,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoPostalCodeResponse(
             id=row.id,
+            version=row.version,
             city_id=row.city_id,
             postal_code=row.postal_code,
             is_active=row.is_active,
@@ -726,10 +777,16 @@ class SalesTerritoryService:
         self._commit()
 
     def update_locality(
-        self, locality_id: UUID, payload: GeoLocalityWrite, *, actor_id: UUID
+        self,
+        locality_id: UUID,
+        payload: GeoLocalityWrite,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> GeoLocalityResponse:
         """Replace one locality's editable fields."""
         row = self._geo_row(GeoLocality, locality_id, "Locality")
+        assert_version(row.version, expected_version)
         self._geo_row(GeoPostalCode, payload.postal_code_id, "Postal code")
         row.postal_code_id = payload.postal_code_id
         row.name = payload.name.strip()
@@ -739,6 +796,7 @@ class SalesTerritoryService:
         self._commit()
         return GeoLocalityResponse(
             id=row.id,
+            version=row.version,
             postal_code_id=row.postal_code_id,
             name=row.name,
             is_active=row.is_active,
@@ -765,6 +823,7 @@ class SalesTerritoryService:
     def _country_response(row: GeoCountry) -> GeoCountryResponse:
         return GeoCountryResponse(
             id=row.id,
+            version=row.version,
             code=row.code,
             name=row.name,
             iso2=row.iso2,
@@ -1227,8 +1286,10 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TerritoryResponse:
         row = self._territory(territory_id, firm_scope, include_deleted=True)
+        assert_version(row.version, expected_version)
         self._assert_unique_code(firm_scope, data.code, current_id=row.id)
         self._assert_unique_name_under_parent(
             firm_scope=firm_scope,
@@ -1950,8 +2011,10 @@ class SalesTerritoryService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> BeatPlanResponse:
         row = self._beat_plan(beat_plan_id, firm_scope, include_deleted=True)
+        assert_version(row.version, expected_version)
         self._assert_unique_beat_code(firm_scope, data.code, current_id=row.id)
         self._assert_is_a_route(self._territory(data.territory_id, firm_scope))
         row.territory_id = data.territory_id
@@ -3305,6 +3368,7 @@ class SalesTerritoryService:
         return [
             TerritoryResponse(
                 id=item.id,
+                version=item.version,
                 firm_id=item.firm_id,
                 business_profile_id=item.business_profile_id,
                 hierarchy_level_id=item.hierarchy_level_id,
@@ -3719,6 +3783,7 @@ class SalesTerritoryService:
     def _beat_plan_response(self, row: BeatPlan) -> BeatPlanResponse:
         return BeatPlanResponse(
             id=row.id,
+            version=row.version,
             firm_id=row.firm_id,
             business_profile_id=row.business_profile_id,
             territory_id=row.territory_id,

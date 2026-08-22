@@ -61,6 +61,8 @@ class BusinessProfileResponse(BusinessFrameworkSchema):
     status: str
     is_default: bool
     default_settings: dict[str, object]
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -98,6 +100,8 @@ class BusinessFeatureResponse(BusinessFrameworkSchema):
     #: False for catalogue entries that name a subsystem nothing has built.
     #: They are listed so the intent is visible, and refused if switched on.
     is_implemented: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -132,6 +136,8 @@ class BusinessModuleResponse(BusinessFrameworkSchema):
     ui_route: str | None
     default_enabled: bool
     is_active: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -178,6 +184,8 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     applicable_category: str | None
     applicable_business_profile_id: UUID | None
     is_active: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -210,6 +218,8 @@ class CategoryAttributeRuleResponse(BusinessFrameworkSchema):
     attribute_definition_id: UUID
     is_mandatory: bool
     validation_override: dict[str, object] | None
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 

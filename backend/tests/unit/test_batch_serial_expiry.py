@@ -616,3 +616,47 @@ def test_a_destroyed_batch_is_not_counted_as_expired() -> None:
     )
 
     assert service.batch_summary(firm_scope=firm.id).expired == 0
+
+
+def test_a_batch_refuses_a_write_aimed_at_an_older_version() -> None:
+    """Two people editing one batch: the second is refused, not merged badly.
+
+    `batch_serial` was one of four modules still last-one-wins after the
+    optimistic-concurrency work of 2026-08-15 -- not because of any collision,
+    simply because nothing had wired the header through.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSCONC")
+    product = _product(session, firm.id)
+    service = BatchSerialService(session)
+    actor = uuid4()
+    batch = service.create_batch(
+        firm_scope=firm.id, actor_id=actor, data=_batch_create(product.id)
+    )
+    read_at = batch.version
+
+    service.update_batch(
+        firm_scope=firm.id,
+        actor_id=actor,
+        batch_id=batch.id,
+        data=BatchUpdate(remarks="first edit"),
+        expected_version=read_at,
+    )
+
+    with pytest.raises(ConflictError):
+        service.update_batch(
+            firm_scope=firm.id,
+            actor_id=actor,
+            batch_id=batch.id,
+            data=BatchUpdate(remarks="second edit"),
+            expected_version=read_at,
+        )
+
+    # Opt-in: no precondition still writes, so an older client keeps working.
+    service.update_batch(
+        firm_scope=firm.id,
+        actor_id=actor,
+        batch_id=batch.id,
+        data=BatchUpdate(remarks="no precondition"),
+    )
+    assert batch.remarks == "no precondition"

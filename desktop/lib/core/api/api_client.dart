@@ -1256,9 +1256,21 @@ class ApiClient {
         ),
       );
 
-  Future<InventoryRecord> updateInventoryRecord(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<InventoryRecord> updateInventoryRecord(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       InventoryRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/inventory/$id', body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/inventory/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteInventoryRecord(String id) =>
@@ -1294,10 +1306,21 @@ class ApiClient {
             await request('POST', '/api/v1/batch-serial/batches', body: data)),
       );
 
-  Future<BatchRecord> updateBatch(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<BatchRecord> updateBatch(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       BatchRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/batch-serial/batches/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/batch-serial/batches/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteBatch(String id) =>
@@ -1344,9 +1367,21 @@ class ApiClient {
             await request('POST', '/api/v1/batch-serial/lots', body: data)),
       );
 
-  Future<LotRecord> updateLot(String id, Json data) async => LotRecord.fromJson(
-        _unwrapMap(
-            await request('PUT', '/api/v1/batch-serial/lots/$id', body: data)),
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<LotRecord> updateLot(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
+      LotRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/batch-serial/lots/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteLot(String id) =>
@@ -1380,10 +1415,21 @@ class ApiClient {
             await request('POST', '/api/v1/batch-serial/serials', body: data)),
       );
 
-  Future<SerialRecord> updateSerial(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<SerialRecord> updateSerial(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       SerialRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/batch-serial/serials/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/batch-serial/serials/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteSerial(String id) =>
@@ -2049,9 +2095,21 @@ class ApiClient {
         await request('POST', '/api/v1/sales-territories', body: data),
       ));
 
-  Future<SalesTerritory> updateTerritory(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<SalesTerritory> updateTerritory(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       SalesTerritory.fromJson(_unwrapMap(
-        await request('PUT', '/api/v1/sales-territories/$id', body: data),
+        await request(
+          'PUT',
+          '/api/v1/sales-territories/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        ),
       ));
 
   /// The kinds of round this firm runs — a sales beat, a collection round.
@@ -2182,10 +2240,21 @@ class ApiClient {
         ),
       ));
 
-  Future<BeatPlanRecord> updateBeatPlan(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<BeatPlanRecord> updateBeatPlan(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       BeatPlanRecord.fromJson(_unwrapMap(
-        await request('PUT', '/api/v1/sales-territories/beat-plans/$id',
-            body: data),
+        await request(
+          'PUT',
+          '/api/v1/sales-territories/beat-plans/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        ),
       ));
 
   Future<void> deleteBeatPlan(String id) async =>
@@ -2359,15 +2428,20 @@ class ApiClient {
     return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
   }
 
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
   Future<GeoPlaceRecord> updateGeoPlace(
     GeoLevel level,
     String id,
-    Json body,
-  ) async {
+    Json body, {
+    int? expectedVersion,
+  }) async {
     final Json response = await request(
       'PUT',
       '/api/v1/sales-territories/geo/${level.path}/$id',
       body: body,
+      expectedVersion: expectedVersion,
     );
     return GeoPlaceRecord.fromJson(level, _unwrapMap(response));
   }
@@ -2956,13 +3030,22 @@ class ApiClient {
 
   Future<Json> create(String resource, Json body) =>
       request('POST', '/api/v1/$resource', body: body);
+  /// [expectedVersion] rides along as `If-Match` for the resources that
+  /// publish a version -- route types among them, which are written through
+  /// this generic helper rather than a named method.
   Future<Json> update(
     String resource,
     String id,
     Json body, {
     bool partial = false,
+    int? expectedVersion,
   }) =>
-      request(partial ? 'PATCH' : 'PUT', '/api/v1/$resource/$id', body: body);
+      request(
+        partial ? 'PATCH' : 'PUT',
+        '/api/v1/$resource/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      );
   Future<void> delete(String resource, String id) =>
       request('DELETE', '/api/v1/$resource/$id');
   Future<void> setUserRoles(String userId, List<String> ids) =>

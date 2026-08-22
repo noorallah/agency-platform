@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -182,14 +183,18 @@ class _SalesTerritoryManagementPageState
       if (current == null) {
         await widget.api.createTerritory(result);
       } else {
-        await widget.api.updateTerritory(current.id, result);
+        await widget.api.updateTerritory(
+          current.id,
+          result,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _loadAll();
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
         context,
-        exception.message,
+        saveFailureMessage(exception, 'territory', changesKept: false),
         kind: AppNotificationKind.error,
       );
     }
