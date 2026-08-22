@@ -6,10 +6,14 @@ send, and that the server records its own unhandled failures against the request
 id it already handed back to the caller.
 """
 
+import asyncio
+import json
 from datetime import timedelta
+from typing import cast
 from uuid import uuid4
 
 import pytest
+from fastapi import Request
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -17,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.context import RequestContext
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions.handlers import request_id_for
+from app.core.exceptions.handlers import request_id_for, unhandled_exception_handler
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
@@ -344,3 +348,34 @@ def test_a_line_number_moving_does_not_rename_the_fault() -> None:
     assert fingerprint_for("ValidationError", _server_trace("products", line=91)) == (
         fingerprint_for("ValidationError", _server_trace("products", line=140))
     )
+
+
+def test_a_500_tells_the_caller_the_id_it_recorded() -> None:
+    """The one response that writes a row told the caller nothing to quote.
+
+    Every other error response carries a request id twice over -- the model
+    reads it from the context variable, and `CoreRequestMiddleware` stamps the
+    headers. Neither happens for an unhandled exception: it is served from
+    `ServerErrorMiddleware`, outside that middleware, which has already reset
+    the variable and never sees the response. Driven against a running server,
+    a 401 came back with `x-request-id`, `x-correlation-id` and `requestId`,
+    and a 500 came back with none of the three -- while the row it wrote
+    recorded the id all along. A user's screenshot of a 500 could not be joined
+    to its own traceback.
+    """
+    context = RequestContext(
+        request_id="req-500",
+        correlation_id="req-500",
+        client_ip=None,
+        requested_at=utc_now(),
+    )
+    response = asyncio.run(
+        unhandled_exception_handler(
+            cast(Request, _StubRequest(context)), RuntimeError("boom")
+        )
+    )
+
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"] == "req-500"
+    assert response.headers["X-Correlation-ID"] == "req-500"
+    assert json.loads(bytes(response.body))["requestId"] == "req-500"
