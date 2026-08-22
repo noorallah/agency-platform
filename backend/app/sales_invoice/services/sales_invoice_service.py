@@ -17,7 +17,12 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.core.utils.pricing import LineDiscount, resolve_line_discount
+from app.core.utils.pricing import (
+    LineDiscount,
+    apportion,
+    resolve_bill_discount,
+    resolve_line_discount,
+)
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -129,6 +134,32 @@ class _LineTax:
     profile_id: UUID | None
     total: Decimal
     components: list[_LineTaxComponent]
+
+
+@dataclass(frozen=True, slots=True)
+class _PricedInvoiceLine:
+    """One invoice line, priced but not yet taxed or written.
+
+    The two passes exist because a discount on the whole bill has to be split
+    across the lines before tax is asked for, and the split cannot be known
+    until every line has been priced. Everything the second pass needs and
+    cannot cheaply recompute is carried here -- the quantity in particular,
+    which may have come through a UOM conversion.
+    """
+
+    index: int
+    spec: dict[str, object]
+    source_line: SourceLine
+    source_type: str
+    invoice_quantity: Decimal
+    source_quantity: Decimal
+    already_invoiced: Decimal
+    conversion_factor: Decimal
+    source_uom_id: UUID | None
+    unit_price: Decimal
+    charges_amount: Decimal
+    gross_amount: Decimal
+    discount: LineDiscount
 
 
 class SalesInvoiceService(TransactionalDocumentService):
@@ -394,6 +425,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         line_totals = self._replace_lines(
             row,
             line_specs,
+            bill_percent=data.bill_discount_percent,
+            bill_amount=data.bill_discount_amount,
             firm_id=firm_id,
             invoice_date=data.invoice_date,
             business_profile_id=business_profile_id,
@@ -532,6 +565,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         line_totals = self._replace_lines(
             row,
             line_specs,
+            bill_percent=data.bill_discount_percent,
+            bill_amount=data.bill_discount_amount,
             firm_id=firm_id,
             invoice_date=data.invoice_date,
             business_profile_id=data.business_profile_id,
@@ -860,6 +895,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
             total_current_invoice_quantity=row.total_current_invoice_quantity,
+            bill_discount_percent=row.bill_discount_percent,
+            bill_discount_amount=row.bill_discount_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
@@ -1107,11 +1144,39 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             self._session.add(source)
 
+    def _bill_discount_shares(
+        self,
+        row: SalesInvoice,
+        *,
+        percent: Decimal | None,
+        amount: Decimal | None,
+        taxables: list[Decimal],
+    ) -> list[Decimal]:
+        """Resolve the document's own discount and split it across the lines.
+
+        Taken off what the lines already discounted to, never off the gross --
+        off the gross, the two discounts are each computed as though the other
+        had not happened, and the pair takes off more than either was agreed to.
+
+        What is written back onto the header is the amount actually applied and
+        the rate it represents, rather than whatever the caller sent.
+        """
+        resolved = resolve_bill_discount(
+            taxable=self._q(sum(taxables, ZERO)),
+            percent=percent,
+            amount=amount,
+        )
+        row.bill_discount_percent = resolved.percent
+        row.bill_discount_amount = resolved.amount
+        return apportion(resolved.amount, taxables)
+
     def _replace_lines(
         self,
         row: SalesInvoice,
         line_specs: list[dict[str, object]],
         *,
+        bill_percent: Decimal | None,
+        bill_amount: Decimal | None,
         firm_id: UUID,
         invoice_date: date,
         business_profile_id: UUID | None,
@@ -1121,6 +1186,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             SalesInvoiceLine.sales_invoice_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        # Every line is priced before any of them is taxed or written, so the
+        # discount on the whole bill can be split across them first.
+        priced: list[_PricedInvoiceLine] = []
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
@@ -1196,7 +1264,54 @@ class SalesInvoiceService(TransactionalDocumentService):
                 invoice_quantity=invoice_quantity,
                 source_quantity=source_quantity,
             )
-            discount_amount = line_discount.amount
+            priced.append(
+                _PricedInvoiceLine(
+                    index=index,
+                    spec=spec,
+                    source_line=source_line,
+                    source_type=source_type,
+                    invoice_quantity=invoice_quantity,
+                    source_quantity=source_quantity,
+                    already_invoiced=already_invoiced,
+                    conversion_factor=conversion_factor,
+                    source_uom_id=source_uom_id,
+                    unit_price=unit_price,
+                    charges_amount=charges_amount,
+                    gross_amount=gross_amount,
+                    discount=line_discount,
+                )
+            )
+
+        # The bill discount is split across the lines here, between pricing
+        # them and taxing them. It has to reach a taxable value to reduce any
+        # tax, which is what `header_discount_amount` on a purchase order does
+        # not do -- that one is subtracted after tax and so the customer pays
+        # tax on money they were never charged.
+        shares = self._bill_discount_shares(
+            row,
+            percent=bill_percent,
+            amount=bill_amount,
+            taxables=[
+                self._q(item.gross_amount - item.discount.amount) for item in priced
+            ],
+        )
+
+        for position, item in enumerate(priced):
+            index = item.index
+            spec = item.spec
+            priced_source: SourceLine = item.source_line
+            source_type = item.source_type
+            invoice_quantity = item.invoice_quantity
+            source_quantity = item.source_quantity
+            already_invoiced = item.already_invoiced
+            conversion_factor = item.conversion_factor
+            source_uom_id = item.source_uom_id
+            unit_price = item.unit_price
+            charges_amount = item.charges_amount
+            gross_amount = item.gross_amount
+            line_discount = item.discount
+            bill_share = shares[position]
+            discount_amount = self._q(line_discount.amount + bill_share)
             line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
@@ -1204,7 +1319,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 customer_id=row.customer_id,
                 branch_id=row.branch_id,
                 warehouse_id=_optional_uuid(spec.get("warehouse_id")),
-                product_id=self._product_id(source_line),
+                product_id=self._product_id(priced_source),
                 tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
                 invoice_value=self._line_net_amount(
                     quantity=invoice_quantity,
@@ -1224,17 +1339,20 @@ class SalesInvoiceService(TransactionalDocumentService):
                 line_number=index,
                 source_document_type=source_type,
                 source_document_id=spec["source_document_id"],
-                source_document_number=self._source_document_number(spec, source_line),
-                source_document_line_id=source_line.id,
-                source_document_line_number=self._source_line_number(source_line),
-                product_id=self._product_id(source_line),
-                description=self._source_description(source_line),
+                source_document_number=self._source_document_number(
+                    spec, priced_source
+                ),
+                source_document_line_id=priced_source.id,
+                source_document_line_number=self._source_line_number(priced_source),
+                product_id=self._product_id(priced_source),
+                description=self._source_description(priced_source),
                 delivered_quantity=source_quantity,
                 already_invoiced_quantity=already_invoiced,
                 current_invoice_quantity=invoice_quantity,
                 unit_price=unit_price,
                 discount_percent=line_discount.percent,
-                discount_amount=discount_amount,
+                discount_amount=line_discount.amount,
+                bill_discount_amount=bill_share,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
@@ -2010,6 +2128,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             unit_price=row.unit_price,
             discount_percent=row.discount_percent,
             discount_amount=row.discount_amount,
+            bill_discount_amount=row.bill_discount_amount,
             charges_amount=row.charges_amount,
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,

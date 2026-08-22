@@ -130,6 +130,15 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     source_documents: list[SalesInvoiceSourceWrite] = Field(
         default_factory=list, max_length=100
     )
+    #: A discount on the whole document, taken off what the lines discounted
+    #: to and split across them so the tax is charged on the reduced value.
+    #: An amount beats a rate, exactly as on a line.
+    bill_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    bill_discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[SalesInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -251,6 +260,8 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal
+    #: This line's share of the document's bill discount.
+    bill_discount_amount: Decimal
     net_amount: Decimal
     packaging_type_id: UUID | None
     order_uom_id: UUID | None
@@ -299,6 +310,9 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal
     total_current_invoice_quantity: Decimal
+    #: What was taken off the whole document, and the rate it represents.
+    bill_discount_percent: Decimal
+    bill_discount_amount: Decimal
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal

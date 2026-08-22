@@ -714,3 +714,126 @@ def test_a_discount_larger_than_the_line_is_refused() -> None:
         setup.service.create_quotation(
             payload, firm_id=setup.firm.id, actor_id=setup.actor_id
         )
+
+
+def test_a_bill_discount_comes_off_the_whole_document() -> None:
+    """One discount negotiated once, rather than typed on every line."""
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    payload = setup.payload()
+    payload.bill_discount_percent = Decimal("10")
+
+    row = setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    # 4 x 100 = 400, less 10% of the whole = 40.
+    assert row.bill_discount_amount == Decimal("40.0000")
+    assert row.bill_discount_percent == Decimal("10.0000")
+    assert row.subtotal == Decimal("360.0000")
+    assert row.grand_total == Decimal("360.0000")
+
+
+def test_the_bill_discount_reaches_every_line() -> None:
+    """Stored on the line, because it is what the tax was computed on.
+
+    A document-level deduction that never touches a taxable value reduces no
+    tax at all -- which is what `header_discount_amount` does on a purchase
+    order, and the reason that shape was not copied here.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    payload = setup.payload()
+    payload.lines.append(
+        QuotationLineWrite(
+            line_number=2,
+            product_id=setup.product.id,
+            quantity=Decimal("4"),
+            unit_price=PRICE,
+        )
+    )
+    payload.bill_discount_amount = Decimal("80")
+
+    setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    shares = [
+        line.bill_discount_amount
+        for line in session.scalars(
+            select(SalesQuotationLine).order_by(SalesQuotationLine.line_number)
+        ).all()
+    ]
+    # Two lines of equal value, so half each, and the two sum to the whole.
+    assert shares == [Decimal("40.0000"), Decimal("40.0000")]
+
+
+def test_a_bill_discount_comes_off_what_the_lines_discounted_to() -> None:
+    """Never off the gross.
+
+    Off the gross, each discount is computed as though the other had not
+    happened, and the two together take off more than either was agreed to.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    payload = setup.payload(discount_percent=Decimal("10"))
+    payload.bill_discount_percent = Decimal("10")
+
+    row = setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    # 400 gross, 40 off the line leaves 360, then 36 off that -- not 40 and 40.
+    assert row.line_discount_total == Decimal("40.0000")
+    assert row.bill_discount_amount == Decimal("36.0000")
+    assert row.subtotal == Decimal("324.0000")
+
+
+def test_a_bill_discount_larger_than_the_document_is_refused() -> None:
+    """The same refusal a line gets, for the same reason."""
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    payload = setup.payload()
+    payload.bill_discount_amount = Decimal("5000")
+
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        setup.service.create_quotation(
+            payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_a_converted_order_carries_the_deal_not_the_shares() -> None:
+    """The order re-splits it across whatever lines it ends up with.
+
+    Copying each line's share instead would agree only for as long as the two
+    documents held the same lines.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    payload = setup.payload()
+    payload.bill_discount_percent = Decimal("10")
+    quote = setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.send_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.accept_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    _, order = setup.service.convert_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert order.bill_discount_amount == Decimal("40.0000")
+    assert order.subtotal == Decimal("360.0000")
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    assert line.bill_discount_amount == Decimal("40.0000")

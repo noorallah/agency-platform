@@ -260,6 +260,11 @@ class SalesReturnLine(BaseEntity):
     tax_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: This line's share of the document's bill discount. Stored rather than
+    #: derived at print time, because it is what the tax was computed on.
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     net_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

@@ -1003,6 +1003,16 @@ class SalesReturnService(TransactionalDocumentService):
             line_discount = self._line_discount(
                 spec=spec, source_line=source_line, gross=gross_amount
             )
+            # A return credits what the line was actually billed at, so its
+            # share of the source document's bill discount comes back with it,
+            # pro-rated by how much of the line is being returned. Crediting
+            # the undiscounted figure would hand back more than was charged.
+            bill_share = ZERO
+            inherited_bill = getattr(source_line, "bill_discount_amount", None)
+            if inherited_bill and dispatched > ZERO:
+                bill_share = self._q(
+                    Decimal(str(inherited_bill)) * return_quantity / dispatched
+                )
             discount_amount = line_discount.amount
             charges_amount = self._q(_decimal(spec.get("charges_amount")))
             tax_profile_id = _optional_uuid(spec.get("tax_profile_id")) or getattr(
@@ -1019,12 +1029,19 @@ class SalesReturnService(TransactionalDocumentService):
                 product_id=source_line.product_id,
                 tax_profile_id=tax_profile_id,
                 invoice_value=self._q(
-                    return_quantity * unit_price - discount_amount + charges_amount
+                    return_quantity * unit_price
+                    - discount_amount
+                    - bill_share
+                    + charges_amount
                 ),
                 actor_id=actor_id,
             )
             net_amount = self._q(
-                gross_amount - discount_amount + charges_amount + tax_amount
+                gross_amount
+                - discount_amount
+                - bill_share
+                + charges_amount
+                + tax_amount
             )
             self._session.add(
                 SalesReturnLine(
@@ -1051,6 +1068,7 @@ class SalesReturnService(TransactionalDocumentService):
                     unit_price=unit_price,
                     discount_percent=line_discount.percent,
                     discount_amount=discount_amount,
+                    bill_discount_amount=bill_share,
                     charges_amount=charges_amount,
                     gross_amount=gross_amount,
                     tax_profile_id=tax_profile_id,
@@ -1078,7 +1096,7 @@ class SalesReturnService(TransactionalDocumentService):
             totals["line_discount_total"] += discount_amount
             # The taxable base: gross less discount, before tax and charges,
             # which is what `subtotal` means on every other document here.
-            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}

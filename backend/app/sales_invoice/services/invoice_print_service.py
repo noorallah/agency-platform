@@ -158,7 +158,13 @@ class SalesInvoicePrintService:
                     uom=(unit.code if unit else None),
                     rate=line.unit_price,
                     discount=line.discount_amount,
-                    taxable=line.gross_amount - line.discount_amount,
+                    # The line's share of any bill discount is in the taxable
+                    # figure but not in the discount column: that column is
+                    # what was agreed on this line, and the deduction from the
+                    # whole document is stated once, in the totals.
+                    taxable=line.gross_amount
+                    - line.discount_amount
+                    - line.bill_discount_amount,
                     total=line.net_amount,
                     batch=line.batch_number,
                     expiry=line.expiry_date.isoformat() if line.expiry_date else None,
@@ -182,6 +188,8 @@ class SalesInvoicePrintService:
             or PartyBlock(name="", address_lines=[]),
             ship_to=self._customer_block(invoice.customer_id, "SHIPPING"),
             lines=tuple(printed),
+            bill_discount=invoice.bill_discount_amount,
+            gross_before_bill_discount=invoice.subtotal + invoice.bill_discount_amount,
             taxable_total=invoice.subtotal,
             tax_total=invoice.tax_total,
             charges=invoice.additional_charges,

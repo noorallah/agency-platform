@@ -100,6 +100,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   final TextEditingController _remarks = TextEditingController();
   final List<_LineDraft> _lines = <_LineDraft>[];
 
+  /// A discount on the whole offer, as a percentage. It comes off what
+  /// the lines already discounted to, and the server splits it across
+  /// them so the tax falls with it.
+  final TextEditingController _billDiscount = TextEditingController();
+
   String? _customerId;
   String? _branchId;
   String? _warehouseId;
@@ -124,6 +129,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       _deliveryTerms.text = existing.deliveryTerms;
       _remarks.text = existing.remarks;
       _validUntil = DateTime.tryParse(existing.validUntil) ?? _validUntil;
+      // Blank rather than '0' where there was none, so the box reads as empty
+      // and the payload omits it.
+      _billDiscount.text = (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
+          ? existing.billDiscountPercent
+          : '';
       // Every line, in the order the document holds them. Taking only the
       // first is what made a revision quietly delete the rest of the offer:
       // the update replaces the whole collection with what is sent.
@@ -180,6 +190,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     for (final _LineDraft line in _lines) {
       line.dispose();
     }
+    _billDiscount.dispose();
     _reference.dispose();
     _paymentTerms.dispose();
     _deliveryTerms.dispose();
@@ -190,6 +201,14 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// What the customer would be quoted before tax, across every line. Shown as
   /// it is typed, because a price list nobody can total is one somebody totals
   /// by hand.
+  /// What the offer comes to before tax, after both discounts.
+  double get _quotedBeforeTax {
+    final double lines = _netOfDiscount;
+    final double rate = double.tryParse(_billDiscount.text.trim()) ?? 0;
+    if (rate <= 0) return lines;
+    return lines * (1 - rate / 100);
+  }
+
   double get _netOfDiscount => _lines.fold<double>(
         0,
         (double running, _LineDraft line) => running + line.netOfDiscount,
@@ -252,6 +271,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       if (_deliveryTerms.text.trim().isNotEmpty)
         'delivery_terms': _deliveryTerms.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+      // Omitted when blank: the server reads absent as "no discount on the
+      // bill" and would refuse an empty string.
+      if (_billDiscount.text.trim().isNotEmpty)
+        'bill_discount_percent': _billDiscount.text.trim(),
       'lines': [
         for (int index = 0; index < _lines.length; index += 1)
           <String, dynamic>{
@@ -430,10 +453,25 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.sm),
+                    // Sits under the lines and above the total, because it is
+                    // a deal struck on the whole offer rather than a property
+                    // of any one line.
+                    TextFormField(
+                      controller: _billDiscount,
+                      decoration: const InputDecoration(
+                        labelText: 'Discount on the whole offer %',
+                        helperText: 'Comes off what the lines discounted to, '
+                            'and the tax falls with it.',
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: _percentage,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
                     Text(
                       'Quoted before tax: '
-                      '${_netOfDiscount.toStringAsFixed(2)}. Tax is worked out '
-                      'by the server at the rate in force.',
+                      '${_quotedBeforeTax.toStringAsFixed(2)}. Tax is worked '
+                      'out by the server at the rate in force.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: AppSpacing.md),

@@ -712,6 +712,52 @@ void main() {
       expect(api.created, isNull);
     });
 
+
+    testWidgets('a discount on the whole offer reaches the total and the payload',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Discount on the whole offer %'),
+        '10',
+      );
+      await tester.pumpAndSettle();
+
+      // 500 on the line, less 10% of the offer.
+      expect(find.textContaining('Quoted before tax: 450.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      expect(api.created!['bill_discount_percent'], '10');
+    });
+
+    testWidgets('no discount on the offer says nothing about one',
+        (tester) async {
+      // Absent, not an empty string: the server reads absent as none and
+      // would refuse the empty string as a schema error.
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      expect(api.created!.containsKey('bill_discount_percent'), isFalse);
+    });
+
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
       final _QuoteApi api = _QuoteApi();
       await _pump(tester, api);

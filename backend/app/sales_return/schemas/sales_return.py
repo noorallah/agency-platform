@@ -294,6 +294,8 @@ class SalesReturnLineResponse(SalesReturnSchema):
     gross_amount: Decimal
     tax_profile_id: UUID | None
     tax_amount: Decimal
+    #: This line's share of the document's bill discount.
+    bill_discount_amount: Decimal
     net_amount: Decimal
     packaging_type_id: UUID | None
     sales_uom_id: UUID | None
