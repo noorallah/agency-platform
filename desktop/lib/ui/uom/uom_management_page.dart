@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
@@ -411,7 +412,11 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (existing == null) {
         await widget.api.createUom(payload);
       } else {
-        await widget.api.updateUom(existing.id, payload);
+        await widget.api.updateUom(
+          existing.id,
+          payload,
+          expectedVersion: preconditionFor(existing.version),
+        );
       }
       if (mounted) {
         NotificationService.show(
@@ -425,7 +430,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (mounted) {
         NotificationService.show(
           context,
-          e.message,
+          saveFailureMessage(e, 'UOM', changesKept: false),
           kind: AppNotificationKind.error,
         );
       }
@@ -447,7 +452,11 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (existing == null) {
         await widget.api.createUomGroup(payload);
       } else {
-        await widget.api.updateUomGroup(existing.id, payload);
+        await widget.api.updateUomGroup(
+          existing.id,
+          payload,
+          expectedVersion: preconditionFor(existing.version),
+        );
       }
       if (mounted) {
         NotificationService.show(
@@ -461,7 +470,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (mounted) {
         NotificationService.show(
           context,
-          e.message,
+          saveFailureMessage(e, 'UOM group', changesKept: false),
           kind: AppNotificationKind.error,
         );
       }
@@ -483,7 +492,11 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (existing == null) {
         await widget.api.createPackagingType(payload);
       } else {
-        await widget.api.updatePackagingType(existing.id, payload);
+        await widget.api.updatePackagingType(
+          existing.id,
+          payload,
+          expectedVersion: preconditionFor(existing.version),
+        );
       }
       if (mounted) {
         NotificationService.show(
@@ -497,7 +510,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (mounted) {
         NotificationService.show(
           context,
-          e.message,
+          saveFailureMessage(e, 'packaging type', changesKept: false),
           kind: AppNotificationKind.error,
         );
       }
@@ -527,7 +540,11 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (existing == null) {
         await widget.api.createConversionRule(payload);
       } else {
-        await widget.api.updateConversionRule(existing.id, payload);
+        await widget.api.updateConversionRule(
+          existing.id,
+          payload,
+          expectedVersion: preconditionFor(existing.version),
+        );
       }
       if (mounted) {
         NotificationService.show(
@@ -541,7 +558,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       if (mounted) {
         NotificationService.show(
           context,
-          e.message,
+          saveFailureMessage(e, 'conversion rule', changesKept: false),
           kind: AppNotificationKind.error,
         );
       }

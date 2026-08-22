@@ -13,6 +13,7 @@ from sqlalchemy.sql import Select
 
 from app.common.audit.models.audit_log import AuditLog
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -267,10 +268,17 @@ class TaxFrameworkService:
         return row
 
     def update_system(
-        self, system_id: UUID, data: TaxSystemWrite, *, firm_scope: UUID, actor_id: UUID
+        self,
+        system_id: UUID,
+        data: TaxSystemWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxSystem:
         """Replace one tax system."""
         row = self.get_system(system_id, firm_scope=firm_scope, include_deleted=True)
+        assert_version(row.version, expected_version)
         before: dict[str, object] = {"code": row.code, "status": row.status}
         row.country_id = data.country_id
         row.business_profile_id = data.business_profile_id
@@ -340,11 +348,13 @@ class TaxFrameworkService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxComponent:
         """Replace one tax component."""
         row = self.get_component(
             component_id, firm_scope=firm_scope, include_deleted=True
         )
+        assert_version(row.version, expected_version)
         self._assert_system_exists(data.tax_system_id, firm_scope)
         before: dict[str, object] = {"code": row.code, "status": row.status}
         row.tax_system_id = data.tax_system_id
@@ -434,9 +444,11 @@ class TaxFrameworkService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxProfile:
         """Replace one tax profile."""
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
+        assert_version(row.version, expected_version)
         self._assert_system_exists(data.tax_system_id, firm_scope)
         before: dict[str, object] = {"code": row.code, "status": row.status}
         row.tax_system_id = data.tax_system_id
@@ -514,11 +526,13 @@ class TaxFrameworkService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxCountryMapping:
         """Replace one country mapping."""
         row = self.get_country_mapping(
             mapping_id, firm_scope=firm_scope, include_deleted=True
         )
+        assert_version(row.version, expected_version)
         self._assert_system_exists(data.tax_system_id, firm_scope)
         row.country_id = data.country_id
         row.business_profile_id = data.business_profile_id
@@ -576,11 +590,13 @@ class TaxFrameworkService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxMigrationMapping:
         """Replace one migration mapping."""
         row = self.get_migration_mapping(
             mapping_id, firm_scope=firm_scope, include_deleted=True
         )
+        assert_version(row.version, expected_version)
         if data.target_tax_profile_id is not None:
             self.get_profile(data.target_tax_profile_id, firm_scope=firm_scope)
         row.legacy_tax_code = data.legacy_tax_code

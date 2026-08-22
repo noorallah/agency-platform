@@ -15,6 +15,7 @@ from sqlalchemy.sql import Select
 
 from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -268,10 +269,20 @@ class TaxRuleService:
         return row
 
     def update_rule(
-        self, rule_id: UUID, data: TaxRuleWrite, *, firm_scope: UUID, actor_id: UUID
+        self,
+        rule_id: UUID,
+        data: TaxRuleWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> TaxRule:
         """Replace one tax rule."""
         row = self.get_rule(rule_id, firm_scope=firm_scope, include_deleted=True)
+        # An ACTIVE rule is superseded rather than edited, and the new
+        # version is a different row -- so the precondition is checked
+        # against the rule the caller read either way.
+        assert_version(row.version, expected_version)
         self._validate_rule_references(data, firm_scope=firm_scope)
         if row.status == TaxStatus.DRAFT.value:
             before = {

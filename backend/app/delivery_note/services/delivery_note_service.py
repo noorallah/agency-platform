@@ -1382,7 +1382,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         return {
             "factor": response.conversion_factor,
             "converted": self._q(response.converted_quantity),
-            "version": response.version,
+            "version": response.version_number,
         }
 
     def _stock_snapshot(

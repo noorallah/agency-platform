@@ -13,6 +13,7 @@ class TaxSystemRecord {
     required this.effectiveTo,
     required this.displayOrder,
     required this.isDeleted,
+    this.version = 0,
   });
 
   final String id;
@@ -27,6 +28,12 @@ class TaxSystemRecord {
   final int displayOrder;
   final bool isDeleted;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory TaxSystemRecord.fromJson(Json json) => TaxSystemRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
@@ -39,6 +46,7 @@ class TaxSystemRecord {
         effectiveTo: stringValue(json['effective_to']),
         displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
         isDeleted: boolValue(json['is_deleted']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -54,6 +62,7 @@ class TaxComponentRecord {
     required this.isDeleted,
     this.recoverable = false,
     this.includedInPrice = false,
+    this.version = 0,
   });
 
   final String id;
@@ -70,6 +79,12 @@ class TaxComponentRecord {
   final bool recoverable;
   final bool includedInPrice;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory TaxComponentRecord.fromJson(Json json) => TaxComponentRecord(
         id: stringValue(json['id']),
         taxSystemId: stringValue(json['tax_system_id']),
@@ -81,6 +96,7 @@ class TaxComponentRecord {
         isDeleted: boolValue(json['is_deleted']),
         recoverable: json['recoverable'] as bool? ?? false,
         includedInPrice: json['included_in_price'] as bool? ?? false,
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -135,6 +151,7 @@ class TaxProfileRecord {
     required this.isHistorical,
     required this.isDeleted,
     required this.components,
+    this.version = 0,
   });
 
   final String id;
@@ -146,6 +163,12 @@ class TaxProfileRecord {
   final bool isHistorical;
   final bool isDeleted;
   final List<TaxProfileComponentRecord> components;
+
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
 
   factory TaxProfileRecord.fromJson(Json json) => TaxProfileRecord(
         id: stringValue(json['id']),
@@ -159,6 +182,7 @@ class TaxProfileRecord {
         components: _objects(json['components'])
             .map(TaxProfileComponentRecord.fromJson)
             .toList(),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -171,6 +195,7 @@ class TaxCountryMappingRecord {
     required this.status,
     required this.isDefault,
     required this.isDeleted,
+    this.version = 0,
   });
 
   final String id;
@@ -181,6 +206,12 @@ class TaxCountryMappingRecord {
   final bool isDefault;
   final bool isDeleted;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory TaxCountryMappingRecord.fromJson(Json json) =>
       TaxCountryMappingRecord(
         id: stringValue(json['id']),
@@ -190,6 +221,7 @@ class TaxCountryMappingRecord {
         status: stringValue(json['status']),
         isDefault: boolValue(json['is_default']),
         isDeleted: boolValue(json['is_deleted']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -205,6 +237,7 @@ class TaxMigrationMappingRecord {
     required this.status,
     required this.notes,
     required this.isDeleted,
+    this.version = 0,
   });
 
   final String id;
@@ -218,6 +251,12 @@ class TaxMigrationMappingRecord {
   final String notes;
   final bool isDeleted;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory TaxMigrationMappingRecord.fromJson(Json json) =>
       TaxMigrationMappingRecord(
         id: stringValue(json['id']),
@@ -230,6 +269,7 @@ class TaxMigrationMappingRecord {
         status: stringValue(json['status']),
         notes: stringValue(json['notes']),
         isDeleted: boolValue(json['is_deleted']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -401,6 +441,7 @@ class TaxRuleRecord {
     required this.isDeleted,
     required this.conditions,
     required this.actions,
+    this.version = 0,
   });
 
   final String id;
@@ -420,6 +461,12 @@ class TaxRuleRecord {
   final bool isDeleted;
   final List<TaxRuleConditionRecord> conditions;
   final List<TaxRuleActionRecord> actions;
+
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save. Distinct from [versionNumber], which is the rule's
+  /// published revision -- the two were one field on the wire until the
+  /// backend gave each its own name.
+  final int version;
 
   factory TaxRuleRecord.fromJson(Json json) => TaxRuleRecord(
         id: stringValue(json['id']),
@@ -443,6 +490,7 @@ class TaxRuleRecord {
         actions: _objects(json['actions'])
             .map(TaxRuleActionRecord.fromJson)
             .toList(),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 

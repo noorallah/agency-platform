@@ -3615,10 +3615,26 @@ class InventoryService:
             ),
         )
         if conversion_version is not None:
-            statement = statement.where(ConversionRule.version == conversion_version)
+            # version_number, not version. A line records the rule's published
+            # revision -- which is what `convert_quantity` returns and what the
+            # seven transactional modules store -- while `version` is the
+            # optimistic-concurrency counter every ORM update bumps. The two
+            # agree only until somebody edits a rule, after which this matched
+            # nothing and the movement was refused for a rule that exists.
+            statement = statement.where(
+                ConversionRule.version_number == conversion_version
+            )
         rule = self._session.scalars(
             statement.order_by(
-                ConversionRule.product_id.desc(), ConversionRule.version.desc()
+                # Specificity ranked explicitly, the way
+                # `UomService._resolve_conversion_rule` does it. Ordering by
+                # product_id DESC relies on where the backend sorts NULLs:
+                # PostgreSQL puts them first, so the firm-wide fallback beat
+                # the product's own rule. SQLite sorts them last, which is why
+                # no unit test could see it -- it was fixed once in `uom` and
+                # this second copy kept the defect.
+                case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
+                ConversionRule.version_number.desc(),
             )
         ).first()
         if rule is None:
@@ -3626,7 +3642,7 @@ class InventoryService:
                 "No active conversion rule is configured for the selected UOM."
             )
         base_quantity = entered * rule.conversion_factor
-        return base_quantity, entered, entered_uom_id, rule.version
+        return base_quantity, entered, entered_uom_id, rule.version_number
 
     def _available_quantity(
         self,

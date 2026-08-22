@@ -12,6 +12,8 @@ import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/quotation.dart';
+import 'package:agency_desktop/models/tax_framework.dart';
+import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/products/product_management_page.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -98,6 +100,68 @@ void main() {
     test('a record without one reads as zero', () {
       final Json json = _row('code')..remove('version');
       expect(Vendor.fromJson(json).version, 0);
+    });
+
+    test('uom', () {
+      expect(UomRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('uom group', () {
+      expect(UomGroupRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('packaging type', () {
+      expect(PackagingTypeRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('tax system', () {
+      expect(TaxSystemRecord.fromJson(_row('code')).version, 5);
+    });
+
+    test('tax rule', () {
+      expect(TaxRuleRecord.fromJson(_row('code')).version, 5);
+    });
+  });
+
+  group('two versions on one record', () {
+    // uom and tax were the two modules left last-one-wins, and this is why:
+    // a conversion rule and a tax rule each publish a revision of their own,
+    // and the revision was called `version` -- the one name the concurrency
+    // counter has to have. They are separate fields now.
+    test('a conversion rule keeps its revision apart from its counter', () {
+      final ConversionRuleRecord rule = ConversionRuleRecord.fromJson(
+        <String, dynamic>{
+          'id': 'rule-1',
+          'from_uom_id': 'box',
+          'to_uom_id': 'piece',
+          'conversion_factor': '12',
+          'version_number': 3,
+          'version': 9,
+          'effective_from': '2026-01-01',
+          'status': 'ACTIVE',
+        },
+      );
+      expect(rule.versionNumber, 3, reason: 'the published revision');
+      expect(rule.version, 9, reason: 'the concurrency counter');
+    });
+
+    test('a tax rule does the same', () {
+      final TaxRuleRecord rule = TaxRuleRecord.fromJson(<String, dynamic>{
+        'id': 'rule-1',
+        'code': 'GST_ZERO',
+        'version_number': 2,
+        'version': 6,
+      });
+      expect(rule.versionNumber, 2);
+      expect(rule.version, 6);
+    });
+
+    test('an older backend that publishes neither still parses', () {
+      final TaxRuleRecord rule = TaxRuleRecord.fromJson(<String, dynamic>{
+        'id': 'rule-1',
+        'code': 'GST_ZERO',
+      });
+      expect(rule.version, 0, reason: 'so the save carries no precondition');
     });
   });
 

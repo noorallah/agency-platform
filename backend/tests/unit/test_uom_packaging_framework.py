@@ -19,7 +19,7 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.products.models import Product
@@ -120,7 +120,7 @@ def test_uom_crud_and_conversion() -> None:
             to_uom_id=piece.id,
             conversion_factor=Decimal("12"),
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -212,7 +212,7 @@ def test_conversion_rule_is_firm_scoped() -> None:
             to_uom_id=piece.id,
             conversion_factor=Decimal("12"),
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm_a.id,
         actor_id=actor_id,
@@ -245,7 +245,7 @@ def test_delete_conversion_rule_records_audit_entry() -> None:
             to_uom_id=piece.id,
             conversion_factor=Decimal("8"),
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -340,7 +340,7 @@ def test_editing_a_rule_does_not_move_its_published_version() -> None:
             to_uom_id=piece.id,
             conversion_factor=Decimal("12"),
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -376,7 +376,7 @@ def test_conversion_applies_the_configured_rounding_mode() -> None:
             rounding_mode="DOWN",
             precision_scale=0,
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -410,7 +410,7 @@ def test_an_unusable_rounding_mode_is_refused() -> None:
                 conversion_factor=Decimal("1"),
                 rounding_mode="NEAREST_ISH",
                 effective_from=date(2026, 1, 1),
-                version=1,
+                version_number=1,
             ),
             firm_scope=firm.id,
             actor_id=actor_id,
@@ -437,7 +437,7 @@ def test_a_unit_in_use_cannot_be_deleted() -> None:
             to_uom_id=piece.id,
             conversion_factor=Decimal("12"),
             effective_from=date(2026, 1, 1),
-            version=1,
+            version_number=1,
         ),
         firm_scope=firm.id,
         actor_id=actor_id,
@@ -697,3 +697,113 @@ def test_writing_profile_defaults_leaves_an_audit_entry() -> None:
     # The row has no firm, so the trail would otherwise lose the store it
     # happened in.
     assert audit.firm_id == firm.id
+
+
+def test_a_stale_write_is_refused_and_a_current_one_is_not() -> None:
+    """`If-Match` reaches uom now, which needed a name for it first.
+
+    A conversion rule publishes a revision of its own, and the schema exposed
+    that as ``version`` -- the one name the concurrency counter has to have. So
+    the module could not be given a precondition at all: the field was taken.
+    The revision is spelled ``version_number`` now, the way the column is and
+    the way ``app/tax`` has always spelled it.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    box, piece = _rule_setup(session, service, actor_id, firm)
+    rule = service.create_conversion_rule(
+        ConversionRuleCreate(
+            from_uom_id=box.id,
+            to_uom_id=piece.id,
+            conversion_factor=Decimal("12"),
+            effective_from=date(2026, 1, 1),
+            version_number=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    read_at = rule.version
+
+    service.update_conversion_rule(
+        rule.id,
+        ConversionRuleUpdate(reason="first edit"),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        expected_version=read_at,
+    )
+
+    # Somebody else has moved it since; the second writer is refused rather
+    # than overwriting what they never saw.
+    with pytest.raises(ConflictError):
+        service.update_conversion_rule(
+            rule.id,
+            ConversionRuleUpdate(reason="second edit"),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            expected_version=read_at,
+        )
+
+    # And sending nothing is still accepted: the precondition is opt-in, so an
+    # older client keeps working.
+    service.update_conversion_rule(
+        rule.id,
+        ConversionRuleUpdate(reason="no precondition"),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    # The service upper-cases the strings it stores on a rule; what matters
+    # here is that the write was accepted without a precondition at all.
+    assert rule.reason == "NO PRECONDITION"
+
+
+def test_the_counter_and_the_published_revision_are_different_numbers() -> None:
+    """Editing a rule moves one and leaves the other, which is the whole point.
+
+    They were both called ``version`` in the schema, and a line that records
+    "the rule revision I converted with" then meant two different numbers
+    depending on which code path filled it in.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    box, piece = _rule_setup(session, service, actor_id, firm)
+    rule = service.create_conversion_rule(
+        ConversionRuleCreate(
+            from_uom_id=box.id,
+            to_uom_id=piece.id,
+            conversion_factor=Decimal("12"),
+            effective_from=date(2026, 1, 1),
+            version_number=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    counter = rule.version
+
+    service.update_conversion_rule(
+        rule.id,
+        ConversionRuleUpdate(reason="a note"),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    session.expire_all()
+    stored = session.get(ConversionRule, rule.id)
+
+    assert stored.version_number == 1
+    assert stored.version > counter
+
+    # The conversion answers with the published revision, not the counter --
+    # it is what the seven transactional modules store on a line.
+    result = service.convert_quantity(
+        ConversionRequest(
+            quantity=Decimal("2"),
+            from_uom_id=box.id,
+            to_uom_id=piece.id,
+            conversion_date=date(2026, 6, 1),
+        ),
+        firm_scope=firm.id,
+    )
+    assert result.version_number == 1

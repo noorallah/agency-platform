@@ -391,6 +391,10 @@ class TaxSystemResponse(TaxFrameworkSchema):
     status: TaxStatus
     display_order: int
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``. `tax`
+    #: could take it under its own name from the start: `version_number`
+    #: is the rule's published revision, so the two never collided here.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -412,6 +416,8 @@ class TaxComponentResponse(TaxFrameworkSchema):
     recoverable: bool
     status: TaxStatus
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -447,6 +453,8 @@ class TaxProfileResponse(TaxFrameworkSchema):
     effective_from: date | None
     effective_to: date | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
     components: list[TaxProfileComponentResponse] = Field(default_factory=list)
@@ -505,6 +513,8 @@ class TaxRuleResponse(TaxFrameworkSchema):
     effective_from: date | None
     effective_to: date | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
     conditions: list[TaxRuleConditionResponse] = Field(default_factory=list)
@@ -524,6 +534,8 @@ class TaxCountryMappingResponse(TaxFrameworkSchema):
     effective_from: date | None
     effective_to: date | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -542,6 +554,8 @@ class TaxMigrationMappingResponse(TaxFrameworkSchema):
     status: TaxStatus
     notes: str | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 

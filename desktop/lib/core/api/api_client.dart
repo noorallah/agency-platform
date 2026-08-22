@@ -379,10 +379,21 @@ class ApiClient {
             await request('POST', '/api/v1/tax-framework/systems', body: data)),
       );
 
-  Future<TaxSystemRecord> updateTaxSystem(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<TaxSystemRecord> updateTaxSystem(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       TaxSystemRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/tax-framework/systems/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/tax-framework/systems/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteTaxSystem(String id) =>
@@ -422,10 +433,21 @@ class ApiClient {
             body: data)),
       );
 
-  Future<TaxComponentRecord> updateTaxComponent(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<TaxComponentRecord> updateTaxComponent(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       TaxComponentRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/tax-framework/components/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/tax-framework/components/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteTaxComponent(String id) =>
@@ -465,10 +487,21 @@ class ApiClient {
             body: data)),
       );
 
-  Future<TaxProfileRecord> updateTaxProfile(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<TaxProfileRecord> updateTaxProfile(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       TaxProfileRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/tax-framework/profiles/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/tax-framework/profiles/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteTaxProfile(String id) =>
@@ -605,10 +638,21 @@ class ApiClient {
             await request('POST', '/api/v1/tax-framework/rules', body: data)),
       );
 
-  Future<TaxRuleRecord> updateTaxRule(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<TaxRuleRecord> updateTaxRule(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       TaxRuleRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/tax-framework/rules/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/tax-framework/rules/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<TaxRuleRecord> restoreTaxRule(String id) async =>
@@ -1366,9 +1410,21 @@ class ApiClient {
             await request('POST', '/api/v1/uom-framework/uoms', body: data)),
       );
 
-  Future<UomRecord> updateUom(String id, Json data) async => UomRecord.fromJson(
-        _unwrapMap(
-            await request('PUT', '/api/v1/uom-framework/uoms/$id', body: data)),
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<UomRecord> updateUom(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
+      UomRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/uoms/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteUom(String id) =>
@@ -1391,10 +1447,21 @@ class ApiClient {
             body: data)),
       );
 
-  Future<UomGroupRecord> updateUomGroup(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<UomGroupRecord> updateUomGroup(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       UomGroupRecord.fromJson(
-        _unwrapMap(await request('PUT', '/api/v1/uom-framework/uom-groups/$id',
-            body: data)),
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/uom-groups/$id',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
       );
 
   Future<void> deleteUomGroup(String id) =>
@@ -1467,12 +1534,20 @@ class ApiClient {
             body: data)),
       );
 
-  Future<PackagingTypeRecord> updatePackagingType(String id, Json data) async =>
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
+  Future<PackagingTypeRecord> updatePackagingType(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       PackagingTypeRecord.fromJson(
         _unwrapMap(await request(
           'PUT',
           '/api/v1/uom-framework/packaging-types/$id',
           body: data,
+          expectedVersion: expectedVersion,
         )),
       );
 
@@ -1502,13 +1577,20 @@ class ApiClient {
             body: data)),
       );
 
+  /// [expectedVersion] is the `version` of the record the user opened,
+  /// sent as `If-Match`. Omitting it saves with no precondition, which is
+  /// what an older backend and a record with no published version get.
   Future<ConversionRuleRecord> updateConversionRule(
-          String id, Json data) async =>
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
       ConversionRuleRecord.fromJson(
         _unwrapMap(await request(
           'PUT',
           '/api/v1/uom-framework/conversion-rules/$id',
           body: data,
+          expectedVersion: expectedVersion,
         )),
       );
 
