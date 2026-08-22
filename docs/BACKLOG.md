@@ -1088,8 +1088,8 @@ because the API returned no ETag to send back; that gap is closed below. **All t
 
 ## Also open
 
-- **Cancelling a goods receipt values the two books differently** — found
-  2026-08-22 by cancelling one on freshly seeded data and asking the verifier.
+- **Cancelling a goods receipt valued the two books differently — fixed
+  2026-08-22.** Found by cancelling one on freshly seeded data and asking the verifier.
   `_reverse_receipt_journal` mirrors the original entry (the receipt price)
   while `_reverse_inventory` removes stock at today's moving average. Measured
   on ELEC01: 8,040.00 mirrored against 5,752.60 of stock removed, leaving the
@@ -1107,10 +1107,16 @@ because the API returned no ETag to send back; that gap is closed below. **All t
      to the valuation engine rather than to one method, with its own question
      about what happens when the stock has since been sold.
 
-  Until it is decided, a cancelled receipt breaks the store's stock-versus-
-  ledger invariant whenever the average has moved since the receipt. The
-  pre-2026-08-18 defect in the same method is what put both shared stores out
-  before the re-seed; this is its sibling, and it is still live.
+  **Option 1 was taken**, and the account it needed already existed:
+  `PURCHASE_PRICE_VARIANCE`, which `post_purchase_return` uses when goods leave
+  at an average that disagrees with the document. A cancelled receipt now
+  debits goods received not invoiced in full, credits inventory with what the
+  movement removed, and books the gap to the variance account. Driven on
+  ELEC01: the sequence that put it 2,287.42 out now leaves all five checks
+  passing.
+
+  The pre-2026-08-18 defect in the same method is what put both shared stores
+  out before the re-seed. This was its sibling, and it is closed.
 
 - **A soft-deleted profile assignment no longer reserves its firm**
   (`20260815_0089`). `firm_business_profiles` carried a table-wide
