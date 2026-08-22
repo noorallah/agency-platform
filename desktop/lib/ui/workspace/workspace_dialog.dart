@@ -36,6 +36,15 @@ class WorkspaceDialog extends StatelessWidget {
   final ValueChanged<int>? onTabChanged;
   final Widget? footer;
   final bool loading;
+  /// What Cancel, the header cross and Escape all do.
+  ///
+  /// Optional, and **closing the dialog is what happens when it is omitted**.
+  /// It used to be passed straight through, so a caller that forgot it got a
+  /// Cancel button, a cross and an Escape key that were all disabled at once
+  /// -- the quotation editor, the product editor and the sales return editor
+  /// each shipped that way, and the only way out of a new quotation was to
+  /// save it. Pass this only to do something *other* than pop, such as asking
+  /// about unsaved work first.
   final VoidCallback? onClose;
   final VoidCallback? onSave;
 
@@ -46,6 +55,10 @@ class WorkspaceDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Size window = MediaQuery.sizeOf(context);
+    // `maybePop` rather than `pop`: a dialog shown some other way than as a
+    // route should not throw when somebody presses Escape.
+    final VoidCallback dismiss =
+        onClose ?? () => Navigator.of(context).maybePop();
     final int safeSelectedTab =
         tabs.isEmpty ? 0 : selectedTab.clamp(0, tabs.length - 1);
     final Widget? effectiveFooter = footer ??
@@ -56,7 +69,7 @@ class WorkspaceDialog extends StatelessWidget {
                 child: Row(children: [
                   const Spacer(),
                   TextButton(
-                    onPressed: loading ? null : onClose,
+                    onPressed: loading ? null : dismiss,
                     child: const Text('Cancel'),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -81,7 +94,7 @@ class WorkspaceDialog extends StatelessWidget {
           child: WorkspaceShortcuts(
             bindings: WorkspaceShortcutBindings(
               save: loading ? null : onSave,
-              cancel: loading ? null : onClose,
+              cancel: loading ? null : dismiss,
             ),
             child: Column(children: [
               Material(
@@ -108,7 +121,7 @@ class WorkspaceDialog extends StatelessWidget {
                     ),
                     IconButton(
                       tooltip: 'Close',
-                      onPressed: loading ? null : onClose,
+                      onPressed: loading ? null : dismiss,
                       icon: const Icon(Icons.close),
                     ),
                   ]),
