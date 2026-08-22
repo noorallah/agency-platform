@@ -308,7 +308,18 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          Text('Occurrences', style: text.titleSmall),
+          Row(children: [
+            Text('Occurrences', style: text.titleSmall),
+            const Spacer(),
+            // The endpoint answers the newest 50. Saying so beats a list that
+            // looks complete: "42 occurrences" above a list of 50 rows out of
+            // 400 is a silent cap, and a reader counts what they can see.
+            if (_occurrences.length < group.occurrences)
+              Text(
+                'showing the newest ${_occurrences.length}',
+                style: text.bodySmall,
+              ),
+          ]),
           const SizedBox(height: AppSpacing.sm),
           if (_loadingOccurrences)
             const Padding(

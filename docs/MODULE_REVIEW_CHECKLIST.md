@@ -69,8 +69,8 @@ ones that produced a defect during the platform pass.
       whitelisted `page`, `page_size`, `search`, `sort_by`, `sort_direction`.
 - [ ] `page` and `page_size` declare their bounds **on the query parameter**,
       not by constructing `PaginationParams` in the handler body
-      **(found a real bug — 44 endpoints, 28 recorded 500s on
-      `GET /api/v1/products`)**. `tests/unit/test_pagination_conventions.py`
+      **(found a real bug — 44 endpoints, 28 recorded 500s across four of
+      them)**. `tests/unit/test_pagination_conventions.py`
       fails the build on the next one.
 - [ ] An update dumps with `exclude_unset=True`, and anything read out of that
       dump to decide something takes the row as its fallback
@@ -585,14 +585,15 @@ was.
 movement, no journal — and check that expiry stays derived from `valid_until`
 rather than acquiring a stored flag.
 
-**4. `diagnostics` (3)** — small, and until 2026-08-21 the only module on the
-board with no desktop surface at all. The triage screen is built (#111); the
-module itself has still had no review pass.
+**4. `diagnostics` (3)** — **reviewed 2026-08-22**, row 32. Two findings, both
+in seams a module-only review would have missed.
 
-The three that remain — `sales_return`, `quotation`, `diagnostics` — are the
-whole of the unreviewed list. Everything else has had a pass, and the
-cross-cutting sweeps of 2026-08-21/22 (rows 24–27) covered the classes of
-defect that turned out to span modules rather than sit inside one.
+**Every module on this board has now had a pass.** What is worth doing next is
+not another first pass but a second one over the modules whose reviews predate
+the habit of driving endpoints: `customers` proved that in 2026-08-15, when two
+defects survived a pass that had reported none. The candidates are the eight
+modules reviewed on 2026-08-09, before any of this was driven against a running
+backend.
 
 Then a second pass over anything the four PRs of 2026-08-15 touched, since two
 defects in `customers` survived its 2026-08-10 review: that pass found nothing
@@ -632,7 +633,7 @@ which nothing did until the endpoint published an ETag.
 | 23 | `settlements` | 2026-08-18 | **none** — the first module review to find nothing. Every refusal it needs already fires, and each was driven rather than read: over-allocating an invoice, allocating more than the money that moved, the same invoice twice, another party's invoice, a zero or negative amount, a refund applied to a document, and a receipt against a vendor id. Reversal restores the invoice **and** the customer balance to the exact figures they held, and a second reversal is refused. Two concurrent settlements against one invoice end 201/409 in both directions and with a client-supplied number, so the invoice cannot be over-settled. ELEC01 could not read, list or settle anything of WHOLE01's, and its token with WHOLE01's firm header answered 403 | nothing to fix — two observations recorded below |
 | 24 | **business profile resolution** (`tax`, `sales`, `products`, `inventory`, `uom`) | 2026-08-21 | five private copies of one resolver, and they disagreed: `tax` and `sales` answered None for an unassigned firm where the gate answered the platform default, so every profile-scoped tax rule skipped that firm and its hierarchy, nodes and beat plans recorded no industry at all. `products` and `inventory` fell back correctly but each demanded `status = 'ACTIVE'` on the *assigned* profile, so a deactivated profile put GENERIC's fields on the form while the gate went on enforcing the assigned one | yes — #109, #110, plus `20260821_0095` to fill the NULLs and a guard that all four resolvers answer alike |
 | 25 | **`diagnostics` surface** | 2026-08-21 | the module had no desktop screen at all, so crash reports had been collected for months with no way to read one. Not a defect in the module — a hole in the product | yes — #111, Settings › Diagnostics, faults collapsed by fingerprint |
-| 26 | **pagination bounds** (all 23 routers) | 2026-08-21 | 44 handlers took a bare `page_size: int = 20` and built `PaginationParams` in the body, so an over-cap request answered **500** instead of a 422 naming the limit; `page: int = 1` had the same shape, so `page=0` was a 500 too. The rule had been in `CLAUDE.md` for months. The new triage screen is what turned it into a defect with a count: 28 stored `ValidationError`s from `GET /api/v1/products` over three days | yes — #112, plus `tests/unit/test_pagination_conventions.py` |
+| 26 | **pagination bounds** (all 23 routers) | 2026-08-21 | 44 handlers took a bare `page_size: int = 20` and built `PaginationParams` in the body, so an over-cap request answered **500** instead of a 422 naming the limit; `page: int = 1` had the same shape, so `page=0` was a 500 too. The rule had been in `CLAUDE.md` for months. The new triage screen is what turned it into a defect with a count: 28 stored `ValidationError`s over three days -- **from four endpoints**, `warehouses` 12, `assignable-customers` 10, `attribute-definitions` 5 and `products` 1, which the 2026-08-22 `diagnostics` review had to correct because the grouping made them look like one | yes — #112, plus `tests/unit/test_pagination_conventions.py` |
 | 27 | **optimistic concurrency** (`uom`, `tax`, `batch_serial`, `inventory`, `sales`, `business`) | 2026-08-22 | six modules were still last-one-wins. `uom` was blocked by a name: a conversion rule's published revision was exposed as `version`, which the counter needs. Renaming it to `version_number` unblocked the wiring and surfaced `InventoryService`'s private copy of the rule resolver matching a line's revision against the counter — and ordering by `product_id DESC`, the NULL-ordering defect fixed in `uom` and never carried across | yes — #115, #116; 31 updates across the six (uom 6, tax 6, sales 9, business 5, batch_serial 3, inventory 2), taking the platform to 42 endpoints accepting the header, and `publish_version` covers the services that return response models rather than rows |
 | 28 | **partial updates** (`business`, `document_framework`) | 2026-08-21 | the last eight full-dump updates. `update_profile` was the worst: it read `is_default` off the model, so renaming the default profile demoted it and left the store with no default — and a store with no default enforces nothing, so one rename would have switched off business-profile gating for every unassigned firm | yes — #114 |
 | 29 | **`vendors` editor** | 2026-08-21 | four of the six tabs described a capability in prose and offered no field: contacts, banking, tax and notes round-tripped through the API and could only be filled by import. The model dropped three of the four collections on the way in | yes — #113 |
@@ -686,6 +687,9 @@ Two observations, neither a defect:
 Not covered, and deliberately: `RefundService` beyond its refusal to allocate,
 because the rule that a refund cannot exceed the advance a customer holds lives
 in `CustomerService` and belongs to that module's review.
+| 30 | `sales_return` | 2026-08-22 | **one** — cancelling a completed return put the customer's balance back by recomputing from the return's total instead of reversing what the credit note actually did. A credit note is applied up to what the customer owes and the rest becomes an unapplied advance; cancelling posted a fresh INVOICE for the whole amount, so the customer owed more than before the return and held an advance no money paid for. Net exposure (`outstanding - advance`) came out right, which is why it went unseen — the two figures were individually wrong and cancelled out, while an aging report reads `outstanding` alone and an advance can be applied to a real invoice. Stock and both journals were already reversed correctly | yes — `_reverse_receivable` uses `reverse_receivable_transaction`, the way `settlements` always has |
+| 31 | `quotation` | 2026-08-22 | **none.** The negatives were asserted against a running backend rather than read: creating, sending, accepting and converting a quotation left the customer's outstanding, the unapplied advance, every reserved and on-hand quantity and the journal count **identical**. Conversion builds the order through `SalesOrderService.create_order`, so credit control, tax at the order's date and numbering all happen on the order; a second conversion is refused by name ("already became SO-2026-2027-000013"). Expiry stays derived from `valid_until` — an expired quotation cannot be accepted or converted, and nothing writes an EXPIRED status | nothing to fix |
+| 32 | `diagnostics` | 2026-08-22 | **two, both in the part that had no test.** (1) Every server-recorded fault carried a NULL request id — 28 of 28 — so the screenshot-to-traceback join the module exists for could never be made: the handler read a context variable that `CoreRequestMiddleware` has already reset, because a bare-`Exception` handler is served by `ServerErrorMiddleware` from outside it. (2) Server faults grouped by exception type alone: the fingerprint hashed the **first** five frames, which are always the ASGI plumbing, so 28 `ValidationError`s from **four** endpoints shared one identity and the screen showed whichever context came first | yes — `request_id_for` reads `request.state`, and the fingerprint takes this codebase's frames nearest the raise; both proven on the four stored tracebacks |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -716,3 +720,46 @@ Two habits carried over from the earlier passes did the actual verifying:
 **drive it against a running backend** (every one of these was confirmed on the
 seeded firms, and restored afterwards), and **make the guard fail first** — each
 new test was run against the unfixed code before the fix was kept.
+
+### 30–32 the last three unreviewed modules
+
+`sales_return`, `quotation` and `diagnostics` were what the suggested order had
+left. All three were driven rather than read; two of the three findings could
+only have been found that way.
+
+**`sales_return` — the arithmetic of an undo.** Its cancel path reverses stock
+and both journals correctly, and the existing test proved the customer's balance
+came back too. It did, in the fixture's case: the customer owed more than the
+return was worth, so the credit note applied in full and had nothing to split.
+Give the customer a smaller balance than the return and the credit note splits —
+applied up to what is owed, the rest an unapplied advance — and only that row
+remembers the split. Cancelling posted a fresh INVOICE for the whole amount.
+
+    owed 100, return worth 200
+    complete → outstanding 0, advance 100
+    cancel   → outstanding 200, advance 100      (was: owed 100, advance 0)
+
+Reproduced as a unit test before the fix, which is the only reason the numbers
+above are the measured ones. `settlements` has always reversed by the stored
+deltas; `sales_return` now does the same, and `sales_invoice`'s cancel was read
+and left alone — undoing an invoice the customer has since part-paid *should*
+leave an advance.
+
+**`quotation` — proving a negative.** The module is defined by what it does not
+do, and nothing in its own code could show that: the proof has to come from the
+modules it might have touched. Snapshotting the customer's balances, every
+reserved and on-hand quantity for the product, and the journal count, then
+creating, sending, accepting and converting a quotation, left all of them
+identical. The order the conversion produced is a draft, and a draft reserves
+nothing — which is where the reservation belongs, not in the quote.
+
+**`diagnostics` — the module with no test where it mattered.** Both findings sit
+in the two seams the unit tests could not reach: what the exception handler is
+handed, and what a real traceback looks like. The first was visible in the data
+the moment anyone looked — 28 of 28 rows with a NULL request id — and the second
+needed the four stored tracebacks to see at all, because every one of them
+begins with the same five lines of ASGI plumbing.
+
+Neither is a defect a review of `app/diagnostics` alone would have found. The
+request id is decided by middleware ordering in `app/core`; the fingerprint is
+decided by what Python puts at the top of a traceback.

@@ -15,25 +15,55 @@ SOURCE_CLIENT = "CLIENT"
 SOURCE_SERVER = "SERVER"
 
 
-def fingerprint_for(error_type: str, stack_trace: str | None) -> str:
-    """Return a stable identity for "the same fault".
+#: Path fragments that mark a frame as this codebase rather than a library.
+_APPLICATION_MARKERS = ("\\app\\", "/app/")
 
-    Absolute paths and line numbers are stripped before hashing: they move with
-    every build and every machine, and would give one fault a new identity on
-    each release, which groups nothing.
+#: How many frames make up a fault's identity.
+_FRAME_DEPTH = 5
+
+
+def _identifying_frames(stack_trace: str | None) -> list[str]:
+    """Return the frames that say *where* a fault happened.
+
+    The frames nearest the raise, and this codebase's own, because neither end
+    of a Python traceback identifies anything on its own. The first five lines
+    are always the ASGI plumbing -- ``starlette/middleware/errors.py`` and its
+    neighbours -- and the last are usually the library that raised, pydantic
+    more often than not.
+
+    Hashing the first five was the original rule, and it collapsed every server
+    fault of one exception type into a single group: measured on this
+    deployment, 28 ``ValidationError``s from **four** different endpoints shared
+    one fingerprint, and the triage screen showed whichever context_label came
+    first. A triager would have fixed one endpoint and believed the fault gone.
+
+    Line numbers and the argument list go: they move with every edit, and would
+    hand one fault a new identity on each release.
     """
-    frames: list[str] = []
-    for line in (stack_trace or "").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Drop the parenthesised file:line and any bare numbers.
-        cleaned = stripped.split("(")[0]
-        cleaned = "".join(character for character in cleaned if not character.isdigit())
-        frames.append(cleaned.strip())
-        if len(frames) == 5:
-            break
-    material = f"{error_type}|{'|'.join(frames)}"
+    frames = [
+        line.strip()
+        for line in (stack_trace or "").splitlines()
+        if line.strip().startswith("File ")
+    ]
+    application = [
+        frame
+        for frame in frames
+        if any(marker in frame for marker in _APPLICATION_MARKERS)
+    ]
+    # A fault entirely inside a library still has to group somehow.
+    chosen = (application or frames)[-_FRAME_DEPTH:]
+    if not chosen:
+        # A client report, or a trace in a shape we do not recognise: fall back
+        # to the leading lines, which is where a Dart stack puts the throw site.
+        chosen = [
+            line.strip() for line in (stack_trace or "").splitlines() if line.strip()
+        ][:_FRAME_DEPTH]
+    return [frame.split(", line ")[0].split("(")[0].strip() for frame in chosen]
+
+
+def fingerprint_for(error_type: str, stack_trace: str | None) -> str:
+    """Return a stable identity for "the same fault"."""
+    material = f"{error_type}|{'|'.join(_identifying_frames(stack_trace))}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 

@@ -14,8 +14,10 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.context import RequestContext
 from app.core.database.base import Base
 from app.core.enums import TokenType
+from app.core.exceptions.handlers import request_id_for
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
@@ -220,3 +222,125 @@ def test_retention_removes_only_what_is_older_than_the_cutoff() -> None:
     assert removed == 1
     remaining = session.scalars(select(ErrorReport)).all()
     assert [row.fingerprint for row in remaining] == ["fresh"]
+
+
+class _StubState:
+    """Hold the parts of `request.state` a handler reads."""
+
+    def __init__(self, context: RequestContext | None) -> None:
+        self.context = context
+
+
+class _StubRequest:
+    """Stand in for a request that has left the middleware behind."""
+
+    def __init__(self, context: RequestContext | None) -> None:
+        self.state = _StubState(context)
+
+
+def test_the_request_id_survives_the_middleware_that_set_it() -> None:
+    """The handler runs after the context variable has been reset.
+
+    A handler registered for bare `Exception` is served by Starlette's
+    `ServerErrorMiddleware`, the outermost layer -- outside
+    `CoreRequestMiddleware`, whose `finally` resets the context variable. So by
+    the time a 500 arrives, the variable is empty, and reading it stored NULL as
+    the request id on **every** server fault: 28 out of 28 on the deployment
+    this was found on. The screenshot-to-traceback join the module exists for
+    could not be made.
+    """
+    context = RequestContext(
+        request_id="req-77",
+        correlation_id="corr-77",
+        client_ip="10.0.0.9",
+        requested_at=utc_now(),
+    )
+    # No context variable is set here, which is the situation exactly.
+    assert request_id_for(_StubRequest(context)) == "req-77"
+
+
+def test_a_request_that_never_had_a_context_reads_as_none() -> None:
+    """A caller with neither is not a crash; it is one report with no join."""
+    assert request_id_for(_StubRequest(None)) is None
+
+
+def test_the_exception_handler_runs_outside_the_middleware_that_sets_context() -> None:
+    """Pin the ordering the fix depends on, so a re-order cannot un-fix it.
+
+    If `CoreRequestMiddleware` is ever moved outside `ServerErrorMiddleware`,
+    the context variable would be live again and this whole trap disappears --
+    but the reverse move is what would silently restore the defect.
+    """
+    from app.main import create_app
+
+    stack = create_app().build_middleware_stack()
+    order: list[str] = []
+    node: object | None = stack
+    while node is not None and len(order) < 12:
+        order.append(type(node).__name__)
+        node = getattr(node, "app", None)
+
+    assert "ServerErrorMiddleware" in order
+    assert "CoreRequestMiddleware" in order
+    assert order.index("ServerErrorMiddleware") < order.index("CoreRequestMiddleware")
+
+
+def _server_trace(router: str, *, library: str = "main.py", line: int = 91) -> str:
+    """Build a traceback shaped like the ones this deployment recorded.
+
+    Four real ones were compared while writing this: the leading frames are
+    always the ASGI plumbing and the trailing frames are always the library
+    that raised, so neither end says which endpoint failed.
+    """
+    return "\n".join(
+        [
+            "Traceback (most recent call last):",
+            '  File "/venv/starlette/middleware/errors.py", line 164, in __call__',
+            "    await self.app(scope, receive, _send)",
+            '  File "/venv/starlette/middleware/base.py", line 176, in __call__',
+            "    with recv_stream, send_stream:",
+            f'  File "/repo/backend/app/{router}/api/router.py", '
+            f"line {line}, in list_rows",
+            "    params = PaginationParams(page=page, page_size=page_size)",
+            f'  File "/venv/pydantic/{library}", line 253, in __init__',
+            "    validated_self = self.__pydantic_validator__.validate_python(data)",
+            "pydantic_core.ValidationError: 1 validation error",
+        ]
+    )
+
+
+def test_two_endpoints_failing_the_same_way_are_two_faults() -> None:
+    """The fingerprint has to say *where*, and the top of a stack never does.
+
+    Hashing the first five frames grouped every server fault of one exception
+    type together, because the leading lines of a Python traceback are the ASGI
+    plumbing every request shares. Measured on real data: 28 ``ValidationError``
+    reports from **four** endpoints carried one fingerprint, and the triage
+    screen showed whichever context happened to come first -- so fixing that one
+    endpoint would have looked like fixing all four.
+    """
+    products = fingerprint_for("ValidationError", _server_trace("products"))
+    warehouses = fingerprint_for("ValidationError", _server_trace("branches"))
+
+    assert products != warehouses, "two endpoints, two faults"
+    # The same endpoint failing twice is still one fault, which is the property
+    # the grouping exists for in the first place.
+    assert products == fingerprint_for("ValidationError", _server_trace("products"))
+
+
+def test_the_identity_is_this_codebase_s_frames_not_the_library_s() -> None:
+    """A library upgrade must not rename every fault that passes through it."""
+    same_handler_other_library = fingerprint_for(
+        "ValidationError", _server_trace("products", library="other.py")
+    )
+
+    assert same_handler_other_library == fingerprint_for(
+        "ValidationError", _server_trace("products")
+    )
+
+
+def test_a_line_number_moving_does_not_rename_the_fault() -> None:
+    """An edit above the failure must not hand it a new identity."""
+    assert fingerprint_for("ValidationError", _server_trace("products", line=91)) == (
+        fingerprint_for("ValidationError", _server_trace("products", line=140))
+    )

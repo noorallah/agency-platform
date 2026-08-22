@@ -283,6 +283,31 @@ void main() {
       expect(find.textContaining('queue reports on disk'), findsOneWidget);
     });
 
+    testWidgets('a capped occurrence list says it is capped', (tester) async {
+      // The endpoint answers the newest 50. A list of 50 under a heading that
+      // says 400 occurrences reads as complete, and a reader counts what they
+      // can see.
+      final _DiagnosticsApi api = _DiagnosticsApi(
+        groups: [_group(occurrences: 400)],
+        occurrences: [
+          for (int index = 0; index < 3; index++) _report(id: 'r-$index'),
+        ],
+      );
+      await _pump(tester, api);
+
+      expect(find.textContaining('showing the newest 3'), findsOneWidget);
+    });
+
+    testWidgets('a complete occurrence list says nothing extra', (tester) async {
+      final _DiagnosticsApi api = _DiagnosticsApi(
+        groups: [_group(occurrences: 1)],
+        occurrences: [_report()],
+      );
+      await _pump(tester, api);
+
+      expect(find.textContaining('showing the newest'), findsNothing);
+    });
+
     testWidgets('a failed occurrence read does not look like no data',
         (tester) async {
       final _DiagnosticsApi api = _DiagnosticsApi(

@@ -823,3 +823,49 @@ def test_the_export_names_every_return_it_lists() -> None:
     assert len(lines) == 2
     assert row.return_number in lines[1]
     assert str(setup.customer.id) in lines[1]
+
+
+def test_cancelling_a_return_that_became_an_advance_puts_both_balances_back() -> None:
+    """A credit larger than the balance splits, and the undo has to unsplit it.
+
+    `post_receivable_transaction` applies a credit note up to what the customer
+    owes and books the rest as an unapplied advance: 500 against an outstanding
+    300 is 300 off the balance and 200 of advance. Cancelling posted a fresh
+    INVOICE for the whole 500, which put all of it back on the balance and left
+    the advance standing -- so the customer owed more than before the return
+    ever happened, and held an advance no money ever paid for.
+
+    Net exposure (`outstanding - advance`) still came out right, which is why
+    nothing noticed. The two figures were individually wrong and cancelled each
+    other out. An aging report reads `outstanding` on its own, and an advance
+    can be applied to a real invoice.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    row = service.create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+
+    # Owe less than the return is worth, so the credit note has to split.
+    credit = Decimal(str(row.grand_total))
+    setup.customer.current_outstanding = credit - Decimal("100")
+    setup.customer.unapplied_advance_balance = Decimal("0")
+    session.commit()
+    outstanding_before = Decimal(str(setup.customer.current_outstanding))
+
+    service.complete_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    session.refresh(setup.customer)
+    assert Decimal(str(setup.customer.current_outstanding)) == Decimal("0")
+    assert Decimal(str(setup.customer.unapplied_advance_balance)) == Decimal("100")
+
+    service.cancel_return(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="undo"
+    )
+    session.refresh(setup.customer)
+
+    assert Decimal(str(setup.customer.current_outstanding)) == outstanding_before
+    assert Decimal(str(setup.customer.unapplied_advance_balance)) == Decimal("0")
