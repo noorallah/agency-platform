@@ -382,10 +382,22 @@ class VendorService:
         return duplicate
 
     def list_categories(
-        self, *, firm_id: UUID, include_deleted: bool = False
-    ) -> list[VendorCategory]:
-        """Return the firm's vendor categories."""
-        return self._repository.list_categories(firm_id, include_deleted)
+        self,
+        *,
+        firm_id: UUID,
+        include_deleted: bool = False,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
+    ) -> tuple[list[VendorCategory], int]:
+        """Return one page of the firm's vendor categories, and the total."""
+        return self._repository.list_categories(
+            firm_id,
+            include_deleted,
+            page=page,
+            page_size=page_size,
+            search=search,
+        )
 
     def create_category(
         self, data: VendorCategoryWrite, *, firm_id: UUID, actor_id: UUID
@@ -445,10 +457,22 @@ class VendorService:
         self._session.commit()
 
     def list_types(
-        self, *, firm_id: UUID, include_deleted: bool = False
-    ) -> list[VendorType]:
-        """List types."""
-        return self._repository.list_types(firm_id, include_deleted)
+        self,
+        *,
+        firm_id: UUID,
+        include_deleted: bool = False,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
+    ) -> tuple[list[VendorType], int]:
+        """Return one page of the firm's vendor types, and the total."""
+        return self._repository.list_types(
+            firm_id,
+            include_deleted,
+            page=page,
+            page_size=page_size,
+            search=search,
+        )
 
     def create_type(
         self, data: VendorTypeWrite, *, firm_id: UUID, actor_id: UUID

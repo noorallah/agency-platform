@@ -16,6 +16,7 @@ import '../models/entities.dart';
 import '../models/inventory.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
+import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
@@ -1489,6 +1490,22 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.api,
             widget.permissions,
             showFrame: false,
+          ),
+        ),
+      'vendor-categories' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: true,
+          ),
+        ),
+      'vendor-types' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: false,
           ),
         ),
       'category-attribute-rules' =>
@@ -3482,6 +3499,73 @@ ResourceDefinition<BusinessModuleRecord> _businessModuleDefinition(
         'is_active': values['is_active'],
       },
     );
+
+/// One vendor master, as a screen. Categories and types differ only in name.
+///
+/// `vendors.category_id` and `vendors.type_id` have been columns from the
+/// start and `VendorWrite` has always accepted both, but nothing in the
+/// desktop could create a category to point at, and the vendor form offered
+/// neither field -- so both columns were unreachable and stayed NULL for every
+/// vendor anybody has ever created here.
+ResourceDefinition<VendorClassification> vendorClassificationDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  required bool categories,
+}) {
+  final String noun = categories ? 'Category' : 'Type';
+  return ResourceDefinition(
+    title: 'Vendor ${noun}s',
+    resource: categories ? 'vendors/categories' : 'vendors/types',
+    description: categories
+        ? 'Group vendors by what they supply.'
+        : 'Classify vendors by the kind of supplier they are.',
+    headers: const ['Code', 'Name', 'Description', 'Active'],
+    cells: (VendorClassification row) => [
+      row.code,
+      row.name,
+      row.description,
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (VendorClassification row) => row.id,
+    load: categories ? api.vendorCategories : api.vendorTypes,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['VENDOR_VIEW'],
+      create: const ['VENDOR_CREATE'],
+      update: const ['VENDOR_UPDATE'],
+      delete: const ['VENDOR_DELETE'],
+    ),
+    fields: [
+      FieldSpec(
+        key: 'code',
+        label: '$noun code',
+        required: true,
+        // The server upper-cases and validates the pattern; editing a code a
+        // vendor already points at is a rename of the thing, not a new one.
+        readOnlyWhenEditing: true,
+        helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      const FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (VendorClassification? row) => row == null
+        ? <String, dynamic>{'is_active': true}
+        : <String, dynamic>{
+            'code': row.code,
+            'name': row.name,
+            'description': row.description,
+            'is_active': row.isActive,
+          },
+    payload: (values, isCreating) => {
+      'code': values['code'],
+      'name': values['name'],
+      'description': _blankToNull(values['description']),
+      'is_active': values['is_active'],
+    },
+  );
+}
 
 /// The rules that make an attribute mandatory for a product category.
 ///

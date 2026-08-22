@@ -186,6 +186,26 @@ def create_sales_order(
     return ApiResponse(data=service.order_response(row))
 
 
+# Declared above the `/{{id}}` route below on purpose: FastAPI matches in
+# declaration order, so that route read "export" as an id and answered 422.
+# Unreachable from the day it was written until 2026-08-22.
+@router.get("/export")
+def export_sales_orders(
+    scope: SalesOrderExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching sales orders as CSV."""
+    csv_content = SalesOrderService(db).export_orders_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sales_orders.csv"},
+    )
+
+
 @router.put("/{order_id}", response_model=ApiResponse[SalesOrderResponse])
 def update_sales_order(
     order_id: UUID,
@@ -363,23 +383,6 @@ def orders_by_territory(
     """Total order value and count per territory, cancellations excluded."""
     return ApiResponse(
         data=SalesOrderService(db).orders_by_territory(firm_scope=scope.firm_id)
-    )
-
-
-@router.get("/export")
-def export_sales_orders(
-    scope: SalesOrderExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Export matching sales orders as CSV."""
-    csv_content = SalesOrderService(db).export_orders_csv(
-        firm_scope=scope.firm_id, search=search
-    )
-    return StreamingResponse(
-        iter([csv_content.encode("utf-8")]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=sales_orders.csv"},
     )
 
 

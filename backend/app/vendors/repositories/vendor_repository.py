@@ -163,13 +163,42 @@ class VendorRepository:
         )
 
     def list_categories(
-        self, firm_id: UUID, include_deleted: bool
-    ) -> list[VendorCategory]:
-        """Return the firm's vendor categories."""
+        self,
+        firm_id: UUID,
+        include_deleted: bool,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
+    ) -> tuple[list[VendorCategory], int]:
+        """Return one page of the firm's vendor categories, and the total.
+
+        Paged since 2026-08-22, when these masters got a screen. They returned
+        every row and ignored `search` before that, which nothing noticed
+        because the only caller was a dropdown.
+        """
         statement = select(VendorCategory).where(VendorCategory.firm_id == firm_id)
+        count = (
+            select(func.count())
+            .select_from(VendorCategory)
+            .where(VendorCategory.firm_id == firm_id)
+        )
         if not include_deleted:
             statement = statement.where(VendorCategory.is_deleted.is_(False))
-        return list(self._session.scalars(statement.order_by(VendorCategory.name)))
+            count = count.where(VendorCategory.is_deleted.is_(False))
+        if search:
+            condition = or_(
+                VendorCategory.code.ilike(f"%{search.strip()}%"),
+                VendorCategory.name.ilike(f"%{search.strip()}%"),
+            )
+            statement = statement.where(condition)
+            count = count.where(condition)
+        rows = self._session.scalars(
+            statement.order_by(VendorCategory.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows), int(self._session.scalar(count) or 0)
 
     def get_category(
         self, category_id: UUID, firm_id: UUID, *, include_deleted: bool
@@ -183,12 +212,38 @@ class VendorRepository:
             statement = statement.where(VendorCategory.is_deleted.is_(False))
         return self._session.scalar(statement)
 
-    def list_types(self, firm_id: UUID, include_deleted: bool) -> list[VendorType]:
-        """List types."""
+    def list_types(
+        self,
+        firm_id: UUID,
+        include_deleted: bool,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        search: str | None = None,
+    ) -> tuple[list[VendorType], int]:
+        """Return one page of the firm's vendor types, and the total."""
         statement = select(VendorType).where(VendorType.firm_id == firm_id)
+        count = (
+            select(func.count())
+            .select_from(VendorType)
+            .where(VendorType.firm_id == firm_id)
+        )
         if not include_deleted:
             statement = statement.where(VendorType.is_deleted.is_(False))
-        return list(self._session.scalars(statement.order_by(VendorType.name)))
+            count = count.where(VendorType.is_deleted.is_(False))
+        if search:
+            condition = or_(
+                VendorType.code.ilike(f"%{search.strip()}%"),
+                VendorType.name.ilike(f"%{search.strip()}%"),
+            )
+            statement = statement.where(condition)
+            count = count.where(condition)
+        rows = self._session.scalars(
+            statement.order_by(VendorType.name)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        return list(rows), int(self._session.scalar(count) or 0)
 
     def get_type(
         self, type_id: UUID, firm_id: UUID, *, include_deleted: bool

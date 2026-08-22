@@ -182,6 +182,26 @@ def create_purchase_invoice(
     return ApiResponse(data=service.invoice_response(row))
 
 
+# Declared above the `/{{id}}` route below on purpose: FastAPI matches in
+# declaration order, so that route read "export" as an id and answered 422.
+# Unreachable from the day it was written until 2026-08-22.
+@router.get("/export")
+def export_purchase_invoices(
+    scope: PurchaseInvoiceExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching purchase invoices as CSV."""
+    csv_content = PurchaseInvoiceService(db).export_invoices_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=purchase_invoices.csv"},
+    )
+
+
 @router.put("/{invoice_id}", response_model=ApiResponse[PurchaseInvoiceResponse])
 def update_purchase_invoice(
     invoice_id: UUID,
@@ -356,23 +376,6 @@ def invoice_reconciliation_report(
     """Return the invoice reconciliation report for the visible firm scope."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).reconciliation_report(firm_scope=scope.firm_id)
-    )
-
-
-@router.get("/export")
-def export_purchase_invoices(
-    scope: PurchaseInvoiceExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Export matching purchase invoices as CSV."""
-    csv_content = PurchaseInvoiceService(db).export_invoices_csv(
-        firm_scope=scope.firm_id, search=search
-    )
-    return StreamingResponse(
-        iter([csv_content.encode("utf-8")]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=purchase_invoices.csv"},
     )
 
 

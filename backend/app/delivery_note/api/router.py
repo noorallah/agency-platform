@@ -177,6 +177,26 @@ def create_delivery_note(
     return ApiResponse(data=service.note_response(row))
 
 
+# Declared above the `/{{id}}` route below on purpose: FastAPI matches in
+# declaration order, so that route read "export" as an id and answered 422.
+# Unreachable from the day it was written until 2026-08-22.
+@router.get("/export")
+def export_delivery_notes(
+    scope: DeliveryNoteExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching delivery notes as CSV."""
+    csv_content = DeliveryNoteService(db).export_notes_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=delivery_notes.csv"},
+    )
+
+
 @router.put("/{note_id}", response_model=ApiResponse[DeliveryNoteResponse])
 def update_delivery_note(
     note_id: UUID,
@@ -390,23 +410,6 @@ def delivery_by_warehouse(
     """Total delivered value and count per warehouse."""
     return ApiResponse(
         data=DeliveryNoteService(db).by_warehouse_report(firm_scope=scope.firm_id)
-    )
-
-
-@router.get("/export")
-def export_delivery_notes(
-    scope: DeliveryNoteExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Export matching delivery notes as CSV."""
-    csv_content = DeliveryNoteService(db).export_notes_csv(
-        firm_scope=scope.firm_id, search=search
-    )
-    return StreamingResponse(
-        iter([csv_content.encode("utf-8")]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=delivery_notes.csv"},
     )
 
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -461,6 +463,19 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   String _status = 'ACTIVE';
   bool _gstRegistration = false;
 
+  /// The two masters a vendor points at, loaded once when the dialog opens.
+  ///
+  /// Empty until they arrive, and **empty is not the same as none**: while
+  /// they are loading, or if the request failed, `_payload` omits both keys
+  /// rather than sending null. The API replaces what it is given, so sending
+  /// null for a field this dialog could not populate would clear a category
+  /// somebody had set -- the shape that cost a vendor its addresses once.
+  List<AssignmentOption> _categories = const [];
+  List<AssignmentOption> _types = const [];
+  bool _classificationsLoaded = false;
+  String? _categoryId;
+  String? _typeId;
+
   @override
   void initState() {
     super.initState();
@@ -468,6 +483,62 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         ? widget.vendor!.status
         : 'ACTIVE';
     _gstRegistration = widget.vendor?.gstRegistration ?? false;
+    _categoryId = widget.vendor?.categoryId.isNotEmpty == true
+        ? widget.vendor!.categoryId
+        : null;
+    _typeId =
+        widget.vendor?.typeId.isNotEmpty == true ? widget.vendor!.typeId : null;
+    unawaited(_loadClassifications());
+  }
+
+  Future<void> _loadClassifications() async {
+    try {
+      final List<List<AssignmentOption>> loaded = await Future.wait([
+        widget.api.options('vendors/categories'),
+        widget.api.options('vendors/types'),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _categories = loaded[0];
+        _types = loaded[1];
+        _classificationsLoaded = true;
+      });
+    } on ApiException {
+      // The rest of the form still works, and the two keys stay out of the
+      // payload, so nothing is lost by the list not arriving.
+      if (mounted) setState(() => _classificationsLoaded = false);
+    }
+  }
+
+  /// A picker for one master, with the stored id kept selectable.
+  ///
+  /// An id that is not in the loaded list -- a category since deactivated, or
+  /// a list that has not arrived -- must stay as an item of its own, or
+  /// `DropdownButtonFormField` asserts and the form renders blank. Same trap
+  /// `GeoAreaPicker` documents.
+  Widget _classificationPicker({
+    required String label,
+    required List<AssignmentOption> options,
+    required String? value,
+    required ValueChanged<String?> onChanged,
+  }) {
+    final bool missing =
+        value != null && !options.any((option) => option.id == value);
+    return DropdownButtonFormField<String?>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        helperText: _classificationsLoaded ? null : 'Loading...',
+      ),
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('Not set')),
+        if (missing)
+          DropdownMenuItem<String?>(value: value, child: const Text('(current)')),
+        for (final AssignmentOption option in options)
+          DropdownMenuItem<String?>(value: option.id, child: Text(option.label)),
+      ],
+      onChanged: onChanged,
+    );
   }
 
   @override
@@ -586,6 +657,28 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
               const SizedBox(width: 12),
               Expanded(
                 child: _field(_mobile, 'Mobile', helper: phoneHelperText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _classificationPicker(
+                  label: 'Category',
+                  options: _categories,
+                  value: _categoryId,
+                  onChanged: (value) => setState(() => _categoryId = value),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _classificationPicker(
+                  label: 'Type',
+                  options: _types,
+                  value: _typeId,
+                  onChanged: (value) => setState(() => _typeId = value),
+                ),
               ),
             ],
           ),
@@ -1019,6 +1112,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             ? _name.text.trim()
             : _displayName.text.trim(),
         'status': _status,
+        // Absent while the lists are still loading or failed to load: see
+        // `_loadClassifications`. An explicit null clears the column, which is
+        // right when somebody chooses "Not set" and wrong when the dialog
+        // simply never knew.
+        if (_classificationsLoaded) 'category_id': _categoryId,
+        if (_classificationsLoaded) 'type_id': _typeId,
         'gst_registration': _gstRegistration,
         'gstin': _gstin.text.trim().toUpperCase(),
         'pan': _pan.text.trim().toUpperCase(),

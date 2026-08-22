@@ -22,7 +22,12 @@ from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 from app.vendors.api.router import create_vendor, list_vendors
-from app.vendors.schemas import VendorCreate, VendorUpdate
+from app.vendors.schemas import (
+    VendorCategoryWrite,
+    VendorCreate,
+    VendorTypeWrite,
+    VendorUpdate,
+)
 from app.vendors.schemas.vendor import VendorListFilters
 from app.vendors.services import VendorService
 
@@ -272,3 +277,80 @@ def test_bulk_vendor_operations_are_audited() -> None:
         select(AuditLog).where(AuditLog.action == "vendor.restored")
     ).all()
     assert [row.entity_id for row in restored] == [first.id]
+
+
+def test_the_vendor_masters_page_and_search() -> None:
+    """Both lists returned every row and ignored `search` until 2026-08-22.
+
+    Nothing noticed because the only caller was a dropdown, and there was no
+    screen: `vendors.category_id` and `vendors.type_id` have always existed and
+    nothing in the desktop could set either, nor create the row to point at.
+    A `ResourceManagementPage` has a search box, and a search box that filters
+    nothing is worse than none.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "VEN-CAT")
+    actor_id = uuid4()
+    service = VendorService(session)
+
+    for code, name in (
+        ("RAW", "Raw material"),
+        ("PACK", "Packaging"),
+        ("SERV", "Services"),
+    ):
+        service.create_category(
+            VendorCategoryWrite(code=code, name=name),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    service.create_type(
+        VendorTypeWrite(code="LOCAL", name="Local supplier"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    rows, total = service.list_categories(firm_id=firm.id, page=1, page_size=2)
+    assert total == 3
+    assert [row.code for row in rows] == ["PACK", "RAW"], "ordered by name"
+
+    rows, total = service.list_categories(firm_id=firm.id, page=2, page_size=2)
+    assert [row.code for row in rows] == ["SERV"]
+
+    rows, total = service.list_categories(firm_id=firm.id, search="pack")
+    assert total == 1
+    assert rows[0].code == "PACK"
+
+    rows, total = service.list_categories(firm_id=firm.id, search="RAW")
+    assert [row.code for row in rows] == ["RAW"], "the code matches as well"
+
+    rows, total = service.list_types(firm_id=firm.id)
+    assert total == 1
+    assert rows[0].code == "LOCAL"
+
+
+def test_a_master_belongs_to_its_firm_alone() -> None:
+    """The paging rewrite must not widen what a firm can see.
+
+    Both queries filter on `firm_id`, and the count has to filter on it too --
+    a total taken across firms would page one firm's list by another's size.
+    """
+    session = _session_factory()()
+    mine = _firm(session, "VEN-MINE")
+    theirs = _firm(session, "VEN-THEIRS")
+    actor_id = uuid4()
+    service = VendorService(session)
+
+    service.create_category(
+        VendorCategoryWrite(code="RAW", name="Raw material"),
+        firm_id=mine.id,
+        actor_id=actor_id,
+    )
+    service.create_category(
+        VendorCategoryWrite(code="RAW", name="Raw material"),
+        firm_id=theirs.id,
+        actor_id=actor_id,
+    )
+
+    rows, total = service.list_categories(firm_id=mine.id)
+    assert total == 1
+    assert rows[0].firm_id == mine.id

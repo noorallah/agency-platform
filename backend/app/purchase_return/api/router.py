@@ -177,6 +177,26 @@ def create_purchase_return(
     return ApiResponse(data=service.return_response(row))
 
 
+# Declared above the `/{{id}}` route below on purpose: FastAPI matches in
+# declaration order, so that route read "export" as an id and answered 422.
+# Unreachable from the day it was written until 2026-08-22.
+@router.get("/export")
+def export_purchase_returns(
+    scope: PurchaseReturnExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export matching purchase returns as CSV."""
+    csv_content = PurchaseReturnService(db).export_returns_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=purchase_returns.csv"},
+    )
+
+
 @router.put("/{return_id}", response_model=ApiResponse[PurchaseReturnResponse])
 def update_purchase_return(
     return_id: UUID,
@@ -375,23 +395,6 @@ def expired_goods_report(
         data=PurchaseReturnService(db).reconciliation_report(
             firm_scope=scope.firm_id, expired_only=True
         )
-    )
-
-
-@router.get("/export")
-def export_purchase_returns(
-    scope: PurchaseReturnExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Export matching purchase returns as CSV."""
-    csv_content = PurchaseReturnService(db).export_returns_csv(
-        firm_scope=scope.firm_id, search=search
-    )
-    return StreamingResponse(
-        iter([csv_content.encode("utf-8")]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=purchase_returns.csv"},
     )
 
 

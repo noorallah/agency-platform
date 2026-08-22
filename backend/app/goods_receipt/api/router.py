@@ -177,6 +177,26 @@ def create_goods_receipt(
     return ApiResponse(data=service.receipt_response(row))
 
 
+# Declared above the `/{{id}}` route below on purpose: FastAPI matches in
+# declaration order, so that route read "export" as an id and answered 422.
+# Unreachable from the day it was written until 2026-08-22.
+@router.get("/export")
+def export_goods_receipts(
+    scope: GoodsReceiptExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Export goods receipts."""
+    csv_content = GoodsReceiptService(db).export_receipts_csv(
+        firm_scope=scope.firm_id, search=search
+    )
+    return StreamingResponse(
+        iter([csv_content.encode("utf-8")]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=goods_receipts.csv"},
+    )
+
+
 @router.put("/{receipt_id}", response_model=ApiResponse[GoodsReceiptResponse])
 def update_goods_receipt(
     receipt_id: UUID,
@@ -354,23 +374,6 @@ def partial_purchase_orders(
     service = GoodsReceiptService(db)
     rows = service.partially_received_purchase_orders(firm_scope=scope.firm_id)
     return ApiResponse(data=rows)
-
-
-@router.get("/export")
-def export_goods_receipts(
-    scope: GoodsReceiptExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> Response:
-    """Export goods receipts."""
-    csv_content = GoodsReceiptService(db).export_receipts_csv(
-        firm_scope=scope.firm_id, search=search
-    )
-    return StreamingResponse(
-        iter([csv_content.encode("utf-8")]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=goods_receipts.csv"},
-    )
 
 
 @router.post(
