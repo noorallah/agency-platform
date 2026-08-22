@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ConflictError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.firms.models import Firm
@@ -1101,3 +1101,60 @@ def test_execution_logs_are_prunable_beyond_the_retention_window() -> None:
 
     with pytest.raises(ValueError):
         service.purge(execution_log_days=0)
+
+
+def test_a_tax_system_refuses_a_write_aimed_at_an_older_version() -> None:
+    """`tax` could take `If-Match` under its own name from the start.
+
+    `version_number` here is a rule's published revision, so the concurrency
+    counter never collided with it the way it did in `uom` -- the reason both
+    modules had been left last-one-wins was the collision in one of them.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, _ = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    read_at = system.version
+
+    service.update_system(
+        system.id,
+        TaxSystemWrite(
+            country_id=system.country_id,
+            code="GST",
+            name="GST revised",
+            display_name="GST",
+            status="ACTIVE",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        expected_version=read_at,
+    )
+
+    with pytest.raises(ConflictError):
+        service.update_system(
+            system.id,
+            TaxSystemWrite(
+                country_id=system.country_id,
+                code="GST",
+                name="GST revised again",
+                display_name="GST",
+                status="ACTIVE",
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            expected_version=read_at,
+        )
+
+    # Opt-in: a client that sends nothing still writes.
+    service.update_system(
+        system.id,
+        TaxSystemWrite(
+            country_id=system.country_id,
+            code="GST",
+            name="GST final",
+            display_name="GST",
+            status="ACTIVE",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    assert system.name == "GST final"

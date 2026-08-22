@@ -46,6 +46,8 @@ class UomResponse(UomSchema):
     status: str
     is_decimal_allowed: bool
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -77,6 +79,8 @@ class UomGroupResponse(UomSchema):
     description: str | None
     status: str
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -108,6 +112,8 @@ class PackagingTypeResponse(UomSchema):
     description: str | None
     status: str
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -124,7 +130,7 @@ class ConversionRuleCreate(UomSchema):
     precision_scale: int = Field(default=4, ge=0, le=10)
     effective_from: date
     effective_to: date | None = None
-    version: int = Field(default=1, ge=1)
+    version_number: int = Field(default=1, ge=1)
     status: str = Field(default="ACTIVE", min_length=1, max_length=20)
     reason: str | None = None
 
@@ -141,7 +147,7 @@ class ConversionRuleUpdate(UomSchema):
     precision_scale: int | None = Field(default=None, ge=0, le=10)
     effective_from: date | None = None
     effective_to: date | None = None
-    version: int | None = Field(default=None, ge=1)
+    version_number: int | None = Field(default=None, ge=1)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     reason: str | None = None
 
@@ -160,10 +166,14 @@ class ConversionRuleResponse(UomSchema):
     precision_scale: int
     effective_from: date
     effective_to: date | None
-    # The published rule version, which is the column named version_number: the
-    # entity's own ``version`` is the optimistic-concurrency counter and means
-    # nothing to a caller.
-    version: int = Field(validation_alias="version_number")
+    # The rule's published revision. It used to be exposed as ``version``,
+    # which is the name the concurrency counter has to have -- so the two ideas
+    # collided and this module could not be given ``If-Match`` at all. It is
+    # spelled the way the column is, and the way ``app/tax`` has always spelled
+    # the same idea.
+    version_number: int
+    #: The optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     status: str
     reason: str | None
     is_deleted: bool
@@ -215,6 +225,8 @@ class IndustryTemplateResponse(UomSchema):
     status: str
     is_system: bool
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -314,6 +326,8 @@ class PackagingLevelResponse(UomSchema):
     status: str
     display_order: int
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -336,6 +350,8 @@ class ConversionResponse(UomSchema):
     from_uom_id: UUID
     to_uom_id: UUID
     conversion_factor: Decimal
-    version: int
+    #: The revision of the rule that produced this, not a concurrency counter.
+    #: Renamed with the rest of the module, so `version` means one thing here.
+    version_number: int
     conversion_rule_id: UUID
     conversion_date: date

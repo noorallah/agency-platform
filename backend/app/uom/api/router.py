@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import AuthorizationError
@@ -89,10 +90,18 @@ def update_uom(
     uom_id: UUID,
     data: UomUpdate,
     scope: UomManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[UomResponse]:
     """Change a unit in the catalogue."""
-    row = UomService(db).update_uom(uom_id, data, actor_id=scope.actor_id)
+    row = UomService(db).update_uom(
+        uom_id,
+        data,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    set_etag(response, row)
     return ApiResponse(data=UomResponse.model_validate(row))
 
 
@@ -136,10 +145,18 @@ def update_uom_group(
     group_id: UUID,
     data: UomGroupUpdate,
     scope: UomManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[UomGroupResponse]:
     """Change a unit group."""
-    row = UomService(db).update_uom_group(group_id, data, actor_id=scope.actor_id)
+    row = UomService(db).update_uom_group(
+        group_id,
+        data,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    set_etag(response, row)
     return ApiResponse(data=UomGroupResponse.model_validate(row))
 
 
@@ -186,12 +203,18 @@ def update_packaging_type(
     packaging_type_id: UUID,
     data: PackagingTypeUpdate,
     scope: PackagingManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PackagingTypeResponse]:
     """Change a packaging type."""
     row = UomService(db).update_packaging_type(
-        packaging_type_id, data, actor_id=scope.actor_id
+        packaging_type_id,
+        data,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=PackagingTypeResponse.model_validate(row))
 
 
@@ -269,12 +292,19 @@ def update_conversion_rule(
     rule_id: UUID,
     data: ConversionRuleUpdate,
     scope: ConversionManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[ConversionRuleResponse]:
     """Change a conversion rule."""
     row = UomService(db).update_conversion_rule(
-        rule_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        rule_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=ConversionRuleResponse.model_validate(row))
 
 
@@ -430,7 +460,9 @@ def update_packaging_level(
     level_id: UUID,
     data: PackagingLevelUpdate,
     scope: PackagingManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[PackagingLevelResponse]:
     """Change a packaging level."""
     row = UomService(db).update_packaging_level(
@@ -439,7 +471,9 @@ def update_packaging_level(
         level_id=level_id,
         data=data,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=PackagingLevelResponse.model_validate(row))
 
 
@@ -501,12 +535,18 @@ def update_industry_template(
     template_id: UUID,
     data: IndustryTemplateUpdate,
     scope: UomManageScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[IndustryTemplateResponse]:
     """Change an industry UOM template."""
     row = UomService(db).update_industry_template(
-        template_id, data, actor_id=scope.actor_id
+        template_id,
+        data,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=IndustryTemplateResponse.model_validate(row))
 
 

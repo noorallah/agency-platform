@@ -9,6 +9,7 @@ class UomRecord {
     required this.dimension,
     required this.status,
     required this.isDecimalAllowed,
+    this.version = 0,
   });
 
   final String id;
@@ -19,6 +20,12 @@ class UomRecord {
   final String status;
   final bool isDecimalAllowed;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory UomRecord.fromJson(Json json) => UomRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
@@ -27,6 +34,7 @@ class UomRecord {
         dimension: stringValue(json['dimension']),
         status: stringValue(json['status']),
         isDecimalAllowed: boolValue(json['is_decimal_allowed'], fallback: true),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -37,6 +45,7 @@ class UomGroupRecord {
     required this.name,
     required this.description,
     required this.status,
+    this.version = 0,
   });
 
   final String id;
@@ -45,12 +54,19 @@ class UomGroupRecord {
   final String description;
   final String status;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory UomGroupRecord.fromJson(Json json) => UomGroupRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
         description: stringValue(json['description']),
         status: stringValue(json['status']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -61,6 +77,7 @@ class PackagingTypeRecord {
     required this.name,
     required this.description,
     required this.status,
+    this.version = 0,
   });
 
   final String id;
@@ -69,12 +86,19 @@ class PackagingTypeRecord {
   final String description;
   final String status;
 
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
+
   factory PackagingTypeRecord.fromJson(Json json) => PackagingTypeRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
         description: stringValue(json['description']),
         status: stringValue(json['status']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -85,10 +109,11 @@ class ConversionRuleRecord {
     required this.fromUomId,
     required this.toUomId,
     required this.conversionFactor,
-    required this.version,
+    required this.versionNumber,
     required this.effectiveFrom,
     required this.effectiveTo,
     required this.status,
+    this.version = 0,
   });
 
   final String id;
@@ -96,10 +121,19 @@ class ConversionRuleRecord {
   final String fromUomId;
   final String toUomId;
   final String conversionFactor;
-  final int version;
+
+  /// The rule's published revision -- what a document line records as the
+  /// factor it converted with. Not a concurrency counter.
+  final int versionNumber;
   final String effectiveFrom;
   final String effectiveTo;
   final String status;
+
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none, and the save then
+  /// carries no precondition.
+  final int version;
 
   factory ConversionRuleRecord.fromJson(Json json) => ConversionRuleRecord(
         id: stringValue(json['id']),
@@ -107,7 +141,9 @@ class ConversionRuleRecord {
         fromUomId: stringValue(json['from_uom_id']),
         toUomId: stringValue(json['to_uom_id']),
         conversionFactor: stringValue(json['conversion_factor']),
-        version: int.tryParse(stringValue(json['version'])) ?? 1,
+        versionNumber:
+            int.tryParse(stringValue(json['version_number'])) ?? 1,
+        version: (json['version'] as num?)?.toInt() ?? 0,
         effectiveFrom: stringValue(json['effective_from']),
         effectiveTo: stringValue(json['effective_to']),
         status: stringValue(json['status']),

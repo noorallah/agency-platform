@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -136,7 +137,9 @@ def update_tax_system(
     system_id: UUID,
     data: TaxSystemWrite,
     scope: TaxUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxSystemResponse]:
     """Replace one tax system."""
     row = TaxFrameworkService(db).update_system(
@@ -144,7 +147,9 @@ def update_tax_system(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxSystemResponse.model_validate(row))
 
 
@@ -393,7 +398,9 @@ def update_tax_component(
     component_id: UUID,
     data: TaxComponentWrite,
     scope: TaxUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxComponentResponse]:
     """Replace one tax component."""
     row = TaxFrameworkService(db).update_component(
@@ -401,7 +408,9 @@ def update_tax_component(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxComponentResponse.model_validate(row))
 
 
@@ -522,7 +531,9 @@ def update_tax_profile(
     profile_id: UUID,
     data: TaxProfileWrite,
     scope: TaxUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxProfileResponse]:
     """Replace one tax profile."""
     row = TaxFrameworkService(db).update_profile(
@@ -530,7 +541,9 @@ def update_tax_profile(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxProfileResponse.model_validate(row))
 
 
@@ -657,7 +670,9 @@ def update_country_mapping(
     mapping_id: UUID,
     data: TaxCountryMappingWrite,
     scope: TaxUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxCountryMappingResponse]:
     """Replace one country mapping."""
     row = TaxFrameworkService(db).update_country_mapping(
@@ -665,7 +680,9 @@ def update_country_mapping(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxCountryMappingResponse.model_validate(row))
 
 
@@ -730,7 +747,9 @@ def update_migration_mapping(
     mapping_id: UUID,
     data: TaxMigrationMappingWrite,
     scope: TaxUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxMigrationMappingResponse]:
     """Replace one migration mapping."""
     row = TaxFrameworkService(db).update_migration_mapping(
@@ -738,7 +757,9 @@ def update_migration_mapping(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxMigrationMappingResponse.model_validate(row))
 
 
@@ -863,7 +884,9 @@ def update_tax_rule(
     rule_id: UUID,
     data: TaxRuleWrite,
     scope: TaxRuleUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[TaxRuleResponse]:
     """Replace one tax rule."""
     row = TaxRuleService(db).update_rule(
@@ -871,7 +894,9 @@ def update_tax_rule(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=TaxRuleResponse.model_validate(row))
 
 

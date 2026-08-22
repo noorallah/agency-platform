@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
@@ -1099,13 +1100,20 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       if (current == null) {
         await widget.api.createTaxComponent(payload);
       } else {
-        await widget.api.updateTaxComponent(current.id, payload);
+        await widget.api.updateTaxComponent(
+          current.id,
+          payload,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        saveFailureMessage(exception, 'tax component', changesKept: false),
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -1126,13 +1134,20 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       if (current == null) {
         await widget.api.createTaxProfile(payload);
       } else {
-        await widget.api.updateTaxProfile(current.id, payload);
+        await widget.api.updateTaxProfile(
+          current.id,
+          payload,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        saveFailureMessage(exception, 'tax profile', changesKept: false),
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -1241,13 +1256,20 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       if (current == null) {
         await widget.api.createTaxRule(payload);
       } else {
-        await widget.api.updateTaxRule(current.id, payload);
+        await widget.api.updateTaxRule(
+          current.id,
+          payload,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        saveFailureMessage(exception, 'tax rule', changesKept: false),
+        kind: AppNotificationKind.error,
+      );
     }
   }
 

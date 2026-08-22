@@ -184,6 +184,20 @@ documents were recording that number to identify the factor they converted
 with. `tax` names the same concept `version_number` for the same reason
 (renamed in `20260809_0055`).
 
+**The API said `version` for it until 2026-08-22**, which is why this module
+had no `If-Match` at all: the one name the concurrency counter has to have was
+taken by the rule's published revision. `ConversionRuleResponse` and the write
+schemas now spell the revision `version_number`, the way the column and `tax`
+always did, and `version` is the counter -- published in the body and as an
+`ETag` on every uom and tax record a screen edits.
+
+That rename surfaced a second copy of the resolver. `InventoryService` matched
+a line's stored revision against `ConversionRule.version` -- the counter -- so
+the two agreed only until somebody edited a rule, after which the movement was
+refused for a rule that plainly exists. It ordered by `product_id DESC` too,
+the NULL-ordering defect fixed here in `20260809_0055` and left standing in the
+copy. Both corrected 2026-08-22.
+
 ## Which rule wins
 
 `_resolve_conversion_rule` takes the active rules for the firm and unit pair

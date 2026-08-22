@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import resolve_profile_id
 from app.common.audit.services import record_audit
+from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.products.models import Product
@@ -98,9 +99,17 @@ class UomService:
         self._session.commit()
         return row
 
-    def update_uom(self, uom_id: UUID, data: UomUpdate, *, actor_id: UUID) -> Uom:
+    def update_uom(
+        self,
+        uom_id: UUID,
+        data: UomUpdate,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
+    ) -> Uom:
         """Change a unit in the catalogue."""
         row = self.get_uom(uom_id)
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -225,7 +234,12 @@ class UomService:
         return row
 
     def update_uom_group(
-        self, group_id: UUID, data: UomGroupUpdate, *, actor_id: UUID
+        self,
+        group_id: UUID,
+        data: UomGroupUpdate,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> UomGroup:
         """Change a unit group."""
         row = self._session.scalar(
@@ -235,6 +249,7 @@ class UomService:
         )
         if row is None:
             raise ResourceNotFoundError("UOM group not found.")
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -299,7 +314,12 @@ class UomService:
         return row
 
     def update_packaging_type(
-        self, packaging_type_id: UUID, data: PackagingTypeUpdate, *, actor_id: UUID
+        self,
+        packaging_type_id: UUID,
+        data: PackagingTypeUpdate,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> PackagingType:
         """Change a packaging type."""
         row = self._session.scalar(
@@ -310,6 +330,7 @@ class UomService:
         )
         if row is None:
             raise ResourceNotFoundError("Packaging type not found.")
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -423,7 +444,7 @@ class UomService:
             precision_scale=data.precision_scale,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
-            version_number=data.version,
+            version_number=data.version_number,
             status=data.status.strip().upper(),
             reason=data.reason,
             created_by=actor_id,
@@ -449,6 +470,7 @@ class UomService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> ConversionRule:
         """Change a conversion rule this firm owns."""
         row = self._session.scalar(
@@ -460,14 +482,10 @@ class UomService:
         )
         if row is None:
             raise ResourceNotFoundError("Conversion rule not found.")
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         if "rounding_mode" in payload and payload["rounding_mode"] is not None:
             payload["rounding_mode"] = self._rounding_mode(payload["rounding_mode"])
-        # The request field is still called version; the column behind it is
-        # version_number, because version is the concurrency counter and writing
-        # to it here would corrupt the check that protects this very update.
-        if "version" in payload:
-            payload["version_number"] = payload.pop("version")
         for field, value in payload.items():
             if isinstance(value, str):
                 value = value.strip().upper()
@@ -537,7 +555,7 @@ class UomService:
             from_uom_id=request.from_uom_id,
             to_uom_id=request.to_uom_id,
             conversion_factor=rule.conversion_factor,
-            version=rule.version_number,
+            version_number=rule.version_number,
             conversion_rule_id=rule.id,
             conversion_date=on_date,
         )
@@ -727,6 +745,7 @@ class UomService:
         level_id: UUID,
         data: PackagingLevelUpdate,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> ProductPackagingLevel:
         """Change a packaging level."""
         row = self._session.scalar(
@@ -739,6 +758,7 @@ class UomService:
         )
         if row is None:
             raise ResourceNotFoundError("Packaging level not found.")
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -813,7 +833,12 @@ class UomService:
         return row
 
     def update_industry_template(
-        self, template_id: UUID, data: IndustryTemplateUpdate, *, actor_id: UUID
+        self,
+        template_id: UUID,
+        data: IndustryTemplateUpdate,
+        *,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> IndustryTemplate:
         """Change an industry UOM template."""
         row = self._session.scalar(
@@ -824,6 +849,7 @@ class UomService:
         )
         if row is None:
             raise ResourceNotFoundError("Industry template not found.")
+        assert_version(row.version, expected_version)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
