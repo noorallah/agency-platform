@@ -461,6 +461,55 @@ class BusinessModuleRecord {
 /// a column the edit form silently resets: description and default value were
 /// wiped on every save, `entity_type` reverted to PRODUCT, and a definition
 /// scoped to one business profile was quietly un-scoped to all of them.
+/// One rule saying an attribute is required for a product category.
+///
+/// `AttributeService.required_attribute_ids` reads these, so a rule here is
+/// what makes a field mandatory for a pharmacy's medicines and optional for
+/// everybody else. `20260815_0087` cleared the blanket `mandatory` flags that
+/// asked an electronics distributor for an expiry date, on the understanding
+/// that a firm would say what it needs *here* instead -- and then nothing in
+/// the desktop could write one, so from 2026-08-15 to 2026-08-22 no attribute
+/// could be made mandatory at all.
+class CategoryAttributeRuleRecord {
+  const CategoryAttributeRuleRecord({
+    required this.id,
+    required this.categoryCode,
+    required this.attributeDefinitionId,
+    required this.attributeCode,
+    required this.attributeName,
+    required this.businessProfileId,
+    required this.businessProfileCode,
+    required this.isMandatory,
+    this.validationOverride,
+  });
+
+  final String id, categoryCode, attributeDefinitionId, businessProfileId;
+
+  /// Resolved server-side: a grid of raw ids tells the reader nothing, and
+  /// looking them up here would mean loading the whole catalogue per page.
+  final String attributeCode, attributeName, businessProfileCode;
+
+  final bool isMandatory;
+
+  /// Round-tripped untouched: the form cannot edit it, so it must not drop it.
+  final Map<String, dynamic>? validationOverride;
+
+  factory CategoryAttributeRuleRecord.fromJson(Json json) =>
+      CategoryAttributeRuleRecord(
+        id: stringValue(json['id']),
+        categoryCode: stringValue(json['category_code']),
+        attributeDefinitionId: stringValue(json['attribute_definition_id']),
+        attributeCode: stringValue(json['attribute_code']),
+        attributeName: stringValue(json['attribute_name']),
+        businessProfileId: stringValue(json['business_profile_id']),
+        businessProfileCode: stringValue(json['business_profile_code']),
+        isMandatory: boolValue(json['is_mandatory'], fallback: true),
+        validationOverride: json['validation_override'] is Map
+            ? Map<String, dynamic>.from(json['validation_override'] as Map)
+            : null,
+      );
+}
+
 class AttributeDefinitionRecord {
   const AttributeDefinitionRecord({
     required this.id,

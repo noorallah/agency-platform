@@ -337,6 +337,24 @@ class ApiClient {
         descending: descending,
       );
 
+  /// The rules that make an attribute mandatory for a product category.
+  Future<PagedResult<CategoryAttributeRuleRecord>> categoryAttributeRules({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) =>
+      _list(
+        '/api/v1/business-framework/category-attribute-rules',
+        CategoryAttributeRuleRecord.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        sortBy: sortBy,
+        descending: descending,
+      );
+
   Future<PagedResult<AttributeDefinitionRecord>> attributeDefinitions({
     int page = 1,
     int pageSize = 20,
