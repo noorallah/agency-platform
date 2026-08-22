@@ -1088,6 +1088,30 @@ because the API returned no ETag to send back; that gap is closed below. **All t
 
 ## Also open
 
+- **Cancelling a goods receipt values the two books differently** — found
+  2026-08-22 by cancelling one on freshly seeded data and asking the verifier.
+  `_reverse_receipt_journal` mirrors the original entry (the receipt price)
+  while `_reverse_inventory` removes stock at today's moving average. Measured
+  on ELEC01: 8,040.00 mirrored against 5,752.60 of stock removed, leaving the
+  inventory control account 2,287.42 above the warehouse from one request.
+
+  **The decision is which book leads, and where the difference lands.**
+
+  1. *The ledger follows the movement*, which is what `sales_return` and
+     `purchase_return` already do — post the reversal at the stock value the
+     movement actually removed. Then 2,287.42 is a valuation difference that
+     needs a named account: an inventory adjustment or cost-of-goods line. This
+     is the smaller change and the consistent one.
+  2. *The movement follows the ledger* — take the goods out at the cost they
+     came in at and unwind the moving average. A truer reversal, and a change
+     to the valuation engine rather than to one method, with its own question
+     about what happens when the stock has since been sold.
+
+  Until it is decided, a cancelled receipt breaks the store's stock-versus-
+  ledger invariant whenever the average has moved since the receipt. The
+  pre-2026-08-18 defect in the same method is what put both shared stores out
+  before the re-seed; this is its sibling, and it is still live.
+
 - **A soft-deleted profile assignment no longer reserves its firm**
   (`20260815_0089`). `firm_business_profiles` carried a table-wide
   `UNIQUE (firm_id)`, so a removed assignment would have locked that firm out
