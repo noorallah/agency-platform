@@ -5,7 +5,8 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
@@ -48,6 +49,7 @@ from app.sales_invoice.models import (
     SalesInvoiceAccountingEvent,
     SalesInvoiceAttachment,
     SalesInvoiceLine,
+    SalesInvoiceLineTax,
     SalesInvoiceNote,
     SalesInvoiceSource,
 )
@@ -60,6 +62,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceCustomerOutstandingRecord,
     SalesInvoiceImportRequest,
     SalesInvoiceLineResponse,
+    SalesInvoiceLineTaxResponse,
     SalesInvoiceListFilters,
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
@@ -102,6 +105,29 @@ def _receivable_amount(value: Decimal) -> Decimal:
     approval failed with a 500 rather than posting.
     """
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+@dataclass(frozen=True, slots=True)
+class _LineTaxComponent:
+    """One tax component charged on one line, as the engine reported it."""
+
+    tax_component_id: UUID | None
+    code: str
+    label: str
+    percentage: Decimal
+    base_amount: Decimal
+    amount: Decimal
+    included_in_price: bool
+    recoverable: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _LineTax:
+    """What the rule engine decided for one line, kept rather than discarded."""
+
+    profile_id: UUID | None
+    total: Decimal
+    components: list[_LineTaxComponent]
 
 
 class SalesInvoiceService(TransactionalDocumentService):
@@ -325,6 +351,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
         )
+        # Read once for the two fields below; the customer's terms decide when
+        # payment falls due and its billing address decides the place of supply.
+        customer = self._session.get(Customer, customer_id)
         row = SalesInvoice(
             firm_id=firm_id,
             customer_id=customer_id,
@@ -345,7 +374,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             ),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
-            due_date=data.due_date,
+            due_date=data.due_date or self._due_date(customer, data.invoice_date),
+            place_of_supply=self._place_of_supply(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
             allow_direct_sales_order=data.allow_direct_sales_order,
@@ -757,6 +787,22 @@ class SalesInvoiceService(TransactionalDocumentService):
                 .order_by(SalesInvoiceLine.line_number.asc())
             ).all()
         )
+        # Read for the whole invoice rather than per line: a bill with thirty
+        # lines would otherwise be thirty queries, the shape `values_for_many`
+        # exists to avoid.
+        taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
+        if lines:
+            for component in self._session.scalars(
+                select(SalesInvoiceLineTax)
+                .where(
+                    SalesInvoiceLineTax.sales_invoice_line_id.in_(
+                        [item.id for item in lines]
+                    ),
+                    SalesInvoiceLineTax.is_deleted.is_(False),
+                )
+                .order_by(SalesInvoiceLineTax.sequence.asc())
+            ):
+                taxes[component.sales_invoice_line_id].append(component)
         attachments = list(
             self._session.scalars(
                 select(SalesInvoiceAttachment).where(
@@ -799,6 +845,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             invoice_number=row.invoice_number,
             invoice_date=row.invoice_date,
             customer_invoice_number=row.customer_invoice_number,
+            place_of_supply=row.place_of_supply,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             payment_terms=row.payment_terms,
@@ -825,7 +872,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item) for item in lines],
+            lines=[self._line_response(item, taxes[item.id]) for item in lines],
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
@@ -1133,7 +1180,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
-            tax_amount = self._tax_amount(
+            line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -1150,6 +1197,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 ),
                 actor_id=actor_id,
             )
+            tax_amount = line_tax.total
             unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
             discount_amount = self._q(Decimal(str(spec.get("discount_amount", ZERO))))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
@@ -1178,7 +1226,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
-                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                tax_profile_id=line_tax.profile_id,
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -1197,6 +1245,28 @@ class SalesInvoiceService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
             self._session.add(line)
+            # Flushed here so the components have a line id to hang from. The
+            # lines are rebuilt on every edit, and `ondelete="CASCADE"` takes
+            # the components with them.
+            self._session.flush()
+            for sequence, component in enumerate(line_tax.components, start=1):
+                self._session.add(
+                    SalesInvoiceLineTax(
+                        sales_invoice_line_id=line.id,
+                        firm_id=firm_id,
+                        sequence=sequence,
+                        tax_component_id=component.tax_component_id,
+                        component_code=component.code,
+                        component_label=component.label,
+                        percentage=component.percentage,
+                        base_amount=component.base_amount,
+                        amount=component.amount,
+                        included_in_price=component.included_in_price,
+                        recoverable=component.recoverable,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
             totals["total_source_quantity"] += source_quantity
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
@@ -1453,7 +1523,49 @@ class SalesInvoiceService(TransactionalDocumentService):
             SalesInvoiceNote.sales_invoice_id == invoice_id
         ).delete(synchronize_session=False)
 
-    def _tax_amount(
+    @staticmethod
+    def _due_date(customer: Customer | None, invoice_date: date) -> date | None:
+        """Return when payment falls due, from the customer's terms.
+
+        A customer carries `payment_terms_days` and every traced invoice
+        carried `due_date = NULL`, because nothing put the two together. The
+        caller's own date always wins -- this only fills the gap.
+        """
+        if customer is None or not customer.payment_terms_days:
+            return None
+        return invoice_date + timedelta(days=int(customer.payment_terms_days))
+
+    @staticmethod
+    def _place_of_supply(customer: Customer | None) -> str | None:
+        """Return the state the supply is made in.
+
+        Copied onto the invoice rather than read through the customer at print
+        time: it decides CGST + SGST against IGST, and a customer who moves must
+        not change the tax treatment of an invoice already issued.
+
+        The state lives on the address, not on the customer -- a customer can
+        hold several. The billing address is what a tax invoice is addressed
+        to, so that one is preferred, then whichever address is flagged as the
+        default for billing, then any live address at all.
+        """
+        if customer is None:
+            return None
+        live = [
+            address
+            for address in (customer.addresses or [])
+            if not address.is_deleted and address.state
+        ]
+        for match in (
+            lambda address: address.address_type == "BILLING",
+            lambda address: bool(address.is_default_billing),
+            lambda address: True,
+        ):
+            for address in live:
+                if match(address):
+                    return str(address.state)
+        return None
+
+    def _resolve_tax(
         self,
         *,
         invoice_date: date,
@@ -1466,9 +1578,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
-    ) -> Decimal:
+    ) -> _LineTax:
+        """Work out the line's tax, and keep everything that decided it.
+
+        This used to return one number and discard the rest, which is why an
+        invoice line recorded `tax_amount` and a NULL `tax_profile_id` -- the
+        profile it resolved was thrown away along with the component breakup.
+        A printed tax invoice has to state both, so both are returned and
+        stored.
+        """
         if invoice_value <= ZERO:
-            return ZERO
+            return _LineTax(profile_id=tax_profile_id, total=ZERO, components=[])
         # A product names a tax group, not a version, so the rate is decided by
         # the document date. An explicitly named profile must also have been in
         # force then, or the document would carry a rate that never applied.
@@ -1483,7 +1603,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 else None
             )
             if resolved is None:
-                return ZERO
+                return _LineTax(profile_id=None, total=ZERO, components=[])
             tax_profile_id = resolved.id
         else:
             tax_service.assert_profile_effective_on(
@@ -1502,7 +1622,25 @@ class SalesInvoiceService(TransactionalDocumentService):
             additional_context={"source": "sales_invoice"},
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
-        return self._q(response.total_tax_amount)
+        return _LineTax(
+            # The resolved profile, not the one the caller sent: a client that
+            # names none still gets the product's, and the line should say so.
+            profile_id=response.applied_tax_profile_id or tax_profile_id,
+            total=self._q(response.total_tax_amount),
+            components=[
+                _LineTaxComponent(
+                    tax_component_id=component.tax_component_id,
+                    code=component.code,
+                    label=component.label,
+                    percentage=self._q(component.percentage),
+                    base_amount=self._q(response.base_amount),
+                    amount=self._q(component.amount),
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in response.applied_components
+            ],
+        )
 
     def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
         if (
@@ -1798,7 +1936,11 @@ class SalesInvoiceService(TransactionalDocumentService):
             updated_at=row.updated_at,
         )
 
-    def _line_response(self, row: SalesInvoiceLine) -> SalesInvoiceLineResponse:
+    def _line_response(
+        self,
+        row: SalesInvoiceLine,
+        taxes: list[SalesInvoiceLineTax] | None = None,
+    ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
             sales_invoice_id=row.sales_invoice_id,
@@ -1833,6 +1975,21 @@ class SalesInvoiceService(TransactionalDocumentService):
             manufacturing_date=row.manufacturing_date,
             remarks=row.remarks,
             accounting_event_reference=row.accounting_event_reference,
+            taxes=[
+                SalesInvoiceLineTaxResponse(
+                    id=component.id,
+                    sequence=component.sequence,
+                    tax_component_id=component.tax_component_id,
+                    component_code=component.component_code,
+                    component_label=component.component_label,
+                    percentage=component.percentage,
+                    base_amount=component.base_amount,
+                    amount=component.amount,
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in (taxes or [])
+            ],
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

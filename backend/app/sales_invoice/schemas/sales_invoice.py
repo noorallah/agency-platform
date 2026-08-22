@@ -206,6 +206,26 @@ class SalesInvoiceAccountingEventResponse(SalesInvoiceSchema):
     updated_at: datetime
 
 
+class SalesInvoiceLineTaxResponse(SalesInvoiceSchema):
+    """One tax component the line was charged, as it was charged.
+
+    Read from the invoice rather than recomputed: rules are effective-dated,
+    so asking the engine again a year later can answer differently from what
+    the customer was billed.
+    """
+
+    id: UUID
+    sequence: int
+    tax_component_id: UUID | None
+    component_code: str
+    component_label: str
+    percentage: Decimal
+    base_amount: Decimal
+    amount: Decimal
+    included_in_price: bool
+    recoverable: bool
+
+
 class SalesInvoiceLineResponse(SalesInvoiceSchema):
     """Return one sales invoice line."""
 
@@ -242,6 +262,8 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     manufacturing_date: date | None
     remarks: str | None
     accounting_event_reference: str | None
+    #: What the customer was charged, component by component.
+    taxes: list[SalesInvoiceLineTaxResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -260,6 +282,8 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     invoice_number: str
     invoice_date: date
     customer_invoice_number: str | None
+    #: The state the supply was made in, fixed when the invoice was raised.
+    place_of_supply: str | None = None
     currency_code: str | None
     exchange_rate: Decimal | None
     payment_terms: str | None
