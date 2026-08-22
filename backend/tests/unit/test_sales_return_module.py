@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -26,7 +26,13 @@ from app.delivery_note.models import DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
 from app.document_framework.models import DocumentTypeDefinition
-from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.models import (
+    FirmControlAccount,
+    GLPosting,
+    JournalEntry,
+    LedgerAccount,
+)
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -869,3 +875,35 @@ def test_cancelling_a_return_that_became_an_advance_puts_both_balances_back() ->
 
     assert Decimal(str(setup.customer.current_outstanding)) == outstanding_before
     assert Decimal(str(setup.customer.unapplied_advance_balance)) == Decimal("0")
+
+
+def _inventory_account(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the inventory control account holds."""
+    total = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .select_from(GLPosting)
+        .join(
+            FirmControlAccount,
+            FirmControlAccount.ledger_account_id == GLPosting.ledger_account_id,
+        )
+        .where(
+            FirmControlAccount.firm_id == firm_id,
+            FirmControlAccount.purpose == ControlAccountPurpose.INVENTORY.value,
+            FirmControlAccount.is_deleted.is_(False),
+            GLPosting.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def _warehouse_value(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the warehouse says all its stock is worth."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(ProductValuation.total_value), 0)).where(
+            ProductValuation.firm_id == firm_id,
+            ProductValuation.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))

@@ -1199,6 +1199,67 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def reverse_goods_return_to_stock(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        document_number: str,
+        stock_value: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Send returned goods back off the shelf at what they are worth now.
+
+        The cost entry a completed return posted brought goods in at the
+        average they were carried at that day. Cancelling sends them out again
+        at the average of the day it is cancelled, and those differ the moment
+        anything else has been received in between -- so mirroring the original
+        credits inventory with a figure no movement removed. Measured on a
+        seeded store: complete a return, receive twenty units at four times the
+        price, cancel the return, and the books part company by 16.45.
+
+        No third account is needed here, unlike a cancelled receipt or purchase
+        return. Both legs of this entry are the same figure, so posting it at
+        the movement value balances on its own and the difference against the
+        original simply stays in cost of goods sold -- which is where the
+        valuation of goods that were sold belongs.
+
+        Args:
+            firm_id: The owning firm.
+            entry_id: The cost entry the return posted when it completed.
+            document_number: The return's number, used as the reference.
+            stock_value: What the reversing movements took back off the shelf.
+            actor_id: The user cancelling the return.
+
+        Returns:
+            The posted reversal.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, GOODS_ISSUE_PURPOSES)
+        stock = quantize_ledger(quantize_money(stock_value))
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                credit_amount=stock,
+                description=f"Stock back off the shelf from {document_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.COST_OF_GOODS_SOLD],
+                debit_amount=stock,
+                description=f"Cost of goods sold restored {document_number}",
+            ),
+        ]
+        return self._journals.reverse_entry(
+            entry_id,
+            firm_id=firm_id,
+            reference_number=f"{document_number}-COST-REV",
+            actor_id=actor_id,
+            lines=lines,
+        )
+
     def post_goods_receipt(
         self,
         *,

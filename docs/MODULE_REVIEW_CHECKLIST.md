@@ -701,6 +701,7 @@ in `CustomerService` and belongs to that module's review.
 | 34 | **cancel paths**, driven on freshly seeded data (`goods_receipt`, `delivery_note`, `sales_invoice`, `purchase_invoice`, `sales_order`, `sales_return`) | 2026-08-22 | **one, and it is live.** Cancelling a completed goods receipt reverses the journal at the price the goods came in at and the stock at today's moving average, so the two disagree by whatever the average has moved since. Measured on ELEC01: a receipt of 60 units at 134.00 posted 8,040.00; cancelling mirrored the full 8,040.00 out of the inventory account while the stock reversal removed 60 × 95.876591 = 5,752.60, leaving the store out by 2,287.42 -- from balanced to broken in one request. Every other cancel path held: the receipt and delivery-note refusals fire for stated reasons, and the sales-invoice, purchase-invoice and sales-order cancels each left all five checks passing | yes -- the reversal now credits inventory with what the movement removed and books the gap to `PURCHASE_PRICE_VARIANCE`, the account `post_purchase_return` already uses for the same reason. Driven on ELEC01: the sequence that put it 2,287.42 out leaves all five checks passing, and the entry reads Dr goods received not invoiced 12,000.00 / Cr inventory 11,943.90 / Cr variance 56.10 against a movement of 11,943.8959 |
 | 35 | **cancel paths, the three the first sweep could not reach** (`purchase_return`, `sales_return` with real money, `delivery_note`) | 2026-08-22 | **one, the mirror of a defect fixed four days earlier.** Cancelling a completed purchase return reversed the stock and never touched the ledger -- no `reverse_entry`, no stored entry id, nothing -- so the payable, the input tax and the inventory credit all stayed on the books while the goods went back on the shelf. `goods_receipt` carried exactly this until 2026-08-18; nobody looked at its mirror. One cancellation put ELEC01 199.07 out. `sales_return` came back clean on a 212.40 return -- the customer moved 133,220.55 → 133,008.15 and back to the penny -- and no delivery note in seeded data is cancellable at all: every one is DISPATCHED, which is deliberately terminal | yes -- `reverse_purchase_return` mirrors the payable and tax legs and debits inventory with what the movement put back, difference to variance |
 | 36 | **the response envelope**, all 23 routers | 2026-08-22 | seven `sales_invoice` endpoints answered with the bare model rather than `ApiResponse` -- create, get, update, approve, cancel, close and import -- so they carried no `success`, no `timestamp` and no `requestId`, and a client reading `body["data"]` got nothing. Invisible from the desktop, which unwraps with a fallback to the raw body, and found only when a probe script raised `KeyError: 'data'`. The reports in the same module had the same break and were fixed on 2026-08-14; the lifecycle endpoints beside them were not looked at | yes -- all seven wrapped, and `test_response_envelope_conventions.py` checks every router. `ConversionResult` is the one allowed exception and says why: it extends `ApiResponse` to carry the order a quotation became |
+| 37 | **the movement-versus-document audit**, every posting that touches inventory | 2026-08-22 | **one more of the family, and the family is now closed.** All six forward postings read the stock ledger already -- receipt, dispatch, both returns and both adjustment paths. Of the three reversals, two had been fixed that morning and the third, `sales_return._reverse_postings`, still mirrored its cost entry: goods come back at the average of the day the return completed and leave at the average of the day it is cancelled. Proven live -- complete a return, receive twenty units at four times the price, cancel: 16.45 out | yes -- `reverse_goods_return_to_stock`. Both its legs are the movement value, so it balances alone and the difference stays in cost of goods sold; no third account, unlike the receipt and purchase-return cases |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -920,3 +921,44 @@ and it fires.
 price. That is defensible -- a dispatch is about quantity, and the money is on
 the invoice -- but it means a sales return raised from a delivery note is worth
 nothing until somebody types a price, and the operator gets no default.
+
+### 37 the rule the four defects were all breaking
+
+Four defects in two days had one shape, so the fourth was found by asking the
+question directly of every posting rather than by waiting for it to surface:
+
+> **A ledger leg that faces stock is valued from the movement the warehouse
+> made. A leg that faces a counterparty — payables, receivables, tax, revenue —
+> is valued from the document.**
+
+Read against that rule, the forward path was already right everywhere. Every one
+of `post_goods_receipt`, `post_goods_issue`, `post_sales_return`,
+`post_goods_return_to_stock`, `post_purchase_return` and both adjustment paths
+takes its inventory figure from `StockLedgerEntry`, several of them with a
+comment saying why.
+
+The reversals were where it broke, all three of them, because a reversal is
+where the two dates differ:
+
+| reversal | before | after |
+| --- | --- | --- |
+| `goods_receipt.cancel` | mirrored the receipt price | movement value, gap to variance |
+| `purchase_return.cancel` | no journal at all | movement value, gap to variance |
+| `sales_return.cancel` (cost) | mirrored the completion | movement value, gap stays in COGS |
+
+The sales-return case needs no variance account: both legs of that entry are the
+same figure, so posting it at the movement value balances on its own and the
+difference lands in cost of goods sold, which is where the valuation of goods
+that were sold belongs.
+
+**What made the audit cheap** was having the rule. The first three were found
+one at a time, each by cancelling something and watching a store break. The
+fourth was found by reading eight call sites against a sentence -- and then
+confirmed the same way, because reading is a hypothesis and the verifier is the
+answer.
+
+**One trap worth repeating**, from `docs/RUNNING.md` and paid for again here: a
+server started before an edit serves the code it loaded. The first "verification"
+of this fix ran against a stale process and reported the drift growing; the fix
+was fine. Restart, or check something the change added, before believing a
+result.
