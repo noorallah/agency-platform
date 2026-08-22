@@ -1941,8 +1941,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       final String nextTab = switch (section) {
         PurchaseSection.dashboard => 'purchase-dashboard',
         PurchaseSection.purchaseOrders => 'purchase-orders',
-        PurchaseSection.rfqs => 'purchase-rfqs',
-        PurchaseSection.vendorQuotations => 'vendor-quotations',
         PurchaseSection.analytics => 'purchase-analytics',
         PurchaseSection.settings => 'purchase-settings',
       };
@@ -1966,24 +1964,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           hasActiveFirm: hasActiveFirm,
           section: PurchaseSection.purchaseOrders,
           initialView: initialView,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'purchase-rfqs' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.rfqs,
-          onNavigateToSection: navigateTo,
-          onOpenGlobalSearch: widget.onOpenGlobalSearch,
-        ),
-      'vendor-quotations' => PurchaseManagementPage(
-          api: widget.api,
-          preferences: widget.preferences,
-          permissions: widget.permissions,
-          hasActiveFirm: hasActiveFirm,
-          section: PurchaseSection.vendorQuotations,
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
@@ -2015,8 +1995,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       title: switch (tabId) {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
-        'purchase-rfqs' => 'Request for Quotations',
-        'vendor-quotations' => 'Vendor Quotations',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
         _ => module.label,
@@ -2026,10 +2004,6 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Enterprise purchase command center with KPI cards, recent orders, and vendor spend insights.',
         'purchase-orders' =>
           'Manage purchase orders with lifecycle actions, import/export, and responsive enterprise editing.',
-        'purchase-rfqs' =>
-          'RFQ extension point reserved for the next backend purchase phase.',
-        'vendor-quotations' =>
-          'Vendor quotation extension point reserved for the next backend purchase phase.',
         'purchase-analytics' =>
           'Analytics shell ready for backend reporting expansion.',
         'purchase-settings' =>

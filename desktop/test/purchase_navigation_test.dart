@@ -6,9 +6,10 @@
 // to one screen, grouped under a node labelled "Orders", which says nothing
 // about whose orders in an application that also sells.
 //
-// These pin the shape that replaced it: five entries, a status bar inside
-// Purchase Orders that drives the existing filter, and a Sourcing group that
-// RFQs and Vendor Quotations plug into when they exist.
+// These pin the shape that replaced it: four entries and a status bar inside
+// Purchase Orders that drives the existing filter. It was five until
+// 2026-08-22, when the Sourcing group went: its two children, RFQs and Vendor
+// Quotations, had no backend of any kind behind them.
 
 import 'dart:convert';
 import 'dart:io';
@@ -251,54 +252,43 @@ void main() {
       expect(ids, contains('purchase-orders'));
     });
 
-    test('five entries, and no group called Orders', () {
+    test('four entries, and no group called Orders', () {
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
 
       expect(
         nodes.map((node) => node.label),
-        <String>[
-          'Dashboard',
-          'Purchase Orders',
-          'Sourcing',
-          'Analytics',
-          'Settings'
-        ],
+        <String>['Dashboard', 'Purchase Orders', 'Analytics', 'Settings'],
       );
       expect(
           _flatten(nodes).map((node) => node.label), isNot(contains('Orders')));
     });
 
-    test('Sourcing is a group, and holds what comes before a purchase order',
-        () {
+    test('nothing in the menu opens a screen the backend cannot serve', () {
+      // Sourcing held RFQs and Vendor Quotations, and the backend has neither
+      // -- no model, no endpoint, no service. Both rendered a sentence saying
+      // the API does not expose them yet, which is a menu entry that cannot do
+      // anything. Removed on 2026-08-22; assert the shape rather than the two
+      // names, so a third placeholder cannot be added quietly.
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(AppModule.purchases, _tabIds());
-      final WorkspaceNavigationNode sourcing =
-          nodes.firstWhere((node) => node.label == 'Sourcing');
-
-      // No path of its own: it expands, it does not navigate.
-      expect(sourcing.path, isNull);
-      expect(sourcing.isLeaf, isFalse);
-      expect(
-        sourcing.children.map((node) => node.path),
-        <String>['purchase-rfqs', 'vendor-quotations'],
-      );
-    });
-
-    test('Sourcing disappears when the user may see neither child', () {
-      final List<WorkspaceNavigationNode> nodes =
-          ModuleCatalog.navigationChildren(
-        AppModule.purchases,
-        <String>{'purchase-dashboard', 'purchase-orders'},
-      );
+      final List<String?> paths = <String?>[
+        for (final WorkspaceNavigationNode node in nodes) ...<String?>[
+          node.path,
+          ...node.children.map((child) => child.path),
+        ],
+      ];
 
       expect(nodes.map((node) => node.label), isNot(contains('Sourcing')));
+      expect(paths, isNot(contains('purchase-rfqs')));
+      expect(paths, isNot(contains('vendor-quotations')));
       expect(nodes.map((node) => node.label), contains('Purchase Orders'));
     });
 
     test('a retired tab id still resolves somewhere real', () {
       // The last workspace is persisted, so an upgrade must not strand a user
-      // who left the app on Draft Orders.
+      // who left the app on Draft Orders -- or, since 2026-08-22, on RFQs or
+      // Vendor Quotations, which were removed for having no backend at all.
       for (final String retired in ModuleCatalog.purchaseTabAliases.keys) {
         expect(
           ModuleCatalog.purchaseTabAliases[retired],
@@ -390,8 +380,7 @@ void main() {
   group('what is not built stays not built', () {
     for (final (PurchaseSection section, String label)
         in <(PurchaseSection, String)>[
-      (PurchaseSection.rfqs, 'RFQs'),
-      (PurchaseSection.vendorQuotations, 'Vendor Quotations'),
+      (PurchaseSection.analytics, 'Analytics'),
     ]) {
       testWidgets('$label says so rather than inventing a screen',
           (tester) async {

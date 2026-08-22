@@ -23,8 +23,6 @@ void main() {
       containsAll([
         'Dashboard',
         'Purchase Orders',
-        'RFQs',
-        'Vendor Quotations',
         'Analytics',
         'Settings',
       ]),

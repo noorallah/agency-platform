@@ -353,8 +353,9 @@ this is for services and expenses rather than goods.
 - **The purchase order's received status.** Described above. The enum values
   exist; nothing sets them.
 - **RFQ and Vendor Quotation.** No model, table, service, endpoint or API
-  client method for either. The Sourcing group in the sidebar is the extension
-  point; both open a placeholder.
+  client method for either. The desktop advertised both in a Sourcing group
+  whose two screens said the backend "does not yet expose" them; that group was
+  removed on 2026-08-22. Nothing in the product now claims they exist.
 - **Purchase analytics.** No `/api/v1/purchases/reports/*` endpoints. The
   Analytics entry is a placeholder; the reports catalogue's "Purchase" section
   is populated entirely by goods-receipt endpoints.
