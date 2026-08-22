@@ -92,11 +92,13 @@ class SalesReturnLineWrite(SalesReturnSchema):
     unit_price: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
-    discount_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
+    #: None means the caller said nothing, so the customer's standing
+    #: discount applies. Zero means they said no discount.
+    discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
     )
-    discount_amount: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     charges_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4

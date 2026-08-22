@@ -73,11 +73,12 @@ from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine, SalesInvoic
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
+    SalesInvoiceResponse,
     SalesInvoiceSourceType,
     SalesInvoiceStatus,
 )
 from app.sales_invoice.services import SalesInvoiceService
-from app.sales_order.models import SalesOrderLine
+from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -1047,3 +1048,174 @@ def test_a_line_records_the_profile_the_product_resolved() -> None:
     )
     assert line is not None
     assert line.tax_profile_id == profile.id
+
+
+def _order_for_invoicing(
+    session: Session,
+    *,
+    firm_id: UUID,
+    branch_id: UUID,
+    warehouse_id: UUID,
+    customer_id: UUID,
+    product_id: UUID,
+    discount_percent: Decimal | None = None,
+) -> tuple[SalesOrder, SalesOrderLine]:
+    """Raise a four-by-hundred order and return it with its only line."""
+    order = SalesOrderService(session).create_order(
+        SalesOrderCreate(
+            customer_id=customer_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product_id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                    discount_percent=discount_percent,
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    return order, line
+
+
+def _invoice_one_line(
+    session: Session,
+    *,
+    firm_id: UUID,
+    branch_id: UUID,
+    customer_id: UUID,
+    order: SalesOrder,
+    order_line: SalesOrderLine,
+    quantity: Decimal = Decimal("4"),
+    discount_percent: Decimal | None = None,
+) -> SalesInvoiceResponse:
+    """Bill one order line and return the response the client would see."""
+    service = SalesInvoiceService(session)
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer_id,
+            branch_id=branch_id,
+            invoice_date=date(2026, 8, 4),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_line_id=order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=quantity,
+                    unit_price=Decimal("100"),
+                    discount_percent=discount_percent,
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    return service.invoice_response(invoice)
+
+
+class _Billing:
+    """A firm with an order standing ready to be invoiced."""
+
+    def __init__(self, session: Session, **order_kwargs: object) -> None:
+        """Build the masters and raise the order."""
+        self.session = session
+        self.firm = _firm(session)
+        self.branch = _branch(session, firm_id=self.firm.id)
+        self.warehouse = _warehouse(
+            session, firm_id=self.firm.id, branch_id=self.branch.id
+        )
+        self.customer = _customer(session, firm_id=self.firm.id)
+        self.product = _product(session, firm_id=self.firm.id)
+        self.order, self.order_line = _order_for_invoicing(
+            session,
+            firm_id=self.firm.id,
+            branch_id=self.branch.id,
+            warehouse_id=self.warehouse.id,
+            customer_id=self.customer.id,
+            product_id=self.product.id,
+            **order_kwargs,  # type: ignore[arg-type]
+        )
+
+    def bill(self, **kwargs: object) -> SalesInvoiceResponse:
+        """Invoice the order line."""
+        return _invoice_one_line(
+            self.session,
+            firm_id=self.firm.id,
+            branch_id=self.branch.id,
+            customer_id=self.customer.id,
+            order=self.order,
+            order_line=self.order_line,
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+
+def test_a_percentage_discount_reaches_the_bill() -> None:
+    """It was stored on the line and never applied to anything.
+
+    The tax base and the subtotal were both computed from the discount
+    *amount* alone, so a ten percent order was invoiced at full price with
+    ``discount_percent`` of 10 sitting on the invoice line as a lie. This is
+    the test that fails against the code as it stood.
+    """
+    setup = _Billing(_session_factory()())
+
+    response = setup.bill(discount_percent=Decimal("10"))
+
+    assert response.line_discount_total == Decimal("40.0000")
+    assert response.subtotal == Decimal("360.0000")
+    assert response.grand_total == Decimal("360.0000")
+
+
+def test_an_invoice_inherits_the_discount_from_the_line_it_bills() -> None:
+    """The bill matches what was agreed, not what the master says today.
+
+    The customer's standing rate is deliberately not re-read here: a price
+    agreed on an order in March must not be rewritten by an edit to the
+    customer in August. It is the same reasoning that stops this module
+    re-deriving territory and salesman.
+    """
+    setup = _Billing(_session_factory()(), discount_percent=Decimal("10"))
+    # The customer moves to a different arrangement after the order is placed.
+    setup.customer.default_discount_percent = Decimal("25")
+    setup.session.commit()
+
+    response = setup.bill()
+
+    assert response.line_discount_total == Decimal("40.0000")
+    assert response.lines[0].discount_percent == Decimal("10.0000")
+
+
+def test_an_invoice_line_can_say_no_discount_at_all() -> None:
+    """An explicit zero overrides what the order agreed."""
+    setup = _Billing(_session_factory()(), discount_percent=Decimal("10"))
+
+    assert setup.bill(discount_percent=Decimal("0")).grand_total == Decimal("400.0000")
+
+
+def test_an_inherited_amount_is_pro_rated_across_a_partial_invoice() -> None:
+    """Half the order billed carries half the discount it was given.
+
+    A rate needs no such handling, which is why a rate is inherited as itself;
+    a whole-line amount copied onto part of a line would discount more than was
+    ever agreed.
+    """
+    setup = _Billing(_session_factory()())
+    setup.order_line.discount_percent = Decimal("0")
+    setup.order_line.discount_amount = Decimal("40")
+    setup.session.commit()
+
+    response = setup.bill(quantity=Decimal("2"))
+
+    assert response.line_discount_total == Decimal("20.0000")
+    assert response.grand_total == Decimal("180.0000")

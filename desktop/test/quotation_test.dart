@@ -93,7 +93,7 @@ Quotation _quote({
     });
 
 class _QuoteApi extends ApiClient {
-  _QuoteApi({this.rows = const []})
+  _QuoteApi({this.rows = const [], this.customerDiscount = '0'})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -102,6 +102,10 @@ class _QuoteApi extends ApiClient {
         );
 
   final List<Quotation> rows;
+
+  /// What the only customer's standing discount is, as the server reports it.
+  final String customerDiscount;
+
   Json? created;
   Json? revised;
   int? revisedVersion;
@@ -135,6 +139,7 @@ class _QuoteApi extends ApiClient {
             'name': 'Anand Agencies',
             'display_name': 'Anand Agencies',
             'status': 'ACTIVE',
+            'default_discount_percent': customerDiscount,
           })
         ],
         total: 1,
@@ -634,6 +639,77 @@ void main() {
       // amount was parsed before, so revising re-sent the line at full price.
       expect((lines[0] as Map)['discount_percent'], '10.0000');
       expect((lines[1] as Map)['product_id'], 'p-2');
+    });
+
+
+    testWidgets("a new line starts at the customer's standing discount",
+        (tester) async {
+      // Filled on screen rather than left to the server, because the number
+      // being quoted is the one the salesman has to be able to see.
+      final _QuoteApi api = _QuoteApi(customerDiscount: '10');
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(TextFormField, 'Discount %'), findsOneWidget);
+      expect(find.text("10% is this customer's rate"), findsOneWidget);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.pumpAndSettle();
+      expect(find.text('Line 1: 450.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line['discount_percent'], '10');
+    });
+
+    testWidgets('typing over the standing discount wins', (tester) async {
+      final _QuoteApi api = _QuoteApi(customerDiscount: '10');
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Discount %'), '0');
+      await tester.pumpAndSettle();
+
+      // The helper stops offering the rate once somebody has answered it.
+      expect(find.text("10% is this customer's rate"), findsNothing);
+      expect(find.text('Line 1: 500.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      // Explicitly zero, not absent: absent would take the standing rate.
+      expect(line['discount_percent'], '0');
+    });
+
+    testWidgets('a percentage above a hundred is refused before it is sent',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Discount %'), '500');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Between 0 and 100.'), findsOneWidget);
+      expect(api.created, isNull);
     });
 
     testWidgets('it refuses a quantity or price of nothing', (tester) async {

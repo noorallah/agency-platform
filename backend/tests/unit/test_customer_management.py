@@ -1067,3 +1067,112 @@ def test_editing_a_customer_does_not_discard_what_they_owe() -> None:
     assert customer.current_outstanding == Decimal(
         "5000.00"
     ), "editing an unrelated field must not discard what the customer owes"
+
+
+def _partial_update(customer: Customer, **fields: object) -> CustomerUpdate:
+    """Build an update that mentions only what a partial client would send.
+
+    ``code``, ``customer_type``, ``name`` and ``currency_code`` are required by
+    the write model, so they are always present; everything else here is
+    genuinely unset rather than defaulted, which is the distinction the update
+    path now honours.
+    """
+    return CustomerUpdate.model_validate(
+        {
+            "code": customer.code,
+            "customer_type": customer.customer_type,
+            "name": customer.name,
+            "currency_code": customer.currency_code,
+            **fields,
+        }
+    )
+
+
+def test_a_customer_carries_a_standing_discount() -> None:
+    """The rate every sales line starts at, held on the customer."""
+    session = _session_factory()()
+    firm = _firm(session, "DISC01")
+    payload = _customer_data()
+    payload.default_discount_percent = Decimal("7.5")
+
+    customer = CustomerService(session).create(
+        payload, firm_id=firm.id, actor_id=uuid4()
+    )
+
+    assert customer.default_discount_percent == Decimal("7.5000")
+
+
+def test_an_update_that_says_nothing_leaves_the_discount_alone() -> None:
+    """Absent means leave alone.
+
+    Every optional field on the write model has a default, so a full dump turns
+    an omission into an instruction -- the shape that destroyed a vendor's
+    addresses and reset an approved purchase order to draft. Update dumps
+    ``exclude_unset``; create still dumps in full, because there a default
+    really is the value to store.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DISC02")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    payload = _customer_data()
+    payload.default_discount_percent = Decimal("10")
+    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+
+    updated = service.update(
+        customer.id,
+        _partial_update(customer, name="Renamed Traders"),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert updated.name == "Renamed Traders"
+    assert updated.default_discount_percent == Decimal("10.0000")
+    # And the balances the customer traded to are untouched by a rename.
+    assert updated.credit_limit == Decimal("25000.00")
+
+
+def test_an_update_can_still_clear_the_discount_by_saying_so() -> None:
+    """Partial must not mean unclearable: an explicit zero is an instruction."""
+    session = _session_factory()()
+    firm = _firm(session, "DISC03")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    payload = _customer_data()
+    payload.default_discount_percent = Decimal("10")
+    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+
+    updated = service.update(
+        customer.id,
+        _partial_update(customer, default_discount_percent="0"),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert updated.default_discount_percent == Decimal("0.0000")
+
+
+def test_an_update_that_omits_the_addresses_keeps_them() -> None:
+    """Both child collections are replaced rather than merged.
+
+    So reconciling one the caller never sent soft-deletes every row in it --
+    which is how a vendor lost its addresses, contacts and bank accounts when
+    somebody corrected a phone number. Sending an empty list still clears.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DISC04")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    customer = service.create(_customer_data(), firm_id=firm.id, actor_id=actor_id)
+    assert len(customer.addresses) == 1
+
+    service.update(
+        customer.id,
+        _partial_update(customer),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    session.refresh(customer)
+    live = [address for address in customer.addresses if not address.is_deleted]
+    assert [address.address_line1 for address in live] == ["1 Main Street"]

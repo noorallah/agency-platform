@@ -383,9 +383,7 @@ class InvoicePdfRenderer:
         if document.show_supply_terms:
             if document.place_of_supply:
                 meta.append(("Place of supply", document.place_of_supply))
-            meta.append(
-                ("Reverse charge", "Yes" if document.reverse_charge else "No")
-            )
+            meta.append(("Reverse charge", "Yes" if document.reverse_charge else "No"))
 
         meta_rows = [
             [Paragraph(key, self._label), Paragraph(value, self._body)]

@@ -144,6 +144,10 @@ class CustomerWrite(CustomerSchema):
     alternate_phone: str | None = Field(default=None, max_length=20)
     website: str | None = Field(default=None, max_length=500)
     credit_limit: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    #: The standing discount a document line starts at. Overridable there.
+    default_discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
     opening_balance: Decimal = Field(
         default=Decimal("0"),
         ge=Decimal("-9999999999999999.99"),
@@ -247,6 +251,7 @@ class CustomerResponse(CustomerSchema):
     alternate_phone: str | None
     website: str | None
     credit_limit: Decimal
+    default_discount_percent: Decimal
     opening_balance: Decimal
     payment_terms_days: int
     currency_code: str

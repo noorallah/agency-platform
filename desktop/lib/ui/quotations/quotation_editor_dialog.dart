@@ -29,6 +29,19 @@ class _LineDraft {
   final TextEditingController unitPrice;
   final TextEditingController discount;
 
+  /// True once somebody typed in the discount box.
+  ///
+  /// A line nobody has touched follows whichever customer is chosen; one that
+  /// has been typed into does not, because refilling it would overwrite a
+  /// price the salesman had just agreed.
+  bool discountEdited = false;
+
+  /// Fill the box from the customer's standing rate, unless it was typed into.
+  void followCustomer(String percent) {
+    if (discountEdited) return;
+    discount.text = percent;
+  }
+
   double get _quantity => double.tryParse(quantity.text.trim()) ?? 0;
   double get _price => double.tryParse(unitPrice.text.trim()) ?? 0;
   double get _discount => double.tryParse(discount.text.trim()) ?? 0;
@@ -115,12 +128,14 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // first is what made a revision quietly delete the rest of the offer:
       // the update replaces the whole collection with what is sent.
       for (final QuotationLine line in existing.lines) {
+        // What the document holds counts as typed: a revision must not have
+        // its agreed rates rewritten because the customer master moved.
         _lines.add(_LineDraft(
           productId: line.productId,
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           discount: line.discountPercent,
-        ));
+        )..discountEdited = true);
       }
     }
     if (_lines.isEmpty) _lines.add(_newLine());
@@ -130,7 +145,35 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// stands rather than starting invalid.
   _LineDraft _newLine() => _LineDraft(
         productId: widget.products.isEmpty ? null : widget.products.first.id,
+        discount: _customerDiscount,
       );
+
+  /// The chosen customer's standing discount, as the box should read.
+  ///
+  /// Shown rather than left blank and filled in by the server: the number on
+  /// screen is what the customer is being quoted, and a salesman who cannot
+  /// see the discount cannot tell that it applied.
+  String get _customerDiscount {
+    for (final Customer item in widget.customers) {
+      if (item.id == _customerId) {
+        final double rate =
+            double.tryParse(item.defaultDiscountPercent.trim()) ?? 0;
+        return rate <= 0 ? '0' : item.defaultDiscountPercent.trim();
+      }
+    }
+    return '0';
+  }
+
+  /// Move every untouched line onto the newly chosen customer's rate.
+  void _chooseCustomer(String? value) {
+    setState(() {
+      _customerId = value;
+      final String percent = _customerDiscount;
+      for (final _LineDraft line in _lines) {
+        line.followCustomer(percent);
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -179,6 +222,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     if (picked != null) setState(() => _validUntil = picked);
   }
 
+  /// A rate the server would refuse, caught before the round trip.
+  String? _percentage(String? value) {
+    final String text = (value ?? '').trim();
+    if (text.isEmpty) return null;
+    final double? parsed = double.tryParse(text);
+    if (parsed == null) return 'Enter a percentage.';
+    if (parsed < 0 || parsed > 100) return 'Between 0 and 100.';
+    return null;
+  }
+
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
   Json? _payload() {
@@ -206,7 +259,11 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             'product_id': _lines[index].productId,
             'quantity': _lines[index].quantity.text.trim(),
             'unit_price': _lines[index].unitPrice.text.trim(),
-            'discount_percent': _lines[index].discount.text.trim(),
+            // Omitted rather than sent blank when nobody typed: absent is
+            // what tells the server to apply the customer's standing rate,
+            // and an empty string is a schema error.
+            if (_lines[index].discount.text.trim().isNotEmpty)
+              'discount_percent': _lines[index].discount.text.trim(),
           },
       ],
     };
@@ -276,9 +333,17 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             Expanded(
               child: TextFormField(
                 controller: line.discount,
-                decoration: const InputDecoration(labelText: 'Discount %'),
+                decoration: InputDecoration(
+                  labelText: 'Discount %',
+                  helperText: line.discountEdited || _customerDiscount == '0'
+                      ? null
+                      : "$_customerDiscount% is this customer's rate",
+                ),
                 keyboardType: TextInputType.number,
-                onChanged: (_) => setState(() {}),
+                validator: _percentage,
+                // onChanged fires only for typing, never for the programmatic
+                // fill above, which is what makes the two distinguishable.
+                onChanged: (_) => setState(() => line.discountEdited = true),
               ),
             ),
           ]),
@@ -333,7 +398,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       ],
                       validator: (value) =>
                           value == null ? 'Choose a customer.' : null,
-                      onChanged: (value) => setState(() => _customerId = value),
+                      onChanged: _chooseCustomer,
                     ),
                     const SizedBox(height: AppSpacing.md),
                     // The offer's end date, given its own row rather than

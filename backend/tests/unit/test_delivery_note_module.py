@@ -746,3 +746,81 @@ def test_a_firm_without_vehicle_tracking_still_dispatches_goods() -> None:
         service.create_note(
             payload(vehicle="KA-01-AB-1234"), firm_id=firm.id, actor_id=actor_id
         )
+
+
+def test_the_customers_standing_discount_reaches_a_delivery_note() -> None:
+    """A dispatch prices itself the way the order it delivers was priced."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.default_discount_percent = Decimal("10")
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-D1",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved_order = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved_order.id)
+    )
+    assert source_line is not None
+
+    service = DeliveryNoteService(session)
+    row = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=approved_order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    free_quantity=Decimal("0"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    response = service.note_response(row)
+    assert response.line_discount_total == Decimal("40.0000")
+    assert response.grand_total == Decimal("360.0000")
+    assert response.customer_discount_percent == Decimal("10.0000")

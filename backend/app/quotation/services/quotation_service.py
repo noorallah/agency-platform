@@ -25,6 +25,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import resolve_line_discount
 from app.customers.models import Customer
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -693,6 +694,17 @@ class QuotationService(TransactionalDocumentService):
         self._replace_attachments(row, data.attachments, actor_id=actor_id)
         self._replace_notes(row, data.notes, actor_id=actor_id)
 
+    def _customer_discount(self, customer_id: UUID) -> Decimal | None:
+        """Return the customer's standing discount, if they have one.
+
+        None rather than zero when there is no customer or no arrangement, so
+        the shared rule can tell "nothing agreed" from "agreed nothing".
+        """
+        customer = self._session.get(Customer, customer_id)
+        if customer is None or customer.default_discount_percent <= ZERO:
+            return None
+        return self._q(customer.default_discount_percent)
+
     def _replace_lines(
         self,
         row: SalesQuotation,
@@ -719,6 +731,13 @@ class QuotationService(TransactionalDocumentService):
         subtotal = ZERO
         tax_total = ZERO
         discount_total = ZERO
+        # Read once for the whole document rather than per line. A line that
+        # says nothing about a discount gets this; one that says anything at
+        # all, including zero, does not.
+        customer_discount = self._customer_discount(row.customer_id)
+        # Snapshot on the header: the lines below may each override it, so the
+        # document keeps what the standing rate was on the day it was raised.
+        row.customer_discount_percent = customer_discount or ZERO
         for item in lines:
             product = self._session.scalar(
                 select(Product).where(
@@ -729,11 +748,13 @@ class QuotationService(TransactionalDocumentService):
                 raise ValidationError("Product not found for quotation line.")
             quantity = self._q(item.quantity)
             gross = self._q(quantity * self._q(item.unit_price))
-            discount = self._q(
-                item.discount_amount
-                if item.discount_amount > ZERO
-                else gross * self._q(item.discount_percent) / Decimal("100")
+            line_discount = resolve_line_discount(
+                gross=gross,
+                percent=item.discount_percent,
+                amount=item.discount_amount,
+                customer_default=customer_discount,
             )
+            discount = line_discount.amount
             taxable = self._q(gross - discount)
             tax = self._tax_amount(
                 quotation_date=row.quotation_date,
@@ -764,7 +785,7 @@ class QuotationService(TransactionalDocumentService):
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
             line.unit_price = self._q(item.unit_price)
-            line.discount_percent = self._q(item.discount_percent)
+            line.discount_percent = line_discount.percent
             line.discount_amount = discount
             line.gross_amount = gross
             line.tax_profile_id = item.tax_profile_id
@@ -1020,6 +1041,7 @@ class QuotationService(TransactionalDocumentService):
             exchange_rate=row.exchange_rate,
             remarks=row.remarks,
             status=QuotationStatus(row.status),
+            customer_discount_percent=row.customer_discount_percent,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,

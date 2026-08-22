@@ -493,3 +493,47 @@ def test_if_match_header_parsing() -> None:
     assert parse_if_match('"7"') == 7
     with pytest.raises(ValidationError):
         parse_if_match("not-a-version")
+
+
+def test_the_customers_standing_discount_reaches_a_sales_order() -> None:
+    """Read on the server, because no client is in a position to supply it.
+
+    There is no sales-order line editor in the desktop at all, conversions from
+    a quotation happen on the server, and an API client would otherwise bypass
+    the arrangement entirely.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.default_discount_percent = Decimal("10")
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+
+    service = SalesOrderService(session)
+    row = service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    response = service.order_response(row)
+    assert response.line_discount_total == Decimal("40.0000")
+    assert response.grand_total == Decimal("360.0000")
+    # The header keeps what the standing rate was, so a line that overrode it
+    # still reads as a decision rather than a mistake.
+    assert response.customer_discount_percent == Decimal("10.0000")

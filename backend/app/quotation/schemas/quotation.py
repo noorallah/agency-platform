@@ -63,11 +63,13 @@ class QuotationLineWrite(QuotationSchema):
     unit_price: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    discount_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    #: None means the caller said nothing, so the customer's standing
+    #: discount applies. Zero means they said no discount.
+    discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
     )
-    discount_amount: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     tax_profile_id: UUID | None = None
     warehouse_id: UUID | None = None
@@ -238,6 +240,8 @@ class QuotationResponse(QuotationSchema):
     exchange_rate: Decimal | None
     remarks: str | None
     status: QuotationStatus
+    #: The customer's standing discount on the day this was raised.
+    customer_discount_percent: Decimal
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal

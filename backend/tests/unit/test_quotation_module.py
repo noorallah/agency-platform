@@ -152,7 +152,7 @@ class _Setup:
         quantity: Decimal = Decimal("4"),
         valid_until: date | None = None,
         quotation_date: date | None = None,
-        discount_percent: Decimal = Decimal("0"),
+        discount_percent: Decimal | None = None,
     ) -> QuotationCreate:
         """Build a one-line quotation."""
         quoted_on = quotation_date or utc_now().date()
@@ -655,3 +655,62 @@ def test_the_export_says_whether_the_prices_have_lapsed() -> None:
     # Both are still DRAFT: the status column cannot answer this question.
     assert by_number[live.quotation_number].split(",")[5] == "DRAFT"
     assert by_number[lapsed.quotation_number].split(",")[5] == "DRAFT"
+
+
+def test_a_customers_standing_discount_fills_a_line_in() -> None:
+    """The rate lives on the customer and reaches the quoted total by itself.
+
+    Nothing client-side supplies it: there is no sales-order or sales-invoice
+    line editor at all, conversions happen on the server, and an API client
+    would otherwise bypass the arrangement entirely.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.customer.default_discount_percent = Decimal("10")
+    session.commit()
+
+    row = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert row.line_discount_total == Decimal("40.0000")
+    assert row.grand_total == Decimal("360.0000")
+    # And the document says what the standing rate was, so a line that
+    # overrode it is still readable as a decision a year later.
+    assert row.customer_discount_percent == Decimal("10.0000")
+    line = session.scalar(select(SalesQuotationLine))
+    assert line is not None
+    assert line.discount_percent == Decimal("10.0000")
+
+
+def test_a_line_can_refuse_the_standing_discount() -> None:
+    """An explicit zero is an instruction, not a silence."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.customer.default_discount_percent = Decimal("10")
+    session.commit()
+
+    row = setup.service.create_quotation(
+        setup.payload(discount_percent=Decimal("0")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert row.line_discount_total == Decimal("0.0000")
+    assert row.grand_total == Decimal("400.0000")
+    # The snapshot still records what the customer was on.
+    assert row.customer_discount_percent == Decimal("10.0000")
+
+
+def test_a_discount_larger_than_the_line_is_refused() -> None:
+    """It used to produce a negative taxable value and zero tax on top."""
+    session = _session_factory()()
+    setup = _Setup(session)
+
+    payload = setup.payload()
+    payload.lines[0].discount_amount = Decimal("5000")
+
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        setup.service.create_quotation(
+            payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
