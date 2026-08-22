@@ -190,6 +190,21 @@ The other six document screens still act only from their workspace toolbar —
 see the comment on `DocumentViewDialog` for the three things to settle before
 they follow.
 
+## Printing
+
+The Print control on the workspace toolbar and the one in the order dialog both
+render `GET /api/v1/purchases/{id}/print` -- the same renderer the sales invoice
+uses, given an order's shape: placed with a supplier, delivered to a warehouse,
+and stating no place of supply and no HSN summary, because an order charges
+nobody. The firm's `document_print_templates` row for `PURCHASE_ORDER` decides
+the letterhead, terms and columns around that.
+
+Until 2026-08-22 the toolbar button showed a toast reading *"Print is reserved
+for the next transactional phase"* and the dialog's Print did nothing at all.
+**Export and Email were beside it and have been removed** -- neither had a
+handler, an endpoint, or any SMTP anywhere in the platform. Email comes back
+when there is something behind it.
+
 ## Not built
 
 Analytics renders `WorkspaceEmptyState` through `_buildPlaceholderSection()`.

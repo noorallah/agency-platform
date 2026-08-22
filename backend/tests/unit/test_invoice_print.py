@@ -243,3 +243,55 @@ def test_a_template_colour_that_is_not_a_colour_still_prints() -> None:
         )
     )
     assert "TAX INVOICE" in printed
+
+
+def test_an_order_does_not_call_itself_an_invoice() -> None:
+    """The same renderer draws a purchase order, and it says so.
+
+    The Print control on the purchase workspace showed a toast saying print was
+    "reserved for the next transactional phase" from the day it was drawn. It
+    prints now -- through this renderer, given an order's shape: placed with a
+    supplier, delivered to a warehouse, and stating no place of supply and no
+    HSN summary, because an order charges nobody.
+    """
+    order = _document()
+    order = InvoiceDocument(
+        **{
+            **{
+                field: getattr(order, field)
+                for field in order.__dataclass_fields__
+                if field
+                not in {
+                    "party_labels",
+                    "show_tax_summary",
+                    "show_supply_terms",
+                    "number_label",
+                    "date_label",
+                    "words_label",
+                }
+            },
+            "party_labels": ("SUPPLIER", "DELIVER TO"),
+            "show_tax_summary": False,
+            "show_supply_terms": False,
+            "number_label": "Order no.",
+            "date_label": "Order date",
+            "words_label": "ORDER VALUE, IN WORDS",
+        }
+    )
+    printed = _text_of(
+        InvoicePdfRenderer(TemplateSettings(title_text="PURCHASE ORDER")).render(order)
+    )
+
+    assert "PURCHASE ORDER" in printed
+    assert "SUPPLIER" in printed
+    assert "DELIVER TO" in printed
+    assert "Order no." in printed
+    assert "ORDER VALUE, IN WORDS" in printed
+    assert "Invoice no." not in printed
+    assert "BILLED TO" not in printed
+    assert "Place of supply" not in printed
+    assert "Reverse charge" not in printed
+    assert "HSN / SAC" not in printed, "the statutory summary belongs to a bill"
+    # The goods and the money are still stated.
+    assert "854442" in printed
+    assert "1,180.00" in printed

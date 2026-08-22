@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -13,6 +11,7 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
 
 /// A named view over the one sales invoice list.
@@ -369,23 +368,11 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       final List<int> pdf = await widget.api.salesInvoicePdf(
         invoice['id'] as String,
       );
-      final FileSaveLocation? location = await getSaveLocation(
-        suggestedName: '$number.pdf',
-      );
-      if (location == null) return;
-      await File(location.path).writeAsBytes(pdf, flush: true);
-      if (Platform.isWindows) {
-        await Process.run('cmd', ['/c', 'start', '', location.path]);
-      } else if (Platform.isMacOS) {
-        await Process.run('open', [location.path]);
-      } else {
-        await Process.run('xdg-open', [location.path]);
-      }
       if (!mounted) return;
-      NotificationService.show(
+      await savePrintedDocument(
         context,
-        '$number saved.',
-        kind: AppNotificationKind.success,
+        bytes: pdf,
+        suggestedName: '$number.pdf',
       );
     } on ApiException catch (exception) {
       if (!mounted) return;

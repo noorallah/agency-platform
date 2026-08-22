@@ -3810,6 +3810,10 @@ class ApiClient {
     }
   }
 
+  /// The purchase order as the PDF a supplier is sent.
+  Future<List<int>> purchaseOrderPdf(String id) =>
+      downloadBytes('/api/v1/purchases/$id/print');
+
   /// The invoice as the PDF a customer is sent.
   ///
   /// Rendered by the backend, so the layout is right in one place and the same

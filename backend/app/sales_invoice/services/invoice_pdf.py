@@ -176,6 +176,19 @@ class InvoiceDocument:
     grand_total: Decimal
     currency_symbol: str = "Rs."
     references: tuple[tuple[str, str], ...] = ()
+    #: What the two address blocks are called. A bill is billed to and shipped
+    #: to; an order is placed with a supplier and delivered to a warehouse.
+    party_labels: tuple[str, str] = ("BILLED TO", "SHIPPED TO")
+    #: The HSN-wise summary is statutory on a tax invoice and meaningless on a
+    #: purchase order, which is a request rather than a charge.
+    show_tax_summary: bool = True
+    #: Place of supply and the reverse-charge flag likewise belong to a bill.
+    show_supply_terms: bool = True
+    #: What the document calls its own number, date and total in words. An
+    #: order that labelled itself "Invoice no." would be lying on its face.
+    number_label: str = "Invoice no."
+    date_label: str = "Invoice date"
+    words_label: str = "AMOUNT CHARGEABLE, IN WORDS"
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,15 +374,18 @@ class InvoicePdfRenderer:
     def _parties(self, document: InvoiceDocument, width: float) -> Table:
         """Draw the seller, and the document's own particulars beside it."""
         meta: list[tuple[str, str]] = [
-            ("Invoice no.", document.number),
-            ("Invoice date", document.date),
+            (document.number_label, document.number),
+            (document.date_label, document.date),
         ]
         if document.due_date:
             meta.append(("Due date", document.due_date))
         meta.extend(document.references)
-        if document.place_of_supply:
-            meta.append(("Place of supply", document.place_of_supply))
-        meta.append(("Reverse charge", "Yes" if document.reverse_charge else "No"))
+        if document.show_supply_terms:
+            if document.place_of_supply:
+                meta.append(("Place of supply", document.place_of_supply))
+            meta.append(
+                ("Reverse charge", "Yes" if document.reverse_charge else "No")
+            )
 
         meta_rows = [
             [Paragraph(key, self._label), Paragraph(value, self._body)]
@@ -399,8 +415,8 @@ class InvoicePdfRenderer:
         table = Table(
             [
                 [
-                    Paragraph("BILLED TO", self._label),
-                    Paragraph("SHIPPED TO", self._label),
+                    Paragraph(document.party_labels[0], self._label),
+                    Paragraph(document.party_labels[1], self._label),
                 ],
                 [self._party_paragraphs(document.buyer), self._party_paragraphs(ship)],
             ],
@@ -552,7 +568,7 @@ class InvoicePdfRenderer:
             )
         )
         words = [
-            Paragraph("AMOUNT CHARGEABLE, IN WORDS", self._label),
+            Paragraph(document.words_label, self._label),
             Paragraph(
                 amount_in_words(document.grand_total),
                 ParagraphStyle("words", parent=self._body, fontName="Helvetica-Bold"),
@@ -564,6 +580,8 @@ class InvoicePdfRenderer:
 
     def _tax_summary(self, document: InvoiceDocument, width: float) -> Table | Spacer:
         """Draw the HSN-wise summary a tax invoice has to carry."""
+        if not document.show_tax_summary:
+            return Spacer(1, 0)
         grouped: dict[str, dict[str, Decimal]] = {}
         codes: list[str] = []
         for line in document.lines:
