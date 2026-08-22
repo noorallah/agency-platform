@@ -134,6 +134,28 @@ async def unhandled_exception_handler(
     )
 
 
+def request_id_for(request: Request) -> str | None:
+    """Return the request id the caller was given, for an error handler.
+
+    **The request object, not the context variable.** A handler registered for
+    bare ``Exception`` is served by Starlette's ``ServerErrorMiddleware``, which
+    sits at the very outside of the stack -- outside ``CoreRequestMiddleware``,
+    whose ``finally`` has already reset the context variable by the time a 500
+    reaches here. Reading the variable therefore returned None every time: all
+    28 server faults recorded on this deployment carry a NULL request id, so the
+    join from a user's screenshot to the traceback -- the thing the diagnostics
+    module exists for -- could never be made.
+
+    ``request.state`` is set on the request object itself and outlives the
+    middleware that set it. The context variable stays as the fallback for a
+    caller that has one and no request.
+    """
+    context = getattr(request.state, "context", None)
+    if context is None:
+        context = get_request_context()
+    return None if context is None else context.request_id
+
+
 def _persist_server_error(request: Request, exception: Exception) -> None:
     """Record an unhandled failure against the request id the caller was given.
 
@@ -153,7 +175,6 @@ def _persist_server_error(request: Request, exception: Exception) -> None:
         from app.core.database.engine import DatabaseManager
         from app.diagnostics.services import ErrorReportService
 
-        context = get_request_context()
         database = getattr(request.app.state, "database", None)
         if not isinstance(database, DatabaseManager):
             return
@@ -167,7 +188,7 @@ def _persist_server_error(request: Request, exception: Exception) -> None:
                         type(exception), exception, exception.__traceback__
                     )
                 ),
-                request_id=context.request_id if context is not None else None,
+                request_id=request_id_for(request),
                 context_label=f"{request.method} {request.url.path}"[:200],
             )
     except Exception:  # noqa: BLE001 - never mask the original failure

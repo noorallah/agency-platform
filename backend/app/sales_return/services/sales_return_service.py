@@ -28,7 +28,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
@@ -650,20 +650,8 @@ class SalesReturnService(TransactionalDocumentService):
             # leaves the firm holding goods it has been paid for.
             self._reverse_inventory(row, firm_scope=firm_scope, actor_id=actor_id)
             self._reverse_postings(row, firm_scope=firm_scope, actor_id=actor_id)
-            self._customers.post_receivable_transaction(
-                row.customer_id,
-                CustomerReceivableTransactionCreate(
-                    transaction_type=CustomerReceivableTransactionType.INVOICE,
-                    transaction_date=utc_now().date(),
-                    amount=self._q(row.grand_total),
-                    reference_type="SALES_RETURN",
-                    reference_id=row.id,
-                    reference_number=row.return_number,
-                    remarks=reason or f"Cancelled sales return {row.return_number}.",
-                ),
-                firm_scope=firm_scope,
-                actor_id=actor_id,
-                commit=False,
+            self._reverse_receivable(
+                row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
             )
         row.status = SalesReturnStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -757,6 +745,49 @@ class SalesReturnService(TransactionalDocumentService):
         self._session.commit()
 
     # ---- reversal ------------------------------------------------------
+
+    def _reverse_receivable(
+        self,
+        row: SalesReturn,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None,
+    ) -> None:
+        """Undo the credit note by its own recorded deltas, not by its total.
+
+        A credit note is applied up to what the customer owes and the rest
+        becomes an unapplied advance: 500 against an outstanding 300 is 300 off
+        the balance and 200 of advance. Only that row remembers the split.
+
+        Cancelling used to post a fresh INVOICE for the whole amount, which put
+        all of it back on the balance and left the advance standing, so the
+        customer owed more than they had before the return and held an advance
+        no money ever paid for. Net exposure came out right -- outstanding minus
+        advance -- which is why it went unnoticed; the two figures were
+        individually wrong and cancelled each other out. `settlements` has done
+        it this way since it was written.
+        """
+        original = self._session.scalar(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.reference_type == "SALES_RETURN",
+                CustomerReceivableTransaction.reference_id == row.id,
+                CustomerReceivableTransaction.transaction_type
+                == CustomerReceivableTransactionType.CREDIT_NOTE.value,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+        )
+        if original is None:
+            # A return worth nothing moved no balance to undo.
+            return
+        self._customers.reverse_receivable_transaction(
+            original.id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            reference_number=f"{row.return_number}-REV",
+            remarks=reason or f"Cancelled sales return {row.return_number}.",
+            commit=False,
+        )
 
     def _reverse_inventory(
         self, row: SalesReturn, *, firm_scope: UUID, actor_id: UUID
