@@ -373,36 +373,6 @@ abstract final class ModuleCatalog {
           label: 'Delivery Notes',
           requiredPermissions: ['SALES_VIEW'],
         ),
-        ModuleTabDefinition(
-          id: 'pending-deliveries',
-          label: 'Pending Deliveries',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'partial-deliveries',
-          label: 'Partial Deliveries',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'delivered-by-route',
-          label: 'Delivered by Route',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'delivered-by-salesman',
-          label: 'Delivered by Salesman',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'delivered-by-warehouse',
-          label: 'Delivered by Warehouse',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'delivery-history',
-          label: 'History',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
       ],
     ),
     ModuleDefinition(
@@ -425,36 +395,6 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'sales-invoices',
           label: 'Sales Invoices',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'pending-invoices',
-          label: 'Pending Invoices',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'overdue-invoices',
-          label: 'Overdue Invoices',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'invoice-register',
-          label: 'Invoice Register',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'invoice-reconciliation',
-          label: 'Invoice vs Delivery',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'customer-outstanding',
-          label: 'Customer Outstanding',
-          requiredPermissions: ['SALES_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'invoice-history',
-          label: 'History',
           requiredPermissions: ['SALES_VIEW'],
         ),
       ],
@@ -575,11 +515,6 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'receipts',
           label: 'Receipts',
-          requiredPermissions: ['PURCHASE_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'grn-settings',
-          label: 'Settings',
           requiredPermissions: ['PURCHASE_VIEW'],
         ),
       ],
@@ -786,24 +721,16 @@ abstract final class ModuleCatalog {
         AppModule.licensing => 'LICENSING',
       };
 
-  /// Goods receipt tab ids that became views of the receipts workspace.
-  ///
-  /// Kept resolvable for the same reason as [purchaseTabAliases]: the last
-  /// workspace is persisted, so an upgrade must not strand somebody who left
-  /// the app on Pending Receipts.
-  static const Map<String, String> goodsReceiptTabAliases = <String, String>{
-    'pending-receipts': 'receipts',
-    'partial-receipts': 'receipts',
-    'completed-receipts': 'receipts',
-    'rejected-items': 'receipts',
-    'damaged-items': 'receipts',
-    'grn-history': 'receipts',
-  };
-
   static ModuleDefinition byId(AppModule id) =>
       modules.firstWhere((module) => module.id == id);
 
   /// Purchase tab ids that no longer exist, and where they now live.
+  ///
+  /// Purchases is the only module that needs a map. It has four tabs, so a
+  /// stored id has to be resolved to one of them; Goods Receipts, Delivery
+  /// Notes and Sales Invoices have one tab each and the shell falls back to
+  /// it. What those three still need is the *view* the retired id stood for,
+  /// which lives on their view enums as `fromTabId`.
   ///
   /// Draft, Open, Cancelled, Closed and History were separate tabs until they
   /// became the status bar inside Purchase Orders. The last workspace a user
@@ -844,8 +771,6 @@ abstract final class ModuleCatalog {
         return _purchasesNavigation(visibleTabIds);
       case AppModule.goodsReceipts:
         return _goodsReceiptsNavigation(visibleTabIds);
-      case AppModule.deliveryNotes:
-        return _deliveryNotesNavigation(visibleTabIds);
       case AppModule.inventory:
         return _inventoryNavigation(visibleTabIds);
       default:
@@ -1182,70 +1107,6 @@ abstract final class ModuleCatalog {
           label: 'Receipts',
           path: 'receipts',
           icon: Icons.inventory_2_outlined,
-        ),
-      if (visibleTabIds.contains('grn-settings'))
-        const WorkspaceNavigationNode(
-          label: 'Settings',
-          path: 'grn-settings',
-          icon: Icons.settings_outlined,
-        ),
-    ];
-  }
-
-  static List<WorkspaceNavigationNode> _deliveryNotesNavigation(
-    Set<String> visibleTabIds,
-  ) {
-    bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
-    return [
-      if (visibleTabIds.contains('delivery-notes'))
-        const WorkspaceNavigationNode(
-          label: 'Delivery Notes',
-          path: 'delivery-notes',
-          icon: Icons.local_shipping_outlined,
-        ),
-      if (hasAny([
-        'pending-deliveries',
-        'partial-deliveries',
-        'delivered-by-route',
-        'delivered-by-salesman',
-        'delivered-by-warehouse',
-      ]))
-        WorkspaceNavigationNode(
-          label: 'Reports',
-          icon: Icons.analytics_outlined,
-          children: [
-            if (visibleTabIds.contains('pending-deliveries'))
-              const WorkspaceNavigationNode(
-                label: 'Pending Deliveries',
-                path: 'pending-deliveries',
-              ),
-            if (visibleTabIds.contains('partial-deliveries'))
-              const WorkspaceNavigationNode(
-                label: 'Partial Deliveries',
-                path: 'partial-deliveries',
-              ),
-            if (visibleTabIds.contains('delivered-by-route'))
-              const WorkspaceNavigationNode(
-                label: 'Delivered by Route',
-                path: 'delivered-by-route',
-              ),
-            if (visibleTabIds.contains('delivered-by-salesman'))
-              const WorkspaceNavigationNode(
-                label: 'Delivered by Salesman',
-                path: 'delivered-by-salesman',
-              ),
-            if (visibleTabIds.contains('delivered-by-warehouse'))
-              const WorkspaceNavigationNode(
-                label: 'Delivered by Warehouse',
-                path: 'delivered-by-warehouse',
-              ),
-          ],
-        ),
-      if (visibleTabIds.contains('delivery-history'))
-        const WorkspaceNavigationNode(
-          label: 'History',
-          path: 'delivery-history',
-          icon: Icons.history_outlined,
         ),
     ];
   }

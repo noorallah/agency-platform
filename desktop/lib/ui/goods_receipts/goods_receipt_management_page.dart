@@ -51,6 +51,20 @@ enum GoodsReceiptView {
         GoodsReceiptView.cancelled => 'Cancelled',
         GoodsReceiptView.closed => 'Closed',
       };
+
+  /// The view a retired sidebar entry stood for.
+  ///
+  /// The eight entries became one on 2026-08-16, but nothing carried the
+  /// user's choice across: a stored workspace naming `pending-receipts`
+  /// resolved to the Receipts tab and then opened it on All. Only three of the
+  /// eight named a status the server keeps; the rest -- Partial, Rejected
+  /// Items, Damaged Items -- filtered nothing even when they were tabs.
+  static GoodsReceiptView fromTabId(String? tabId) => switch (tabId) {
+        'pending-receipts' => GoodsReceiptView.draft,
+        // History was an exact duplicate of Completed.
+        'completed-receipts' || 'grn-history' => GoodsReceiptView.completed,
+        _ => GoodsReceiptView.all,
+      };
 }
 
 class GoodsReceiptManagementPage extends StatefulWidget {
@@ -60,8 +74,7 @@ class GoodsReceiptManagementPage extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
-    required this.tabId,
-    this.onNavigateToTab,
+    this.initialView = GoodsReceiptView.all,
     this.onOpenGlobalSearch,
   });
 
@@ -69,8 +82,7 @@ class GoodsReceiptManagementPage extends StatefulWidget {
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
-  final String tabId;
-  final ValueChanged<String>? onNavigateToTab;
+  final GoodsReceiptView initialView;
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
@@ -90,7 +102,7 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   GoodsReceiptRecord? _selected;
 
   /// Which segment of the status bar is showing.
-  GoodsReceiptView _view = GoodsReceiptView.all;
+  late GoodsReceiptView _view = widget.initialView;
   List<DocumentTimelineSnapshot> _history = const [];
   // Reference data the receipt editor needs. Loaded once when the workspace
   // opens rather than each time the dialog does, so choosing an order is

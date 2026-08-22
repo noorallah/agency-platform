@@ -13,6 +13,54 @@ import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_notice.dart';
 
+/// A named view over the one sales invoice list.
+///
+/// The module declared seven sidebar entries -- Pending, Overdue, Register,
+/// Invoice vs Delivery, Customer Outstanding and History alongside the list --
+/// and this page never took a tab id, so all seven opened exactly this screen.
+/// The five report entries name endpoints that do exist
+/// (`/api/v1/sales-invoices/reports/*`) and are reachable from **Reports**,
+/// which is where a report belongs.
+enum SalesInvoiceView {
+  all,
+  draft,
+  approved,
+  cancelled,
+  closed;
+
+  /// The status this view filters on, or null for every status.
+  String? get status => switch (this) {
+        SalesInvoiceView.draft => 'DRAFT',
+        SalesInvoiceView.approved => 'APPROVED',
+        SalesInvoiceView.cancelled => 'CANCELLED',
+        SalesInvoiceView.closed => 'CLOSED',
+        SalesInvoiceView.all => null,
+      };
+
+  /// The query the list is asked for.
+  Map<String, String> get query =>
+      status == null ? const {} : {'status': status!};
+
+  String get label => switch (this) {
+        SalesInvoiceView.all => 'All',
+        SalesInvoiceView.draft => 'Draft',
+        SalesInvoiceView.approved => 'Approved',
+        SalesInvoiceView.cancelled => 'Cancelled',
+        SalesInvoiceView.closed => 'Closed',
+      };
+
+  /// The view a retired sidebar entry stood for.
+  ///
+  /// Only Pending has one: `/reports/pending` is the invoices still in draft,
+  /// so somebody whose stored workspace says `pending-invoices` gets Draft.
+  /// Overdue cannot be a view here -- it needs the due date *and* what is
+  /// still unpaid, which the list endpoint cannot express and the report can.
+  static SalesInvoiceView fromTabId(String? tabId) =>
+      tabId == 'pending-invoices'
+          ? SalesInvoiceView.draft
+          : SalesInvoiceView.all;
+}
+
 class SalesInvoiceManagementPage extends StatefulWidget {
   const SalesInvoiceManagementPage({
     super.key,
@@ -20,6 +68,7 @@ class SalesInvoiceManagementPage extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
+    this.initialView = SalesInvoiceView.all,
     this.onOpenGlobalSearch,
   });
 
@@ -27,6 +76,7 @@ class SalesInvoiceManagementPage extends StatefulWidget {
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
+  final SalesInvoiceView initialView;
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
@@ -35,6 +85,7 @@ class SalesInvoiceManagementPage extends StatefulWidget {
 
 class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage> {
   final TextEditingController _search = TextEditingController();
+  late SalesInvoiceView _view = widget.initialView;
   bool _loading = false;
   static const int _rowsPerPage = 50;
   int _page = 1;
@@ -128,6 +179,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           search: _search.text.trim(),
           sortBy: 'invoice_date',
           descending: true,
+          additionalQuery: _view.query,
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -305,8 +357,37 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         ),
       );
 
+  void _selectView(SalesInvoiceView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _page = 1;
+      _selected = null;
+    });
+    unawaited(_load(requestedPage: 1));
+  }
+
+  /// The status bar: All / Draft / Approved / Cancelled / Closed.
+  Widget _buildViewBar() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<SalesInvoiceView>(
+          segments: [
+            for (final SalesInvoiceView view in SalesInvoiceView.values)
+              ButtonSegment<SalesInvoiceView>(
+                value: view,
+                label: Text(view.label),
+              ),
+          ],
+          selected: <SalesInvoiceView>{_view},
+          onSelectionChanged:
+              _loading ? null : (selection) => _selectView(selection.first),
+          showSelectedIcon: false,
+        ),
+      );
+
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        viewBar: _buildViewBar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
           hintText: 'Search invoice number, reference...',

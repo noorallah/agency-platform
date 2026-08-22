@@ -1166,6 +1166,14 @@ class _DesktopShellState extends State<DesktopShell> {
             preferences: widget.preferences,
             permissions: widget.permissions,
             hasActiveFirm: widget.session.currentFirm != null,
+            // A stored workspace may still name one of the six retired
+            // entries. Pending was the drafts, so honour it; the rest were
+            // reports and open the list.
+            initialView: SalesInvoiceView.fromTabId(
+              _router.current.module == AppModule.salesInvoices.name
+                  ? _router.current.tab
+                  : null,
+            ),
             onOpenGlobalSearch: _openGlobalSearch,
           ),
         AppModule.inventory => _InventoryWorkspace(
@@ -2070,12 +2078,6 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
         widget.router.current.module == AppModule.goodsReceipts.name
             ? widget.router.current.tab
             : null;
-    // A stored workspace may still name a status that became a view.
-    final String? resolved =
-        ModuleCatalog.goodsReceiptTabAliases[requestedTab] ?? requestedTab;
-    final String tabId = visibleTabs.any((tab) => tab.id == resolved)
-        ? resolved!
-        : visibleTabs.first.id;
     final bool hasActiveFirm =
         widget.api.activeFirmId?.call()?.isNotEmpty == true;
 
@@ -2084,8 +2086,7 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
       preferences: widget.preferences,
       permissions: widget.permissions,
       hasActiveFirm: hasActiveFirm,
-      tabId: tabId,
-      onNavigateToTab: (nextTab) => widget.router.selectTab(nextTab),
+      initialView: GoodsReceiptView.fromTabId(requestedTab),
       onOpenGlobalSearch: widget.onOpenGlobalSearch,
     );
   }
@@ -2140,9 +2141,6 @@ class _DeliveryNoteWorkspaceState extends State<_DeliveryNoteWorkspace> {
         widget.router.current.module == AppModule.deliveryNotes.name
             ? widget.router.current.tab
             : null;
-    final String tabId = visibleTabs.any((tab) => tab.id == requestedTab)
-        ? requestedTab!
-        : visibleTabs.first.id;
     final bool hasActiveFirm =
         widget.api.activeFirmId?.call()?.isNotEmpty == true;
 
@@ -2151,8 +2149,7 @@ class _DeliveryNoteWorkspaceState extends State<_DeliveryNoteWorkspace> {
       preferences: widget.preferences,
       permissions: widget.permissions,
       hasActiveFirm: hasActiveFirm,
-      tabId: tabId,
-      onNavigateToTab: (nextTab) => widget.router.selectTab(nextTab),
+      initialView: DeliveryNoteView.fromTabId(requestedTab),
       onOpenGlobalSearch: widget.onOpenGlobalSearch,
     );
   }

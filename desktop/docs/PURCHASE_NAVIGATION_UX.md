@@ -8,6 +8,10 @@ Written 2026-08-16, when the module went from eleven sidebar entries to five;
 four since 2026-08-22, when the two that had no backend were removed rather
 than reserved.
 
+The rules this module established are now general, and have been applied
+to Goods Receipts, Delivery Notes and Sales Invoices as well:
+**`WORKSPACE_NAVIGATION_RULES.md`**.
+
 ## What it looked like, and why it changed
 
 Purchases declared **eleven** tabs for **six** destinations:

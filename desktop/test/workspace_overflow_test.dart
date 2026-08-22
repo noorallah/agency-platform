@@ -74,14 +74,12 @@ final Map<String, _PageBuilder> _screens = {
         preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
-        tabId: 'delivery-notes',
       ),
   'goods receipts': (d) => GoodsReceiptManagementPage(
         api: d.api,
         preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
-        tabId: 'receipts',
       ),
   'purchase invoices': (d) => PurchaseInvoiceManagementPage(
         api: d.api,

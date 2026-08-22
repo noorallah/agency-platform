@@ -146,7 +146,6 @@ Future<_ReceiptApi> _open(WidgetTester tester) async {
           ..applyAccessToken(accessTokenFor(
               const <String>['PURCHASE_VIEW', 'PURCHASE_CREATE'])),
         hasActiveFirm: true,
-        tabId: 'receipts',
       ),
     ),
   ));
@@ -162,26 +161,50 @@ void main() {
           .map((tab) => tab.id)
           .toSet();
 
-      for (final String retired in ModuleCatalog.goodsReceiptTabAliases.keys) {
+      for (final String retired in <String>[
+        'pending-receipts',
+        'partial-receipts',
+        'completed-receipts',
+        'rejected-items',
+        'damaged-items',
+        'grn-history',
+      ]) {
         expect(ids, isNot(contains(retired)), reason: '$retired was a view');
       }
-      expect(ids, <String>{'receipts', 'grn-settings'});
+      // Settings went on 2026-08-22: the page took a tab id and read it
+      // nowhere, so the entry opened the receipts list.
+      expect(ids, <String>{'receipts'});
     });
 
-    test('two entries, and no group called Reports', () {
+    test('one entry, and no group called Reports', () {
       final List<WorkspaceNavigationNode> nodes =
           ModuleCatalog.navigationChildren(
         AppModule.goodsReceipts,
-        <String>{'receipts', 'grn-settings'},
+        <String>{'receipts'},
       );
 
-      expect(nodes.map((node) => node.label), <String>['Receipts', 'Settings']);
+      expect(nodes.map((node) => node.label), <String>['Receipts']);
       expect(nodes.every((node) => node.isLeaf), isTrue);
     });
 
-    test('a retired id still resolves to the workspace that absorbed it', () {
-      for (final String path in ModuleCatalog.goodsReceiptTabAliases.values) {
-        expect(path, 'receipts');
+    test('a retired id still opens on the view it stood for', () {
+      // The module has one tab, so the shell lands on it whatever a stored
+      // workspace names. What the id has to carry is the view: somebody who
+      // left the app on Pending Receipts asked for the drafts.
+      expect(GoodsReceiptView.fromTabId('pending-receipts'),
+          GoodsReceiptView.draft);
+      expect(GoodsReceiptView.fromTabId('completed-receipts'),
+          GoodsReceiptView.completed);
+      // History was an exact duplicate of Completed.
+      expect(
+          GoodsReceiptView.fromTabId('grn-history'), GoodsReceiptView.completed);
+      // These three filtered nothing even when they were tabs.
+      for (final String retired in <String>[
+        'partial-receipts',
+        'rejected-items',
+        'damaged-items',
+      ]) {
+        expect(GoodsReceiptView.fromTabId(retired), GoodsReceiptView.all);
       }
     });
   });
