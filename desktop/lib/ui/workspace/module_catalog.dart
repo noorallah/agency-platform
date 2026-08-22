@@ -146,6 +146,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PLATFORM_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'category-attribute-rules',
+          label: 'Mandatory Attributes',
+          requiredPermissions: ['PLATFORM_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'profile-assignment',
           label: 'Profile Assignment',
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
@@ -835,6 +840,7 @@ abstract final class ModuleCatalog {
             'feature-management',
             'module-configuration',
             'attribute-definitions',
+            'category-attribute-rules',
             'profile-assignment',
           ]))
             WorkspaceNavigationNode(
@@ -860,6 +866,11 @@ abstract final class ModuleCatalog {
                   const WorkspaceNavigationNode(
                     label: 'Dynamic Attributes',
                     path: 'attribute-definitions',
+                  ),
+                if (visibleTabIds.contains('category-attribute-rules'))
+                  const WorkspaceNavigationNode(
+                    label: 'Mandatory Attributes',
+                    path: 'category-attribute-rules',
                   ),
                 if (visibleTabIds.contains('profile-assignment'))
                   const WorkspaceNavigationNode(

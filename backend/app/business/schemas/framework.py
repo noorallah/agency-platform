@@ -210,12 +210,23 @@ class CategoryAttributeRuleUpdate(CategoryAttributeRuleCreate):
 
 
 class CategoryAttributeRuleResponse(BusinessFrameworkSchema):
-    """Category attribute rule API response."""
+    """Category attribute rule API response.
+
+    The three ids are what the rule is made of, and the two names beside them
+    are what a screen can show. Resolving them client-side would mean loading
+    the whole attribute catalogue to render one column, and a grid of raw
+    UUIDs tells the person reading it nothing at all.
+    """
 
     id: UUID
     business_profile_id: UUID | None
+    #: The profile's code, or None where the rule holds for every industry.
+    business_profile_code: str | None = None
     category_code: str
     attribute_definition_id: UUID
+    #: The attribute's code and name, as the catalogue spells them.
+    attribute_code: str | None = None
+    attribute_name: str | None = None
     is_mandatory: bool
     validation_override: dict[str, object] | None
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.

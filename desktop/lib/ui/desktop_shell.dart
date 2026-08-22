@@ -1396,6 +1396,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'feature-management',
           'module-configuration',
           'attribute-definitions',
+          'category-attribute-rules',
           'profile-assignment',
           'tax-configuration',
           'tax-rules-page',
@@ -1488,6 +1489,14 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.api,
             widget.permissions,
             showFrame: false,
+          ),
+        ),
+      'category-attribute-rules' =>
+        ResourceManagementPage<CategoryAttributeRuleRecord>(
+          api: widget.api,
+          definition: categoryAttributeRuleDefinition(
+            widget.api,
+            widget.permissions,
           ),
         ),
       'profile-assignment' => ResourceManagementPage<Firm>(
@@ -3473,6 +3482,114 @@ ResourceDefinition<BusinessModuleRecord> _businessModuleDefinition(
         'is_active': values['is_active'],
       },
     );
+
+/// The rules that make an attribute mandatory for a product category.
+///
+/// An `AttributeDefinition` can be marked mandatory outright, and until
+/// `20260815_0087` four of them were -- which asked a pharmacy for an IMEI and
+/// an electronics distributor for an expiry date, and `AttributeService`
+/// refuses the write, so product creation was blocked outright on a freshly
+/// migrated database. That migration cleared the flags on the understanding
+/// that a requirement would be stated here instead: scoped to a category, and
+/// optionally to one industry. Nothing in the desktop could state one, so for
+/// a week no attribute could be made mandatory by anybody.
+/// Public so `test/category_attribute_rule_test.dart` can drive the real
+/// definition rather than a copy of its field list -- the copy is what let the
+/// attribute definition form and its test disagree about four columns.
+ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) {
+  // `validation_override` has no editor; the record being edited is held so
+  // the update can echo it back rather than clearing it. Same reason, and the
+  // same shape, as `validation_rule` on the attribute definition below.
+  CategoryAttributeRuleRecord? editing;
+  return ResourceDefinition(
+    title: 'Mandatory Attributes',
+    resource: 'business-framework/category-attribute-rules',
+    description:
+        'Say which attribute a product category must carry, for one industry '
+        'or for all of them.',
+    headers: const ['Category', 'Attribute', 'Business profile', 'Required'],
+    sortFields: const ['category_code', null, null, null],
+    cells: (rule) => [
+      rule.categoryCode,
+      rule.attributeName.isEmpty ? rule.attributeCode : rule.attributeName,
+      rule.businessProfileCode.isEmpty
+          ? 'Every industry'
+          : rule.businessProfileCode,
+      rule.isMandatory ? 'Yes' : 'No',
+    ],
+    id: (rule) => rule.id,
+    load: api.categoryAttributeRules,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PLATFORM_VIEW'],
+      create: const ['PLATFORM_SETTINGS'],
+      update: const ['PLATFORM_SETTINGS'],
+      delete: const ['PLATFORM_SETTINGS'],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'category_code',
+        label: 'Product category',
+        required: true,
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        // Matched against the category's code, not its id -- an id stored
+        // here matches no category and the rule silently never applies.
+        submitsCode: true,
+        helperText: 'Which category of product this requirement is about.',
+      ),
+      FieldSpec(
+        key: 'attribute_definition_id',
+        label: 'Attribute',
+        required: true,
+        optionsResource: 'business-framework/attribute-definitions',
+        singleSelection: true,
+        helperText: 'The field that must be filled in. Define it first under '
+            'Dynamic Attributes.',
+      ),
+      FieldSpec(
+        key: 'business_profile_id',
+        label: 'Limit to business profile',
+        optionsResource: 'business-framework/profiles',
+        singleSelection: true,
+        section: 'Where it applies',
+        helperText: 'Leave empty and the requirement holds for every industry.',
+      ),
+      FieldSpec(
+        key: 'is_mandatory',
+        label: 'Required',
+        boolean: true,
+        section: 'Where it applies',
+        helperText: 'Off records the pairing without enforcing it.',
+      ),
+    ],
+    initialValues: (rule) {
+      editing = rule;
+      return rule == null
+          ? {'is_mandatory': true}
+          : {
+              'category_code': rule.categoryCode,
+              'attribute_definition_id': rule.attributeDefinitionId,
+              'business_profile_id': rule.businessProfileId,
+              'is_mandatory': rule.isMandatory,
+            };
+    },
+    payload: (values, isCreating) => {
+      'category_code': values['category_code'],
+      'attribute_definition_id': values['attribute_definition_id'],
+      'business_profile_id': _blankToNull(values['business_profile_id']),
+      'is_mandatory': values['is_mandatory'],
+      // Round-tripped, not edited. Omitting it would null an override the
+      // form never showed.
+      if (!isCreating && editing?.validationOverride != null)
+        'validation_override': editing!.validationOverride,
+    },
+  );
+}
 
 ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
   ApiClient api,

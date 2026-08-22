@@ -17,11 +17,13 @@ from app.business.models import (
     ProfileFeature,
 )
 from app.business.schemas import (
+    AttributeDefinitionCreate,
     BusinessFeatureCreate,
     BusinessFeatureUpdate,
     BusinessModuleCreate,
     BusinessProfileCreate,
     BusinessProfileUpdate,
+    CategoryAttributeRuleCreate,
     FirmBusinessProfileAssign,
 )
 from app.business.services import BusinessProfileFrameworkService
@@ -661,3 +663,99 @@ def test_renaming_the_default_profile_does_not_demote_it() -> None:
     assert generic.name == "Generic business"
     assert generic.is_default is True
     assert generic.status == "ACTIVE"
+
+
+def _rule_fixture(
+    service: BusinessProfileFrameworkService, actor: UUID, *, code: str
+) -> tuple[UUID, UUID]:
+    """Create one attribute and one profile, and return their ids."""
+    attribute = service.create_attribute(
+        AttributeDefinitionCreate(
+            code=code,
+            name=f"{code.title()} field",
+            entity_type="PRODUCT",
+            data_type="TEXT",
+        ),
+        actor,
+    )
+    profile = service.create_profile(
+        BusinessProfileCreate(
+            code=f"PROFILE_{code}",
+            name=f"Profile {code}",
+            industry_type="GENERIC",
+            description="For the rule to be scoped to.",
+        ),
+        actor,
+    )
+    return attribute.id, profile.id
+
+
+def test_the_rule_list_pages_and_searches() -> None:
+    """It returned every rule in one unpaginated list until 2026-08-22.
+
+    Which nothing noticed, because nothing called it: the table had no screen,
+    so the one place a firm can say "a medicine must carry an expiry date" was
+    unreachable from the application. `20260815_0087` had cleared the blanket
+    `mandatory` flags on exactly that understanding.
+    """
+    session = _session_factory()()
+    actor = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    attribute_id, profile_id = _rule_fixture(service, actor, code="EXPIRY")
+
+    for category in ("MEDICINE", "SYRUP", "TABLET"):
+        service.create_category_rule(
+            CategoryAttributeRuleCreate(
+                business_profile_id=profile_id,
+                category_code=category,
+                attribute_definition_id=attribute_id,
+            ),
+            actor,
+        )
+
+    rows, total = service.list_category_rules(1, 2, None, "category_code", False)
+    assert total == 3
+    assert [row.category_code for row in rows] == ["MEDICINE", "SYRUP"]
+
+    rows, total = service.list_category_rules(2, 2, None, "category_code", False)
+    assert [row.category_code for row in rows] == ["TABLET"]
+
+    rows, total = service.list_category_rules(1, 20, "med", "category_code", False)
+    assert total == 1
+    assert rows[0].category_code == "MEDICINE"
+
+
+def test_a_rule_answers_with_the_names_behind_its_ids() -> None:
+    """A grid of raw UUIDs tells the person reading it nothing.
+
+    The alternative is the screen loading the whole attribute catalogue to
+    render one column, so the ids are resolved here -- in two queries for the
+    page, not one per row.
+    """
+    session = _session_factory()()
+    actor = uuid4()
+    service = BusinessProfileFrameworkService(session)
+    attribute_id, profile_id = _rule_fixture(service, actor, code="BATCH")
+
+    scoped = service.create_category_rule(
+        CategoryAttributeRuleCreate(
+            business_profile_id=profile_id,
+            category_code="MEDICINE",
+            attribute_definition_id=attribute_id,
+        ),
+        actor,
+    )
+    everywhere = service.create_category_rule(
+        CategoryAttributeRuleCreate(
+            category_code="SYRUP",
+            attribute_definition_id=attribute_id,
+        ),
+        actor,
+    )
+
+    described = service.describe_category_rules([scoped, everywhere])
+    assert described[scoped.id] == ("BATCH", "Batch field", "PROFILE_BATCH")
+    assert described[everywhere.id] == ("BATCH", "Batch field", None), (
+        "a rule with no profile holds for every industry, and says so by "
+        "carrying no profile code rather than an empty one"
+    )

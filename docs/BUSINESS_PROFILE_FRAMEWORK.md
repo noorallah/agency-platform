@@ -227,6 +227,15 @@ than `attribute_definitions.mandatory`, which is global. Read by
 `AttributeService.mandatory_ids` on save and by `GET /api/v1/products/metadata`
 to tell a client which fields to render.
 
+This is the *only* way a requirement can be stated, since `20260815_0087`
+cleared the four global flags that asked a pharmacy for an IMEI. **Edited from
+Administration › Business Profiles › Mandatory Attributes** as of 2026-08-22 —
+before that the endpoints existed and nothing called them, so for a week no
+firm could make any attribute mandatory. The list is paginated and searchable
+like every other list in this module, and each row carries the attribute and
+profile *names* beside their ids, because a grid of three UUIDs says nothing to
+the person reading it.
+
 | Column | Stores |
 | --- | --- |
 | `business_profile_id` | **Nullable** — NULL means the rule applies to every profile |

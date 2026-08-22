@@ -484,14 +484,90 @@ class BusinessProfileFrameworkService:
         )
         self._session.commit()
 
-    def list_category_rules(self) -> list[CategoryAttributeRule]:
-        return list(
-            self._session.scalars(
-                select(CategoryAttributeRule).where(
-                    CategoryAttributeRule.is_deleted.is_(False)
-                )
-            ).all()
+    def list_category_rules(
+        self,
+        page: int,
+        page_size: int,
+        search: str | None,
+        sort_by: str,
+        descending: bool,
+    ) -> tuple[list[CategoryAttributeRule], int]:
+        """Return one page of category attribute rules.
+
+        Unpaginated until 2026-08-22, which nothing noticed because nothing
+        called it: the table has no screen. `search` matches the category code,
+        the only text a rule carries -- the attribute and the profile are ids.
+        """
+        columns = {
+            "category_code": CategoryAttributeRule.category_code,
+            "created_at": CategoryAttributeRule.created_at,
+        }
+        statement = select(CategoryAttributeRule).where(
+            CategoryAttributeRule.is_deleted.is_(False)
         )
+        count = (
+            select(func.count())
+            .select_from(CategoryAttributeRule)
+            .where(CategoryAttributeRule.is_deleted.is_(False))
+        )
+        if search:
+            condition = CategoryAttributeRule.category_code.ilike(f"%{search.strip()}%")
+            statement = statement.where(condition)
+            count = count.where(condition)
+        ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()
+        rows = self._session.scalars(
+            statement.order_by(ordering).offset((page - 1) * page_size).limit(page_size)
+        ).all()
+        return list(rows), int(self._session.scalar(count) or 0)
+
+    def describe_category_rules(
+        self, rows: list[CategoryAttributeRule]
+    ) -> dict[UUID, tuple[str | None, str | None, str | None]]:
+        """Return the attribute code, attribute name and profile code per rule.
+
+        Read in two queries for the whole page rather than one per row, the
+        way `values_for_many` reads attribute values: a rules grid is the
+        shape that turns into a query per line without anybody noticing.
+        """
+        attribute_ids = {row.attribute_definition_id for row in rows}
+        profile_ids = {
+            row.business_profile_id for row in rows if row.business_profile_id
+        }
+        attributes = (
+            {
+                row.id: (row.code, row.name)
+                for row in self._session.scalars(
+                    select(AttributeDefinition).where(
+                        AttributeDefinition.id.in_(attribute_ids)
+                    )
+                )
+            }
+            if attribute_ids
+            else {}
+        )
+        profiles = (
+            {
+                row.id: row.code
+                for row in self._session.scalars(
+                    select(BusinessProfile).where(BusinessProfile.id.in_(profile_ids))
+                )
+            }
+            if profile_ids
+            else {}
+        )
+        described: dict[UUID, tuple[str | None, str | None, str | None]] = {}
+        for row in rows:
+            code, name = attributes.get(row.attribute_definition_id, (None, None))
+            described[row.id] = (
+                code,
+                name,
+                (
+                    profiles.get(row.business_profile_id)
+                    if row.business_profile_id
+                    else None
+                ),
+            )
+        return described
 
     def create_category_rule(
         self, data: CategoryAttributeRuleCreate, actor_id: UUID

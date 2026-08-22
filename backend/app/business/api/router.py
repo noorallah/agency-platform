@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.business.models import BusinessProfile
+from app.business.models import BusinessProfile, CategoryAttributeRule
 from app.business.schemas import (
     ActiveFeatureResponse,
     ActiveModuleResponse,
@@ -346,17 +346,49 @@ def delete_attribute_definition(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _rule_response(
+    row: CategoryAttributeRule,
+    service: BusinessProfileFrameworkService,
+    described: dict[UUID, tuple[str | None, str | None, str | None]] | None = None,
+) -> CategoryAttributeRuleResponse:
+    """Build one rule response, names included."""
+    lookup = (
+        described if described is not None else service.describe_category_rules([row])
+    )
+    attribute_code, attribute_name, profile_code = lookup.get(
+        row.id, (None, None, None)
+    )
+    response = CategoryAttributeRuleResponse.model_validate(row)
+    return response.model_copy(
+        update={
+            "attribute_code": attribute_code,
+            "attribute_name": attribute_name,
+            "business_profile_code": profile_code,
+        }
+    )
+
+
 @router.get(
     "/category-attribute-rules",
-    response_model=ApiResponse[list[CategoryAttributeRuleResponse]],
+    response_model=PaginatedResponse[CategoryAttributeRuleResponse],
 )
 def list_category_rules(
     principal: PlatformPrincipal,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    sort_by: Literal["category_code", "created_at"] = "created_at",
+    sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
-) -> ApiResponse[list[CategoryAttributeRuleResponse]]:
-    rows = _service(db).list_category_rules()
-    return ApiResponse(
-        data=[CategoryAttributeRuleResponse.model_validate(row) for row in rows]
+) -> PaginatedResponse[CategoryAttributeRuleResponse]:
+    params = PaginationParams(page=page, page_size=page_size)
+    service = _service(db)
+    rows, total = service.list_category_rules(
+        params.page, params.page_size, search, sort_by, sort_direction == "desc"
+    )
+    return PaginatedResponse(
+        data=[_rule_response(row, service) for row in rows],
+        pagination=params.metadata(total),
     )
 
 
@@ -370,8 +402,9 @@ def create_category_rule(
     principal: PlatformPrincipal,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
-    row = _service(db).create_category_rule(data, _actor_id(principal))
-    return ApiResponse(data=CategoryAttributeRuleResponse.model_validate(row))
+    service = _service(db)
+    row = service.create_category_rule(data, _actor_id(principal))
+    return ApiResponse(data=_rule_response(row, service))
 
 
 @router.put(
@@ -386,11 +419,12 @@ def update_category_rule(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
-    row = _service(db).update_category_rule(
+    service = _service(db)
+    row = service.update_category_rule(
         rule_id, data, _actor_id(principal), expected_version
     )
     set_etag(response, row)
-    return ApiResponse(data=CategoryAttributeRuleResponse.model_validate(row))
+    return ApiResponse(data=_rule_response(row, service))
 
 
 @router.delete(
