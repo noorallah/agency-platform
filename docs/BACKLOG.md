@@ -1130,6 +1130,59 @@ opening balance equity by 25,000 each, deleting them moves both back, and the
 lifecycle nets to zero. The revise path was covered at service level only,
 because the API returned no ETag to send back; that gap is closed below. **All three stores hold together** after a full reset and re-seed.
 
+## 14. Emailing a document to the party it names
+
+Deferred by the owner on 2026-08-22, after printing was built: *"email sending
+we will add to backlog and in future we will build."* Do not start it
+unprompted; this section is here so the thinking does not have to be redone.
+
+**Most of it already exists.** `GET /api/v1/sales-invoices/{id}/print` and
+`GET /api/v1/purchases/{id}/print` return the finished PDF, and those same
+bytes are what an email would attach -- the renderer was put on the backend for
+exactly this reason. `document_states.allows_email` and
+`document_timeline.email_recipient` are columns waiting for something to write
+them, and `DocumentToolbarAction.emailDocument` still exists in the desktop
+(removed from the purchase dialog on 2026-08-22 for having nothing behind it).
+
+**What does not exist is everything about actually sending.** There is no SMTP
+client, no mail configuration, and no notifications subsystem -- `app/common/notifications`
+was one of the eleven docstring-only packages deleted on 2026-08-09 for
+advertising a subsystem that was never built. Do not recreate it as an empty
+shell.
+
+### Four decisions, none of them technical
+
+1. **Whose mail server?** A per-firm SMTP account means a customer sees the bill
+   arrive from their own supplier, which is what a firm wants -- and it means
+   this platform stores a mail password per firm. One platform relay is far
+   simpler and makes every bill arrive from an address the customer does not
+   recognise, which is how invoices end up in spam folders. The tenancy
+   connection profiles in `AGENCY_TENANCY_CONNECTION_PROFILES` are the
+   precedent for per-firm credentials that live outside the database.
+2. **What happens when it bounces?** A send that fails silently is worse than
+   no email at all, because the firm believes the customer has been billed. The
+   answer needs a place for the failure to surface -- the document timeline is
+   the obvious one, since `email_recipient` is already there.
+3. **Attach or link?** An attachment is what a customer expects and what their
+   accounts department files. A link means the platform is serving documents to
+   the public internet, which is a different security problem entirely and
+   needs signed, expiring URLs.
+4. **Who may send one?** Printing is `*_VIEW`, because a printed bill shows
+   nothing the screen does not. Emailing acts on the firm's behalf to somebody
+   outside it, which is not the same permission.
+
+### What it would take once those are answered
+
+- SMTP settings per firm, credentials outside the database.
+- A send record: what was sent, to whom, when, by whom, and whether it arrived.
+  `document_timeline` already has the shape.
+- A covering message per document type, which belongs beside the print template
+  in `document_print_templates` rather than in a second table.
+- The desktop button, which already exists as an enum member.
+
+**Estimated as the same size again as printing was**, and most of that is the
+first decision rather than the code.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
