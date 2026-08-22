@@ -695,6 +695,7 @@ in `CustomerService` and belongs to that module's review.
 | 31 | `quotation` | 2026-08-22 | **none.** The negatives were asserted against a running backend rather than read: creating, sending, accepting and converting a quotation left the customer's outstanding, the unapplied advance, every reserved and on-hand quantity and the journal count **identical**. Conversion builds the order through `SalesOrderService.create_order`, so credit control, tax at the order's date and numbering all happen on the order; a second conversion is refused by name ("already became SO-2026-2027-000013"). Expiry stays derived from `valid_until` — an expired quotation cannot be accepted or converted, and nothing writes an EXPIRED status | nothing to fix |
 | 32 | `diagnostics` | 2026-08-22 | **two, both in the part that had no test.** (1) Every server-recorded fault carried a NULL request id — 28 of 28 — so the screenshot-to-traceback join the module exists for could never be made: the handler read a context variable that `CoreRequestMiddleware` has already reset, because a bare-`Exception` handler is served by `ServerErrorMiddleware` from outside it. (2) Server faults grouped by exception type alone: the fingerprint hashed the **first** five frames, which are always the ASGI plumbing, so 28 `ValidationError`s from **four** endpoints shared one identity and the screen showed whichever context came first | yes — `request_id_for` reads `request.state`, and the fingerprint takes this codebase's frames nearest the raise; both proven on the four stored tracebacks |
 | 33 | **second pass** over the nine modules first reviewed 2026-08-09 (`sales_invoice`, `goods_receipt`, `firms`, `purchase_invoice`, `purchase_return`, `delivery_note`, `sales_order`, `tax`, `uom`) | 2026-08-22 | **one, and it is data rather than code.** Two of the three stores fail the stock-versus-ledger invariant, and the drift is exactly the stock value backed out by goods-receipt reversals whose journal was never mirrored: `firm_shared` out by 52,582.436 against 52,582.437 of such reversals, `wholesale_hub` out by 3,971.21 with 4,009.67 attributable and 38.46 left over. Every one of those cancellations happened on 2026-08-18 -- the day the fix landed -- and the only one carrying a mirror is the last. The code is right; nobody backfilled what the defect had already written. Nothing else moved: every period balances, customers match the receivable account, settlements all reached the ledger, approved invoices all posted, no stock row is negative or fails `available = current - reserved - blocked`, and nothing is left reserved in any store | the verifier now names this cause when the arithmetic agrees; the demo data itself wants a re-seed |
+| 34 | **cancel paths**, driven on freshly seeded data (`goods_receipt`, `delivery_note`, `sales_invoice`, `purchase_invoice`, `sales_order`, `sales_return`) | 2026-08-22 | **one, and it is live.** Cancelling a completed goods receipt reverses the journal at the price the goods came in at and the stock at today's moving average, so the two disagree by whatever the average has moved since. Measured on ELEC01: a receipt of 60 units at 134.00 posted 8,040.00; cancelling mirrored the full 8,040.00 out of the inventory account while the stock reversal removed 60 × 95.876591 = 5,752.60, leaving the store out by 2,287.42 -- from balanced to broken in one request. Every other cancel path held: the receipt and delivery-note refusals fire for stated reasons, and the sales-invoice, purchase-invoice and sales-order cancels each left all five checks passing | **not fixed -- it needs a decision.** Which side is right is an accounting question, and the difference has to land in some account. Written up below and in `docs/BACKLOG.md` |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -811,3 +812,54 @@ nothing left reserved anywhere); no stock row in any store is negative or
 disagrees with `available = current - reserved - blocked`; every journal entry
 balances; customers match the receivable control account in all three stores;
 `ELEC01` passes all five checks outright.
+
+### 34 the cancel paths, and the one that is still wrong
+
+The seeders only ever drive the happy path, so nothing in the demo data has ever
+been cancelled. Two of this week's defects were in cancel paths, so with three
+freshly seeded stores and a verifier that answers in seconds, the obvious pass
+was: cancel one of everything and ask the books after each.
+
+Driven on ELEC01 — a dedicated database, so a drift there is unambiguous:
+
+| cancelled | result | books after |
+| --- | --- | --- |
+| goods receipt | refused: *"has been invoiced… cancel the purchase invoice first"* | 5/5 |
+| delivery note | refused: *"can no longer be cancelled"* | 5/5 |
+| sales invoice | 200 | 5/5 |
+| purchase invoice | 200 | 5/5 |
+| sales order | 200 | 5/5 |
+| **goods receipt**, after cancelling its invoice as instructed | **200** | **1 problem** |
+
+**The finding.** `_reverse_receipt_journal` mirrors the entry the receipt
+posted — the full amount, at the price the goods arrived at — while
+`_reverse_inventory` takes the stock back out at **today's** moving average.
+Those are the same number only until something else is received at a different
+price:
+
+```
+receipt   60 units @ 134.000000  → posted     8,040.00 to INVENTORY
+cancel    60 units @  95.876591  → removed    5,752.60 of stock value
+                                   mirrored  -8,040.00 from INVENTORY
+                                   drift      2,287.42
+```
+
+**The codebase already has an opinion about this, twice.** Both return modules
+value their posting from the stock ledger rather than from the document, and
+say why in the code: *"stock leaves at the moving average it was carried at, and
+the two are routinely different."* By that convention the ledger follows the
+movement, and the receipt cancel is the odd one out.
+
+**It is not fixed here, because the difference has to go somewhere.** Posting
+the mirror at the movement value leaves 2,287.42 unaccounted for, and under
+weighted-average costing that residue is a real valuation adjustment that
+belongs in a named account. Choosing that account is an accounting decision, not
+a refactor. The alternative — unwinding the average to what it was before the
+receipt — is a change to the valuation engine rather than to this method.
+Recorded in `docs/BACKLOG.md` as an open decision with both options.
+
+**What this pass cost and returned.** One store had to be regenerated
+afterwards (`generate_transaction_history.py --firm ELEC01 --years 3 --reset
+--yes`), and all three stores pass again. The defect had survived a review pass
+in 2026-08-09, a fix to its neighbour in 2026-08-18 and a second pass in
+2026-08-22 that read the code — and took one cancel to find.
