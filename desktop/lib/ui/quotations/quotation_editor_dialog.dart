@@ -367,20 +367,20 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: TextFormField(
-                controller: line.unitPrice,
-                decoration: const InputDecoration(labelText: 'Unit price'),
+                controller: line.free,
+                decoration: const InputDecoration(labelText: 'Free'),
                 keyboardType: TextInputType.number,
-                validator: (value) => _positive(value, 'price'),
+                validator: _freeQuantity,
                 onChanged: (_) => setState(() {}),
               ),
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(
               child: TextFormField(
-                controller: line.free,
-                decoration: const InputDecoration(labelText: 'Free'),
+                controller: line.unitPrice,
+                decoration: const InputDecoration(labelText: 'Unit price'),
                 keyboardType: TextInputType.number,
-                validator: _freeQuantity,
+                validator: (value) => _positive(value, 'price'),
                 onChanged: (_) => setState(() {}),
               ),
             ),

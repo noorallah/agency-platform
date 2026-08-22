@@ -1004,6 +1004,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               'Default discount %',
               nonNegative: true,
               maximum: 100,
+              blankIsZero: true,
             ),
             _number('opening_balance', 'Opening balance'),
             _number(
@@ -1365,12 +1366,17 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     bool integer = false,
     bool nonNegative = false,
     num? maximum,
+    bool blankIsZero = false,
   }) =>
       TextFormField(
         controller: _fields[key],
         readOnly: _readOnly,
         decoration: InputDecoration(labelText: label),
         validator: (value) {
+          // An emptied discount box reads as "none" and nothing else, so it
+          // is accepted and sent as zero. A blank credit limit is genuinely
+          // ambiguous -- unlimited, or none? -- and still has to be typed.
+          if (blankIsZero && (value ?? '').trim().isEmpty) return null;
           final num? parsed = integer
               ? int.tryParse(value ?? '')
               : double.tryParse(value ?? '');
