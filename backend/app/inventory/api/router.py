@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -435,13 +436,20 @@ def update_opening_stock(
     batch_id: UUID,
     data: OpeningStockUpdate,
     scope: OpeningStockUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[OpeningStockBatchResponse]:
     """Change a draft opening-stock batch."""
     service = InventoryService(db)
     row = service.update_opening_stock_batch(
-        batch_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        batch_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=service.opening_stock_batch_response(row))
 
 
@@ -815,13 +823,20 @@ def update_inventory(
     inventory_id: UUID,
     data: InventoryUpdate,
     scope: InventoryAdjustScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[InventoryResponse]:
     """Change a stock projection's thresholds and status."""
     service = InventoryService(db)
     row = service.update_inventory_record(
-        inventory_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        inventory_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=service.inventory_response(row))
 
 

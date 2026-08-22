@@ -74,6 +74,9 @@ class _SalesApi extends ApiClient {
 
   Json? created;
   Json? updated;
+  /// What the screen sent as `If-Match`.
+  int? sentVersion;
+
   String? deletedId;
 
   @override
@@ -94,6 +97,7 @@ class _SalesApi extends ApiClient {
     String id,
     Json body, {
     bool partial = false,
+    int? expectedVersion,
   }) async {
     updated = <String, dynamic>{'resource': resource, 'id': id, ...body};
     return <String, dynamic>{'data': body};
@@ -141,8 +145,13 @@ class _SalesApi extends ApiClient {
   }
 
   @override
-  Future<BeatPlanRecord> updateBeatPlan(String id, Json data) async {
+  Future<BeatPlanRecord> updateBeatPlan(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async {
     updated = data;
+    sentVersion = expectedVersion;
     return BeatPlanRecord.fromJson(<String, dynamic>{...data, 'id': id});
   }
 }

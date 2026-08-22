@@ -133,6 +133,8 @@ class BatchResponse(BatchSchema):
     shelf_life_days: int | None
     remarks: str | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -227,6 +229,8 @@ class LotResponse(LotSchema):
     expiry_date: date | None
     remarks: str | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 
@@ -305,6 +309,8 @@ class SerialResponse(SerialSchema):
     asset_reference: str | None
     remarks: str | None
     is_deleted: bool
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     created_at: datetime
     updated_at: datetime
 

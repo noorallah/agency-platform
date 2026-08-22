@@ -55,6 +55,7 @@ Json _territoryJson({
 }) =>
     <String, dynamic>{
       'id': id,
+      'version': 7,
       'firm_id': 'firm-1',
       'hierarchy_level_id': 'lvl-route',
       'hierarchy_level_name': 'Route',
@@ -103,6 +104,9 @@ class _TerritoryApi extends ApiClient {
 
   Json? created;
   Json? updated;
+  /// What the screen sent as `If-Match`.
+  int? sentVersion;
+
   TerritoryQuery? lastQuery;
   List<String>? assignedCustomerIds;
   List<TerritoryCustomerAssignmentRecord>? sentAssignments;
@@ -174,8 +178,13 @@ class _TerritoryApi extends ApiClient {
   }
 
   @override
-  Future<SalesTerritory> updateTerritory(String id, Json data) async {
+  Future<SalesTerritory> updateTerritory(
+    String id,
+    Json data, {
+    int? expectedVersion,
+  }) async {
     updated = data;
+    sentVersion = expectedVersion;
     return SalesTerritory.fromJson(territory);
   }
 
@@ -505,6 +514,9 @@ void main() {
     expect(profile['effective_from'], '2026-04-01');
     expect(profile['effective_to'], '2027-03-31');
     expect(profile['city_id'], 'city-9');
+    // And the save carries the version the row was read at, so a second
+    // editor is refused rather than quietly overwriting this one.
+    expect(api.sentVersion, 7);
   });
 
   testWidgets('customers are picked from a list, not typed as UUIDs',

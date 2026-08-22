@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -143,7 +144,11 @@ class _BeatPlanManagementPageState extends State<BeatPlanManagementPage> {
       if (current == null) {
         await widget.api.createBeatPlan(result);
       } else {
-        await widget.api.updateBeatPlan(current.id, result);
+        await widget.api.updateBeatPlan(
+          current.id,
+          result,
+          expectedVersion: preconditionFor(current.version),
+        );
       }
       await _loadAll();
       if (!mounted) return;
@@ -156,7 +161,7 @@ class _BeatPlanManagementPageState extends State<BeatPlanManagementPage> {
       if (!mounted) return;
       NotificationService.show(
         context,
-        exception.message,
+        saveFailureMessage(exception, 'beat plan', changesKept: false),
         kind: AppNotificationKind.error,
       );
     }

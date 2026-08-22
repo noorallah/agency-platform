@@ -13,6 +13,7 @@ from datetime import date
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -193,6 +194,7 @@ def test_route_types_can_be_edited_and_deleted_through_the_api() -> None:
         created.id,
         RouteTypeWrite(code="COLL", name="Collection Round"),
         scope=scope,
+        response=Response(),
         db=session,
     )
     assert renamed.data is not None

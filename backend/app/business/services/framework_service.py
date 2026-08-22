@@ -34,6 +34,7 @@ from app.business.schemas import (
 )
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
+from app.core.concurrency import assert_version
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -115,9 +116,14 @@ class BusinessProfileFrameworkService:
         return profile
 
     def update_profile(
-        self, profile_id: UUID, data: BusinessProfileUpdate, actor_id: UUID
+        self,
+        profile_id: UUID,
+        data: BusinessProfileUpdate,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> BusinessProfile:
         profile = self.get_profile(profile_id)
+        assert_version(profile.version, expected_version)
         self._assert_unique(BusinessProfile, data.code, current_id=profile.id)
         # exclude_unset, so a payload that mentions only the name leaves the
         # status, the default flag and the settings alone. An explicit null
@@ -211,9 +217,14 @@ class BusinessProfileFrameworkService:
         return row
 
     def update_feature(
-        self, feature_id: UUID, data: BusinessFeatureUpdate, actor_id: UUID
+        self,
+        feature_id: UUID,
+        data: BusinessFeatureUpdate,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> BusinessFeature:
         feature = self.get_feature(feature_id)
+        assert_version(feature.version, expected_version)
         self._assert_unique(BusinessFeature, data.code, current_id=feature.id)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(feature, field, value)
@@ -328,9 +339,14 @@ class BusinessProfileFrameworkService:
         return row
 
     def update_module(
-        self, module_id: UUID, data: BusinessModuleUpdate, actor_id: UUID
+        self,
+        module_id: UUID,
+        data: BusinessModuleUpdate,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> BusinessModule:
         module = self.get_module(module_id)
+        assert_version(module.version, expected_version)
         self._assert_unique(BusinessModule, data.code, current_id=module.id)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(module, field, value)
@@ -429,9 +445,14 @@ class BusinessProfileFrameworkService:
         return row
 
     def update_attribute(
-        self, attribute_id: UUID, data: AttributeDefinitionUpdate, actor_id: UUID
+        self,
+        attribute_id: UUID,
+        data: AttributeDefinitionUpdate,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> AttributeDefinition:
         row = self.get_attribute(attribute_id)
+        assert_version(row.version, expected_version)
         self._assert_unique(AttributeDefinition, data.code, current_id=row.id)
         if data.applicable_business_profile_id is not None:
             self.get_profile(data.applicable_business_profile_id)
@@ -494,9 +515,14 @@ class BusinessProfileFrameworkService:
         return row
 
     def update_category_rule(
-        self, rule_id: UUID, data: CategoryAttributeRuleUpdate, actor_id: UUID
+        self,
+        rule_id: UUID,
+        data: CategoryAttributeRuleUpdate,
+        actor_id: UUID,
+        expected_version: int | None = None,
     ) -> CategoryAttributeRule:
         row = self.get_category_rule(rule_id)
+        assert_version(row.version, expected_version)
         if data.business_profile_id is not None:
             self.get_profile(data.business_profile_id)
         self.get_attribute(data.attribute_definition_id)

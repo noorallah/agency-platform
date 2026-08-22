@@ -29,6 +29,7 @@ from app.batch_serial.schemas import (
 from app.batch_serial.services import BatchSerialService
 from app.business.gating import require_feature
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -161,13 +162,20 @@ def update_batch(
     batch_id: UUID,
     data: BatchUpdate,
     scope: BatchUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[BatchResponse]:
     """Change a batch."""
     service = BatchSerialService(db)
     record = service.update_batch(
-        firm_scope=scope.firm_id, actor_id=scope.actor_id, batch_id=batch_id, data=data
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        batch_id=batch_id,
+        data=data,
+        expected_version=expected_version,
     )
+    set_etag(response, record)
     return ApiResponse(data=service.batch_response(record, firm_scope=scope.firm_id))
 
 
@@ -269,12 +277,19 @@ def update_lot(
     lot_id: UUID,
     data: LotUpdate,
     scope: BatchUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[LotResponse]:
     """Change a lot."""
     record = BatchSerialService(db).update_lot(
-        firm_scope=scope.firm_id, actor_id=scope.actor_id, lot_id=lot_id, data=data
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        lot_id=lot_id,
+        data=data,
+        expected_version=expected_version,
     )
+    set_etag(response, record)
     return ApiResponse(data=LotResponse.model_validate(record))
 
 
@@ -380,7 +395,9 @@ def update_serial(
     serial_id: UUID,
     data: SerialUpdate,
     scope: SerialUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SerialResponse]:
     """Change a serial number."""
     record = BatchSerialService(db).update_serial(
@@ -388,7 +405,9 @@ def update_serial(
         actor_id=scope.actor_id,
         serial_id=serial_id,
         data=data,
+        expected_version=expected_version,
     )
+    set_etag(response, record)
     return ApiResponse(data=SerialResponse.model_validate(record))
 
 

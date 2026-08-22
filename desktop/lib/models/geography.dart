@@ -109,6 +109,7 @@ class GeoPlaceRecord {
     this.iso2 = '',
     this.iso3 = '',
     this.phoneCode = '',
+    this.version = 0,
   });
 
   final GeoLevel level;
@@ -126,6 +127,11 @@ class GeoPlaceRecord {
   final String iso3;
   final String phoneCode;
 
+  /// The optimistic-concurrency version this row was read at, sent back as
+  /// `If-Match` on save so a concurrent edit is refused rather than silently
+  /// overwritten. Zero means the server published none.
+  final int version;
+
   factory GeoPlaceRecord.fromJson(GeoLevel level, Json json) {
     final String postal = stringValue(json['postal_code']);
     final String name = stringValue(json['name']);
@@ -141,6 +147,7 @@ class GeoPlaceRecord {
       iso2: stringValue(json['iso2']),
       iso3: stringValue(json['iso3']),
       phoneCode: stringValue(json['phone_code']),
+      version: (json['version'] as num?)?.toInt() ?? 0,
     );
   }
 

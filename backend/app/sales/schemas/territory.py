@@ -70,6 +70,8 @@ class GeoCountryWrite(GeoMasterWrite):
 
 class GeoCountryResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     code: str
     name: str
     iso2: str | None
@@ -84,6 +86,8 @@ class GeoStateWrite(GeoMasterWrite):
 
 class GeoStateResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     country_id: UUID
     code: str
     name: str
@@ -96,6 +100,8 @@ class GeoDistrictWrite(GeoMasterWrite):
 
 class GeoDistrictResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     state_id: UUID
     code: str
     name: str
@@ -108,6 +114,8 @@ class GeoCityWrite(GeoMasterWrite):
 
 class GeoCityResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     district_id: UUID
     code: str
     name: str
@@ -122,6 +130,8 @@ class GeoPostalCodeWrite(TerritorySchema):
 
 class GeoPostalCodeResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     city_id: UUID
     postal_code: str
     is_active: bool
@@ -135,6 +145,8 @@ class GeoLocalityWrite(TerritorySchema):
 
 class GeoLocalityResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     postal_code_id: UUID
     name: str
     is_active: bool
@@ -179,6 +191,8 @@ class RouteTypeWrite(TerritorySchema):
 
 class RouteTypeResponse(TerritorySchema):
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     code: str
     name: str
     description: str | None
@@ -317,6 +331,8 @@ class TerritoryResponse(TerritorySchema):
     """Response contract for one territory node."""
 
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     firm_id: UUID
     business_profile_id: UUID | None
     hierarchy_level_id: UUID
@@ -731,6 +747,8 @@ class BeatPlanResponse(TerritorySchema):
     """Persisted beat-plan response envelope."""
 
     id: UUID
+    #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    version: int
     firm_id: UUID
     business_profile_id: UUID | None
     territory_id: UUID
