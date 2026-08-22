@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.exc import StaleDataError
 
+from app.core.constants.core import HEADER_CORRELATION_ID, HEADER_REQUEST_ID
 from app.core.context import get_request_context
 from app.core.error_codes import ErrorCode
 from app.core.exceptions.base import ApplicationError
@@ -124,13 +125,28 @@ async def database_error_handler(_: Request, exception: Exception) -> JSONRespon
 async def unhandled_exception_handler(
     request: Request, exception: Exception
 ) -> JSONResponse:
-    """Log an unexpected exception and return a safe server error."""
+    """Log an unexpected exception and return a safe server error.
+
+    The request id is put on the response explicitly. Every other error
+    response gets one for free -- the model reads it from the context variable,
+    and the middleware stamps the headers -- but neither happens here: this
+    handler is served by ``ServerErrorMiddleware`` from outside
+    ``CoreRequestMiddleware``, which has already reset the variable and never
+    sees the response to stamp it.
+
+    So the one response that writes a diagnostics row was the one response that
+    told the caller nothing to quote, while the row itself records the id. A
+    user's screenshot of a 500 could not be joined to its traceback -- which is
+    the entire reason the row is written.
+    """
     logger.exception("Unhandled application exception", exc_info=exception)
+    request_id = request_id_for(request)
     _persist_server_error(request, exception)
     return _error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code=ErrorCode.INTERNAL_SERVER_ERROR,
         message="An unexpected error occurred.",
+        request_id=request_id,
     )
 
 
@@ -202,9 +218,20 @@ def _error_response(
     message: str,
     details: object | None = None,
     response_model: type[ErrorResponse] = ErrorResponse,
+    request_id: str | None = None,
 ) -> JSONResponse:
-    """Build a JSON error response from normalized error fields."""
+    """Build a JSON error response from normalized error fields.
+
+    ``request_id`` is for a caller outside the middleware, where the model
+    cannot read one for itself and nothing downstream will stamp the headers.
+    Handlers inside the stack pass nothing and keep the default.
+    """
     payload = response_model(
-        error=ApiError(code=code, message=message, details=details)
+        error=ApiError(code=code, message=message, details=details),
+        **({"request_id": request_id} if request_id is not None else {}),
     ).model_dump(mode="json", by_alias=True, exclude_none=True)
-    return JSONResponse(status_code=status_code, content=payload)
+    response = JSONResponse(status_code=status_code, content=payload)
+    if request_id is not None:
+        response.headers[HEADER_REQUEST_ID] = request_id
+        response.headers[HEADER_CORRELATION_ID] = request_id
+    return response
