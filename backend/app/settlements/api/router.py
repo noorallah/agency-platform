@@ -263,6 +263,48 @@ def record_refund(
     )
 
 
+@refunds_router.get("/{refund_id}", response_model=ApiResponse[SettlementResponse])
+def get_refund(
+    refund_id: UUID,
+    scope: RefundViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Return one refund."""
+    service = RefundService(db)
+    return ApiResponse(
+        data=_to_response(service, service.get(refund_id, firm_id=scope.firm_id))
+    )
+
+
+@refunds_router.post(
+    "/{refund_id}/reverse", response_model=ApiResponse[SettlementResponse]
+)
+def reverse_refund(
+    refund_id: UUID,
+    payload: SettlementReverseRequest,
+    scope: RefundCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Take a refund back, in the ledger and on the customer's account.
+
+    Receipts and payments have had this since the module was written and
+    refunds did not, while the desktop offers Reverse on every settlement row
+    whatever its direction -- so the button answered 405 on the one screen out
+    of three. `SettlementService.reverse` was always inherited; only the route
+    was missing, and the reversal of the customer's advance with it.
+    """
+    service = RefundService(db)
+    row = service.reverse(
+        refund_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=payload.reason,
+    )
+    db.commit()
+    db.refresh(row)
+    return ApiResponse(data=_to_response(service, row), message="Refund reversed.")
+
+
 @payments_router.get("", response_model=PaginatedResponse[SettlementResponse])
 def list_payments(
     scope: PaymentViewScope,

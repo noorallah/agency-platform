@@ -802,3 +802,64 @@ def test_a_refund_is_not_applied_to_an_invoice() -> None:
             firm_id=books.firm.id,
             actor_id=books.actor_id,
         )
+
+
+def test_reversing_a_refund_puts_the_advance_back() -> None:
+    """The refund's own defect, and the reason its endpoint could not just be added.
+
+    `reverse` put the customer's balances back only for a receipt, while
+    `create` posts a receivable transaction for a **refund** as well -- handing
+    an advance back is what a refund is. Nothing exposed it, because the router
+    had no reverse route for refunds at all; the desktop offered the button
+    anyway and got a 405. Wiring the route without this would have mirrored the
+    journal and left the customer's advance short by the whole refund.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "500.00")
+    books.session.commit()
+
+    service = RefundService(books.session)
+    refund = service.create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=WHEN,
+            amount=Decimal("200.00"),
+            method=SettlementMethodEnum.BANK,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    books.session.refresh(books.customer)
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+
+    reversed_row = service.reverse(
+        refund.id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        reason="Paid the wrong account",
+    )
+    books.session.commit()
+
+    books.session.refresh(books.customer)
+    assert books.customer.unapplied_advance_balance == Decimal(
+        "200.00"
+    ), "the advance the refund handed back is held again"
+    assert books.customer.current_outstanding == Decimal("0.00")
+    assert reversed_row.status == "REVERSED"
+
+    mirror = books.session.execute(
+        select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+        .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+        .where(GLPosting.journal_entry_id == reversed_row.reversal_journal_entry_id)
+    ).all()
+    postings = {code: (debit, credit) for code, debit, credit in mirror}
+    assert postings["1100"] == (
+        Decimal("0.00"),
+        Decimal("200.00"),
+    ), "the customer is owed the advance again"
+    assert postings["1010"] == (
+        Decimal("200.00"),
+        Decimal("0.00"),
+    ), "the bank has the money back"
