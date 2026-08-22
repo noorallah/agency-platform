@@ -17,11 +17,22 @@ from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
-from app.finance.models import GLPosting, JournalEntry, LedgerAccount
+from app.finance.models import (
+    FirmControlAccount,
+    GLPosting,
+    JournalEntry,
+    LedgerAccount,
+)
+from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
-from app.inventory.models import InventoryRecord, InventoryTransaction, StockLedgerEntry
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    ProductValuation,
+    StockLedgerEntry,
+)
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -746,3 +757,100 @@ def test_a_cancelled_return_is_left_out_of_the_line_reports() -> None:
     assert service.reconciliation_report(firm_scope=firm.id) == []
     assert service.by_product_report(firm_scope=firm.id) == []
     assert service.by_vendor_report(firm_scope=firm.id) == []
+
+
+def _inventory_account_balance(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the inventory control account currently holds."""
+    total = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .select_from(GLPosting)
+        .join(
+            FirmControlAccount,
+            FirmControlAccount.ledger_account_id == GLPosting.ledger_account_id,
+        )
+        .where(
+            FirmControlAccount.firm_id == firm_id,
+            FirmControlAccount.purpose == ControlAccountPurpose.INVENTORY.value,
+            FirmControlAccount.is_deleted.is_(False),
+            GLPosting.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def _warehouse_value(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the warehouse says its stock is worth."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(ProductValuation.total_value), 0)).where(
+            ProductValuation.firm_id == firm_id,
+            ProductValuation.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def test_cancelling_a_completed_purchase_return_takes_its_journal_back() -> None:
+    """The goods came back on the shelf and every posting stayed on the books.
+
+    Completing a return debits payables for the supplier's credit note,
+    reverses the input tax and credits inventory. `cancel_return` reversed the
+    stock and never touched the ledger, so the firm still showed the supplier
+    owing it for goods it had kept -- the same defect `goods_receipt` carried
+    until 2026-08-18, sitting unfixed in its mirror module.
+
+    Found on 2026-08-22 by cancelling one on a seeded store: balanced before,
+    199.07 out afterwards.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+    session.expire_all()
+    before_stock = _warehouse_value(session, firm.id)
+    before_ledger = _inventory_account_balance(session, firm.id)
+    assert before_stock == before_ledger, "the two books start in step"
+
+    service.cancel_return(
+        row.id, firm_scope=firm.id, actor_id=uuid4(), reason="vendor refused"
+    )
+    session.expire_all()
+
+    # The invariant `scripts/verify_sample_data.py` checks first.
+    assert _warehouse_value(session, firm.id) == _inventory_account_balance(
+        session, firm.id
+    )
+
+    entries = list(
+        session.scalars(
+            select(JournalEntry)
+            .where(
+                JournalEntry.source_module == "purchase_return",
+                JournalEntry.source_id == row.id,
+                JournalEntry.is_deleted.is_(False),
+            )
+            .order_by(JournalEntry.created_at)
+        ).all()
+    )
+    assert len(entries) == 2, "cancelling has to raise a reversal"
+    original, reversal = entries
+    assert reversal.reversal_of_id == original.id
+    assert reversal.total_debit == reversal.total_credit
+    # Payables nets to nothing: the credit note is void either way.
+    payable = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .select_from(GLPosting)
+        .join(
+            FirmControlAccount,
+            FirmControlAccount.ledger_account_id == GLPosting.ledger_account_id,
+        )
+        .where(
+            FirmControlAccount.firm_id == firm.id,
+            FirmControlAccount.purpose == ControlAccountPurpose.ACCOUNTS_PAYABLE.value,
+            FirmControlAccount.is_deleted.is_(False),
+            GLPosting.is_deleted.is_(False),
+        )
+    )
+    assert Decimal(str(payable or 0)) == Decimal("0")

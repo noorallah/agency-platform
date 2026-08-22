@@ -696,6 +696,7 @@ in `CustomerService` and belongs to that module's review.
 | 32 | `diagnostics` | 2026-08-22 | **two, both in the part that had no test.** (1) Every server-recorded fault carried a NULL request id — 28 of 28 — so the screenshot-to-traceback join the module exists for could never be made: the handler read a context variable that `CoreRequestMiddleware` has already reset, because a bare-`Exception` handler is served by `ServerErrorMiddleware` from outside it. (2) Server faults grouped by exception type alone: the fingerprint hashed the **first** five frames, which are always the ASGI plumbing, so 28 `ValidationError`s from **four** endpoints shared one identity and the screen showed whichever context came first | yes — `request_id_for` reads `request.state`, and the fingerprint takes this codebase's frames nearest the raise; both proven on the four stored tracebacks |
 | 33 | **second pass** over the nine modules first reviewed 2026-08-09 (`sales_invoice`, `goods_receipt`, `firms`, `purchase_invoice`, `purchase_return`, `delivery_note`, `sales_order`, `tax`, `uom`) | 2026-08-22 | **one, and it is data rather than code.** Two of the three stores fail the stock-versus-ledger invariant, and the drift is exactly the stock value backed out by goods-receipt reversals whose journal was never mirrored: `firm_shared` out by 52,582.436 against 52,582.437 of such reversals, `wholesale_hub` out by 3,971.21 with 4,009.67 attributable and 38.46 left over. Every one of those cancellations happened on 2026-08-18 -- the day the fix landed -- and the only one carrying a mirror is the last. The code is right; nobody backfilled what the defect had already written. Nothing else moved: every period balances, customers match the receivable account, settlements all reached the ledger, approved invoices all posted, no stock row is negative or fails `available = current - reserved - blocked`, and nothing is left reserved in any store | the verifier now names this cause when the arithmetic agrees; the demo data itself wants a re-seed |
 | 34 | **cancel paths**, driven on freshly seeded data (`goods_receipt`, `delivery_note`, `sales_invoice`, `purchase_invoice`, `sales_order`, `sales_return`) | 2026-08-22 | **one, and it is live.** Cancelling a completed goods receipt reverses the journal at the price the goods came in at and the stock at today's moving average, so the two disagree by whatever the average has moved since. Measured on ELEC01: a receipt of 60 units at 134.00 posted 8,040.00; cancelling mirrored the full 8,040.00 out of the inventory account while the stock reversal removed 60 × 95.876591 = 5,752.60, leaving the store out by 2,287.42 -- from balanced to broken in one request. Every other cancel path held: the receipt and delivery-note refusals fire for stated reasons, and the sales-invoice, purchase-invoice and sales-order cancels each left all five checks passing | yes -- the reversal now credits inventory with what the movement removed and books the gap to `PURCHASE_PRICE_VARIANCE`, the account `post_purchase_return` already uses for the same reason. Driven on ELEC01: the sequence that put it 2,287.42 out leaves all five checks passing, and the entry reads Dr goods received not invoiced 12,000.00 / Cr inventory 11,943.90 / Cr variance 56.10 against a movement of 11,943.8959 |
+| 35 | **cancel paths, the three the first sweep could not reach** (`purchase_return`, `sales_return` with real money, `delivery_note`) | 2026-08-22 | **one, the mirror of a defect fixed four days earlier.** Cancelling a completed purchase return reversed the stock and never touched the ledger -- no `reverse_entry`, no stored entry id, nothing -- so the payable, the input tax and the inventory credit all stayed on the books while the goods went back on the shelf. `goods_receipt` carried exactly this until 2026-08-18; nobody looked at its mirror. One cancellation put ELEC01 199.07 out. `sales_return` came back clean on a 212.40 return -- the customer moved 133,220.55 → 133,008.15 and back to the penny -- and no delivery note in seeded data is cancellable at all: every one is DISPATCHED, which is deliberately terminal | yes -- `reverse_purchase_return` mirrors the payable and tax legs and debits inventory with what the movement put back, difference to variance |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -876,3 +877,42 @@ afterwards (`generate_transaction_history.py --firm ELEC01 --years 3 --reset
 --yes`), and all three stores pass again. The defect had survived a review pass
 in 2026-08-09, a fix to its neighbour in 2026-08-18 and a second pass in
 2026-08-22 that read the code — and took one cancel to find.
+
+### 35 the rest of the cancel paths
+
+Row 34 left three unreached: `purchase_return` had none seeded, the
+`sales_return` probe built one worth nothing, and every delivery note it tried
+refused. All three post to the ledger and move stock, which is the pairing that
+has now produced four defects.
+
+**`purchase_return` — the same defect, in the mirror module.** Completing a
+return debits payables for the supplier's credit note, reverses the input tax
+and credits inventory. `cancel_return` reversed the stock and stopped: no
+`reverse_entry` call, no `JournalEntryEngine` import, not even a
+`journal_entry_id` on the model. So a cancelled return left the firm showing a
+supplier owing it for goods it had kept, and the store 199.07 out on one
+cancellation.
+
+`goods_receipt` carried precisely this until 2026-08-18. When it was fixed,
+nobody asked which other module had the same shape. The fix here is the one
+written that morning: mirror the payable and tax legs, debit inventory with what
+the movement actually put back, and let purchase price variance carry the
+difference.
+
+**`sales_return` — clean, and this time it meant something.** The first probe
+built a return worth nothing, because every delivery-note line in seeded data
+carries `unit_price = 0` while every sales-invoice line carries a real one.
+Sourced from an invoice instead: a 212.40 return moved the customer from
+133,220.55 to 133,008.15 on completion and back to 133,220.55 on cancellation,
+with the books passing at every step. The advance-split fix of the same morning
+holds against real money.
+
+**`delivery_note` — nothing to test.** Every note in every seeded store is
+DISPATCHED, and a dispatched note is deliberately not cancellable: the goods
+have gone, and the way back is a sales return. The refusal *is* the behaviour,
+and it fires.
+
+**One thing worth knowing about the data:** a delivery note line carries no
+price. That is defensible -- a dispatch is about quantity, and the money is on
+the invoice -- but it means a sales return raised from a delivery note is worth
+nothing until somebody types a price, and the operator gets no default.

@@ -403,6 +403,99 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def reverse_purchase_return(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        return_number: str,
+        stock_value: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Take a cancelled purchase return off the books.
+
+        The return debited payables for the whole credit note, reversed the
+        input tax and credited inventory with what the goods actually cost.
+        Cancelling puts the goods back on the shelf, so all of that has to come
+        back out -- and until 2026-08-22 none of it did: `cancel_return`
+        reversed the stock and never touched the ledger, which is the same
+        defect `goods_receipt` carried until 2026-08-18. Measured on a seeded
+        store, one cancellation left it 199.07 out.
+
+        Payables and input tax mirror exactly: they are document amounts and
+        the supplier's credit note is void either way. Inventory is debited
+        with what the movement actually put back, at the average the stock is
+        carried at now, and the difference lands in purchase price variance --
+        the same rule a cancelled goods receipt follows.
+
+        Args:
+            firm_id: The owning firm.
+            entry_id: The entry the return posted when it completed.
+            return_number: The return's number, used as the reference.
+            stock_value: What the reversing movements put back on the shelf.
+            actor_id: The user cancelling the return.
+
+        Returns:
+            The posted reversal.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, PURCHASE_RETURN_PURPOSES)
+        original = self._journals.get_entry(entry_id, firm_id=firm_id)
+        inventory_id = accounts[ControlAccountPurpose.INVENTORY]
+        variance_id = accounts[ControlAccountPurpose.PURCHASE_PRICE_VARIANCE]
+        stock = quantize_ledger(quantize_money(stock_value))
+
+        lines: list[JournalLineData] = []
+        credited_for_stock = ZERO
+        for line in original.lines:
+            if line.ledger_account_id == inventory_id:
+                credited_for_stock += line.credit_amount - line.debit_amount
+                continue
+            if line.ledger_account_id == variance_id:
+                # Folded into the one variance line below, so the reversal
+                # carries a single figure rather than two that have to be read
+                # together. Same sign as the inventory leg: between them they
+                # carry the goods value the payable was raised for.
+                credited_for_stock += line.credit_amount - line.debit_amount
+                continue
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=line.ledger_account_id,
+                    cost_center_id=line.cost_center_id,
+                    profit_center_id=line.profit_center_id,
+                    debit_amount=line.credit_amount,
+                    credit_amount=line.debit_amount,
+                    description=f"Cancelled {return_number}",
+                )
+            )
+        lines.append(
+            JournalLineData(
+                ledger_account_id=inventory_id,
+                debit_amount=stock,
+                description=f"Goods back on the shelf from {return_number}",
+            )
+        )
+        variance = quantize_ledger(credited_for_stock) - stock
+        if variance != ZERO:
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=variance_id,
+                    debit_amount=variance if variance > ZERO else ZERO,
+                    credit_amount=-variance if variance < ZERO else ZERO,
+                    description=f"Valuation difference cancelling {return_number}",
+                )
+            )
+        return self._journals.reverse_entry(
+            entry_id,
+            firm_id=firm_id,
+            reference_number=f"{return_number}-REV",
+            actor_id=actor_id,
+            lines=lines,
+        )
+
     def post_stock_adjustment(
         self,
         *,
