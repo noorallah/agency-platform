@@ -268,25 +268,41 @@ def _every_period_balances(connection: object, result: _Result) -> None:
 
 
 def _customers_against_the_ledger(connection: object, result: _Result) -> None:
-    """Compare what customers owe against the receivable control account."""
+    """Compare net customer exposure against the receivable control account.
+
+    **Net**, not gross. A receipt credits the whole amount to receivables, so
+    an overpayment leaves that account holding the excess as a credit while the
+    customer row splits it: the balance goes to zero and the remainder becomes
+    `unapplied_advance_balance`, a field of its own rather than a negative
+    outstanding. Comparing the outstanding column alone therefore reported
+    every advance in the store as drift -- 500.00 of advance read as
+    "a balance moved without a journal", which is the one message in this
+    script that sends somebody looking for a defect that is not there.
+
+    It has never fired in anger because the seeded data holds no advances:
+    every receipt the history generator writes is allocated. It fired the
+    moment a refund was driven through the API on 2026-08-22, which needed an
+    advance to hand back.
+    """
     result.checked += 1
-    owed = Decimal(
-        str(
-            connection.execute(  # type: ignore[attr-defined]
-                text(
-                    "SELECT COALESCE(SUM(current_outstanding), 0) FROM customers "
-                    "WHERE is_deleted = false"
-                )
-            ).scalar()
-        )
+    owed, advance = (
+        Decimal(str(value))
+        for value in connection.execute(  # type: ignore[attr-defined]
+            text(
+                "SELECT COALESCE(SUM(current_outstanding), 0), "
+                "COALESCE(SUM(unapplied_advance_balance), 0) "
+                "FROM customers WHERE is_deleted = false"
+            )
+        ).one()
     )
     ledger = _control_balance(connection, "ACCOUNTS_RECEIVABLE")
     if ledger is None:
         return
-    drift = owed - ledger
+    drift = owed - advance - ledger
     if abs(drift) > ROUNDING_TOLERANCE:
+        held = f" less {advance} of advances" if advance else ""
         result.failures.append(
-            f"customers owe {owed} against receivable account {ledger}, "
+            f"customers owe {owed}{held} against receivable account {ledger}, "
             f"out by {drift} -- a balance moved without a journal"
         )
 

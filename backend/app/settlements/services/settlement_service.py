@@ -402,12 +402,21 @@ class SettlementService(TransactionalDocumentService):
         """Take a settlement back, in the ledger and on the party's account.
 
         Nothing is edited or deleted. A mirror journal cancels the original,
-        the allocations stop clearing their invoices, and for a receipt the
-        customer's outstanding and advance balances are put back by the exact
-        amounts this settlement moved them -- read from the transaction row it
+        the allocations stop clearing their invoices, and where the settlement
+        moved the customer's outstanding and advance balances they are put back
+        by the exact amounts it moved them -- read from the transaction row it
         wrote, not recomputed. A receipt of 500 against an outstanding 300
         became 300 off the balance and 200 of advance, and only that row
         remembers the split.
+
+        **A refund moves that balance too** and is undone the same way. It was
+        excluded until 2026-08-22, which was invisible only because no endpoint
+        exposed it: `create` posts a receivable transaction for a refund as
+        well as for a receipt -- a refund hands back an advance, so the advance
+        has to come back when the refund is taken back. Reversing the journal
+        alone would have left the ledger right and the customer's advance short
+        by the refunded amount. A payment faces a vendor and writes no
+        receivable transaction, so there is nothing to put back.
 
         Args:
             settlement_id: The settlement to take back.
@@ -432,7 +441,10 @@ class SettlementService(TransactionalDocumentService):
             reference_number=f"{row.settlement_number}-REV",
             actor_id=actor_id,
         )
-        if self.DIRECTION == SettlementDirection.RECEIPT:
+        if self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        ):
             original = self._session.scalar(
                 select(CustomerReceivableTransaction).where(
                     CustomerReceivableTransaction.reference_type == "settlement",
