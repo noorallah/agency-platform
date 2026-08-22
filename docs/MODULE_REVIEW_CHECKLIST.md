@@ -588,12 +588,16 @@ rather than acquiring a stored flag.
 **4. `diagnostics` (3)** — **reviewed 2026-08-22**, row 32. Two findings, both
 in seams a module-only review would have missed.
 
-**Every module on this board has now had a pass.** What is worth doing next is
-not another first pass but a second one over the modules whose reviews predate
-the habit of driving endpoints: `customers` proved that in 2026-08-15, when two
-defects survived a pass that had reported none. The candidates are the eight
-modules reviewed on 2026-08-09, before any of this was driven against a running
-backend.
+**Every module on this board has now had a pass, and the nine oldest have had
+two** (row 33). What is worth doing next is not another sweep of the same kind:
+
+- **Re-seed the demo stores.** Two of three fail `verify_sample_data.py` on
+  legacy drift the code no longer produces, and a failing verifier is how a real
+  break goes unnoticed.
+- **Chase the 38.46 the second pass could not attribute** in `wholesale_hub`, or
+  satisfy yourself it is valuation rounding.
+- **The modules with no review at all are gone**, so the next first pass is for
+  whatever gets built next -- and this checklist is the thing to run against it.
 
 Then a second pass over anything the four PRs of 2026-08-15 touched, since two
 defects in `customers` survived its 2026-08-10 review: that pass found nothing
@@ -690,6 +694,7 @@ in `CustomerService` and belongs to that module's review.
 | 30 | `sales_return` | 2026-08-22 | **one** — cancelling a completed return put the customer's balance back by recomputing from the return's total instead of reversing what the credit note actually did. A credit note is applied up to what the customer owes and the rest becomes an unapplied advance; cancelling posted a fresh INVOICE for the whole amount, so the customer owed more than before the return and held an advance no money paid for. Net exposure (`outstanding - advance`) came out right, which is why it went unseen — the two figures were individually wrong and cancelled out, while an aging report reads `outstanding` alone and an advance can be applied to a real invoice. Stock and both journals were already reversed correctly | yes — `_reverse_receivable` uses `reverse_receivable_transaction`, the way `settlements` always has |
 | 31 | `quotation` | 2026-08-22 | **none.** The negatives were asserted against a running backend rather than read: creating, sending, accepting and converting a quotation left the customer's outstanding, the unapplied advance, every reserved and on-hand quantity and the journal count **identical**. Conversion builds the order through `SalesOrderService.create_order`, so credit control, tax at the order's date and numbering all happen on the order; a second conversion is refused by name ("already became SO-2026-2027-000013"). Expiry stays derived from `valid_until` — an expired quotation cannot be accepted or converted, and nothing writes an EXPIRED status | nothing to fix |
 | 32 | `diagnostics` | 2026-08-22 | **two, both in the part that had no test.** (1) Every server-recorded fault carried a NULL request id — 28 of 28 — so the screenshot-to-traceback join the module exists for could never be made: the handler read a context variable that `CoreRequestMiddleware` has already reset, because a bare-`Exception` handler is served by `ServerErrorMiddleware` from outside it. (2) Server faults grouped by exception type alone: the fingerprint hashed the **first** five frames, which are always the ASGI plumbing, so 28 `ValidationError`s from **four** endpoints shared one identity and the screen showed whichever context came first | yes — `request_id_for` reads `request.state`, and the fingerprint takes this codebase's frames nearest the raise; both proven on the four stored tracebacks |
+| 33 | **second pass** over the nine modules first reviewed 2026-08-09 (`sales_invoice`, `goods_receipt`, `firms`, `purchase_invoice`, `purchase_return`, `delivery_note`, `sales_order`, `tax`, `uom`) | 2026-08-22 | **one, and it is data rather than code.** Two of the three stores fail the stock-versus-ledger invariant, and the drift is exactly the stock value backed out by goods-receipt reversals whose journal was never mirrored: `firm_shared` out by 52,582.436 against 52,582.437 of such reversals, `wholesale_hub` out by 3,971.21 with 4,009.67 attributable and 38.46 left over. Every one of those cancellations happened on 2026-08-18 -- the day the fix landed -- and the only one carrying a mirror is the last. The code is right; nobody backfilled what the defect had already written. Nothing else moved: every period balances, customers match the receivable account, settlements all reached the ledger, approved invoices all posted, no stock row is negative or fails `available = current - reserved - blocked`, and nothing is left reserved in any store | the verifier now names this cause when the arithmetic agrees; the demo data itself wants a re-seed |
 
 ### 24–29 the cross-cutting passes — how they were found
 
@@ -763,3 +768,46 @@ begins with the same five lines of ASGI plumbing.
 Neither is a defect a review of `app/diagnostics` alone would have found. The
 request id is decided by middleware ordering in `app/core`; the fingerprint is
 decided by what Python puts at the top of a traceback.
+
+### 33 the second pass — what a review finds when the code is already right
+
+The suggested order ended with "a second pass over the modules reviewed on
+2026-08-09, before driving endpoints was the habit". Nine modules, and the pass
+turned up one finding — in the data, not the code.
+
+**The method was to ask the invariants first.** `scripts/verify_sample_data.py`
+already knows what has to be true across these modules: stock value against the
+inventory control account, every period balancing, customers against the
+receivable account, every settlement reaching the ledger, every approved invoice
+posted. Running it before touching anything is how the pass started, and two of
+three stores failed the first check.
+
+**Decomposing a drift is the slow part, so the verifier now does it.** The
+number came apart like this:
+
+| store | drift | goods-receipt reversals with no mirror | left over |
+| --- | ---: | ---: | ---: |
+| `firm_shared` | −52,582.436 | 52,582.437 | 0 |
+| `wholesale_hub` | −3,971.207 | 4,009.666 | 38.459 |
+
+Cancelling a completed goods receipt reversed the stock and left the journal
+standing until 2026-08-18. Every cancellation in these stores is dated that day,
+and exactly one — the last — carries a mirror, which is the fix being tested the
+moment it landed. So the ledger still holds inventory the warehouse gave back.
+`_unmirrored_receipt_note` says so now, and says how much a drift it does *not*
+explain would be, because that is the case worth an hour of somebody's time.
+
+**Two classes were closed by reading rather than driving.** The
+"recompute a balance instead of reversing it" defect found in `sales_return`
+that same day cannot exist on the purchase side: vendors keep no running
+balance at all — no payable transactions, no outstanding or advance columns —
+so `purchase_invoice` and `purchase_return` have nothing to drift. On the sales
+side the only other recompute is `sales_invoice`'s cancel, which is deliberate:
+undoing an invoice the customer has since part-paid *should* leave an advance.
+
+**What passed, and is worth recording because it was measured.** Reservations
+balance (127 RESERVE against 127 UNRESERVE in one store, 57/57 in another,
+nothing left reserved anywhere); no stock row in any store is negative or
+disagrees with `available = current - reserved - blocked`; every journal entry
+balances; customers match the receivable control account in all three stores;
+`ELEC01` passes all five checks outright.

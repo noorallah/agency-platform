@@ -196,7 +196,54 @@ def _stock_against_the_ledger(connection: object, result: _Result) -> None:
         result.failures.append(
             f"stock value {stock} against inventory account {ledger}, "
             f"out by {drift} -- a movement changed stock without posting"
+            f"{_unmirrored_receipt_note(connection, drift)}"
         )
+
+
+def _unmirrored_receipt_note(connection: object, drift: Decimal) -> str:
+    """Name the usual cause when the numbers say it is the usual cause.
+
+    Cancelling a completed goods receipt reversed the stock and left the
+    journal standing until 2026-08-18. Every store cancelled before that fix
+    carries a drift of exactly what those reversals took off the shelf, and
+    working that out from scratch takes an hour of decomposing the ledger --
+    which is an hour better spent on a drift this does *not* explain.
+
+    Only says so when the arithmetic agrees, and says how much is left over
+    when it only partly agrees.
+    """
+    unmirrored = connection.execute(  # type: ignore[attr-defined]
+        text(
+            "SELECT COALESCE(SUM(s.total_cost), 0) "
+            "FROM inventory_transactions t "
+            "JOIN stock_ledger_entries s "
+            "  ON s.transaction_id = t.id AND s.is_deleted = false "
+            "WHERE t.is_deleted = false "
+            "  AND t.transaction_type = 'GOODS_RECEIPT_REVERSAL' "
+            "  AND NOT EXISTS ("
+            "    SELECT 1 FROM journal_entries j "
+            "     JOIN goods_receipts g ON g.id = j.source_id "
+            "     WHERE j.source_module = 'goods_receipt' "
+            "       AND j.is_deleted = false "
+            "       AND j.reversal_of_id IS NOT NULL "
+            "       AND g.grn_number = t.reference_number)"
+        )
+    ).scalar()
+    value = Decimal(str(unmirrored or 0))
+    if value == 0:
+        return ""
+    remainder = drift + value
+    if abs(remainder) <= ROUNDING_TOLERANCE:
+        return (
+            f". All of it is {value} of goods-receipt reversals whose journal "
+            "was never mirrored -- cancellations from before the 2026-08-18 "
+            "fix. Re-seed the store, or post the missing mirrors"
+        )
+    return (
+        f". {value} of that is goods-receipt reversals whose journal was never "
+        f"mirrored (cancellations from before the 2026-08-18 fix); {remainder} "
+        "is something else"
+    )
 
 
 def _every_period_balances(connection: object, result: _Result) -> None:
