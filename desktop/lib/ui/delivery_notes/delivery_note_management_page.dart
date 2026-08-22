@@ -17,6 +17,57 @@ import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import 'delivery_note_editor_dialog.dart';
 
+/// A named view over the one delivery note list.
+///
+/// These were six sidebar entries -- Pending and Partial Deliveries, Delivered
+/// by Route, by Salesman and by Warehouse, and History. The three "delivered
+/// by" entries opened this list with no filter whatsoever, so they were three
+/// menu items that did nothing; the reports they are named after are real, and
+/// live under Reports where they work.
+enum DeliveryNoteView {
+  all,
+  draft,
+  approved,
+  dispatched,
+  completed,
+  cancelled;
+
+  /// The status this view filters on, or null for every status.
+  String? get status => switch (this) {
+        DeliveryNoteView.draft => 'DRAFT',
+        DeliveryNoteView.approved => 'APPROVED',
+        DeliveryNoteView.dispatched => 'DISPATCHED',
+        DeliveryNoteView.completed => 'COMPLETED',
+        DeliveryNoteView.cancelled => 'CANCELLED',
+        DeliveryNoteView.all => null,
+      };
+
+  /// The query the list is asked for.
+  Map<String, String> get query =>
+      status == null ? const {} : {'status': status!};
+
+  String get label => switch (this) {
+        DeliveryNoteView.all => 'All',
+        DeliveryNoteView.draft => 'Draft',
+        DeliveryNoteView.approved => 'Approved',
+        DeliveryNoteView.dispatched => 'Dispatched',
+        DeliveryNoteView.completed => 'Completed',
+        DeliveryNoteView.cancelled => 'Cancelled',
+      };
+
+  /// The view a retired sidebar entry stood for.
+  ///
+  /// A stored workspace still names one of them -- the last tab is persisted
+  /// -- so landing on the list is not enough: the user asked for Pending
+  /// Deliveries and should get the approved-but-undispatched ones.
+  static DeliveryNoteView fromTabId(String? tabId) => switch (tabId) {
+        'pending-deliveries' => DeliveryNoteView.approved,
+        'partial-deliveries' => DeliveryNoteView.dispatched,
+        'delivery-history' => DeliveryNoteView.completed,
+        _ => DeliveryNoteView.all,
+      };
+}
+
 class DeliveryNoteManagementPage extends StatefulWidget {
   const DeliveryNoteManagementPage({
     super.key,
@@ -24,8 +75,7 @@ class DeliveryNoteManagementPage extends StatefulWidget {
     required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
-    required this.tabId,
-    this.onNavigateToTab,
+    this.initialView = DeliveryNoteView.all,
     this.onOpenGlobalSearch,
   });
 
@@ -33,8 +83,7 @@ class DeliveryNoteManagementPage extends StatefulWidget {
   final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
-  final String tabId;
-  final ValueChanged<String>? onNavigateToTab;
+  final DeliveryNoteView initialView;
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
@@ -44,6 +93,7 @@ class DeliveryNoteManagementPage extends StatefulWidget {
 class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+  late DeliveryNoteView _view = widget.initialView;
   bool _loading = false;
   String? _error;
   int _page = 1;
@@ -209,7 +259,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           search: _search.text.trim(),
           sortBy: 'delivery_date',
           descending: true,
-          additionalQuery: _filtersForTab(),
+          additionalQuery: _view.query,
         ),
       ]);
       final Json summary = _unwrap(responses[0]);
@@ -325,6 +375,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        viewBar: _buildViewBar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
           hintText: 'Search note number, sales order...',
@@ -478,12 +529,37 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         ),
       );
 
-  Map<String, String> _filtersForTab() => switch (widget.tabId) {
-        'pending-deliveries' => const {'status': 'APPROVED'},
-        'partial-deliveries' => const {'status': 'DISPATCHED'},
-        'delivery-history' => const {'status': 'COMPLETED'},
-        _ => const {},
-      };
+  void _selectView(DeliveryNoteView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _page = 1;
+      _selected = null;
+    });
+    unawaited(_load(requestedPage: 1));
+  }
+
+  /// The status bar: All / Draft / Approved / Dispatched / Completed /
+  /// Cancelled.
+  ///
+  /// Scrollable because six segments do not fit a narrow window, and a
+  /// segmented button clips rather than wraps.
+  Widget _buildViewBar() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<DeliveryNoteView>(
+          segments: [
+            for (final DeliveryNoteView view in DeliveryNoteView.values)
+              ButtonSegment<DeliveryNoteView>(
+                value: view,
+                label: Text(view.label),
+              ),
+          ],
+          selected: <DeliveryNoteView>{_view},
+          onSelectionChanged:
+              _loading ? null : (selection) => _selectView(selection.first),
+          showSelectedIcon: false,
+        ),
+      );
 
   Json _unwrap(dynamic response) {
     if (response is! Json) return const {};

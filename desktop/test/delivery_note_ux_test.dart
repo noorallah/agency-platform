@@ -42,7 +42,6 @@ void main() {
             preferences: preferences,
             permissions: permissions,
             hasActiveFirm: false,
-            tabId: 'delivery-notes',
           ),
         ),
       ),
