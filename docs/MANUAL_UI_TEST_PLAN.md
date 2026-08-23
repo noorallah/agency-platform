@@ -397,6 +397,36 @@ Sales → UOM & Packaging → **Packaging Levels**, as `whole01.admin`.
 | --- | --- | --- | --- |
 | 8.130 | A report that names a salesman | Tag a sales order and a delivery note with a salesman, then open the by-salesman reports for both — **as `elec01.admin`, whose firm is a dedicated database** | Both list the salesman by name. This is the case that matters on ELEC01 specifically: `users` lives only in the platform schema, and both reports read it on the firm's own session until 2026-08-23. Untagged documents hid it — the reports answered fine until one document carried a salesman, then both returned "The database is temporarily unavailable" |
 
+### 8.140–8.146 Price lists — a rate off the product price
+
+Sales → **Price Lists**, as `elec01.admin`. Needs `PRICE_LIST_VIEW`; the
+buttons need `PRICE_LIST_MANAGE`.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.140 | Agreeing one with everybody | **New price list** → code `PL001`, name it, leave **Applies to** on Everyone → **Add product**, pick one, 10 → Save | It saves and the grid says **Everyone** under *Applies to*, with the window read as "from <date>" |
+| 8.141 | Agreeing one with a shop | Another list, **Applies to → One customer**, choose one, 15% on the same product | Saves; the grid names the customer rather than saying "One customer" |
+| 8.142 | The rate reaches a document | Quotations → new quotation for that customer → add the same product, quantity 10, and **type no discount** | The line discounts at **15%** — the shop's own list beats the firm-wide one |
+| 8.143 | Silence versus zero | On the same line type `0` into Discount % | The line discounts at nothing. Typing zero is a refusal of the arrangement; saying nothing takes it |
+| 8.144 | It is a rate, not a price | Read the dialog's opening sentence and the column headers | Both say percentage. Somebody expecting to type a price will otherwise type one into a discount column |
+| 8.145 | Two scopes at once cannot be asked for | Look at **Applies to** | One segmented choice, not two pickers — the server refuses a list scoped to a customer *and* a territory |
+| 8.146 | Withdrawing one | Select a list → right-click → **Delete** | It goes, and the message says documents already priced under it are unchanged — the rate is stored on the line |
+
+### 8.150–8.156 Commission on money collected
+
+Sales → **Commission**, as `elec01.admin`. Needs `COMMISSION_VIEW`; the write
+controls need `COMMISSION_MANAGE`.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.150 | A rate for somebody who has never had one | **Rates** → **Add rule** → open **Applies to** | The firm's own people are listed, not just people already carrying a rule. Until 2026-08-23 the picker was built from the rules on screen, so a new salesman could never be given a rate from here |
+| 8.151 | Recording it | Choose a person, 4%, in force from the first of the year → Save | It saves; the grid shows *4%* and the window |
+| 8.152 | The firm-wide default | **Add rule**, leave **Applies to** on Everyone, 2% → Save | Saves as **Everyone (default)** — what anybody with no rule of their own earns |
+| 8.153 | Two rates over the same days | Add a second rule for the same person overlapping the first | Refused, in the server's own words |
+| 8.154 | Money collected, not money billed | Approve a sales invoice, then record a **receipt** against part of it → **Collected**, period covering today | Only the part collected appears. An unpaid invoice earns nothing |
+| 8.155 | The bucket that belongs to nobody | Read the row for invoices carrying no salesman | Named **Unassigned**, with its collected figure — and **zero commission**. It is a reconciliation line: a default is what a *person* with no rule earns, not a rate on money that named nobody. On a seeded store every invoice is untagged, so paying it out inflated the firm's whole liability |
+| 8.156 | A reversed receipt pays nobody | Reverse that receipt, reload the report | The collection and the commission both go |
+
 ### 8.80–8.84 A purchase order is submitted, then approved
 
 Built on 2026-08-16, after testing found the Open Orders tab permanently
