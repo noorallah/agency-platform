@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/firm_member.dart';
 import '../../models/sales_territory.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -66,7 +67,7 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
 
   List<Json> _salesmen = const [];
   Set<String> _chosenSalesmen = <String>{};
-  List<TerritorySalesmanCandidate> _candidates = const [];
+  List<FirmMember> _candidates = const [];
   bool _salesmenLoaded = false;
 
   bool get _canAssignCustomers =>
@@ -137,8 +138,8 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
     try {
       final List<Json> current =
           await widget.api.territorySalesmen(widget.territory.id);
-      final List<TerritorySalesmanCandidate> candidates =
-          await widget.api.territorySalesmanCandidates();
+      final List<FirmMember> candidates =
+          await widget.api.firmMembers();
       if (!mounted) return;
       setState(() {
         _salesmen = current;
@@ -591,7 +592,7 @@ class _TerritoryDetailDialogState extends State<TerritoryDetailDialog> {
     }
     return ListView(
       children: [
-        for (final TerritorySalesmanCandidate person in _candidates)
+        for (final FirmMember person in _candidates)
           CheckboxListTile(
             value: _chosenSalesmen.contains(person.userId),
             title: Text(

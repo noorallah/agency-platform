@@ -97,23 +97,6 @@ class SalesmanCommissionRecord(CommissionSchema):
     invoice_count: int
 
 
-class CommissionSalesman(CommissionSchema):
-    """One person a commission rate can be agreed with.
-
-    A rate is per salesman, so the screen that sets one needs the firm's
-    people **by name**. `users` lives only in the platform schema behind
-    `USER_VIEW` -- a platform-admin permission a commission manager does not
-    hold -- and the territory module's twin of this list is gated on
-    `TERRITORY_ASSIGN_SALESMEN`, which they do not hold either. Without a list
-    of its own the screen could only offer people who already had a rule, so a
-    brand-new rate could never be agreed from it.
-    """
-
-    user_id: UUID
-    full_name: str
-    email: str
-
-
 class CommissionReport(CommissionSchema):
     """Commission earned across a period, by salesman."""
 
@@ -130,7 +113,6 @@ __all__ = [
     "CommissionRuleResponse",
     "CommissionRuleStatusEnum",
     "CommissionRuleUpdate",
-    "CommissionSalesman",
     "CommissionSchema",
     "SalesmanCommissionRecord",
 ]

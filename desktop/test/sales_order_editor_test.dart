@@ -89,6 +89,15 @@ class _OrderApi extends ApiClient {
   final List<Json> customerRows;
   final List<Json> productRows;
 
+  /// The firm's people, as `GET /api/v1/firm-members` answers them.
+  List<Json> members = <Json>[
+    <String, dynamic>{
+      'user_id': 'u1',
+      'full_name': 'Meera Raghavan',
+      'email': 'meera@firm.local',
+    },
+  ];
+
   /// The order an edit reads back, when one is being corrected.
   Json? existing;
 
@@ -158,6 +167,9 @@ class _OrderApi extends ApiClient {
       return <String, dynamic>{
         'data': <String, dynamic>{'id': 'so-1', 'order_number': 'SO-1'},
       };
+    }
+    if (path == '/api/v1/firm-members') {
+      return <String, dynamic>{'data': members};
     }
     return <String, dynamic>{'data': const <Json>[]};
   }
@@ -248,6 +260,63 @@ void main() {
     expect(line['product_id'], 'p1');
     expect(line['quantity'], '1');
     expect(line['unit_price'], '100');
+  });
+
+  group('who took it', () {
+    testWidgets('an order records the salesman who took it', (tester) async {
+      // The point of reading the firm's people at all. Until 2026-08-23 no
+      // endpoint listed them that a sales role could call, so the form could
+      // not offer the field and every phone order recorded nobody.
+      final _OrderApi api = _api();
+      await _pump(tester, api);
+      await _choose(tester, 'sales-order-customer', 'Anand Agencies');
+      await _choose(tester, 'sales-order-salesman', 'Meera Raghavan');
+      await _create(tester);
+
+      expect(api.created!['salesman_id'], 'u1');
+    });
+
+    testWidgets('an order nobody in particular took says so, and says why',
+        (tester) async {
+      // A counter sale was taken by nobody, and refusing to save without a
+      // name would put a wrong one on every such order. What a blank costs is
+      // stated instead, because it is not obvious from the field -- and the
+      // sentence has to be the true one: where the customer is on a round the
+      // server derives that round's salesman, so a blank is not automatically
+      // nobody. Driven against a running backend, which derived the territory
+      // and left the salesman null because that round has none.
+      final _OrderApi api = _api();
+      await _pump(tester, api);
+      await _choose(tester, 'sales-order-customer', 'Anand Agencies');
+
+      expect(find.text('Nobody'), findsWidgets);
+      expect(
+        find.textContaining("customer's round supplies one"),
+        findsOneWidget,
+      );
+
+      await _create(tester);
+      expect(api.created!.containsKey('salesman_id'), isFalse);
+    });
+
+    testWidgets('a salesman who has left stays on the order they took',
+        (tester) async {
+      // A stored id nobody in the list carries makes DropdownButtonFormField
+      // assert, and the form then saves as though no salesman had ever been
+      // on the order -- silently moving its collections to Unassigned.
+      final _OrderApi api = _api();
+      api.members = <Json>[];
+      api.existing = <String, dynamic>{
+        ..._draft(),
+        'salesman_id': 'u-gone',
+      };
+      await _pump(tester, api, orderId: 'so-1');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!['salesman_id'], 'u-gone');
+    });
   });
 
   testWidgets('an order with nothing chosen to sell to is not sent',

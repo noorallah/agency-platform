@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/territory_detail_dialog.dart';
 import 'package:flutter/material.dart';
@@ -136,8 +137,8 @@ class _DetailApi extends ApiClient {
       const <Json>[];
 
   @override
-  Future<List<TerritorySalesmanCandidate>>
-      territorySalesmanCandidates() async => const <TerritorySalesmanCandidate>[];
+  Future<List<FirmMember>>
+      firmMembers() async => const <FirmMember>[];
 }
 
 Future<void> _pump(

@@ -14,6 +14,7 @@ from app.branches.api import router as branch_warehouse_router
 from app.business.api import router as business_framework_router
 from app.commission.api import router as commission_router
 from app.common.audit.api import router as audit_logs_router
+from app.common.directory.api import router as firm_members_router
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(refunds_router)
     application.include_router(commission_router)
     application.include_router(audit_logs_router)
+    application.include_router(firm_members_router)
     application.include_router(diagnostics_router)
     register_exception_handlers(application)
     return application

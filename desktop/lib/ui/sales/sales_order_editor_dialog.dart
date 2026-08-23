@@ -6,6 +6,7 @@ import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../../models/firm_member.dart';
 import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -140,6 +141,25 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   List<WarehouseRecord> _warehouses = const [];
 
   String? _customerId;
+
+  /// Who took the order.
+  ///
+  /// Optional on the API and optional here, but what a blank costs is worth
+  /// saying, so the field carries its own helper. Two things make the honest
+  /// sentence longer than it looks: where the customer is on a round, the
+  /// server derives that round's salesman for a document that names none
+  /// (`_derived_salesman` in `app/sales/services/scope_resolution.py`), so a
+  /// blank is not automatically nobody -- and where they are not, the money
+  /// this order collects lands in the commission report's Unassigned bucket,
+  /// which belongs to nobody and pays nobody.
+  ///
+  /// The picker offers every member of the firm and does not filter by who
+  /// covers the customer's round. The server refuses a salesman who does not,
+  /// in a sentence that names the reason; filtering here would need the
+  /// customer's assignments on every keystroke and would still have to trust
+  /// that refusal.
+  String? _salesmanId;
+  List<FirmMember> _members = const <FirmMember>[];
   String? _branchId;
   String? _warehouseId;
   late DateTime _orderDate;
@@ -197,6 +217,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
             widget.api.branches(page: page, pageSize: maxApiPageSize)),
         fetchAllPages<WarehouseRecord>((int page) =>
             widget.api.warehouses(page: page, pageSize: maxApiPageSize)),
+        // Not paged: one firm's people, and the endpoint answers them all.
+        widget.api.firmMembers(),
       ]);
       final String? id = widget.orderId;
       final Json? existing =
@@ -207,6 +229,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         _products = (loaded[1] as List<dynamic>).cast<Product>();
         _branches = (loaded[2] as List<dynamic>).cast<BranchRecord>();
         _warehouses = (loaded[3] as List<dynamic>).cast<WarehouseRecord>();
+        _members = (loaded[4] as List<dynamic>).cast<FirmMember>();
         _loading = false;
         if (existing != null) {
           _adoptExisting(existing);
@@ -260,6 +283,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         ? 'DRAFT'
         : stringValue(order['status']);
     _customerId = _blankToNull(stringValue(order['customer_id']));
+    _salesmanId = _blankToNull(stringValue(order['salesman_id']));
     _branchId = _blankToNull(stringValue(order['branch_id']));
     _warehouseId = _blankToNull(stringValue(order['warehouse_id']));
     _orderDate = DateTime.tryParse(stringValue(order['order_date'])) ?? _orderDate;
@@ -435,6 +459,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     final DateTime? delivery = _deliveryDate;
     return <String, dynamic>{
       'customer_id': _customerId,
+      // Omitted when nobody was named rather than sent null: absent is what
+      // the create schema reads as "no salesman", and this form has no reason
+      // to distinguish that from clearing one.
+      if (_salesmanId != null) 'salesman_id': _salesmanId,
       'branch_id': _branchId,
       'warehouse_id': _warehouseId,
       'order_date': _iso(_orderDate),
@@ -557,6 +585,52 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     }
     return items;
   }
+
+  /// A picker that may honestly be left blank.
+  ///
+  /// [_picker] validates its value away from null, which is right for the
+  /// customer and the warehouse and wrong for a salesman: an order taken at
+  /// the counter was taken by nobody in particular, and refusing to save
+  /// without a name would put a wrong one on every such order.
+  Widget _optionalPicker({
+    required String label,
+    required String helperText,
+    required String blankLabel,
+    required String? value,
+    required List<({String id, String label})> options,
+    required ValueChanged<String?> onChanged,
+    Key? key,
+  }) =>
+      DropdownButtonFormField<String?>(
+        key: key,
+        initialValue: value,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: helperText,
+          helperMaxLines: 3,
+        ),
+        items: <DropdownMenuItem<String?>>[
+          DropdownMenuItem<String?>(
+            value: null,
+            child: Text(blankLabel, overflow: TextOverflow.ellipsis),
+          ),
+          for (final ({String id, String label}) option in options)
+            DropdownMenuItem<String?>(
+              value: option.id,
+              child: Text(option.label, overflow: TextOverflow.ellipsis),
+            ),
+          // A stored id nobody in the list carries -- somebody who has left --
+          // must stay an item of its own, or the widget asserts and the form
+          // saves the order as though no salesman had ever been on it.
+          if (value != null && !options.any((option) => option.id == value))
+            DropdownMenuItem<String?>(
+              value: value,
+              child: Text(value, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: _locked ? null : onChanged,
+      );
 
   Widget _picker({
     required String label,
@@ -794,6 +868,28 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  flex: 2,
+                  child: _optionalPicker(
+                    key: const ValueKey<String>('sales-order-salesman'),
+                    label: 'Salesman',
+                    blankLabel: 'Nobody',
+                    helperText: 'Who took the order. Left blank, the '
+                        "customer's round supplies one where they are on a "
+                        'round; otherwise what this order collects earns '
+                        'nobody commission.',
+                    value: _salesmanId,
+                    options: <({String id, String label})>[
+                      for (final FirmMember item in _members)
+                        (id: item.userId, label: item.label),
+                    ],
+                    onChanged: (String? value) =>
+                        setState(() => _salesmanId = value),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: AppSpacing.md),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
                   child: _picker(
                     key: const ValueKey<String>('sales-order-branch'),

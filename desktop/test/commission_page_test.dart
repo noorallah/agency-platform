@@ -53,7 +53,7 @@ class _CommissionApi extends ApiClient {
   /// A refusal the server raises on a write, if any.
   final ApiException? refusal;
 
-  /// What `GET /commission/salesmen` answers with -- the firm's own people,
+  /// What `GET /firm-members` answers with -- the firm's own people,
   /// which is what makes a rate for somebody who has never had one possible.
   final List<Json> salesmen;
 
@@ -78,7 +78,7 @@ class _CommissionApi extends ApiClient {
     if (path.contains('/commission/report')) {
       return <String, dynamic>{'data': report ?? _emptyReport()};
     }
-    if (path.contains('/commission/salesmen')) {
+    if (path.contains('/firm-members')) {
       return <String, dynamic>{'data': salesmen};
     }
     if (path.contains('/commission/rules')) {
@@ -242,8 +242,9 @@ void main() {
     // The picker used to be built from the rules the screen had read, so the
     // only people it could offer were people who already had a rate: a new
     // salesman could never be given one from here. It reads the firm's own
-    // members now, from an endpoint gated on COMMISSION_VIEW rather than on
-    // the territory permission whoever sets commission need not hold.
+    // members now, from one endpoint whose gate is membership of the firm --
+    // there were three of these behind three different permissions, and the
+    // sales-order form could call none of them.
     final _CommissionApi api = _CommissionApi(
       rules: <Json>[_firmWideRule()],
       salesmen: <Json>[

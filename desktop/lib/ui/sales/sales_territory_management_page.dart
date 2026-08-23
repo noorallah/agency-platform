@@ -6,6 +6,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/firm_member.dart';
 import '../../models/customer.dart';
 import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
@@ -364,8 +365,8 @@ class _SalesTerritoryManagementPageState
   Future<void> _assignSalesmen(SalesTerritory territory) async {
     if (!_canAssignSalesmen) return;
     final List<Json> current = await widget.api.territorySalesmen(territory.id);
-    final List<TerritorySalesmanCandidate> users =
-        await widget.api.territorySalesmanCandidates();
+    final List<FirmMember> users =
+        await widget.api.firmMembers();
     if (!mounted) return;
     // An existing assignment carries more than a user id. Re-sending only the
     // id would quietly clear whoever was the primary and whoever covered the
@@ -383,7 +384,7 @@ class _SalesTerritoryManagementPageState
           for (final Json entry in current) stringValue(entry['user_id']),
         }..removeWhere((id) => id.isEmpty),
         options: [
-          for (final TerritorySalesmanCandidate user in users)
+          for (final FirmMember user in users)
             AssignableOption(
               id: user.userId,
               label: user.fullName.isEmpty ? user.email : user.fullName,
@@ -541,8 +542,8 @@ class _SalesTerritoryManagementPageState
   }
 
   Future<List<String>?> _pickSalesmenForBulk(int count) async {
-    final List<TerritorySalesmanCandidate> users =
-        await widget.api.territorySalesmanCandidates();
+    final List<FirmMember> users =
+        await widget.api.firmMembers();
     if (!mounted) return null;
     return showDialog<List<String>>(
       context: context,
@@ -552,7 +553,7 @@ class _SalesTerritoryManagementPageState
         emptyMessage: 'No users to assign. Add one under Administration.',
         selectedIds: const <String>{},
         options: [
-          for (final TerritorySalesmanCandidate user in users)
+          for (final FirmMember user in users)
             AssignableOption(
               id: user.userId,
               label: user.fullName.isEmpty ? user.email : user.fullName,

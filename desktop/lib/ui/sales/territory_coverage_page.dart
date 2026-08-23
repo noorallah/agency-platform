@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/sales_territory.dart';
+import '../../models/firm_member.dart';
 import '../workspace/desktop_framework.dart';
 
 /// How much ground each salesperson covers.
@@ -32,7 +33,7 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
   final FocusNode _searchFocus = FocusNode();
 
   List<TerritoryCoverageRecord> _rows = const [];
-  Map<String, TerritorySalesmanCandidate> _people = const {};
+  Map<String, FirmMember> _people = const {};
   bool _loading = false;
   String? _error;
 
@@ -66,8 +67,8 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
       // The coverage rows carry user ids. Names come from the candidate list,
       // which reads `users` through the platform store — the tenant session
       // cannot see that table at all.
-      final List<TerritorySalesmanCandidate> people =
-          await widget.api.territorySalesmanCandidates();
+      final List<FirmMember> people =
+          await widget.api.firmMembers();
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -84,7 +85,7 @@ class _TerritoryCoveragePageState extends State<TerritoryCoveragePage> {
   }
 
   String _name(String userId) {
-    final TerritorySalesmanCandidate? person = _people[userId];
+    final FirmMember? person = _people[userId];
     if (person == null) return userId;
     return person.fullName.isEmpty ? person.email : person.fullName;
   }

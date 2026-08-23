@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
+import '../../models/firm_member.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -62,7 +63,7 @@ class _CommissionPageState extends State<CommissionPage> {
   /// The firm's people, so a rate can be agreed with somebody who has never
   /// had one. Without this list the picker could only offer names lifted off
   /// existing rules, which makes every rate but the first impossible to add.
-  List<CommissionSalesman> _people = const <CommissionSalesman>[];
+  List<FirmMember> _people = const <FirmMember>[];
 
   bool get _mayView => widget.permissions.hasPermission('COMMISSION_VIEW');
   bool get _mayManage => widget.permissions.hasPermission('COMMISSION_MANAGE');
@@ -97,8 +98,8 @@ class _CommissionPageState extends State<CommissionPage> {
           await fetchAllPages<CommissionRuleRecord>(
         (page) => widget.api.commissionRules(page: page),
       );
-      final List<CommissionSalesman> people =
-          await widget.api.commissionSalesmen();
+      final List<FirmMember> people =
+          await widget.api.firmMembers();
       if (!mounted) return;
       setState(() {
         _rules = rows;
@@ -173,20 +174,20 @@ class _CommissionPageState extends State<CommissionPage> {
   /// has left still explains the payouts their rule made, and dropping them
   /// would make `DropdownButtonFormField` assert on a stored id that is not in
   /// its list and save the rule as firm-wide.
-  List<CommissionSalesman> _knownSalesmen() {
-    final Map<String, CommissionSalesman> byId = {
-      for (final CommissionSalesman person in _people) person.id: person,
+  List<FirmMember> _knownSalesmen() {
+    final Map<String, FirmMember> byId = {
+      for (final FirmMember person in _people) person.userId: person,
     };
     for (final CommissionRuleRecord rule in _rules) {
       if (rule.salesmanId.isEmpty || byId.containsKey(rule.salesmanId)) {
         continue;
       }
-      byId[rule.salesmanId] = CommissionSalesman(
-        id: rule.salesmanId,
-        name: rule.salesmanName.isEmpty ? rule.salesmanId : rule.salesmanName,
+      byId[rule.salesmanId] = FirmMember(
+        userId: rule.salesmanId,
+        fullName: rule.salesmanName.isEmpty ? rule.salesmanId : rule.salesmanName,
       );
     }
-    return byId.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+    return byId.values.toList()..sort((a, b) => a.fullName.compareTo(b.fullName));
   }
 
   Future<void> _delete(CommissionRuleRecord rule) async {
@@ -503,7 +504,7 @@ class CommissionRuleDialog extends StatefulWidget {
   final ApiClient api;
 
   /// The people who can be named, besides the firm as a whole.
-  final List<CommissionSalesman> known;
+  final List<FirmMember> known;
 
   /// The rule being changed, or null to record a new one.
   final CommissionRuleRecord? rule;
@@ -630,7 +631,7 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     // dropdown asserting on a value that is not in its list, which silently
     // saves the field as blank.
     final bool namedIsKnown = _salesmanId.isEmpty ||
-        widget.known.any((person) => person.id == _salesmanId);
+        widget.known.any((person) => person.userId == _salesmanId);
     return AlertDialog(
       icon: const Icon(Icons.percent),
       title: Text(widget.rule == null
@@ -661,11 +662,11 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  for (final CommissionSalesman person in widget.known)
+                  for (final FirmMember person in widget.known)
                     DropdownMenuItem<String>(
-                      value: person.id,
+                      value: person.userId,
                       child:
-                          Text(person.name, overflow: TextOverflow.ellipsis),
+                          Text(person.fullName, overflow: TextOverflow.ellipsis),
                     ),
                   if (!namedIsKnown)
                     DropdownMenuItem<String>(

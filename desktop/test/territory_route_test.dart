@@ -24,6 +24,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/customer.dart';
+import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/geography.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
@@ -223,9 +224,9 @@ class _TerritoryApi extends ApiClient {
   }
 
   @override
-  Future<List<TerritorySalesmanCandidate>>
-      territorySalesmanCandidates() async => <TerritorySalesmanCandidate>[
-            TerritorySalesmanCandidate.fromJson(<String, dynamic>{
+  Future<List<FirmMember>>
+      firmMembers() async => <FirmMember>[
+            FirmMember.fromJson(<String, dynamic>{
               'user_id': 'user-1',
               'full_name': 'Ravi Kumar',
               'email': 'ravi@agency.local',
