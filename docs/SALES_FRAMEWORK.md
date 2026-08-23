@@ -57,7 +57,7 @@ and revenue to the invoice.
 | Document | States | Notes |
 | --- | --- | --- |
 | Quotation | `DRAFT → SENT → ACCEPTED` / `DECLINED` / `CANCELLED` / `CONVERTED` | `EXPIRED` is **derived** from `valid_until`, never stored — nothing sweeps the table at midnight, and a job that had not run yet would let a stale quote through |
-| Sales order | `DRAFT → APPROVED → CLOSED` / `CANCELLED` | see the gap list: nothing moves it as deliveries happen |
+| Sales order | `DRAFT → APPROVED → PARTIALLY_DELIVERED → DELIVERED → CLOSED` / `CANCELLED` | the two middle states are derived from the dispatched notes, not incremented |
 | Delivery note | `DRAFT → APPROVED → DISPATCHED → COMPLETED → CLOSED` / `CANCELLED` | `DISPATCHED` is where stock leaves, and is deliberately terminal for cancellation |
 | Sales invoice | `DRAFT → APPROVED → CLOSED` / `CANCELLED` | approval posts the journal and commits credit |
 | Sales return | `DRAFT → APPROVED → COMPLETED → CLOSED` / `CANCELLED` | `COMPLETED` puts stock back and raises the credit note |
@@ -190,16 +190,41 @@ Partly relieved on 2026-08-23: an approved order can now be **billed**
 directly, so a firm that invoices before dispatch is no longer stuck. Raising
 the order still needs a quotation.
 
-## 3. A sales order's status never moves as it is delivered
+## 3. ~~A sales order's status never moves as it is delivered~~ — closed 2026-08-23
 
-`SalesOrderStatus` declares `DRAFT`, `APPROVED`, `CANCELLED`, `CLOSED` and
-nothing else, and no service resyncs it from delivery notes. The purchase side
-does exactly this — `GoodsReceiptService._resync_order_status` writes
-`PARTIALLY_RECEIVED` and `RECEIVED` and walks them back on cancellation.
+`SalesOrderStatus` declared four states and no service resynced it from
+delivery notes, where the purchase side has had
+`GoodsReceiptService._resync_order_status` since 2026-08-18. The quantities
+were tracked — that is why the pending and back-order reports worked — but a
+fully delivered order and one nothing had shipped against both read `APPROVED`.
 
-The quantities *are* tracked, which is why the pending and back-order reports
-work; it is the status that is static. A fully delivered order and one nothing
-has shipped against both read `APPROVED`.
+`PARTIALLY_DELIVERED` and `DELIVERED` are written now, by
+`DeliveryNoteService._resync_order_status` on dispatch. **Derived by summing
+the notes that have left the warehouse**, never incremented: an incrementing
+counter and a reversal are two chances to disagree. Only an order already in
+the delivering part of its life is moved, so a DRAFT, CANCELLED or CLOSED order
+is left where it is.
+
+Building it surfaced the thing that would have broken. The gate on raising a
+delivery note compared the **sales order's** status against `DeliveryNoteStatus`
+members — which agreed only because both enums spell `APPROVED` and `CLOSED`
+the same. Writing `PARTIALLY_DELIVERED` would have made it refuse every second
+delivery, so a part-shipped order could never have been completed. A report
+filter had the same confusion.
+
+Existing orders are **not** backfilled, exactly as the purchase side did not.
+Re-seeded demo data shows the statuses; orders created before this date stay
+where they are.
+
+### A question this raised and did not answer
+
+The service refuses to cancel only a `CANCELLED` or `CLOSED` order, so a
+`DELIVERED` one can still be cancelled — goods gone, order withdrawn, delivery
+notes orphaned. That was already true and invisible: such an order read
+`APPROVED`, which cancel has always allowed. Making the status visible makes
+the question askable. The desktop gate lists the new statuses so it keeps
+saying what the service does rather than quietly disabling a button the API
+accepts; tightening the service is a product decision, not a bug fix.
 
 ## 4. Only two documents can be printed
 
