@@ -15,6 +15,8 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
+import '../workspace/print_settings_dialog.dart';
 import 'delivery_note_editor_dialog.dart';
 
 /// A named view over the one delivery note list.
@@ -442,6 +444,24 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         // anything else -- under a label reading "Request approval", while
         // dispatching is the step that moves the stock.
         trailing: [
+          // First, because a challan is what somebody is waiting for when a
+          // lorry is at the gate. Enabled on any saved note: paperwork is
+          // often printed before the dispatch is confirmed on screen.
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: OutlinedButton.icon(
+              onPressed: _selected == null
+                  ? null
+                  : () => unawaited(_printChallan(_selected!)),
+              icon: const Icon(Icons.print_outlined, size: 18),
+              label: const Text('Print challan'),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Print settings',
+            onPressed: () => unawaited(_openPrintSettings()),
+            icon: const Icon(Icons.tune_outlined, size: 18),
+          ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.dispatch, '/dispatch'),
           _actionButton(DocumentToolbarAction.complete, '/complete'),
@@ -449,6 +469,39 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
       );
+
+  /// Render the challan and hand it to whatever prints on this machine.
+  Future<void> _printChallan(_DeliveryNoteRecord note) async {
+    try {
+      final List<int> pdf = await widget.api.deliveryChallanPdf(note.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: note.deliveryNoteNumber,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  /// How this firm prints its challans: copies, letterhead, terms, paper.
+  Future<void> _openPrintSettings() async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => PrintSettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+        documentType: 'DELIVERY_NOTE',
+        documentLabel: 'delivery challan',
+      ),
+    );
+  }
 
   /// A lifecycle button, disabled unless permission **and** the selected
   /// note's status allow it.

@@ -226,18 +226,33 @@ the question askable. The desktop gate lists the new statuses so it keeps
 saying what the service does rather than quietly disabling a button the API
 accepts; tightening the service is a product decision, not a bug fix.
 
-## 4. Only two documents can be printed
+## 4. Only two documents can be printed — the challan landed 2026-08-23
 
-`GET /purchases/{id}/print` and `GET /sales-invoices/{id}/print` are the whole
-of it. Missing, in the order a distribution firm would want them:
+`GET /purchases/{id}/print` and `GET /sales-invoices/{id}/print` were the whole
+of it. **`GET /delivery-notes/{id}/print` joins them**: the challan that travels
+with the goods, which was the one a firm could not do without — dispatching
+stock and having nothing to send with it.
 
-- **A delivery challan.** Goods travelling without paperwork is the problem;
-  this is the document that should accompany them.
+A challan is not a bill and does not pretend to be. It carries no bank block,
+no due date, no reverse-charge declaration and no HSN-wise summary, but it does
+state the value of what is moving, because that is what makes it usable behind
+an e-way bill. It names the vehicle and the driver — the two things a driver is
+stopped and asked about — and prints the conventional three copies
+(consignee / transporter / consignor) unless the firm renames them.
+
+Building it extracted `app/document_framework/services/print_support.py`:
+reading a firm's template and describing the firm and the customer as party
+blocks were copied between the two existing print services, and three more
+documents would have made four copies of each. Both existing services now use
+it, with their sixteen tests as the check that nothing moved.
+
+Still missing:
+
 - **A quotation.** An offer that cannot be sent to the customer as a document.
 - **A credit note** for a sales return.
 
-The renderer (`app/sales_invoice/services/invoice_pdf.py`) and the per-firm
-template table are general enough to serve all three.
+Both are now short: a print service that maps the document onto
+`InvoiceDocument`, an endpoint and a button.
 
 ## 5. Optimistic concurrency stops before the invoice
 

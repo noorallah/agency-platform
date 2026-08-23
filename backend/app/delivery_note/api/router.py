@@ -39,6 +39,9 @@ from app.delivery_note.schemas import (
     DeliveryNoteUpdate,
 )
 from app.delivery_note.services import DeliveryNoteService
+from app.delivery_note.services.challan_print_service import (
+    DeliveryChallanPrintService,
+)
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 
 router = APIRouter(
@@ -294,6 +297,36 @@ def close_delivery_note(
         reason=data.reason,
     )
     return ApiResponse(data=service.note_response(row))
+
+
+@router.get(
+    "/{note_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_delivery_challan(
+    note_id: UUID,
+    scope: DeliveryNoteViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one delivery note as the challan that travels with the goods.
+
+    Viewing is the permission: the challan states what the screen already
+    shows, and whoever hands paperwork to a driver is not necessarily the
+    person who may approve a dispatch.
+    """
+    pdf, filename = DeliveryChallanPrintService(db).render(
+        note_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={
+            # `inline` so a viewer opens it rather than dropping a file the
+            # user then has to find.
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/{note_id}", response_model=ApiResponse[DeliveryNoteResponse])
