@@ -295,3 +295,111 @@ def test_an_order_does_not_call_itself_an_invoice() -> None:
     # The goods and the money are still stated.
     assert "854442" in printed
     assert "1,180.00" in printed
+
+
+def _challan() -> InvoiceDocument:
+    """One delivery challan: goods moving, on a named vehicle, charging nobody."""
+    return InvoiceDocument(
+        number="DN-ELEC01-ELC_HO-2026-2027-000006",
+        date="22 Aug 2026",
+        due_date=None,
+        place_of_supply=None,
+        reverse_charge=False,
+        seller=PartyBlock(
+            name="ElectroLink Appliances Distribution Private Limited",
+            address_lines=["Main Road", "Pune, Maharashtra, 411001"],
+            gstin="27ELEC01A1Z5",
+            state="Maharashtra",
+        ),
+        buyer=PartyBlock(
+            name="City Digital World",
+            address_lines=["23 Market Road", "Pune, Maharashtra, 411001"],
+            gstin="29ELEC01C0304Z5",
+            state="Maharashtra",
+        ),
+        ship_to=None,
+        lines=(
+            InvoiceLineBlock(
+                number=1,
+                description="Extension Board 5 Meter",
+                hsn="854442",
+                quantity=Decimal("10"),
+                free_quantity=Decimal("1"),
+                uom="NOS",
+                rate=Decimal("158.75"),
+                discount=Decimal("0"),
+                taxable=Decimal("1587.50"),
+                total=Decimal("1873.25"),
+            ),
+        ),
+        taxable_total=Decimal("1587.50"),
+        tax_total=Decimal("285.75"),
+        charges=Decimal("0"),
+        round_off=Decimal("0"),
+        grand_total=Decimal("1873.25"),
+        references=(
+            ("Against order", "SO-2026-2027-000006"),
+            ("Vehicle", "MH12 AB 1234"),
+            ("Driver", "R. Kulkarni"),
+        ),
+        party_labels=("CONSIGNEE", "SHIP TO"),
+        show_tax_summary=False,
+        show_supply_terms=False,
+        number_label="Challan no.",
+        date_label="Challan date",
+        words_label="VALUE OF GOODS, IN WORDS",
+    )
+
+
+def test_a_challan_names_the_vehicle_and_the_driver() -> None:
+    """The two things a driver is stopped and asked about.
+
+    Until 2026-08-23 the platform could print a tax invoice and a purchase
+    order and nothing else, so a firm could dispatch stock and had nothing to
+    send with it.
+    """
+    printed = _text_of(
+        InvoicePdfRenderer(
+            TemplateSettings(title_text="DELIVERY CHALLAN", show_bank_details=False)
+        ).render(_challan())
+    )
+
+    assert "DELIVERY CHALLAN" in printed
+    assert "MH12 AB 1234" in printed
+    assert "R. Kulkarni" in printed
+    assert "SO-2026-2027-000006" in printed
+
+
+def test_a_challan_states_the_free_goods_travelling() -> None:
+    """The storekeeper at the other end counts eleven."""
+    printed = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_challan()))
+
+    assert "10 + 1 free" in printed
+
+
+def test_a_challan_is_not_a_tax_invoice() -> None:
+    """It carries the value of what is moving and asks for nothing.
+
+    No HSN-wise summary and no supply terms: those belong to the bill that
+    follows, and a challan that stated them would be claiming to be one.
+    """
+    printed = _text_of(
+        InvoicePdfRenderer(
+            TemplateSettings(title_text="DELIVERY CHALLAN", show_bank_details=False)
+        ).render(_challan())
+    )
+
+    assert "Challan no." in printed
+    assert "VALUE OF GOODS, IN WORDS" in printed
+    assert "CONSIGNEE" in printed
+    # The parts a tax invoice must state and a challan must not claim.
+    assert "Reverse charge" not in printed
+    assert "HSN / SAC" not in printed
+
+
+def test_a_challan_still_carries_the_value_of_what_is_moving() -> None:
+    """Which is what makes it usable behind an e-way bill."""
+    printed = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_challan()))
+
+    assert "1,587.50" in printed
+    assert "1,873.25" in printed
