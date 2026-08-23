@@ -4070,6 +4070,32 @@ class ApiClient {
         .toList();
   }
 
+  /// Raise a sales order without a quotation behind it.
+  ///
+  /// An order could only appear by converting a quotation, so a phone order
+  /// had to be typed as a quotation and immediately accepted -- two documents
+  /// and an acceptance the customer never gave.
+  Future<Json> createSalesOrder(Json body) =>
+      request('POST', '/api/v1/sales-orders', body: body);
+
+  Future<Json> salesOrder(String id) =>
+      request('GET', '/api/v1/sales-orders/$id');
+
+  /// [expectedVersion] rides along as `If-Match`. The update replaces the
+  /// whole line collection, so a lost race costs every line somebody entered
+  /// rather than a single field.
+  Future<Json> updateSalesOrder(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/sales-orders/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      );
+
   Future<Json> createSalesInvoice(Json body) =>
       request('POST', '/api/v1/sales-invoices', body: body);
 

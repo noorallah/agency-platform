@@ -19,7 +19,7 @@ class _LineDraft {
     required this.productId,
     String quantity = '1',
     String unitPrice = '0',
-    String discount = '0',
+    String discount = '',
     String free = '',
   })  : quantity = TextEditingController(text: quantity),
         unitPrice = TextEditingController(text: unitPrice),
@@ -54,12 +54,6 @@ class _LineDraft {
   /// has been typed into does not, because refilling it would overwrite a
   /// price the salesman had just agreed.
   bool discountEdited = false;
-
-  /// Fill the box from the customer's standing rate, unless it was typed into.
-  void followCustomer(String percent) {
-    if (discountEdited) return;
-    discount.text = percent;
-  }
 
   double get _quantity => double.tryParse(quantity.text.trim()) ?? 0;
   double get _price => double.tryParse(unitPrice.text.trim()) ?? 0;
@@ -211,34 +205,53 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     return _LineDraft(
       productId: productId,
       unitPrice: _priceOf(productId),
-      discount: _customerDiscount,
     );
   }
 
-  /// The chosen customer's standing discount, as the box should read.
+  /// The chosen customer's standing discount, or empty where they have none.
   ///
-  /// Shown rather than left blank and filled in by the server: the number on
-  /// screen is what the customer is being quoted, and a salesman who cannot
-  /// see the discount cannot tell that it applied.
+  /// **Said, never typed into the box.** It used to fill the box, and that
+  /// quietly defeated price lists the moment they shipped: `resolve_line_
+  /// discount` ranks an explicit percentage *above* the price list, so a
+  /// customer on a blanket 10% and a 15% list was quoted 10% -- and a
+  /// customer with no blanket rate got a literal `0` in the box, which the
+  /// server reads as a refusal of every arrangement. Driven against a running
+  /// backend: the same quotation resolved to 15% when the line said nothing
+  /// and to nothing at all when it sent `discount_percent: "0"`.
+  ///
+  /// A salesman still has to see what is being applied, which is what the
+  /// helper text is for; the resolved figure comes back on the saved draft.
   String get _customerDiscount {
     for (final Customer item in widget.customers) {
       if (item.id == _customerId) {
         final double rate =
             double.tryParse(item.defaultDiscountPercent.trim()) ?? 0;
-        return rate <= 0 ? '0' : item.defaultDiscountPercent.trim();
+        return rate <= 0 ? '' : item.defaultDiscountPercent.trim();
       }
     }
-    return '0';
+    return '';
+  }
+
+  /// What leaving the discount box alone will take, in words.
+  ///
+  /// Deliberately not a promise of a number when there is no blanket rate: a
+  /// price list may still apply, and this form cannot resolve one -- only the
+  /// server knows which arrangement is in force on the day.
+  String? _discountHelper(_LineDraft line) {
+    if (line.discountEdited) return null;
+    return _customerDiscount.isEmpty
+        ? 'Blank takes any arrangement on file.'
+        : "Blank takes this customer's $_customerDiscount%, "
+            'or a price list where one applies.';
   }
 
   /// Move every untouched line onto the newly chosen customer's rate.
   void _chooseCustomer(String? value) {
     setState(() {
       _customerId = value;
-      final String percent = _customerDiscount;
-      for (final _LineDraft line in _lines) {
-        line.followCustomer(percent);
-      }
+      // Nothing is stamped into the discount boxes. The helper text under
+      // each says what silence takes; typing the rate in would make it an
+      // explicit override and outrank the arrangement it was quoting.
     });
   }
 
@@ -459,9 +472,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                 controller: line.discount,
                 decoration: InputDecoration(
                   labelText: 'Discount %',
-                  helperText: line.discountEdited || _customerDiscount == '0'
-                      ? null
-                      : "$_customerDiscount% is this customer's rate",
+                  helperText: _discountHelper(line),
+                  helperMaxLines: 2,
                 ),
                 keyboardType: TextInputType.number,
                 validator: _percentage,
@@ -571,8 +583,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                     const SizedBox(height: AppSpacing.sm),
                     Text(
                       'Quoted before tax: '
-                      '${_quotedBeforeTax.toStringAsFixed(2)}. Tax is worked '
-                      'out by the server at the rate in force.',
+                      '${_quotedBeforeTax.toStringAsFixed(2)}, on what is '
+                      'typed here. Tax, and any standing rate or price list '
+                      'a blank discount takes, are applied on save.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: AppSpacing.md),

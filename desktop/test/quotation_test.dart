@@ -646,31 +646,66 @@ void main() {
     });
 
 
-    testWidgets("a new line starts at the customer's standing discount",
+    testWidgets('a new line says nothing about a discount, and says so',
         (tester) async {
-      // Filled on screen rather than left to the server, because the number
-      // being quoted is the one the salesman has to be able to see.
+      // The box used to be filled with the customer's rate, on the reasoning
+      // that a salesman must see what is being quoted. That reasoning is
+      // right and the implementation was wrong: `resolve_line_discount` ranks
+      // an explicit percentage *above* the price list, so filling the box
+      // turned an inherited arrangement into an override and defeated every
+      // list the moment they shipped. The rate is said instead.
       final _QuoteApi api = _QuoteApi(customerDiscount: '10');
       await _pump(tester, api);
       await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(TextFormField, 'Discount %'), findsOneWidget);
-      expect(find.text("10% is this customer's rate"), findsOneWidget);
+      expect(
+        find.text("Blank takes this customer's 10%, "
+            'or a price list where one applies.'),
+        findsOneWidget,
+      );
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Quantity'), '5');
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Unit price'), '100');
       await tester.pumpAndSettle();
-      expect(find.text('Line 1: 450.00'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
       await tester.pumpAndSettle();
 
       final Map<String, dynamic> line =
           Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
-      expect(line['discount_percent'], '10');
+      // Absent, not zero. Driven against a running backend: the same line
+      // resolved to a 15% price list when it said nothing and to nothing at
+      // all when it sent `discount_percent: "0"`.
+      expect(line.containsKey('discount_percent'), isFalse);
+    });
+
+    testWidgets('a customer with no blanket rate is not quoted a literal zero',
+        (tester) async {
+      // The worse half of the same defect: with no standing rate the box was
+      // filled with "0", which the server reads as a refusal of every
+      // arrangement -- so no price list could ever reach a quotation raised
+      // from the desktop, whoever the customer was.
+      final _QuoteApi api = _QuoteApi(customerDiscount: '0');
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Blank takes any arrangement on file.'), findsOneWidget);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '5');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '100');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line.containsKey('discount_percent'), isFalse);
     });
 
     testWidgets('typing over the standing discount wins', (tester) async {
@@ -688,7 +723,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // The helper stops offering the rate once somebody has answered it.
-      expect(find.text("10% is this customer's rate"), findsNothing);
+      expect(
+        find.textContaining("Blank takes this customer's"),
+        findsNothing,
+      );
       expect(find.text('Line 1: 500.00'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
@@ -870,9 +908,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 10,000 gross, the customer's 10% off the line leaves 9,000, then 10%
-      // of the offer leaves 8,100. The free unit is outside all of it.
-      expect(find.textContaining('Quoted before tax: 8100.00'), findsOneWidget);
+      // 10,000 gross and 10% off the offer leaves 9,000. The running total
+      // counts only what is typed here: the line discount is left to the
+      // server, which is the only party that knows whether this customer's
+      // blanket rate or a price list is the arrangement in force -- which is
+      // why the label says the rest is applied on save rather than quoting a
+      // figure it cannot stand behind. The free unit is outside all of it.
+      expect(find.textContaining('Quoted before tax: 9000.00'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
       await tester.pumpAndSettle();
@@ -880,7 +922,7 @@ void main() {
       expect(api.created!['bill_discount_percent'], '10');
       final Map<String, dynamic> line =
           Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
-      expect(line['discount_percent'], '10');
+      expect(line.containsKey('discount_percent'), isFalse);
       expect(line['free_quantity'], '1');
     });
 
