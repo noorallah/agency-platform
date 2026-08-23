@@ -567,25 +567,6 @@ class CustomerRouteRecord {
 }
 
 /// Somebody the firm can put on a route.
-class TerritorySalesmanCandidate {
-  const TerritorySalesmanCandidate({
-    required this.userId,
-    required this.fullName,
-    required this.email,
-  });
-
-  final String userId;
-  final String fullName;
-  final String email;
-
-  factory TerritorySalesmanCandidate.fromJson(Json json) =>
-      TerritorySalesmanCandidate(
-        userId: stringValue(json['user_id']),
-        fullName: stringValue(json['full_name']),
-        email: stringValue(json['email']),
-      );
-}
-
 class TerritoryRouteProfileRecord {
   const TerritoryRouteProfileRecord({
     required this.routeTypeId,

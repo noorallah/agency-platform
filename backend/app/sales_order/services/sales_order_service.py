@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.common.firm_metadata import platform_reader
+from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -1453,11 +1453,22 @@ class SalesOrderService(TransactionalDocumentService):
         if warehouse is None:
             raise ValidationError("Warehouse not found in this branch.")
         if salesman_id is not None:
-            user = self._session.scalar(
-                select(User).where(User.id == salesman_id, User.is_deleted.is_(False))
+            # Through `FirmMetadataReader`, not the request session: `users`
+            # and `user_firms` live only in the platform schema, so selecting
+            # `User` here raised `relation "<firm schema>.users" does not
+            # exist` for every firm outside the platform store -- the sixth
+            # time this trap has been sprung. It was invisible because nothing
+            # sent a `salesman_id` until the desktop grew a picker for one.
+            #
+            # It also asks the right question. The old check accepted any user
+            # that existed anywhere, so one firm could tag another firm's
+            # people on its own documents; membership of *this* firm is what
+            # makes somebody a salesman of it.
+            members = FirmMetadataReader(self._session).active_member_count(
+                firm_id, [salesman_id]
             )
-            if user is None:
-                raise ValidationError("Salesman user not found.")
+            if members != 1:
+                raise ValidationError("Salesman is not an active member of this firm.")
         if territory_id is not None:
             territory = self._session.scalar(
                 select(SalesTerritoryNode).where(

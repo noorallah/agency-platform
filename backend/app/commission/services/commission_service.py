@@ -20,7 +20,6 @@ from app.commission.schemas import (
     CommissionRuleResponse,
     CommissionRuleStatusEnum,
     CommissionRuleUpdate,
-    CommissionSalesman,
     SalesmanCommissionRecord,
 )
 from app.common.audit.services import record_audit
@@ -57,31 +56,6 @@ class CommissionService:
         """Bind the service to the request unit of work."""
         self._session = session
         self._members = FirmMetadataReader(session)
-
-    def salesmen(self, *, firm_id: UUID) -> list[CommissionSalesman]:
-        """List the people this firm can agree a rate with.
-
-        Guarded by `COMMISSION_VIEW` rather than by `USER_VIEW`: whoever sets
-        commission is not usually a platform administrator, and
-        `/api/v1/users` refuses them. Read through `FirmMetadataReader`, the
-        one module allowed to touch `users` and `user_firms` -- both live only
-        in the platform schema, so a tenant session cannot see either.
-
-        Args:
-            firm_id: The firm whose members to list.
-
-        Returns:
-            The firm's active members, in name order.
-
-        """
-        return [
-            CommissionSalesman(
-                user_id=member.user_id,
-                full_name=member.full_name,
-                email=member.email,
-            )
-            for member in self._members.active_members(firm_id)
-        ]
 
     # ------------------------------------------------------------------
     # Rules

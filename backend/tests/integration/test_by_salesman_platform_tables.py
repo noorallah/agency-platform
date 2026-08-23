@@ -12,7 +12,12 @@ one note were tagged, and then both answered "The database is temporarily
 unavailable."
 
 Fifth occurrence of the trap, after territory search, global search and two
-others recorded in CLAUDE.md.
+others recorded in CLAUDE.md. The **sixth** was the write path of the same
+field, found the next day and covered at the bottom of this file: validating
+a `salesman_id` on create ran ``select(User)`` on the request session too, so
+raising a sales order or a delivery note that named anybody answered 503 on
+every firm outside the platform store. It stayed hidden for the same reason --
+nothing sent a `salesman_id` until the desktop grew a picker for one.
 
 This is the suite that can see it. The unit tests build one SQLite schema
 holding every table, so `users` is always reachable there and the report passes
@@ -27,7 +32,10 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.branches.models import Branch, Warehouse
+from app.core.exceptions import ValidationError
 from app.core.tenancy.lifecycle import _PLATFORM_TABLES
+from app.customers.models import Customer
 from app.delivery_note.services import DeliveryNoteService
 from app.sales_order.services import SalesOrderService
 
@@ -99,3 +107,79 @@ def test_the_delivery_note_report_runs_against_a_pruned_store(
     # raise: the query shape is what used to fail the moment a note carried a
     # salesman.
     assert rows == []
+
+
+def test_validating_a_salesman_on_create_does_not_reach_for_users_either(
+    tenant_session: Session,
+) -> None:
+    """The write path of the same field, which broke the same way.
+
+    `SalesOrderService` and `DeliveryNoteService` each validated a caller's
+    `salesman_id` with ``select(User)`` on the request session. Reading a name
+    for a report and checking a name on a create are different lines in
+    different methods, and fixing the first did not fix the second: raising
+    either document with a salesman named answered 503 on this shape of store.
+
+    The customer, branch and warehouse are real rows because the validator
+    checks them first and would otherwise refuse before reaching the line
+    under test -- the one thing the report-side test above could skip.
+
+    Both services now ask `FirmMetadataReader`, which reads the platform
+    store, and ask the better question while they are there: the old check
+    accepted any user that existed anywhere, so one firm could tag another
+    firm's people on its own documents. A stranger is refused with a
+    `ValidationError` rather than a database failure, which is the difference
+    between a message somebody can act on and a 503.
+    """
+    with pytest.raises(ProgrammingError):
+        tenant_session.execute(text("select id from users limit 1"))
+    tenant_session.rollback()
+
+    firm = uuid4()
+    branch = Branch(
+        firm_id=firm,
+        code="HO",
+        name="Head Office",
+        display_name="Head Office",
+        currency_code="INR",
+        working_hours={},
+        status="ACTIVE",
+    )
+    tenant_session.add(branch)
+    tenant_session.flush()
+    warehouse = Warehouse(
+        firm_id=firm,
+        branch_id=branch.id,
+        code="MAIN",
+        name="Main",
+        display_name="Main",
+        status="ACTIVE",
+    )
+    customer = Customer(
+        firm_id=firm,
+        code="C1",
+        customer_type="RETAIL",
+        name="Customer One",
+        display_name="Customer One",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    tenant_session.add_all([warehouse, customer])
+    tenant_session.flush()
+
+    stranger = uuid4()
+    for service in (
+        SalesOrderService(tenant_session),
+        DeliveryNoteService(tenant_session),
+    ):
+        with pytest.raises(ValidationError) as refusal:
+            service._validate_scope_references(
+                firm_id=firm,
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                salesman_id=stranger,
+                territory_id=None,
+                route_id=None,
+            )
+        assert "active member" in str(refusal.value), type(service).__name__

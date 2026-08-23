@@ -19,6 +19,7 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
+import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
@@ -2375,23 +2376,18 @@ class ApiClient {
   Future<void> deleteBeatPlan(String id) async =>
       request('DELETE', '/api/v1/sales-territories/beat-plans/$id');
 
-  /// The people this firm can put on a route.
+  /// The people who belong to this firm.
   ///
-  /// Not `/api/v1/users`: that endpoint is guarded by `USER_VIEW`, a
-  /// platform-admin permission, so the roles that actually run territories get
-  /// a 403 from it. This one is scoped to the firm and guarded by the assign
-  /// permission.
-  Future<List<TerritorySalesmanCandidate>> territorySalesmanCandidates() async {
-    final Json response =
-        await request('GET', '/api/v1/sales-territories/salesman-candidates');
-    final dynamic data = response['data'];
-    if (data is! List) return const <TerritorySalesmanCandidate>[];
-    return <TerritorySalesmanCandidate>[
-      for (final dynamic row in data)
-        if (row is Map)
-          TerritorySalesmanCandidate.fromJson(Map<String, dynamic>.from(row)),
-    ];
-  }
+  /// Not `/api/v1/users`: that is guarded by `USER_VIEW`, a platform-admin
+  /// permission none of the roles that need this list hold. Membership of the
+  /// firm is the only gate -- a firm's own directory of names is not a
+  /// privilege, and what needs a permission is *acting* on a person. There
+  /// were three of these behind three different permissions before
+  /// 2026-08-23, and the sales-order form could call none of them.
+  Future<List<FirmMember>> firmMembers() async => _unwrapList(
+        await request('GET', '/api/v1/firm-members'),
+        FirmMember.fromJson,
+      );
 
   Future<List<Json>> territorySalesmen(String territoryId) async {
     final Json response =
@@ -3241,16 +3237,6 @@ class ApiClient {
 
   Future<void> deleteCommissionRule(String id) =>
       request('DELETE', '/api/v1/commission/rules/$id');
-
-  /// The people this firm can agree a rate with.
-  ///
-  /// Its own endpoint rather than the territory module's: that one is gated
-  /// on `TERRITORY_ASSIGN_SALESMEN`, which whoever sets commission need not
-  /// hold, so calling it would 403 for exactly the user this screen is for.
-  Future<List<CommissionSalesman>> commissionSalesmen() async => _unwrapList(
-        await request('GET', '/api/v1/commission/salesmen'),
-        CommissionSalesman.fromJson,
-      );
 
   /// What each salesman collected in a period, and what it earned them.
   Future<CommissionReport> commissionReport({

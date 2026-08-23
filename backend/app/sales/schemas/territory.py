@@ -396,20 +396,6 @@ class TerritorySalesmanCoverage(TerritorySchema):
     coverage_percent: float
 
 
-class TerritorySalesmanCandidate(TerritorySchema):
-    """One person a route can be handed to.
-
-    Assigning a salesperson needs the firm's people by name, and ``users``
-    lives only in the platform schema behind ``USER_VIEW`` -- a platform-admin
-    permission the roles that run territories do not hold. Without this the
-    desktop had to ask for a raw user id, which is not something anybody knows.
-    """
-
-    user_id: UUID
-    full_name: str
-    email: str
-
-
 class TerritoryListFilters(TerritorySchema):
     """Validated filters for territory list endpoints."""
 

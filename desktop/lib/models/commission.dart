@@ -51,30 +51,6 @@ class CommissionRuleRecord {
       );
 }
 
-/// One person a firm can agree a rate with.
-///
-/// Read from `GET /api/v1/commission/salesmen`, which exists because `users`
-/// lives only in the platform schema behind `USER_VIEW` and the territory
-/// module's twin of this list is gated on `TERRITORY_ASSIGN_SALESMEN` --
-/// neither of which whoever sets commission holds.
-class CommissionSalesman {
-  const CommissionSalesman({
-    required this.id,
-    required this.name,
-    this.email = '',
-  });
-
-  final String id;
-  final String name;
-  final String email;
-
-  factory CommissionSalesman.fromJson(Json json) => CommissionSalesman(
-        id: stringValue(json['user_id']),
-        name: stringValue(json['full_name']),
-        email: stringValue(json['email']),
-      );
-}
-
 /// What one salesman collected in a period, and what it earned them.
 class CommissionRow {
   const CommissionRow({

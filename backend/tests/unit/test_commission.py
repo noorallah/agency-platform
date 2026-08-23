@@ -301,22 +301,6 @@ def test_the_firm_wide_default_does_not_pay_the_unassigned_bucket() -> None:
     assert result.total_commission_amount == Decimal("0.00")
 
 
-def test_a_firm_can_list_the_people_it_may_agree_a_rate_with() -> None:
-    """The picker on the rules screen has to come from somewhere.
-
-    `users` lives only in the platform schema behind `USER_VIEW`, and the
-    territory module's twin of this list is gated on
-    `TERRITORY_ASSIGN_SALESMEN` -- neither of which whoever sets commission
-    holds. Without this endpoint the screen could only offer people who
-    already had a rule, so a brand-new rate could never be agreed from it.
-    """
-    books = _Books(_session_factory()())
-    people = CommissionService(books.session).salesmen(firm_id=books.firm.id)
-
-    assert {person.user_id for person in people} == {books.asha, books.bala}
-    assert all(person.full_name for person in people)
-
-
 def test_the_firm_wide_default_pays_a_salesman_with_no_rule_of_their_own() -> None:
     """A rule of one's own beats the default; the default beats nothing."""
     books = _Books(_session_factory()())

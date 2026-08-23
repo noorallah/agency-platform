@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/sales_territory.dart';
+import '../../models/firm_member.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Who is called today.
@@ -32,7 +33,7 @@ class CallListPage extends StatefulWidget {
 class _CallListPageState extends State<CallListPage> {
   DateTime _date = DateTime.now();
   String _salesmanId = '';
-  List<TerritorySalesmanCandidate> _salesmen = const [];
+  List<FirmMember> _salesmen = const [];
   CallListRecord? _result;
   bool _loading = false;
   String? _error;
@@ -51,8 +52,8 @@ class _CallListPageState extends State<CallListPage> {
   Future<void> _loadSalesmen() async {
     if (!_canView) return;
     try {
-      final List<TerritorySalesmanCandidate> rows =
-          await widget.api.territorySalesmanCandidates();
+      final List<FirmMember> rows =
+          await widget.api.firmMembers();
       if (!mounted) return;
       setState(() => _salesmen = rows);
     } on ApiException {

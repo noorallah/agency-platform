@@ -196,14 +196,31 @@ is what the warehouse picks against and what credit was committed on. A
 non-draft opens read-only with a banner naming the status, rather than letting
 somebody retype the lines and be refused.
 
-**It does not capture a salesman.** `salesman_id` is optional on the API and
-this form does not offer it, because no endpoint lists a firm's people that a
-sales role may call — `users` is platform-only behind `USER_VIEW`, the
-territory list is gated on `TERRITORY_ASSIGN_SALESMEN`, and the commission list
-added the same day is gated on `COMMISSION_VIEW`. A phone order taken by a
-salesman therefore records none, and the money it eventually collects lands in
-the commission report's Unassigned bucket. Which permission should gate "list
-this firm's people" is the decision to take before a fourth copy exists.
+**It captures a salesman**, which needed a decision first. Three endpoints
+listed a firm's people, behind `TERRITORY_ASSIGN_SALESMEN`, `COMMISSION_VIEW`
+and `USER_VIEW` — and the sales-order form holds none of the three, so a
+fourth copy behind a fourth permission was the direction of travel.
+`GET /api/v1/firm-members` replaced all three, gated on **membership of the
+firm and nothing else**: a firm's own directory of names is not a privilege,
+and what needs a permission is *acting* on a person — putting them on a route,
+setting the rate they are paid. Those gates are unchanged.
+
+Two things surfaced the moment a document actually carried a salesman.
+`_validate_scope_references` in `sales_order` and `delivery_note` checked the
+caller's salesman with `select(User)` on the **request** session, so raising
+either document with one named answered 503 on every firm outside the platform
+store — the sixth occurrence of that trap, and the second on this field after
+the by-salesman reports the day before. It also accepted any user that existed
+anywhere, so one firm could tag another firm's people on its own documents;
+membership of *this* firm is what makes somebody its salesman.
+
+Leaving the field blank is not automatically nobody: where the customer is on
+a round, `_derived_salesman` supplies that round's salesman, and only where
+they are not does the money land in the commission report's Unassigned bucket.
+The form says exactly that. It offers every member and does not filter by who
+covers the customer's round — the server refuses one who does not, naming the
+reason, and filtering here would need the customer's assignments on every
+keystroke and would still have to trust that refusal.
 
 ## 3. ~~A sales order's status never moves as it is delivered~~ — closed 2026-08-23
 

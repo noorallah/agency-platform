@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/call_list_page.dart';
 import 'package:flutter/material.dart';
@@ -79,9 +80,9 @@ class _CallListApi extends ApiClient {
   }
 
   @override
-  Future<List<TerritorySalesmanCandidate>> territorySalesmanCandidates() async =>
-      <TerritorySalesmanCandidate>[
-        const TerritorySalesmanCandidate(
+  Future<List<FirmMember>> firmMembers() async =>
+      <FirmMember>[
+        const FirmMember(
           userId: 'user-1',
           fullName: 'Ravi Kumar',
           email: 'ravi@example.local',
