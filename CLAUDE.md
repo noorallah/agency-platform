@@ -294,6 +294,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   nobody dispatched is one the warehouse cannot reconcile. The desktop's
   quotation editor is the only screen that can give a line away; there was no
   field for it anywhere before, so the column was unreachable without the API.
+- **A sales order's status follows its deliveries as of 2026-08-23**, the way a
+  purchase order has followed its receipts since 2026-08-18.
+  `DeliveryNoteService._resync_order_status` writes `PARTIALLY_DELIVERED` and
+  `DELIVERED` on dispatch, **derived by summing the notes that have left the
+  warehouse** rather than incremented -- an incrementing counter and a reversal
+  are two chances to disagree. Only an order already in the delivering part of
+  its life is moved. Two traps came with it. The gate on raising a delivery
+  note compared a **sales order's** status against `DeliveryNoteStatus`
+  members, which agreed only because both enums spell APPROVED and CLOSED the
+  same; writing the new status would have made it refuse every second delivery,
+  so a part-shipped order could never be completed. And the service still lets
+  a DELIVERED order be cancelled -- true before and invisible, because such an
+  order read APPROVED -- so the desktop gate lists the new statuses rather than
+  disabling a button the API accepts. Orders predating the change are not
+  backfilled, as on the purchase side.
 - **`app/settlements` is money in and money out**, and it is one document for both directions: a receipt from a customer and a payment to a vendor differ only in signs. It posts to the general ledger through `DocumentPostingService.post_settlement`, and `settlements.journal_entry_id` is NOT NULL because the defect it exists to close is a settlement that never reached the ledger. ****A customer's opening balance posts** `Dr Accounts Receivable / Cr Opening Balance Equity` as of 2026-08-15, and is refused outright when the firm has no chart of accounts or open period -- a balance nobody can book is one the firm should not be told it has recorded. Revising one or deleting the customer mirrors the entry, traced through `customer_receivable_transactions.journal_entry_id`. `CustomerService.post_receivable_transaction` still moves a customer balance without writing a journal** -- it is the older, lower-level path and the two books drift by every rupee recorded through it, so record money through `/api/v1/receipts` and `/api/v1/payments` instead. What an invoice still owes is derived from `settlement_allocations`, never stored on the invoice. A settlement is reversed rather than edited or deleted: a mirror journal cancels it, the allocations stop clearing invoices but still record what they had cleared, and `CustomerService.reverse_receivable_transaction` puts the customer's balances back by the **deltas stored on the original row** -- never recomputed, because a receipt of 500 against an outstanding 300 splits into 300 of balance and 200 of advance and only that row remembers the split.
 - `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. Automatic GL posting from invoices is **not** built: it needs a per-firm control-account mapping design. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
 - Config is `pydantic-settings` reading `backend/config/.env` with the `AGENCY_` prefix; env vars override the file. `config/.env` is never committed. Staging/production refuse to start with the development JWT key or without an explicit bootstrap admin password.

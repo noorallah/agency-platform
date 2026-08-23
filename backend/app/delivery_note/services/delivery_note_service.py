@@ -65,6 +65,7 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.schemas import SalesOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -246,9 +247,16 @@ class DeliveryNoteService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         order = self._sales_order(data.sales_order_id, firm_id=firm_id)
+        # A sales order's status, compared against the sales order's own enum.
+        # This read `DeliveryNoteStatus` members, which agreed only because
+        # both enums spell APPROVED and CLOSED the same -- and would have
+        # refused the second delivery against a part-delivered order the
+        # moment that status started being written.
         if order.status not in {
-            DeliveryNoteStatus.APPROVED.value,
-            DeliveryNoteStatus.CLOSED.value,
+            SalesOrderStatus.APPROVED.value,
+            SalesOrderStatus.PARTIALLY_DELIVERED.value,
+            SalesOrderStatus.DELIVERED.value,
+            SalesOrderStatus.CLOSED.value,
         }:
             raise ValidationError(
                 "Delivery notes can be created only from approved sales orders."
@@ -502,6 +510,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+        )
+        self._resync_order_status(
+            self._sales_order(row.sales_order_id, firm_id=firm_scope),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         self._session.commit()
         return row
@@ -786,7 +799,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status != DeliveryNoteStatus.CANCELLED.value,
+                    SalesOrder.status != SalesOrderStatus.CANCELLED.value,
                 )
             ).all()
         )
@@ -1666,6 +1679,79 @@ class DeliveryNoteService(TransactionalDocumentService):
         if row is None:
             raise ResourceNotFoundError("Sales order not found.")
         return row
+
+    def _resync_order_status(
+        self, order: SalesOrder, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Move the sales order to match what has actually been dispatched.
+
+        Derived rather than incremented: the delivered quantity is summed from
+        the notes that have left the warehouse every time. That is how
+        `goods_receipt` does it on the purchase side and the reason is the
+        same -- an incrementing counter and a reversal are two chances to
+        disagree.
+
+        The walk-back branch is deliberate and, today, unreachable: only a
+        DRAFT or APPROVED note can be cancelled, and neither has dispatched, so
+        neither contributes to the total. `DISPATCHED` is terminal for
+        cancellation. Keeping the derivation whole means the day that changes,
+        this is already right.
+
+        Only ever moves an order already in the delivering part of its life. A
+        DRAFT, CANCELLED or CLOSED order is left exactly where it is:
+        delivering against a cancelled order is a different problem, and
+        quietly reviving one here would hide it.
+        """
+        movable = {
+            SalesOrderStatus.APPROVED.value,
+            SalesOrderStatus.PARTIALLY_DELIVERED.value,
+            SalesOrderStatus.DELIVERED.value,
+        }
+        if order.status not in movable:
+            return
+
+        lines = self._session.scalars(
+            select(SalesOrderLine).where(
+                SalesOrderLine.sales_order_id == order.id,
+                SalesOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        if not lines:
+            return
+
+        total = ZERO
+        complete = True
+        for line in lines:
+            sent = self._already_delivered_quantity(
+                firm_id=firm_id, sales_order_line_id=line.id
+            )
+            total += sent
+            if sent < self._q(line.reservable_quantity):
+                complete = False
+
+        if complete:
+            target = SalesOrderStatus.DELIVERED.value
+        elif total > ZERO:
+            target = SalesOrderStatus.PARTIALLY_DELIVERED.value
+        else:
+            # Every note against it has been cancelled.
+            target = SalesOrderStatus.APPROVED.value
+        if target == order.status:
+            return
+
+        before = order.status
+        order.status = target
+        order.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="sales_order.delivered_status_changed",
+            entity_type="sales_order",
+            entity_id=order.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": before},
+            after_data={"status": target},
+        )
 
     def _already_delivered_quantity(
         self,

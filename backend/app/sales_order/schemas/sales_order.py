@@ -15,10 +15,20 @@ class SalesOrderSchema(BaseModel):
 
 
 class SalesOrderStatus(StrEnum):
-    """Supported sales order lifecycle statuses."""
+    """Supported sales order lifecycle statuses.
+
+    `PARTIALLY_DELIVERED` and `DELIVERED` are written by
+    `DeliveryNoteService`, which resyncs the order as notes are dispatched and
+    walks it back as they are cancelled. Until 2026-08-23 neither existed: a
+    fully delivered order and one nothing had shipped against both read
+    APPROVED, and every screen had to work out "is this finished?" from the
+    notes. The purchase side has had the same pair since 2026-08-18.
+    """
 
     DRAFT = "DRAFT"
     APPROVED = "APPROVED"
+    PARTIALLY_DELIVERED = "PARTIALLY_DELIVERED"
+    DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
     CLOSED = "CLOSED"
 

@@ -35,8 +35,12 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
-from app.sales_order.models import SalesOrderLine
-from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
+from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.schemas import (
+    SalesOrderCreate,
+    SalesOrderLineWrite,
+    SalesOrderStatus,
+)
 from app.sales_order.services import SalesOrderService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -824,3 +828,272 @@ def test_the_customers_standing_discount_reaches_a_delivery_note() -> None:
     assert response.line_discount_total == Decimal("40.0000")
     assert response.grand_total == Decimal("360.0000")
     assert response.customer_discount_percent == Decimal("10.0000")
+
+
+def _stock(
+    session: Session,
+    *,
+    firm: Firm,
+    branch: Branch,
+    warehouse: Warehouse,
+    product: Product,
+    quantity: Decimal = Decimal("100"),
+) -> None:
+    """Put enough on the shelf that dispatch is not the thing under test."""
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=quantity,
+            reference_number="ADJ-STATUS",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+
+def _approved_order(
+    session: Session,
+    *,
+    firm: Firm,
+    branch: Branch,
+    warehouse: Warehouse,
+    customer: Customer,
+    product: Product,
+    quantity: Decimal,
+    actor_id: UUID,
+) -> tuple[SalesOrder, SalesOrderLine]:
+    """Raise and approve an order, and return it with its only line."""
+    orders = SalesOrderService(session)
+    order = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    return order, line
+
+
+def _dispatch(
+    session: Session,
+    *,
+    firm: Firm,
+    order: SalesOrder,
+    order_line: SalesOrderLine,
+    quantity: Decimal,
+    on: date,
+    actor_id: UUID,
+) -> DeliveryNote:
+    """Raise, approve and dispatch one note against the order."""
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=on,
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    return service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+
+
+def test_dispatching_part_of_an_order_moves_it_to_partially_delivered() -> None:
+    """Nothing wrote these statuses until 2026-08-23.
+
+    A fully delivered order and one nothing had shipped against both read
+    APPROVED, so every screen had to work out "is this finished?" from the
+    notes. The purchase side has had the same pair since 2026-08-18.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+
+
+def test_dispatching_the_rest_moves_it_to_delivered() -> None:
+    """Derived by summing the notes, not by incrementing a counter."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    for sent, day in ((Decimal("4"), 4), (Decimal("6"), 5)):
+        _dispatch(
+            session,
+            firm=firm,
+            order=order,
+            order_line=order_line,
+            quantity=sent,
+            on=date(2026, 8, day),
+            actor_id=actor_id,
+        )
+
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.DELIVERED.value
+
+
+def test_a_second_note_can_still_be_raised_once_the_order_has_moved() -> None:
+    """The gate that would have broken.
+
+    It compared the **sales order's** status against `DeliveryNoteStatus`
+    members, which agreed only because both enums spell APPROVED and CLOSED
+    the same. Writing PARTIALLY_DELIVERED would have made it refuse every
+    second delivery -- a part-shipped order could never be completed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+
+    # The one that used to be refused.
+    second = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("2"),
+        on=date(2026, 8, 5),
+        actor_id=actor_id,
+    )
+
+    assert second.status == DeliveryNoteStatus.DISPATCHED.value
+
+
+def test_an_undispatched_note_leaves_the_order_where_it_is() -> None:
+    """Stock moves at dispatch, so an approved note has delivered nothing."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.APPROVED.value
