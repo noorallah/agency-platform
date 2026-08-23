@@ -42,6 +42,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.quotation.models import (
     SalesQuotation,
@@ -783,6 +784,16 @@ class QuotationService(TransactionalDocumentService):
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
+        # Built once for the document, not once per line: which lists apply
+        # depends on the customer, the territory and the date, none of which
+        # change between lines.
+        prices = PriceListResolver(
+            self._session,
+            firm_id=row.firm_id,
+            customer_id=row.customer_id,
+            territory_id=row.territory_id,
+            on=row.quotation_date,
+        )
 
         # Every line is priced before any of them is written, because a
         # discount on the whole bill has to be split across the lines *before*
@@ -809,6 +820,7 @@ class QuotationService(TransactionalDocumentService):
                     gross=gross,
                     percent=item.discount_percent,
                     amount=item.discount_amount,
+                    price_list_percent=prices.rate_for(item.product_id),
                     customer_default=customer_discount,
                 )
             )

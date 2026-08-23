@@ -12,6 +12,7 @@ from app.api.routers.health import router as health_router
 from app.batch_serial.api import router as batch_serial_router
 from app.branches.api import router as branch_warehouse_router
 from app.business.api import router as business_framework_router
+from app.commission.api import router as commission_router
 from app.common.audit.api import router as audit_logs_router
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
@@ -35,6 +36,7 @@ from app.firms.api import router as firms_router
 from app.goods_receipt.api import router as goods_receipt_router
 from app.identity.api import router as identity_router
 from app.inventory.api import router as inventory_router
+from app.pricing.api import router as pricing_router
 from app.products.api import router as products_router
 from app.purchase.api import router as purchases_router
 from app.purchase_invoice.api import router as purchase_invoices_router
@@ -111,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(identity_router)
     application.include_router(firms_router)
     application.include_router(customers_router)
+    application.include_router(pricing_router)
     application.include_router(products_router)
     application.include_router(purchases_router)
     application.include_router(purchase_invoices_router)
@@ -135,6 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(receipts_router)
     application.include_router(payments_router)
     application.include_router(refunds_router)
+    application.include_router(commission_router)
     application.include_router(audit_logs_router)
     application.include_router(diagnostics_router)
     register_exception_handlers(application)
