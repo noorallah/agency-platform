@@ -15,12 +15,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_invoice.schemas import (
+    BillableDocument,
     SalesInvoiceCreate,
     SalesInvoiceCustomerOutstandingRecord,
     SalesInvoiceImportRequest,
@@ -77,6 +79,28 @@ SalesInvoiceImportScope = Annotated[
 # `/api/v1/sales-invoices` with a 307 -- and the desktop client sets
 # `followRedirects = false`, so every call to it failed with "Request failed
 # (307)". The sales invoice workspace had been in that state.
+@router.get(
+    "/billable",
+    response_model=ApiResponse[list[BillableDocument]],
+)
+def list_billable_documents(
+    scope: SalesInvoiceViewScope,
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 50,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[BillableDocument]]:
+    """List what is still waiting to be billed.
+
+    A literal path, declared above `/{invoice_id}` deliberately: FastAPI
+    matches in declaration order and this repository has had four features
+    made unreachable by a literal sitting below a parameter that swallowed it.
+    """
+    return ApiResponse(
+        data=SalesInvoiceService(db).billable_documents(
+            firm_scope=scope.firm_id, limit=limit
+        )
+    )
+
+
 @router.get(
     "",
     response_model=PaginatedResponse[SalesInvoiceResponse],

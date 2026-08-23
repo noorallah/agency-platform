@@ -40,6 +40,9 @@ from app.customers.models import (
     CustomerAddress,
 )
 from app.customers.schemas import CreditEnforcement
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
+from app.delivery_note.services import DeliveryNoteService
 from app.finance.models import (
     GLPosting,
     JournalEntry,
@@ -52,6 +55,8 @@ from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.identity.system_seed import SYSTEM_PERMISSION_CODES
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
+from app.inventory.schemas import InventoryAdjustmentCreate
+from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
@@ -1308,6 +1313,7 @@ def test_the_line_keeps_its_own_discount_apart_from_its_share() -> None:
     assert line.bill_discount_amount == Decimal("36.0000")
     assert response.subtotal == Decimal("324.0000")
 
+
 def test_a_bill_states_what_was_given_away() -> None:
     """`free_quantity` existed on three documents and not on the invoice.
 
@@ -1364,3 +1370,246 @@ def test_a_bill_can_decline_to_pass_on_free_goods() -> None:
 
     assert response.lines[0].free_quantity == Decimal("0")
     assert response.total_free_quantity == Decimal("0")
+
+
+def _dispatched_note(setup: _Billing, quantity: Decimal = Decimal("4")) -> DeliveryNote:
+    """Dispatch the setup's order so there is something to bill."""
+    session = setup.session
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=setup.product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-BILLABLE",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    orders = SalesOrderService(session)
+    orders.approve_order(setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    notes = DeliveryNoteService(session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    notes.dispatch_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    return note
+
+
+def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:
+    """Offer only what a document still has left to bill.
+
+    Nothing exposed this, so a client could only offer every document and let
+    the save be refused -- nine times in ten on a firm that bills promptly.
+    """
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+
+    billable = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+
+    assert [item.source_document_number for item in billable] == [
+        note.delivery_note_number
+    ]
+    line = billable[0].lines[0]
+    assert line.source_quantity == Decimal("4.0000")
+    assert line.already_invoiced_quantity == Decimal("0")
+    assert line.remaining_quantity == Decimal("4.0000")
+    assert line.unit_price == Decimal("100.0000")
+    # Named, so a picker is not a list of UUIDs.
+    assert billable[0].customer_name
+
+
+def test_a_partly_billed_note_offers_only_the_rest() -> None:
+    """The number offered is the number the save will accept."""
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    service = SalesInvoiceService(setup.session)
+    dn_line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert dn_line is not None
+    service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            invoice_date=date(2026, 8, 5),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=dn_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    line = service.billable_documents(firm_scope=setup.firm.id)[0].lines[0]
+
+    assert line.already_invoiced_quantity == Decimal("1.0000")
+    assert line.remaining_quantity == Decimal("3.0000")
+
+
+def test_a_fully_billed_note_drops_off_the_list() -> None:
+    """Offered and then refused is the experience this exists to avoid."""
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    service = SalesInvoiceService(setup.session)
+    dn_line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert dn_line is not None
+    service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            invoice_date=date(2026, 8, 5),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=dn_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert service.billable_documents(firm_scope=setup.firm.id) == []
+
+
+def test_an_undispatched_note_is_not_billable() -> None:
+    """Nothing has left the warehouse, so there is nothing to charge for."""
+    setup = _Billing(_session_factory()())
+    _dispatched_note(setup, quantity=Decimal("3"))
+    # A second note over the remaining one, left in draft.
+    notes = DeliveryNoteService(setup.session)
+    notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.order.id,
+            delivery_date=date(2026, 8, 6),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    billable = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+
+    assert len(billable) == 1
+
+
+def test_billable_documents_stop_at_the_firm_boundary() -> None:
+    """A picker must not offer another firm's paperwork."""
+    session = _session_factory()()
+    setup = _Billing(session)
+    _dispatched_note(setup)
+    other = Firm(
+        name="Other Firm",
+        code="SI-OTHER",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(other)
+    session.commit()
+
+    assert SalesInvoiceService(session).billable_documents(firm_scope=other.id) == []
+
+
+def test_the_limit_counts_billable_notes_not_candidates() -> None:
+    """Asking for one must return one, not filter one away and return none.
+
+    The first cut applied the limit to delivery notes and *then* dropped the
+    fully billed ones, so a firm whose newest notes are all invoiced saw an
+    empty list while older billable ones sat behind them. Found by asking a
+    running server for one and getting nothing back.
+    """
+    setup = _Billing(_session_factory()())
+    older = _dispatched_note(setup, quantity=Decimal("1"))
+    service = SalesInvoiceService(setup.session)
+
+    # Bill the newer note in full so only the older one is left.
+    newer = DeliveryNoteService(setup.session).create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.order.id,
+            delivery_date=date(2026, 8, 20),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    notes = DeliveryNoteService(setup.session)
+    notes.approve_note(newer.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    notes.dispatch_note(newer.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    newer_line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == newer.id)
+    )
+    assert newer_line is not None
+    service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            invoice_date=date(2026, 8, 21),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=newer.id,
+                    source_document_line_id=newer_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    billable = service.billable_documents(firm_scope=setup.firm.id, limit=1)
+
+    assert [item.source_document_number for item in billable] == [
+        older.delivery_note_number
+    ]

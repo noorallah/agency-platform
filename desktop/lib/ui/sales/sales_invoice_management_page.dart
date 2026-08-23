@@ -11,6 +11,7 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
@@ -359,6 +360,25 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         ),
       );
 
+  /// Raise an invoice against a delivery note that still has something to bill.
+  Future<void> _newInvoice() async {
+    final bool? created = await showDialog<bool>(
+      context: context,
+      builder: (_) => SalesInvoiceEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+      ),
+    );
+    if (created != true) return;
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Invoice created as a draft. Approve it to post the journal.',
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
+  }
+
   /// Save the bill and hand it to whatever opens PDFs on this machine.
   ///
   /// Saved rather than shown in a viewer of our own: the file is the thing the
@@ -478,6 +498,19 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           }
         },
         trailing: [
+          // First in the row, because raising a bill is the reason somebody
+          // opens this screen -- and until 2026-08-23 there was no way to do
+          // it from the desktop at all.
+          if (widget.permissions.hasPermission('SALES_CREATE'))
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: FilledButton.icon(
+                onPressed:
+                    widget.hasActiveFirm ? () => unawaited(_newInvoice()) : null,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New Invoice'),
+              ),
+            ),
           // Printing shows nothing the screen does not, so viewing is enough;
           // what it needs is an invoice selected to print.
           Padding(

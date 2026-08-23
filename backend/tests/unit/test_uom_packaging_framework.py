@@ -902,9 +902,7 @@ def test_a_products_own_barcode_is_one_base_unit() -> None:
     product.barcode = "1111111111116"
     session.commit()
 
-    found = UomService(session).lookup_barcode(
-        firm_scope=firm.id, code="1111111111116"
-    )
+    found = UomService(session).lookup_barcode(firm_scope=firm.id, code="1111111111116")
 
     assert found.product_id == product.id
     assert found.packaging_level_id is None
@@ -914,8 +912,10 @@ def test_a_products_own_barcode_is_one_base_unit() -> None:
 
 
 def test_a_code_two_things_carry_is_refused_rather_than_guessed() -> None:
-    """A scanner that silently picked one would put the wrong stock on a
-    document, and nothing downstream would ever question it.
+    """Refuse a code two things carry rather than picking one.
+
+    A scanner that silently picked one would put the wrong stock on a document,
+    and nothing downstream would ever question it.
     """
     session = _session_factory()()
     actor_id = uuid4()

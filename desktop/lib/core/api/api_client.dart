@@ -17,6 +17,7 @@ import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
+import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/purchase.dart';
@@ -3906,6 +3907,28 @@ class ApiClient {
   /// bytes are what an email will attach when that arrives.
   Future<List<int>> salesInvoicePdf(String id) =>
       downloadBytes('/api/v1/sales-invoices/$id/print');
+
+  /// What is still waiting to be billed.
+  ///
+  /// Asked for rather than derived client-side: only the server knows how much
+  /// of a delivery line earlier invoices already took, and a picker that
+  /// guessed would offer documents the save then refuses.
+  Future<List<BillableDocument>> billableDocuments({int limit = 50}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-invoices/billable',
+      query: {'limit': '$limit'},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => BillableDocument.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<Json> createSalesInvoice(Json body) =>
+      request('POST', '/api/v1/sales-invoices', body: body);
 
   Future<List<int>> downloadBytes(
     String path, {

@@ -22,7 +22,7 @@ them. Route counts are what the application serves today.
 | `app/quotation` | sales quotation | 16 | list, editor, lifecycle |
 | `app/sales_order` | sales order | 17 | list, lifecycle — **no editor** |
 | `app/delivery_note` | delivery note | 19 | list, editor, lifecycle |
-| `app/sales_invoice` | sales invoice | 17 | list, lifecycle, print — **no editor** |
+| `app/sales_invoice` | sales invoice | 18 | list, editor, lifecycle, print |
 | `app/sales_return` | sales return / credit note | 17 | list, editor, lifecycle |
 | `app/sales` | territory, route, beat plan, geography | 63 | six screens |
 | `app/customers` | customer, credit policy, receivables | 17 | list, editor, settings |
@@ -140,20 +140,28 @@ the only one of the five with no `/summary` — its workspace cards read
 # What is missing
 
 Checked on 2026-08-23 against the route table, the desktop tree and the models,
-not from memory. Ordered by what it costs a firm.
+not from memory. Ordered by what it costs a firm. The first was closed the same
+day and is kept here, struck through, because the reasoning is worth keeping.
 
-## 1. A sales invoice cannot be raised from the desktop
+## 1. ~~A sales invoice cannot be raised from the desktop~~ — closed 2026-08-23
 
-**The largest gap in the module.** There is no invoice editor, no "bill this
-delivery note" action, and no call to `create('sales-invoices', …)` anywhere in
-`desktop/lib`. The delivery note workspace offers approve, cancel, close,
-complete and dispatch — and nothing that produces an invoice.
+This was the largest gap in the module. There was no invoice editor, no "bill
+this delivery note" action, and no call to `create('sales-invoices', …)`
+anywhere in `desktop/lib`, so a firm using only the desktop could quote, order
+and dispatch and then not bill — while `POST /api/v1/sales-invoices` worked and
+`SALES_INVOICE_CREATE` sat seeded with no screen checking it.
 
-So a firm using only the desktop can quote, order and dispatch, and then cannot
-bill. `POST /api/v1/sales-invoices` works and the seeder uses it; the authority
-`SALES_INVOICE_CREATE` is seeded and no screen checks it. It also means the
-invoice print feature added on 2026-08-22 has nothing to print unless invoices
-arrive through the API.
+**New Invoice** on the sales invoice workspace now opens an editor that bills a
+delivery note. It is backed by `GET /api/v1/sales-invoices/billable`, which
+answers with the documents that still have something left to bill and, per
+line, what is dispatched, what earlier invoices already took, and what remains.
+That endpoint exists because a client cannot work the remainder out for itself:
+one that guessed would offer paperwork the save then refuses, and on a firm
+with 58 delivery notes and 49 invoices that is a refusal nine times in ten.
+
+The remaining quantity is derived through the same helper `create_invoice`
+uses, so the number offered is the number the save accepts. Cancelling an
+invoice puts its quantity back on the list.
 
 ## 2. A sales order cannot be raised directly from the desktop
 
