@@ -32,6 +32,9 @@ from app.sales_return.schemas import (
     SalesReturnUpdate,
 )
 from app.sales_return.services import SalesReturnService
+from app.sales_return.services.credit_note_print_service import (
+    CreditNotePrintService,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-returns",
@@ -275,6 +278,36 @@ async def import_sales_returns(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=[service.return_response(item) for item in rows])
+
+
+@router.get(
+    "/{return_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_sales_return(
+    return_id: UUID,
+    scope: SalesReturnViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one sales return as the credit note the customer files.
+
+    Viewing is the permission: the document states what the screen already
+    shows, and the person who sends it is not necessarily the one who may
+    change it.
+    """
+    pdf, filename = CreditNotePrintService(db).render(
+        return_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={
+            # `inline` so a viewer opens it rather than dropping a file the
+            # user then has to find.
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/{return_id}", response_model=ApiResponse[SalesReturnResponse])

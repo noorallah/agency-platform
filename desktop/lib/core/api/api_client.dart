@@ -3912,6 +3912,14 @@ class ApiClient {
   Future<List<int>> deliveryChallanPdf(String id) =>
       downloadBytes('/api/v1/delivery-notes/$id/print');
 
+  /// The offer a customer is sent.
+  Future<List<int>> quotationPdf(String id) =>
+      downloadBytes('/api/v1/quotations/$id/print');
+
+  /// The credit note a customer files.
+  Future<List<int>> creditNotePdf(String id) =>
+      downloadBytes('/api/v1/sales-returns/$id/print');
+
   /// What is still waiting to be billed.
   ///
   /// Asked for rather than derived client-side: only the server knows how much

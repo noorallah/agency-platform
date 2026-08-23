@@ -17,6 +17,7 @@ configure itself out of compliance.
 import re
 import zlib
 from base64 import a85decode
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -403,3 +404,69 @@ def test_a_challan_still_carries_the_value_of_what_is_moving() -> None:
 
     assert "1,587.50" in printed
     assert "1,873.25" in printed
+
+
+def test_a_quotation_says_how_long_the_prices_stand() -> None:
+    """The one field a quotation has that no other document does.
+
+    An offer without it is one the firm is still bound by next year -- and
+    until 2026-08-23 an offer could not be sent as a document at all.
+    """
+    document = _challan()
+    offer = replace(
+        document,
+        number="QT-2026-2027-000007",
+        references=(("Prices stand until", "21 Sep 2026"),),
+        party_labels=("OFFERED TO", "SHIP TO"),
+        number_label="Quotation no.",
+        date_label="Quotation date",
+        words_label="QUOTED VALUE, IN WORDS",
+    )
+    printed = _text_of(
+        InvoicePdfRenderer(TemplateSettings(title_text="QUOTATION")).render(offer)
+    )
+
+    assert "QUOTATION" in printed
+    assert "Prices stand until" in printed
+    assert "21 Sep 2026" in printed
+    assert "OFFERED TO" in printed
+    assert "QUOTED VALUE, IN WORDS" in printed
+
+
+def test_a_credit_note_states_the_tax_it_gives_back() -> None:
+    """The mirror of a bill, not a lesser document.
+
+    The tax on a return is credited, so the components are stated the way an
+    invoice states them; only the supply terms go, because nothing is being
+    supplied.
+    """
+    note = replace(
+        _document(),
+        number="SR-2026-2027-000003",
+        due_date=None,
+        party_labels=("CREDITED TO", "RETURNED FROM"),
+        show_supply_terms=False,
+        number_label="Credit note no.",
+        date_label="Credit note date",
+        words_label="CREDIT, IN WORDS",
+        references=(("Reason", "DAMAGED"),),
+    )
+    printed = _text_of(
+        InvoicePdfRenderer(
+            TemplateSettings(title_text="CREDIT NOTE", show_bank_details=False)
+        ).render(note)
+    )
+
+    assert "CREDIT NOTE" in printed
+    assert "Credit note no." in printed
+    assert "CREDITED TO" in printed
+    assert "CREDIT, IN WORDS" in printed
+    assert "DAMAGED" in printed
+    # The tax it gives back is stated. Component by component only where the
+    # document carries a stored breakup -- a sales return has none, so the
+    # real service asks for no summary; this document has one and proves the
+    # renderer would print it the day the breakup is stored.
+    assert "CGST" in printed
+    assert "SGST" in printed
+    # And what it must not: nothing is being supplied, so no supply terms.
+    assert "Reverse charge" not in printed

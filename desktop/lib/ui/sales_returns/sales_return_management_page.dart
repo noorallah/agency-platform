@@ -10,6 +10,7 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 import 'sales_return_editor_dialog.dart';
 
 /// Goods coming back from a customer.
@@ -432,9 +433,32 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         ),
       );
 
+  /// Render the credit note and hand it to whatever prints on this machine.
+  Future<void> _printCreditNote(SalesReturn row) async {
+    try {
+      final List<int> pdf = await widget.api.creditNotePdf(row.id);
+      if (!mounted) return;
+      await printDocument(context, bytes: pdf, documentName: row.returnNumber);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   Widget _actions(SalesReturn row) => Wrap(
         spacing: AppSpacing.sm,
         children: [
+          // The customer's evidence that the money came back, and their
+          // accountant needs it as much as they needed the invoice.
+          OutlinedButton.icon(
+            onPressed: () => unawaited(_printCreditNote(row)),
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: const Text('Print credit note'),
+          ),
           if (row.isDraft && _canApprove)
             FilledButton(
               onPressed: () => unawaited(_act(row, 'approve')),
