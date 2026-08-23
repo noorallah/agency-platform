@@ -372,9 +372,7 @@ def test_a_challan_names_the_vehicle_and_the_driver() -> None:
 
 def test_a_challan_states_the_free_goods_travelling() -> None:
     """The storekeeper at the other end counts eleven."""
-    printed = _text_of(
-        InvoicePdfRenderer(TemplateSettings()).render(_challan())
-    )
+    printed = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_challan()))
 
     assert "10 + 1 free" in printed
 
@@ -401,9 +399,7 @@ def test_a_challan_is_not_a_tax_invoice() -> None:
 
 def test_a_challan_still_carries_the_value_of_what_is_moving() -> None:
     """Which is what makes it usable behind an e-way bill."""
-    printed = _text_of(
-        InvoicePdfRenderer(TemplateSettings()).render(_challan())
-    )
+    printed = _text_of(InvoicePdfRenderer(TemplateSettings()).render(_challan()))
 
     assert "1,587.50" in printed
     assert "1,873.25" in printed
