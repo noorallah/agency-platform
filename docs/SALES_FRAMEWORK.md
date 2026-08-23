@@ -306,12 +306,35 @@ deal". A price is the central term of the sale, and a document that says
 nothing about it is incomplete rather than ordinary — so `unit_price` stays
 required on the API and an integrator must state one.
 
-## 7. There is no pricing beyond a single price per product
+## 7. ~~There is no pricing beyond a single price per product~~ — closed 2026-08-23
 
-No price lists, no rate contracts, no customer- or territory-specific pricing,
-and no effective-dated price changes — `price_list`, `rate_contract` and their
-spellings appear nowhere in `app/`. The customer's standing discount percentage
-is the only per-customer pricing the platform has.
+`app/pricing` holds **price lists**: effective-dated arrangements scoped to one
+customer, to a territory, or to the whole firm.
+
+They hold **rates off the product's price**, not prices of their own, and that
+is the decision the shape rests on: a firm revises a product's price once and
+every arrangement built on it follows, where a list of absolute prices would
+keep charging last year's figure until somebody edited every row.
+
+Where it sits in the precedence, which is the part to know:
+
+1. an explicit **amount** on the line,
+2. else an explicit **percentage**,
+3. else the **price list** — the most specific arrangement wins, customer over
+   territory over firm-wide,
+4. else the customer's **blanket rate**,
+5. else nothing.
+
+A list is more specific than the blanket rate, so it outranks it; a typed
+figure outranks both, because a person deciding beats a table. A product no
+list mentions falls through to the blanket rate — which is why the resolver
+answers `None` for silence rather than zero, and a list that deliberately puts
+a product at nil blocks the blanket rate underneath.
+
+Ranked in SQL by an explicit `case`, not by NULL ordering: PostgreSQL sorts
+NULLs first in `DESC` and SQLite last, which is exactly how a firm-wide UOM
+rule once outranked a product's own factor in production while the tests
+stayed green.
 
 ## 8. No schemes or promotions
 
@@ -324,12 +347,31 @@ rule would write; today somebody types them by hand on every document.
 Whatever is built must run **before** tax and store its result on the line, for
 the same reason the bill discount does.
 
-## 9. No salesman commission
+## 9. ~~No salesman commission~~ — the backend landed 2026-08-23
 
-`COMMISSION` is a declared business feature carrying `is_implemented = false`,
-which the service refuses to enable. Territory already records which salesman
-owns a customer and which round a document was filed against, so the data a
-commission run needs is being captured.
+`app/commission` holds effective-dated rules — a percentage per salesman, with
+a firm-wide default — and a report that answers, for a period, what each
+salesman collected and earned.
+
+**Earned on money actually collected, not on invoiced value.** That was the
+decision the whole shape turned on, and it is why the report walks
+`settlement_allocations` → settlement → invoice rather than reading invoices:
+a reversed settlement must not pay commission, so only `POSTED` receipts count,
+and an allocation whose invoice names no salesman is reported under
+`Unassigned` rather than dropped.
+
+Attribution is the **invoice's own** `salesman_id` — the document's tag, not
+the customer's current territory assignment. What was true when the sale
+happened is what the commission is on, the same reasoning that stops an invoice
+re-reading a customer's discount.
+
+Two things a firm should know before relying on it. **Refunds are not netted
+off**: a refund returns an unallocated advance, so nothing ties it to an
+invoice or a salesman — worth a decision if a firm refunds after paying.
+And it **reports rather than pays**: no payout posts to the ledger, which is a
+separate decision about which account it lands in.
+
+There is no desktop screen yet.
 
 ## 10. No sales targets or quotas
 

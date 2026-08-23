@@ -11,7 +11,8 @@ invoice line as a lie.
 Three rules live here, and nowhere else:
 
 **What was asked for wins over what was assumed.** An explicit amount beats an
-explicit percentage, which beats the customer's standing discount. An explicit
+explicit percentage, which beats what the firm's price lists promise this
+customer on this product, which beats the customer's blanket standing rate. An explicit
 zero is an instruction -- it is how somebody says "not this time" to a customer
 who normally gets ten percent -- so `None` and `0` are different answers and the
 schemas must keep them apart.
@@ -52,6 +53,7 @@ def resolve_line_discount(
     gross: Decimal,
     percent: Decimal | None = None,
     amount: Decimal | None = None,
+    price_list_percent: Decimal | None = None,
     customer_default: Decimal | None = None,
     subject: str = "the line amount",
 ) -> LineDiscount:
@@ -63,8 +65,12 @@ def resolve_line_discount(
         percent: The percentage the caller asked for, or None if they said
             nothing. Zero is an answer, not a silence.
         amount: The currency figure the caller asked for, or None.
-        customer_default: The customer's standing discount, used only when the
-            caller said nothing at all.
+        price_list_percent: What the firm's price lists promise this customer
+            on this product, or None where no list mentions it. Ranked above
+            the blanket rate because it is the more specific arrangement, and
+            below anything typed because a person deciding beats a table.
+        customer_default: The customer's standing discount, used only when
+            nothing more specific applies.
         subject: What the refusal calls the thing the discount cannot exceed.
             The same rule serves a line and a whole document, and a message
             naming the wrong one sends the reader looking in the wrong place.
@@ -85,6 +91,12 @@ def resolve_line_discount(
     elif percent is not None:
         applied = quantize_money(gross * quantize_money(percent) / HUNDRED)
         source = "percent"
+    elif price_list_percent is not None:
+        # A list that names the product at zero is an arrangement too, so this
+        # branch is taken on `is not None` rather than on being positive --
+        # unlike the blanket rate below, where zero has always meant "none set".
+        applied = quantize_money(gross * quantize_money(price_list_percent) / HUNDRED)
+        source = "price_list"
     elif customer_default is not None and customer_default > ZERO:
         applied = quantize_money(gross * quantize_money(customer_default) / HUNDRED)
         source = "customer"
@@ -102,7 +114,7 @@ def resolve_line_discount(
     rate = (
         quantize_money(applied * HUNDRED / gross)
         if gross > ZERO
-        else quantize_money(percent or customer_default or ZERO)
+        else quantize_money(percent or price_list_percent or customer_default or ZERO)
     )
     return LineDiscount(amount=applied, percent=rate, source=source)
 

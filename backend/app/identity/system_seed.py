@@ -196,6 +196,14 @@ PERMISSION_GROUPS = {
         "UOM_IMPORT",
         "UOM_EXPORT",
     ),
+    "pricing": (
+        "PRICE_LIST_VIEW",
+        "PRICE_LIST_MANAGE",
+    ),
+    "commission": (
+        "COMMISSION_VIEW",
+        "COMMISSION_MANAGE",
+    ),
     "accounting": (
         "ACCOUNT_VIEW",
         "ACCOUNT_MANAGE",
@@ -273,6 +281,8 @@ _operational_permissions = _codes(
     "inventory",
     "batch_serial",
     "uom_framework",
+    "pricing",
+    "commission",
     "accounting",
     "report",
     "financial_year",
@@ -294,7 +304,7 @@ ROLE_PERMISSION_CODES = {
     "FIRM_MANAGER": _operational_permissions
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
-    "ACCOUNTANT": _codes("accounting", "report")
+    "ACCOUNTANT": _codes("accounting", "commission", "report")
     | frozenset(
         {
             "CUSTOMER_VIEW",
@@ -311,7 +321,17 @@ ROLE_PERMISSION_CODES = {
         # limits their own sales.
         - frozenset({"CUSTOMER_MANAGE_SETTINGS"})
     )
-    | frozenset({"PRODUCT_VIEW", "TERRITORY_VIEW", "TERRITORY_ASSIGN_CUSTOMERS"}),
+    | frozenset(
+        {
+            "PRODUCT_VIEW",
+            "TERRITORY_VIEW",
+            "TERRITORY_ASSIGN_CUSTOMERS",
+            # A sales manager reads what their team earned; setting the rate
+            # they are paid on is not theirs, the way the credit policy that
+            # limits their own sales is not theirs to switch off.
+            "COMMISSION_VIEW",
+        }
+    ),
     "SALES_EXECUTIVE": frozenset(
         {
             "CUSTOMER_VIEW",

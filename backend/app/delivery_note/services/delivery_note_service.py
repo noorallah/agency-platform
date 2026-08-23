@@ -63,6 +63,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService
+from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -74,6 +75,21 @@ from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
 
 ZERO = Decimal("0")
+
+
+def _source_product(
+    source_lines: dict[UUID, SalesOrderLine], line_id: UUID | None
+) -> UUID | None:
+    """Return the product a delivery line is shipping.
+
+    A delivery note line names an order line rather than a product, so pricing
+    it against a price list has to go through the order to find out what is in
+    the box.
+    """
+    if line_id is None:
+        return None
+    source = source_lines.get(line_id)
+    return None if source is None else source.product_id
 
 
 class DeliveryNoteService(TransactionalDocumentService):
@@ -1023,6 +1039,16 @@ class DeliveryNoteService(TransactionalDocumentService):
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
+        # Built once for the document, not once per line: which lists apply
+        # depends on the customer, the territory and the date, none of which
+        # change between lines.
+        prices = PriceListResolver(
+            self._session,
+            firm_id=row.firm_id,
+            customer_id=row.customer_id,
+            territory_id=row.territory_id,
+            on=row.delivery_date,
+        )
 
         # Priced before the loop below writes anything, because a discount on
         # the whole document has to be split across the lines *before* tax is
@@ -1038,6 +1064,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                 ),
                 percent=item.discount_percent,
                 amount=item.discount_amount,
+                price_list_percent=prices.rate_for(
+                    _source_product(source_lines, item.sales_order_line_id)
+                ),
                 customer_default=customer_discount,
             )
             for item in lines

@@ -19,6 +19,7 @@ fails the build if a module under ``app/*/models/`` is missing.
 from app.batch_serial.models import batch_serial  # noqa: F401
 from app.branches.models import branch_warehouse  # noqa: F401
 from app.business.models import framework  # noqa: F401
+from app.commission.models import commission  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401
 from app.customers.models import customer  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
@@ -32,6 +33,7 @@ from app.inventory.models import (
     inventory,  # noqa: F401
     physical_count,  # noqa: F401
 )
+from app.pricing.models import price_list  # noqa: F401
 from app.products.models import product  # noqa: F401
 from app.purchase.models import purchase  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
