@@ -1,6 +1,7 @@
 """UOM and packaging API contracts."""
 
 from app.uom.schemas.uom import (
+    BarcodeLookupResponse,
     BusinessProfileUomDefaultResponse,
     BusinessProfileUomDefaultUpsert,
     ConversionRequest,
@@ -38,6 +39,7 @@ __all__ = [
     "IndustryTemplateCreate",
     "IndustryTemplateResponse",
     "IndustryTemplateUpdate",
+    "BarcodeLookupResponse",
     "PackagingLevelCreate",
     "PackagingLevelResponse",
     "PackagingLevelUpdate",

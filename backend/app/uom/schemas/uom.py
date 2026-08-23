@@ -258,6 +258,37 @@ class BusinessProfileUomDefaultResponse(UomSchema):
     updated_at: datetime
 
 
+class BarcodeLookupResponse(UomSchema):
+    """What one scanned code turns out to be.
+
+    A packaging level carries its own barcode precisely so a carton label can
+    be read and understood as 120 pieces rather than as one carton. Without
+    something that resolves the code, the barcodes on those levels are text
+    nobody reads -- which is what they were until this existed.
+    """
+
+    #: The code as it was scanned, echoed so a caller batching several can
+    #: match answers to requests.
+    code: str
+
+    product_id: UUID
+    product_code: str
+    product_name: str
+
+    #: The level the code belongs to, or None when the code is the product's
+    #: own barcode and one scan means one base unit.
+    packaging_level_id: UUID | None
+    level_name: str | None
+
+    #: How many base units one of these is. The whole point of the lookup:
+    #: receiving one scan of this code means receiving this much stock.
+    base_quantity: Decimal
+
+    #: Which column the code was found in, so a firm can tell an EAN from a
+    #: barcode somebody typed into the wrong box.
+    matched_field: str
+
+
 class PackagingLevelCreate(UomSchema):
     """One level of a product's packaging hierarchy."""
 

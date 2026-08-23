@@ -19,17 +19,22 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.products.models import Product
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
-from app.uom.models import (
+from app.uom.models.uom import (
     BusinessProfileUomDefault,
     ConversionRule,
     IndustryTemplate,
     PackagingType,
+    ProductPackagingLevel,
     Uom,
     UomGroup,
 )
@@ -807,3 +812,191 @@ def test_the_counter_and_the_published_revision_are_different_numbers() -> None:
         firm_scope=firm.id,
     )
     assert result.version_number == 1
+
+
+def _scannable(
+    session: Session,
+    service: UomService,
+    *,
+    firm_id: UUID,
+    actor_id: UUID,
+    product: Product,
+    level_name: str = "Carton",
+    factor: str = "120",
+    **codes: str,
+) -> ProductPackagingLevel:
+    """Give a product one packaging level carrying the codes named."""
+    unit = service.create_uom(
+        UomCreate(code=f"u-{level_name}", name=level_name), actor_id=actor_id
+    )
+    return service.create_packaging_level(
+        firm_scope=firm_id,
+        product_id=product.id,
+        data=PackagingLevelCreate(
+            uom_id=unit.id,
+            level_name=level_name,
+            conversion_to_base_factor=Decimal(factor),
+            **codes,
+        ),
+        actor_id=actor_id,
+    )
+
+
+def test_a_scanned_carton_says_how_many_pieces_it_holds() -> None:
+    """The reason a packaging level carries a barcode of its own.
+
+    Nothing resolved these codes until this existed, so the barcode, GTIN, EAN
+    and UPC columns on every level were text no code path read -- and the
+    framework doc's claim that this "lets a scanner read a carton label and
+    know it holds 120 pieces" had no implementation behind it.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    product = _product(session, firm.id)
+    _scannable(
+        session,
+        service,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        product=product,
+        barcode="8901234567906",
+    )
+
+    found = service.lookup_barcode(firm_scope=firm.id, code="8901234567906")
+
+    assert found.product_id == product.id
+    assert found.level_name == "Carton"
+    assert found.base_quantity == Decimal("120")
+    assert found.matched_field == "barcode"
+
+
+def test_a_trade_identifier_resolves_as_well_as_a_barcode() -> None:
+    """A firm fills in whichever of the four its supplier gives it."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    product = _product(session, firm.id)
+    _scannable(
+        session,
+        service,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        product=product,
+        ean="5012345678900",
+    )
+
+    found = service.lookup_barcode(firm_scope=firm.id, code="5012345678900")
+
+    assert found.base_quantity == Decimal("120")
+    assert found.matched_field == "ean"
+
+
+def test_a_products_own_barcode_is_one_base_unit() -> None:
+    """There is no packaging around a piece to multiply by."""
+    session = _session_factory()()
+    firm = _firm(session)
+    product = _product(session, firm.id)
+    product.barcode = "1111111111116"
+    session.commit()
+
+    found = UomService(session).lookup_barcode(
+        firm_scope=firm.id, code="1111111111116"
+    )
+
+    assert found.product_id == product.id
+    assert found.packaging_level_id is None
+    assert found.level_name is None
+    assert found.base_quantity == Decimal("1")
+    assert found.matched_field == "product"
+
+
+def test_a_code_two_things_carry_is_refused_rather_than_guessed() -> None:
+    """A scanner that silently picked one would put the wrong stock on a
+    document, and nothing downstream would ever question it.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    first = _product(session, firm.id, code="SKU-A")
+    second = _product(session, firm.id, code="SKU-B")
+    for index, product in enumerate((first, second)):
+        _scannable(
+            session,
+            service,
+            firm_id=firm.id,
+            actor_id=actor_id,
+            product=product,
+            level_name=f"Carton{index}",
+            barcode="7777777777776",
+        )
+
+    with pytest.raises(ConflictError, match="2 products or packaging levels"):
+        service.lookup_barcode(firm_scope=firm.id, code="7777777777776")
+
+
+def test_a_code_nobody_carries_says_so() -> None:
+    """Named in the message, because the next thing anybody does is re-scan."""
+    session = _session_factory()()
+    firm = _firm(session)
+
+    with pytest.raises(ResourceNotFoundError, match="4004004004004"):
+        UomService(session).lookup_barcode(firm_scope=firm.id, code="4004004004004")
+
+
+def test_a_code_is_looked_up_only_inside_its_own_firm() -> None:
+    """Two firms may stock the same product from the same supplier."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    mine = _firm(session, "MINE")
+    theirs = _firm(session, "THEIRS")
+    service = UomService(session)
+    _scannable(
+        session,
+        service,
+        firm_id=theirs.id,
+        actor_id=actor_id,
+        product=_product(session, theirs.id, code="SKU-THEIRS"),
+        barcode="6006006006006",
+    )
+
+    with pytest.raises(ResourceNotFoundError):
+        service.lookup_barcode(firm_scope=mine.id, code="6006006006006")
+
+
+def test_a_blank_code_is_refused_before_anything_is_searched() -> None:
+    """An empty scan matches every row whose column is NULL otherwise."""
+    session = _session_factory()()
+    firm = _firm(session)
+
+    with pytest.raises(ValidationError, match="Scan or type a code"):
+        UomService(session).lookup_barcode(firm_scope=firm.id, code="   ")
+
+
+def test_a_deleted_level_stops_answering_for_its_code() -> None:
+    """A code freed by a delete has to be re-usable by the next packaging."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    service = UomService(session)
+    product = _product(session, firm.id)
+    level = _scannable(
+        session,
+        service,
+        firm_id=firm.id,
+        actor_id=actor_id,
+        product=product,
+        barcode="3003003003003",
+    )
+    service.delete_packaging_level(
+        firm_scope=firm.id,
+        product_id=product.id,
+        level_id=level.id,
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ResourceNotFoundError):
+        service.lookup_barcode(firm_scope=firm.id, code="3003003003003")

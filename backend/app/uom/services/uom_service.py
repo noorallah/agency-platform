@@ -13,6 +13,7 @@ from decimal import (
     ROUND_UP,
     Decimal,
 )
+from typing import ClassVar
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, or_, select
@@ -35,7 +36,8 @@ from app.uom.models import (
     UomGroup,
     UomGroupUnit,
 )
-from app.uom.schemas import (
+from app.uom.schemas.uom import (
+    BarcodeLookupResponse,
     BusinessProfileUomDefaultUpsert,
     ConversionRequest,
     ConversionResponse,
@@ -680,6 +682,84 @@ class UomService:
         if profile_id is None:
             return None
         return self.get_profile_default(firm_scope=firm_scope, profile_id=profile_id)
+
+    #: The columns a scanned code can live in, in the order they are tried.
+    #: A barcode is what a scanner reads; the three trade identifiers are what
+    #: the packaging is registered as, and firms fill in whichever their
+    #: suppliers give them.
+    _CODE_COLUMNS: ClassVar[tuple[str, ...]] = ("barcode", "gtin", "ean", "upc")
+
+    def lookup_barcode(self, *, firm_scope: UUID, code: str) -> BarcodeLookupResponse:
+        """Resolve a scanned code to a product and the stock one scan means.
+
+        Searches every packaging level's four code columns first, then the
+        product's own barcode. A packaging level wins because it is the more
+        specific answer: a carton label and the piece barcode are different
+        codes, and only the level knows the carton holds 120.
+
+        Raises:
+            ResourceNotFoundError: If nothing in the firm carries the code.
+            ConflictError: If more than one thing does. Two products sharing a
+                barcode is a data problem, and a scanner that silently picked
+                one of them would put the wrong stock on a document -- so it
+                is refused, naming how many matched, rather than guessed at.
+
+        """
+        code = code.strip()
+        if not code:
+            raise ValidationError("Scan or type a code to look up.")
+
+        matches: list[tuple[ProductPackagingLevel | None, Product, str]] = []
+        for column in self._CODE_COLUMNS:
+            for level in self._session.scalars(
+                select(ProductPackagingLevel).where(
+                    ProductPackagingLevel.firm_id == firm_scope,
+                    getattr(ProductPackagingLevel, column) == code,
+                    ProductPackagingLevel.is_deleted.is_(False),
+                )
+            ).all():
+                product = self._session.get(Product, level.product_id)
+                if product is None or product.is_deleted:
+                    # A level outliving its product cannot answer for it.
+                    continue
+                matches.append((level, product, column))
+
+        for product in self._session.scalars(
+            select(Product).where(
+                Product.firm_id == firm_scope,
+                Product.barcode == code,
+                Product.is_deleted.is_(False),
+            )
+        ).all():
+            matches.append((None, product, "product"))
+
+        if not matches:
+            raise ResourceNotFoundError(
+                f"Nothing in this firm carries the code {code}."
+            )
+        if len(matches) > 1:
+            raise ConflictError(
+                f"{len(matches)} products or packaging levels carry the code "
+                f"{code}. A code has to name one thing before it can be scanned."
+            )
+
+        matched_level, product, matched_field = matches[0]
+        return BarcodeLookupResponse(
+            code=code,
+            product_id=product.id,
+            product_code=product.code,
+            product_name=product.name,
+            packaging_level_id=None if matched_level is None else matched_level.id,
+            level_name=None if matched_level is None else matched_level.level_name,
+            # A product's own barcode is one base unit by definition; there is
+            # no packaging around it to multiply by.
+            base_quantity=(
+                Decimal("1")
+                if matched_level is None
+                else matched_level.conversion_to_base_factor
+            ),
+            matched_field=matched_field,
+        )
 
     def list_packaging_levels(
         self, *, firm_scope: UUID, product_id: UUID

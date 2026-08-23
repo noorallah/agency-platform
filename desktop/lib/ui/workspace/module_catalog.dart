@@ -196,6 +196,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PACKAGING_MANAGE'],
         ),
         ModuleTabDefinition(
+          id: 'packaging-levels',
+          label: 'Packaging Levels',
+          requiredPermissions: ['PACKAGING_MANAGE'],
+        ),
+        ModuleTabDefinition(
           id: 'conversion-rules',
           label: 'Conversion Rules',
           requiredPermissions: ['CONVERSION_RULE_MANAGE'],
@@ -931,6 +936,7 @@ abstract final class ModuleCatalog {
             'uoms',
             'uom-groups',
             'packaging-types',
+            'packaging-levels',
             'conversion-rules',
             'industry-templates',
           ]))
@@ -952,6 +958,11 @@ abstract final class ModuleCatalog {
                   const WorkspaceNavigationNode(
                     label: 'Packaging Types',
                     path: 'packaging-types',
+                  ),
+                if (visibleTabIds.contains('packaging-levels'))
+                  const WorkspaceNavigationNode(
+                    label: 'Packaging Levels',
+                    path: 'packaging-levels',
                   ),
                 if (visibleTabIds.contains('conversion-rules'))
                   const WorkspaceNavigationNode(
