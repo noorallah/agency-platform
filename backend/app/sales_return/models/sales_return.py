@@ -302,6 +302,57 @@ class SalesReturnLine(BaseEntity):
     remarks: Mapped[str | None] = mapped_column(Text)
 
 
+class SalesReturnLineTax(BaseEntity):
+    """Store the tax components one return line actually credited.
+
+    The mirror of `SalesInvoiceLineTax`, and missing for the same reason it
+    was: a line carried a single `tax_amount`, which is what the customer gets
+    back and is useless on a printed credit note. A GST credit note has to name
+    each component it reverses.
+
+    Re-asking the rule engine at print time is what this exists to prevent:
+    rules are effective-dated, so the engine can answer differently from what
+    was actually credited. `tax_component_id` carries no foreign key for the
+    reason the invoice's does not -- it names the catalogue row that produced
+    this line at the time, and the catalogue moves on.
+    """
+
+    __tablename__ = "sales_return_line_taxes"
+    __table_args__ = (
+        Index("IX_sales_return_line_taxes_line", "sales_return_line_id"),
+        Index("IX_sales_return_line_taxes_firm", "firm_id"),
+    )
+
+    sales_return_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("sales_return_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tax_component_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    component_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    component_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    percentage: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    base_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Tax already inside the price, which the note shows but does not add.
+    included_in_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Whether the buyer had claimed it as input credit.
+    recoverable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
 class SalesReturnAttachment(BaseEntity):
     """Store sales return attachments."""
 

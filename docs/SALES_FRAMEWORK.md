@@ -255,17 +255,18 @@ stand — because an offer without it is one the firm is still bound by next
 year. A credit note is the customer's evidence that the money came back, and
 states the reason the goods did.
 
-### The one thing a credit note still cannot state
+### The credit note's tax breakup — closed the same day
 
-Its tax **component by component**, which under GST it should. The invoice
-manages it only because `sales_invoice_line_taxes` stores the breakup it
-charged (`20260822_0096`); a sales return line has no equivalent table.
+It could state a tax total and no components, which under GST is not enough.
+The invoice manages it only because `sales_invoice_line_taxes` stores the
+breakup it charged (`20260822_0096`); a sales return line had no equivalent.
 
-Re-asking the rule engine at print time is not the answer and is the reason
-that storage exists: rules are effective-dated, so the engine can answer
-differently from what was actually credited. So the note states the tax total
-and asks for no summary it cannot fill. Closing it properly means giving the
-sales return line the same stored breakup — the twin of that migration.
+`sales_return_line_taxes` (`20260823_0101`) is the twin of that migration, and
+`SalesReturnService._tax_amount` now keeps what the engine decided instead of
+returning one number and discarding the rest — the same change the invoice made
+a day earlier. Re-asking the engine at print time is what that storage exists
+to prevent: rules are effective-dated, so it can answer differently from what
+was actually credited.
 
 ## 5. Optimistic concurrency stops before the invoice
 
