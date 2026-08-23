@@ -1,6 +1,8 @@
 """Sales invoice schemas."""
 
 from app.sales_invoice.schemas.sales_invoice import (
+    BillableDocument,
+    BillableLine,
     SalesInvoiceAccountingEventResponse,
     SalesInvoiceAccountingEventType,
     SalesInvoiceAttachmentResponse,
@@ -26,6 +28,10 @@ from app.sales_invoice.schemas.sales_invoice import (
 )
 
 __all__ = [
+    "BillableDocument",
+    "BillableLine",
+    "BillableDocument",
+    "BillableLine",
     "SalesInvoiceStatus",
     "SalesInvoiceSourceType",
     "SalesInvoiceAccountingEventType",

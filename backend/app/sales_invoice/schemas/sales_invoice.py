@@ -64,6 +64,54 @@ class SalesInvoiceSourceWrite(SalesInvoiceSchema):
     source_document_id: UUID
 
 
+class BillableLine(SalesInvoiceSchema):
+    """One line of a document that still has something left to bill."""
+
+    source_document_line_id: UUID
+    line_number: int
+    product_id: UUID | None
+    description: str | None
+
+    #: What the source document committed -- dispatched on a delivery note,
+    #: ordered on a sales order.
+    source_quantity: Decimal
+
+    #: What earlier invoices already billed against this line. Cancelled
+    #: invoices do not count, so cancelling one makes its quantity billable
+    #: again.
+    already_invoiced_quantity: Decimal
+
+    #: The difference, and what an invoice line should default to.
+    remaining_quantity: Decimal
+
+    unit_price: Decimal
+    discount_percent: Decimal
+    discount_amount: Decimal
+
+    #: Goods the source line gave away. An invoice may state up to this much
+    #: free and no more.
+    free_quantity: Decimal
+
+
+class BillableDocument(SalesInvoiceSchema):
+    """A dispatched delivery note or approved order with something left to bill.
+
+    Nothing exposed this, so a client had no way to know which documents were
+    already invoiced -- it could only offer all of them and let the save be
+    refused. On a firm with 58 delivery notes and 49 invoices that is a refusal
+    nine times in ten.
+    """
+
+    source_document_type: SalesInvoiceSourceType
+    source_document_id: UUID
+    source_document_number: str
+    document_date: date
+    customer_id: UUID
+    customer_name: str
+    branch_id: UUID | None
+    lines: list[BillableLine]
+
+
 class SalesInvoiceLineWrite(SalesInvoiceSchema):
     """Carry one sales invoice line into a request."""
 

@@ -106,7 +106,7 @@ def _segments(path: str) -> tuple[str, ...]:
 
 @lru_cache(maxsize=1)
 def _call_shapes() -> tuple[tuple[str, ...], ...]:
-    """The segment shape of every `/api/v1/...` literal in the desktop."""
+    """Return the segment shape of every `/api/v1/...` literal in the desktop."""
     shapes: set[tuple[str, ...]] = set()
     for source in sorted(_DESKTOP.rglob("*.dart")):
         text = _INTERPOLATION.sub("{}", source.read_text(encoding="utf-8"))
@@ -116,7 +116,7 @@ def _call_shapes() -> tuple[tuple[str, ...], ...]:
 
 
 def _is_reachable(path: str) -> bool:
-    """True when some path the desktop builds could resolve to this route.
+    """Report whether some path the desktop builds could resolve to this route.
 
     A hole on the *call* side matches any segment, because that is what a
     generic helper such as `documentAction` does. A hole on the route side
@@ -137,9 +137,7 @@ def _is_reachable(path: str) -> bool:
 @pytest.mark.skipif(not _API_CLIENT.exists(), reason="desktop tree not present")
 def test_every_route_is_reachable_or_accepted() -> None:
     orphans = {
-        f"{method} {path}"
-        for method, path in _served()
-        if not _is_reachable(path)
+        f"{method} {path}" for method, path in _served() if not _is_reachable(path)
     }
     assert len(_call_shapes()) > 100, "the scan found almost nothing -- shape moved"
 
@@ -160,9 +158,7 @@ def test_the_accepted_list_holds_nothing_that_gained_a_caller() -> None:
     person reads it as a considered decision about today's code.
     """
     orphans = {
-        f"{method} {path}"
-        for method, path in _served()
-        if not _is_reachable(path)
+        f"{method} {path}" for method, path in _served() if not _is_reachable(path)
     }
 
     stale = sorted(set(_ACCEPTED) - orphans)

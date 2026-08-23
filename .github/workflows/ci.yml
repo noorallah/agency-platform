@@ -4,9 +4,10 @@ name: CI
 # defect recurring — test_identity_hardening guards unseeded permission codes,
 # for example — and without a pipeline they only run when someone remembers to.
 #
-# Gates are set to what actually passes today. `ruff` and `mypy` still report
-# thousands of pre-existing findings repo-wide, so they run for visibility but
-# do not fail the build; tighten them per package as modules are cleaned up.
+# The lint job used to run with `|| true` because the tree carried thousands of
+# pre-existing findings. It has been clean since 2026-08-14 and the escape
+# hatch outlived its reason: two pull requests merged on 2026-08-23 carrying
+# ruff findings, and the pipeline said nothing about either. It gates now.
 
 on:
   push:
@@ -60,12 +61,11 @@ jobs:
           heads=$(uv run python -m alembic heads | grep -c '(head)')
           test "$heads" -eq 1 || { uv run python -m alembic heads; exit 1; }
 
-      - name: Lint (informational)
-        continue-on-error: true
+      - name: Lint
         run: |
-          uv run ruff check . || true
-          uv run black --check . || true
-          uv run mypy app || true
+          uv run ruff check .
+          uv run black --check .
+          uv run mypy app
 
   integration:
     # Multi-schema tenancy, cross-schema foreign keys, the audit trigger and

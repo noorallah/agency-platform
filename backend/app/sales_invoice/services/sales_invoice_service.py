@@ -31,6 +31,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -60,6 +61,8 @@ from app.sales_invoice.models import (
     SalesInvoiceSource,
 )
 from app.sales_invoice.schemas import (
+    BillableDocument,
+    BillableLine,
     SalesInvoiceAccountingEventResponse,
     SalesInvoiceAccountingEventType,
     SalesInvoiceAttachmentResponse,
@@ -1792,6 +1795,168 @@ class SalesInvoiceService(TransactionalDocumentService):
         ):
             return self._q(getattr(source_line, "delivered_quantity", ZERO))
         return self._q(getattr(source_line, "quantity", ZERO))
+
+    def billable_documents(
+        self,
+        *,
+        firm_scope: UUID,
+        limit: int = 50,
+    ) -> list[BillableDocument]:
+        """Return what is still waiting to be billed, newest first.
+
+        Delivery notes that have been dispatched and sales orders that were
+        approved and never delivered against -- the two things an invoice can
+        be raised from. A document appears only while some line still has
+        quantity left, so a fully billed note drops out of the list rather
+        than being offered and then refused.
+
+        The remaining quantity is derived the same way ``create_invoice``
+        derives it, through ``_already_invoiced_quantity``, so the number
+        offered here is the number the save will accept. Cancelled invoices do
+        not count against a line, which means cancelling one puts its quantity
+        back on this list.
+        """
+        documents: list[BillableDocument] = []
+
+        # What every invoice has already taken from each delivery line, as a
+        # subquery rather than a loop: the filter below needs it before it can
+        # know which notes are worth returning.
+        invoiced = (
+            select(
+                SalesInvoiceLine.source_document_line_id.label("line_id"),
+                func.coalesce(
+                    func.sum(SalesInvoiceLine.current_invoice_quantity), ZERO
+                ).label("taken"),
+            )
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+            .group_by(SalesInvoiceLine.source_document_line_id)
+            .subquery()
+        )
+
+        # The limit is applied to notes that still have something left, not to
+        # candidates that are then filtered -- otherwise a firm whose newest
+        # fifty notes are all billed sees an empty list while older billable
+        # ones sit behind them. Found by asking for one and getting none.
+        open_notes = (
+            select(DeliveryNoteLine.delivery_note_id)
+            .outerjoin(invoiced, invoiced.c.line_id == DeliveryNoteLine.id)
+            .where(
+                DeliveryNoteLine.is_deleted.is_(False),
+                DeliveryNoteLine.current_delivery_quantity
+                - func.coalesce(invoiced.c.taken, ZERO)
+                > ZERO,
+            )
+        )
+
+        notes = self._session.scalars(
+            select(DeliveryNote)
+            .where(
+                DeliveryNote.firm_id == firm_scope,
+                DeliveryNote.is_deleted.is_(False),
+                DeliveryNote.status.in_(
+                    [
+                        DeliveryNoteStatus.DISPATCHED.value,
+                        DeliveryNoteStatus.COMPLETED.value,
+                        DeliveryNoteStatus.CLOSED.value,
+                    ]
+                ),
+                DeliveryNote.id.in_(open_notes),
+            )
+            .order_by(DeliveryNote.delivery_date.desc())
+            .limit(limit)
+        ).all()
+
+        for note in notes:
+            lines = self._session.scalars(
+                select(DeliveryNoteLine)
+                .where(
+                    DeliveryNoteLine.delivery_note_id == note.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+                .order_by(DeliveryNoteLine.line_number.asc())
+            ).all()
+            billable = [
+                line
+                for line in (
+                    self._billable_line(
+                        firm_id=firm_scope,
+                        line_id=item.id,
+                        line_number=item.line_number,
+                        product_id=item.product_id,
+                        description=item.description,
+                        source_quantity=self._q(item.current_delivery_quantity),
+                        unit_price=self._q(item.unit_price),
+                        discount_percent=self._q(item.discount_percent),
+                        discount_amount=self._q(item.discount_amount),
+                        free_quantity=self._q(item.free_quantity),
+                    )
+                    for item in lines
+                )
+                if line is not None
+            ]
+            if not billable:
+                continue
+            documents.append(
+                BillableDocument(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_number=note.delivery_note_number,
+                    document_date=note.delivery_date,
+                    customer_id=note.customer_id,
+                    customer_name=self._customer_name(note.customer_id),
+                    branch_id=note.branch_id,
+                    lines=billable,
+                )
+            )
+        return documents
+
+    def _billable_line(
+        self,
+        *,
+        firm_id: UUID,
+        line_id: UUID,
+        line_number: int,
+        product_id: UUID | None,
+        description: str | None,
+        source_quantity: Decimal,
+        unit_price: Decimal,
+        discount_percent: Decimal,
+        discount_amount: Decimal,
+        free_quantity: Decimal,
+    ) -> BillableLine | None:
+        """Return one line's remaining quantity, or None if it is fully billed."""
+        already = self._already_invoiced_quantity(
+            firm_id=firm_id, source_document_line_id=line_id
+        )
+        remaining = self._q(source_quantity - already)
+        if remaining <= ZERO:
+            return None
+        return BillableLine(
+            source_document_line_id=line_id,
+            line_number=line_number,
+            product_id=product_id,
+            description=description,
+            source_quantity=source_quantity,
+            already_invoiced_quantity=already,
+            remaining_quantity=remaining,
+            unit_price=unit_price,
+            discount_percent=discount_percent,
+            discount_amount=discount_amount,
+            free_quantity=free_quantity,
+        )
+
+    def _customer_name(self, customer_id: UUID | None) -> str:
+        """Name the customer so a picker is not a list of UUIDs."""
+        if customer_id is None:
+            return ""
+        customer = self._session.get(Customer, customer_id)
+        return "" if customer is None else (customer.display_name or customer.name)
 
     def _already_invoiced_quantity(
         self, *, firm_id: UUID, source_document_line_id: UUID
