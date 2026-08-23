@@ -226,12 +226,12 @@ the question askable. The desktop gate lists the new statuses so it keeps
 saying what the service does rather than quietly disabling a button the API
 accepts; tightening the service is a product decision, not a bug fix.
 
-## 4. Only two documents can be printed — the challan landed 2026-08-23
+## 4. ~~Only two documents can be printed~~ — closed 2026-08-23
 
 `GET /purchases/{id}/print` and `GET /sales-invoices/{id}/print` were the whole
-of it. **`GET /delivery-notes/{id}/print` joins them**: the challan that travels
-with the goods, which was the one a firm could not do without — dispatching
-stock and having nothing to send with it.
+of it. Three more joined them, starting with the one a firm could not do
+without: **the delivery challan** that travels with the goods, because
+dispatching stock and having nothing to send with it is the problem.
 
 A challan is not a bill and does not pretend to be. It carries no bank block,
 no due date, no reverse-charge declaration and no HSN-wise summary, but it does
@@ -246,13 +246,26 @@ blocks were copied between the two existing print services, and three more
 documents would have made four copies of each. Both existing services now use
 it, with their sixteen tests as the check that nothing moved.
 
-Still missing:
+**The quotation and the credit note landed the same day**, which is what the
+extraction was for. Five documents print now: purchase order, tax invoice,
+delivery challan, quotation and credit note.
 
-- **A quotation.** An offer that cannot be sent to the customer as a document.
-- **A credit note** for a sales return.
+A quotation carries the one field no other document has — how long the prices
+stand — because an offer without it is one the firm is still bound by next
+year. A credit note is the customer's evidence that the money came back, and
+states the reason the goods did.
 
-Both are now short: a print service that maps the document onto
-`InvoiceDocument`, an endpoint and a button.
+### The one thing a credit note still cannot state
+
+Its tax **component by component**, which under GST it should. The invoice
+manages it only because `sales_invoice_line_taxes` stores the breakup it
+charged (`20260822_0096`); a sales return line has no equivalent table.
+
+Re-asking the rule engine at print time is not the answer and is the reason
+that storage exists: rules are effective-dated, so the engine can answer
+differently from what was actually credited. So the note states the tax total
+and asks for no summary it cannot fill. Closing it properly means giving the
+sales return line the same stored breakup — the twin of that migration.
 
 ## 5. Optimistic concurrency stops before the invoice
 

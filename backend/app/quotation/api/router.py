@@ -31,6 +31,9 @@ from app.quotation.schemas import (
     QuotationUpdate,
 )
 from app.quotation.services import QuotationService
+from app.quotation.services.quotation_print_service import (
+    QuotationPrintService,
+)
 from app.sales_order.schemas import SalesOrderResponse
 from app.sales_order.services import SalesOrderService
 
@@ -247,6 +250,36 @@ async def import_quotations(
         actor_id=scope.actor_id,
     )
     return ApiResponse(data=[service.quotation_response(item) for item in rows])
+
+
+@router.get(
+    "/{quotation_id}/print",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+)
+def print_quotation(
+    quotation_id: UUID,
+    scope: QuotationViewScope,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    """Render one quotation as the offer a customer is sent.
+
+    Viewing is the permission: the document states what the screen already
+    shows, and the person who sends it is not necessarily the one who may
+    change it.
+    """
+    pdf, filename = QuotationPrintService(db).render(
+        quotation_id, firm_scope=scope.firm_id
+    )
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={
+            # `inline` so a viewer opens it rather than dropping a file the
+            # user then has to find.
+            "Content-Disposition": f'inline; filename="{filename}"',
+        },
+    )
 
 
 @router.get("/{quotation_id}", response_model=ApiResponse[QuotationResponse])

@@ -13,6 +13,7 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 import 'quotation_editor_dialog.dart';
 
 /// Prices offered to customers before anything is sold.
@@ -419,10 +420,37 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
     );
   }
 
+  /// Render the offer and hand it to whatever prints on this machine.
+  Future<void> _printQuotation(Quotation row) async {
+    try {
+      final List<int> pdf = await widget.api.quotationPdf(row.id);
+      if (!mounted) return;
+      await printDocument(
+        context,
+        bytes: pdf,
+        documentName: row.quotationNumber,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
   Widget _actions(Quotation row) => Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
+          // On every offer whatever its state: a declined quotation is still
+          // a document somebody may need to produce.
+          OutlinedButton.icon(
+            onPressed: () => unawaited(_printQuotation(row)),
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: const Text('Print'),
+          ),
           if (row.isDraft && _canQuote)
             FilledButton(
               onPressed: () => unawaited(_act(row, 'send')),
