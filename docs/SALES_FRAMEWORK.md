@@ -336,6 +336,17 @@ NULLs first in `DESC` and SQLite last, which is exactly how a firm-wide UOM
 rule once outranked a product's own factor in production while the tests
 stayed green.
 
+**Sales › Price Lists** is where a firm agrees one (`PRICE_LIST_VIEW` to read,
+`PRICE_LIST_MANAGE` to write). Every figure on it is a percentage and the
+screen says so, because somebody expecting to type a price will otherwise type
+one into a discount column. The scope is one segmented choice rather than two
+pickers — the server refuses a list scoped to a customer *and* a territory, so
+offering both would only produce a refusal somebody has to read. The rates are
+**replaced** by what is saved rather than merged, which is why the editor
+sends the version it read as `If-Match`: a lost race would otherwise discard
+every rate somebody else had just entered. Territory-scoped lists are still
+API-only; the screen agrees them with one customer or with everybody.
+
 ## 8. No schemes or promotions
 
 "Buy 10, get 1 free" and "5% off over ₹50,000 on a line" are conditions on a
@@ -371,7 +382,25 @@ invoice or a salesman — worth a decision if a firm refunds after paying.
 And it **reports rather than pays**: no payout posts to the ledger, which is a
 separate decision about which account it lands in.
 
-There is no desktop screen yet.
+**Sales › Commission** carries both halves: *Rates*, where the effective-dated
+rules are agreed, and *Collected*, the report over a period
+(`COMMISSION_VIEW` to read either, `COMMISSION_MANAGE` to change a rate). The
+report names the Unassigned bucket rather than hiding it, since a total that
+silently omits money collected against untagged invoices cannot be reconciled
+against the cash book.
+
+Two things the screen needed that were not there. `GET
+/api/v1/commission/salesmen` lists the firm's people gated on
+`COMMISSION_VIEW` — `users` lives only in the platform schema behind
+`USER_VIEW`, and the territory module's twin is gated on
+`TERRITORY_ASSIGN_SALESMEN`, so without an endpoint of its own the picker
+could only offer people who already had a rule and a *new* rate could never be
+agreed. And **the firm-wide default no longer pays the Unassigned bucket**: a
+default is what a person with no rule of their own earns, not a rate on money
+that named nobody. Driving a seeded store found it — every one of ELEC01's 49
+invoices carries no salesman, so the whole default was being reported as
+commission payable to nobody. The collected figure stays; only the payout is
+zero.
 
 ## 10. No sales targets or quotas
 
