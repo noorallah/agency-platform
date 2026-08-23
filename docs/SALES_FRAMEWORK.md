@@ -22,7 +22,7 @@ them. Route counts are what the application serves today.
 | `app/quotation` | sales quotation | 16 | list, editor, lifecycle |
 | `app/sales_order` | sales order | 17 | list, lifecycle — **no editor** |
 | `app/delivery_note` | delivery note | 19 | list, editor, lifecycle |
-| `app/sales_invoice` | sales invoice | 18 | list, editor, lifecycle, print |
+| `app/sales_invoice` | sales invoice | 18 | list, editor (raise and correct), lifecycle, print |
 | `app/sales_return` | sales return / credit note | 17 | list, editor, lifecycle |
 | `app/sales` | territory, route, beat plan, geography | 63 | six screens |
 | `app/customers` | customer, credit policy, receivables | 17 | list, editor, settings |
@@ -163,11 +163,32 @@ The remaining quantity is derived through the same helper `create_invoice`
 uses, so the number offered is the number the save accepts. Cancelling an
 invoice puts its quantity back on the list.
 
+The list carries **two** kinds of source: dispatched delivery notes, and
+approved sales orders that nothing has shipped against. An order drops off the
+moment it has any delivery note, and that rule is load-bearing rather than
+tidy: `_already_invoiced_quantity` is keyed on the source **line** id, and an
+order line and the delivery line raised from it are different ids — so
+offering both would let each be billed in full and no guard anywhere would
+notice the customer had been charged twice.
+
+A **draft** can also be reopened and corrected, against `PUT
+/api/v1/sales-invoices/{id}` — a route that existed and which nothing called,
+so a mistyped draft could only be cancelled and re-raised. Editing is refused
+once the invoice is approved: the journal is posted and the customer owes the
+money, so a correction is a cancellation and a fresh bill. While editing, a
+line may keep what the draft already bills **plus** whatever is still unbilled
+elsewhere — the draft's own quantity counts against the source line and would
+otherwise be subtracted from the number the user is allowed to keep.
+
 ## 2. A sales order cannot be raised directly from the desktop
 
 Same shape, smaller cost. An order can only appear by converting a quotation,
 so a phone order has to be typed as a quotation and immediately accepted.
 `POST /api/v1/sales-orders` exists and the history generator uses it.
+
+Partly relieved on 2026-08-23: an approved order can now be **billed**
+directly, so a firm that invoices before dispatch is no longer stuck. Raising
+the order still needs a quotation.
 
 ## 3. A sales order's status never moves as it is delivered
 
@@ -200,12 +221,17 @@ template table are general enough to serve all three.
 | Quotation | yes | yes |
 | Sales order | yes | yes |
 | Delivery note | yes | yes |
-| Sales invoice | **no** | **no** |
-| Sales return | **no** | yes |
+| Sales invoice | yes | yes |
+| Sales return | yes | yes |
 
-Two people editing the same draft invoice is last-one-wins, silently. The sales
-return is the odder case: it publishes a version a client can read and then
-accepts no precondition built from it.
+**Closed 2026-08-23.** Two people editing the same draft invoice was
+last-one-wins, silently, and the sales return was the odder case: it published
+a version a client could read and accepted no precondition built from it. Both
+now accept `If-Match` and answer an `ETag`, and the invoice publishes its
+`version` on the response the way the other three sales documents do. Closing
+it was a precondition for the invoice editor rather than a tidy-up — the update
+replaces the whole line collection, so a lost race costs every line somebody
+entered.
 
 ## 6. The product's selling price is never used
 

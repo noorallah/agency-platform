@@ -379,6 +379,26 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     await _load(requestedPage: 1);
   }
 
+  /// Reopen a draft and correct it.
+  Future<void> _editInvoice(Map<String, dynamic> invoice) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => SalesInvoiceEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+        invoiceId: invoice['id'] as String,
+      ),
+    );
+    if (saved != true) return;
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Invoice updated.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
+
   /// Save the bill and hand it to whatever opens PDFs on this machine.
   ///
   /// Saved rather than shown in a viewer of our own: the file is the thing the
@@ -509,6 +529,21 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
                     widget.hasActiveFirm ? () => unawaited(_newInvoice()) : null,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New Invoice'),
+              ),
+            ),
+          // Only a draft: once approved the journal is posted and the
+          // customer owes the money, so a correction is a cancellation and a
+          // fresh bill rather than a quiet edit.
+          if (widget.permissions.hasPermission('SALES_UPDATE'))
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: OutlinedButton.icon(
+                onPressed: _selected == null ||
+                        '${_selected?['status'] ?? ''}' != 'DRAFT'
+                    ? null
+                    : () => unawaited(_editInvoice(_selected!)),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Edit'),
               ),
             ),
           // Printing shows nothing the screen does not, so viewing is enough;

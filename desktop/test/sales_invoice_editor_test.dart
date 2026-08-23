@@ -56,7 +56,13 @@ class _InvoiceApi extends ApiClient {
         );
 
   final List<Json> billable;
+
+  /// The draft an edit reads back, when one is being corrected.
+  Json? existing;
+
   Json? created;
+  Json? updated;
+  int? sentVersion;
   String? refuseWith;
 
   @override
@@ -72,6 +78,17 @@ class _InvoiceApi extends ApiClient {
     if (path.contains('billable')) {
       return <String, dynamic>{'data': billable};
     }
+    if (method == 'GET' && path.startsWith('/api/v1/sales-invoices/')) {
+      return <String, dynamic>{'data': existing};
+    }
+    if (method == 'PUT' && path.startsWith('/api/v1/sales-invoices/')) {
+      if (refuseWith != null) {
+        throw ApiException(refuseWith!, statusCode: 409);
+      }
+      updated = body;
+      sentVersion = expectedVersion;
+      return <String, dynamic>{'data': existing};
+    }
     if (method == 'POST' && path.endsWith('/sales-invoices')) {
       if (refuseWith != null) {
         throw ApiException(refuseWith!, statusCode: 422);
@@ -85,7 +102,11 @@ class _InvoiceApi extends ApiClient {
   }
 }
 
-Future<void> _pump(WidgetTester tester, _InvoiceApi api) async {
+Future<void> _pump(
+  WidgetTester tester,
+  _InvoiceApi api, {
+  String? invoiceId,
+}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -98,6 +119,7 @@ Future<void> _pump(WidgetTester tester, _InvoiceApi api) async {
             builder: (_) => SalesInvoiceEditorDialog(
               api: api,
               today: DateTime(2026, 8, 14),
+              invoiceId: invoiceId,
             ),
           ),
           child: const Text('open'),
@@ -238,6 +260,126 @@ void main() {
           .onPressed,
       isNull,
     );
+  });
+
+
+  group('correcting a draft', () {
+    Json draft({String quantity = '2', int version = 5}) => <String, dynamic>{
+          'id': 'inv-1',
+          'invoice_number': 'SI-1',
+          'invoice_date': '2026-08-10',
+          'customer_id': 'cust-1',
+          'branch_id': 'branch-1',
+          'status': 'DRAFT',
+          'version': version,
+          'bill_discount_percent': '0',
+          'lines': <Json>[
+            <String, dynamic>{
+              'source_document_type': 'DELIVERY_NOTE',
+              'source_document_id': 'dn-1',
+              'source_document_number': 'DN-2026-2027-000004',
+              'source_document_line_id': 'dnl-1',
+              'line_number': 1,
+              'description': 'Shampoo Bottle 180ml',
+              'current_invoice_quantity': quantity,
+              'unit_price': '100',
+              'discount_percent': '0',
+            },
+          ],
+        };
+
+    testWidgets('a draft opens on what it already bills', (tester) async {
+      // Before this a mistyped draft could only be cancelled and re-raised:
+      // `PUT /api/v1/sales-invoices/{id}` existed and nothing called it.
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )..existing = draft();
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      expect(find.text('Edit draft invoice'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Save'), findsOneWidget);
+      // Two billed, priced at a hundred.
+      expect(find.textContaining('Billed before tax: 200.00'), findsOneWidget);
+    });
+
+    testWidgets('a correction is sent as a PUT carrying the version',
+        (tester) async {
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )..existing = draft();
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Bill'), '3');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.created, isNull);
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.updated!['lines'] as List).single as Map);
+      expect(line['current_invoice_quantity'], '3');
+      // Echoed back as `If-Match`, so a concurrent edit is refused rather
+      // than silently overwritten.
+      expect(api.sentVersion, 5);
+    });
+
+    testWidgets('a draft may keep what it bills plus whatever is still free',
+        (tester) async {
+      // The draft's own quantity counts against the source line, so the
+      // ceiling is its own two plus the two still unbilled -- not two.
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )..existing = draft();
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Bill'), '4');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated, isNotNull);
+    });
+
+    testWidgets('above that ceiling is still refused', (tester) async {
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )..existing = draft();
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Bill'), '9');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Only 4.0 left to bill.'), findsOneWidget);
+      expect(api.updated, isNull);
+    });
+
+    testWidgets('a stale version shows the concurrency refusal',
+        (tester) async {
+      final _InvoiceApi api = _InvoiceApi(
+        billable: <Json>[_billable(remaining: '2', alreadyInvoiced: '2')],
+      )
+        ..existing = draft()
+        ..refuseWith = 'This invoice was changed by somebody else.';
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('This invoice was changed by somebody else.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a fully billed source can still have its draft edited',
+        (tester) async {
+      // It is absent from the billable list, so the dropdown needs the item
+      // added back or it asserts on a value it cannot find.
+      final _InvoiceApi api = _InvoiceApi()..existing = draft(quantity: '4');
+      await _pump(tester, api, invoiceId: 'inv-1');
+
+      expect(find.text('Edit draft invoice'), findsOneWidget);
+      expect(find.textContaining('Billed before tax: 400.00'), findsOneWidget);
+    });
   });
 
   testWidgets("a refusal from the server is shown in the server's words",

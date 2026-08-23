@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -312,16 +313,27 @@ def update_sales_return(
     return_id: UUID,
     payload: SalesReturnUpdate,
     scope: SalesReturnUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesReturnResponse]:
-    """Replace one draft sales return."""
+    """Replace one draft sales return.
+
+    The response has always carried a `version` and nothing accepted one back,
+    so a client could read the counter and had no way to use it.
+    """
     service = SalesReturnService(db)
+    assert_version(
+        service.get_return(return_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_return(
         return_id,
         payload,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=service.return_response(row))
 
 

@@ -1613,3 +1613,86 @@ def test_the_limit_counts_billable_notes_not_candidates() -> None:
     assert [item.source_document_number for item in billable] == [
         older.delivery_note_number
     ]
+
+
+def test_an_approved_order_with_nothing_shipped_can_be_billed() -> None:
+    """Offer an approved order that nothing has shipped against.
+
+    Billing before dispatch is real -- a firm paid up front invoices the order
+    -- and `allow_direct_sales_order` has always permitted it.
+    """
+    setup = _Billing(_session_factory()())
+    SalesOrderService(setup.session).approve_order(
+        setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+
+    billable = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+
+    assert [item.source_document_type for item in billable] == [
+        SalesInvoiceSourceType.SALES_ORDER
+    ]
+    assert billable[0].source_document_number == setup.order.order_number
+    assert billable[0].lines[0].remaining_quantity == Decimal("4.0000")
+
+
+def test_an_order_stops_being_offered_once_anything_ships() -> None:
+    """The rule that stops a customer being billed twice for one set of goods.
+
+    `_already_invoiced_quantity` is keyed on the source **line** id, and an
+    order line and the delivery line raised from it are different ids -- so
+    offering both would let each be billed in full and no guard would notice.
+    Once anything ships, the note is the document that knows what left.
+    """
+    setup = _Billing(_session_factory()())
+    _dispatched_note(setup)
+
+    billable = SalesInvoiceService(setup.session).billable_documents(
+        firm_scope=setup.firm.id
+    )
+
+    assert [item.source_document_type for item in billable] == [
+        SalesInvoiceSourceType.DELIVERY_NOTE
+    ]
+
+
+def test_a_draft_order_is_not_billable() -> None:
+    """Nothing has been committed, so there is nothing to charge for."""
+    setup = _Billing(_session_factory()())
+
+    assert (
+        SalesInvoiceService(setup.session).billable_documents(firm_scope=setup.firm.id)
+        == []
+    )
+
+
+def test_an_order_billed_in_full_drops_off_the_list() -> None:
+    """Same rule the delivery note follows."""
+    setup = _Billing(_session_factory()())
+    service = SalesInvoiceService(setup.session)
+    SalesOrderService(setup.session).approve_order(
+        setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            invoice_date=date(2026, 8, 5),
+            allow_direct_sales_order=True,
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=setup.order.id,
+                    source_document_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert service.billable_documents(firm_scope=setup.firm.id) == []

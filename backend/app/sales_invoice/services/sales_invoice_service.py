@@ -84,6 +84,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSummary,
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.schemas import SalesOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -901,6 +902,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
             total_current_invoice_quantity=row.total_current_invoice_quantity,
+            version=row.version,
             total_free_quantity=row.total_free_quantity,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
@@ -1911,6 +1913,115 @@ class SalesInvoiceService(TransactionalDocumentService):
                     customer_id=note.customer_id,
                     customer_name=self._customer_name(note.customer_id),
                     branch_id=note.branch_id,
+                    lines=billable,
+                )
+            )
+
+        documents.extend(self._billable_orders(firm_scope=firm_scope, limit=limit))
+        return documents
+
+    def _billable_orders(
+        self, *, firm_scope: UUID, limit: int
+    ) -> list[BillableDocument]:
+        """Approved orders that nothing has been dispatched against.
+
+        Billing before dispatch is a real thing -- a firm that takes payment
+        up front invoices the order -- and `allow_direct_sales_order` has
+        always permitted it. What must not happen is an order and its own
+        delivery note both being offered: `_already_invoiced_quantity` is keyed
+        on the **source line id**, and an order line and the delivery line
+        raised from it are different ids, so billing both would charge the
+        customer twice for one set of goods and no guard would notice.
+
+        So an order is offered only while it has no delivery note at all. Once
+        anything ships, the note is the document that knows what left.
+        """
+        delivered = select(DeliveryNote.sales_order_id).where(
+            DeliveryNote.firm_id == firm_scope,
+            DeliveryNote.is_deleted.is_(False),
+            DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
+        )
+
+        invoiced = (
+            select(
+                SalesInvoiceLine.source_document_line_id.label("line_id"),
+                func.coalesce(
+                    func.sum(SalesInvoiceLine.current_invoice_quantity), ZERO
+                ).label("taken"),
+            )
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+            .group_by(SalesInvoiceLine.source_document_line_id)
+            .subquery()
+        )
+
+        open_orders = (
+            select(SalesOrderLine.sales_order_id)
+            .outerjoin(invoiced, invoiced.c.line_id == SalesOrderLine.id)
+            .where(
+                SalesOrderLine.is_deleted.is_(False),
+                SalesOrderLine.quantity - func.coalesce(invoiced.c.taken, ZERO) > ZERO,
+            )
+        )
+
+        orders = self._session.scalars(
+            select(SalesOrder)
+            .where(
+                SalesOrder.firm_id == firm_scope,
+                SalesOrder.is_deleted.is_(False),
+                SalesOrder.status == SalesOrderStatus.APPROVED.value,
+                SalesOrder.id.notin_(delivered),
+                SalesOrder.id.in_(open_orders),
+            )
+            .order_by(SalesOrder.order_date.desc())
+            .limit(limit)
+        ).all()
+
+        documents: list[BillableDocument] = []
+        for order in orders:
+            lines = self._session.scalars(
+                select(SalesOrderLine)
+                .where(
+                    SalesOrderLine.sales_order_id == order.id,
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+                .order_by(SalesOrderLine.line_number.asc())
+            ).all()
+            billable = [
+                line
+                for line in (
+                    self._billable_line(
+                        firm_id=firm_scope,
+                        line_id=item.id,
+                        line_number=item.line_number,
+                        product_id=item.product_id,
+                        description=item.description,
+                        source_quantity=self._q(item.quantity),
+                        unit_price=self._q(item.unit_price),
+                        discount_percent=self._q(item.discount_percent),
+                        discount_amount=self._q(item.discount_amount),
+                        free_quantity=self._q(item.free_quantity),
+                    )
+                    for item in lines
+                )
+                if line is not None
+            ]
+            if not billable:
+                continue
+            documents.append(
+                BillableDocument(
+                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                    source_document_id=order.id,
+                    source_document_number=order.order_number,
+                    document_date=order.order_date,
+                    customer_id=order.customer_id,
+                    customer_name=self._customer_name(order.customer_id),
+                    branch_id=order.branch_id,
                     lines=billable,
                 )
             )

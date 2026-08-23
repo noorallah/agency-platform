@@ -23,12 +23,20 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
     super.key,
     required this.api,
     required this.today,
+    this.invoiceId,
   });
 
   final ApiClient api;
 
   /// Passed in rather than read here, so the dialog is testable.
   final DateTime today;
+
+  /// The draft being corrected, or null to raise a new one.
+  ///
+  /// A draft could only be cancelled and re-raised before this: `PUT
+  /// /api/v1/sales-invoices/{id}` existed and nothing in the desktop called
+  /// it, so a mistyped quantity cost the document.
+  final String? invoiceId;
 
   @override
   State<SalesInvoiceEditorDialog> createState() =>
@@ -48,6 +56,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   bool _saving = false;
   String? _error;
 
+  /// The draft as it was read, when correcting one.
+  Json? _existing;
+
+  /// How much of each source line this draft already bills. In edit mode the
+  /// ceiling is that plus whatever is still unbilled elsewhere, because the
+  /// draft's own quantity is counted against the source line and would
+  /// otherwise be subtracted from the number the user is allowed to keep.
+  final Map<String, double> _ownQuantities = <String, double>{};
+
+  bool get _editing => widget.invoiceId != null;
+
   @override
   void initState() {
     super.initState();
@@ -66,13 +85,20 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   Future<void> _load() async {
     try {
-      final List<BillableDocument> rows =
-          await widget.api.billableDocuments();
+      final List<BillableDocument> rows = await widget.api.billableDocuments();
+      final String? id = widget.invoiceId;
+      final Json? existing =
+          id == null ? null : _unwrap(await widget.api.salesInvoice(id));
       if (!mounted) return;
       setState(() {
         _billable = rows;
+        _existing = existing;
         _loading = false;
-        if (rows.length == 1) _choose(rows.first);
+        if (existing != null) {
+          _adoptExisting(existing);
+        } else if (rows.length == 1) {
+          _choose(rows.first);
+        }
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -81,6 +107,74 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         _loading = false;
       });
     }
+  }
+
+  Json _unwrap(Json response) {
+    final dynamic data = response['data'];
+    return data is Map ? Map<String, dynamic>.from(data) : response;
+  }
+
+  /// Build the form from a draft that already exists.
+  ///
+  /// Its lines are the truth about what it bills; the billable list only
+  /// contributes how much *more* of each source line is available, so a
+  /// correction can go up as well as down.
+  void _adoptExisting(Json invoice) {
+    final List<dynamic> lines =
+        invoice['lines'] is List ? invoice['lines'] as List : const [];
+    if (lines.isEmpty) return;
+    final Json first = Map<String, dynamic>.from(lines.first as Map);
+    final String sourceId = '${first['source_document_id'] ?? ''}';
+
+    final Iterable<BillableDocument> matching =
+        _billable.where((item) => item.sourceDocumentId == sourceId);
+    final List<BillableLine> extra =
+        matching.isEmpty ? const [] : matching.first.lines;
+
+    final List<BillableLine> rebuilt = <BillableLine>[];
+    for (final dynamic raw in lines) {
+      final Json line = Map<String, dynamic>.from(raw as Map);
+      final String lineId = '${line['source_document_line_id'] ?? ''}';
+      final double own =
+          double.tryParse('${line['current_invoice_quantity'] ?? 0}') ?? 0;
+      _ownQuantities[lineId] = own;
+      final Iterable<BillableLine> still =
+          extra.where((item) => item.sourceDocumentLineId == lineId);
+      final double elsewhere = still.isEmpty
+          ? 0
+          : (double.tryParse(still.first.remainingQuantity) ?? 0);
+      rebuilt.add(BillableLine(
+        sourceDocumentLineId: lineId,
+        lineNumber: (line['line_number'] as num?)?.toInt() ?? 0,
+        description: '${line['description'] ?? ''}',
+        sourceQuantity: '${line['delivered_quantity'] ?? own}',
+        alreadyInvoicedQuantity: '0',
+        // What this draft may keep, plus anything still unbilled.
+        remainingQuantity: '${own + elsewhere}',
+        unitPrice: '${line['unit_price'] ?? '0'}',
+        discountPercent: '${line['discount_percent'] ?? '0'}',
+      ));
+    }
+
+    _document = BillableDocument(
+      sourceDocumentType: '${first['source_document_type'] ?? 'DELIVERY_NOTE'}',
+      sourceDocumentId: sourceId,
+      sourceDocumentNumber: '${first['source_document_number'] ?? ''}',
+      documentDate: '${invoice['invoice_date'] ?? ''}',
+      customerId: '${invoice['customer_id'] ?? ''}',
+      customerName: '${invoice['customer_name'] ?? ''}',
+      branchId: '${invoice['branch_id'] ?? ''}',
+      lines: rebuilt,
+    );
+    for (final BillableLine line in rebuilt) {
+      _quantities[line.sourceDocumentLineId] = TextEditingController(
+        text: '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
+      );
+    }
+    final double bill =
+        double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
+    if (bill > 0) _billDiscount.text = '${invoice['bill_discount_percent']}';
+    _reference.text = '${invoice['reference_number'] ?? ''}';
   }
 
   /// Take a document and give each of its lines a quantity box.
@@ -116,6 +210,22 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     }
     final double bill = double.tryParse(_billDiscount.text.trim()) ?? 0;
     return bill <= 0 ? lines : lines * (1 - bill / 100);
+  }
+
+  /// The documents the picker may offer, one entry per source document.
+  ///
+  /// A fully billed source is absent from the billable list, so editing its
+  /// draft needs it added back — and deduped by id rather than by object,
+  /// because the chosen document and its billable twin are different
+  /// instances of the same thing and `DropdownButtonFormField` asserts when
+  /// two items carry one value.
+  List<BillableDocument> get _pickable {
+    final Map<String, BillableDocument> byId = <String, BillableDocument>{
+      for (final BillableDocument item in _billable) item.sourceDocumentId: item,
+    };
+    final BillableDocument? chosen = _document;
+    if (chosen != null) byId.putIfAbsent(chosen.sourceDocumentId, () => chosen);
+    return byId.values.toList();
   }
 
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
@@ -167,7 +277,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _error = null;
     });
     try {
-      await widget.api.createSalesInvoice(payload);
+      final String? id = widget.invoiceId;
+      if (id == null) {
+        await widget.api.createSalesInvoice(payload);
+      } else {
+        await widget.api.updateSalesInvoice(
+          id,
+          payload,
+          expectedVersion: (_existing?['version'] as num?)?.toInt(),
+        );
+      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {
@@ -186,7 +305,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('New Invoice'),
+      title: Text(_editing ? 'Edit draft invoice' : 'New Invoice'),
       content: SizedBox(
         width: 720,
         child: _loading
@@ -196,7 +315,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                   child: CircularProgressIndicator(),
                 ),
               )
-            : _billable.isEmpty
+            : _billable.isEmpty && !_editing
                 ? const WorkspaceEmptyState(
                     title: 'Nothing is waiting to be billed',
                     message: 'Dispatch a delivery note and it appears here. '
@@ -211,8 +330,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _saving || _billable.isEmpty ? null : _save,
-          child: Text(_saving ? 'Saving…' : 'Create draft'),
+          onPressed:
+              _saving || (_billable.isEmpty && !_editing) ? null : _save,
+          child: Text(
+            _saving ? 'Saving…' : (_editing ? 'Save' : 'Create draft'),
+          ),
         ),
       ],
     );
@@ -236,7 +358,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                   helperMaxLines: 2,
                 ),
                 items: [
-                  for (final BillableDocument item in _billable)
+                  for (final BillableDocument item in _pickable)
                     DropdownMenuItem(
                       value: item.sourceDocumentId,
                       child: Text(item.label, overflow: TextOverflow.ellipsis),
@@ -244,11 +366,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                 ],
                 validator: (value) =>
                     value == null ? 'Choose a delivery note.' : null,
-                onChanged: (value) => setState(() {
-                  final Iterable<BillableDocument> found = _billable
-                      .where((item) => item.sourceDocumentId == value);
-                  if (found.isNotEmpty) _choose(found.first);
-                }),
+                // Fixed while editing: changing which document a draft bills
+                // is raising a different invoice, not correcting this one.
+                onChanged: _editing
+                    ? null
+                    : (value) => setState(() {
+                          final Iterable<BillableDocument> found = _billable
+                              .where((item) => item.sourceDocumentId == value);
+                          if (found.isNotEmpty) _choose(found.first);
+                        }),
               ),
               const SizedBox(height: AppSpacing.md),
               if (_document != null) ...[

@@ -8,6 +8,7 @@ from fastapi import (
     APIRouter,
     Depends,
     Query,
+    Response,
     status,
 )
 from fastapi.responses import StreamingResponse
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -195,12 +197,25 @@ def update_sales_invoice(
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     data: SalesInvoiceCreate,
+    response: Response,
+    expected_version: ExpectedVersion = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
-    """Update an existing sales invoice."""
+    """Update an existing sales invoice.
+
+    The update replaces the whole line collection, so a lost race costs every
+    line somebody entered rather than a single field -- which is why this
+    module joining the `If-Match` convention mattered before an editor existed
+    to make the race reachable.
+    """
     service = SalesInvoiceService(db)
+    assert_version(
+        service.get_invoice(invoice_id, firm_scope=scope.firm_id).version,
+        expected_version,
+    )
     row = service.update_invoice(
         invoice_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=service.invoice_response(row))
 
 
