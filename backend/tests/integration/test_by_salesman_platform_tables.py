@@ -93,9 +93,7 @@ def test_the_delivery_note_report_runs_against_a_pruned_store(
         tenant_session.execute(text("select id from users limit 1"))
     tenant_session.rollback()
 
-    rows = DeliveryNoteService(tenant_session).by_salesman_report(
-        firm_scope=uuid4()
-    )
+    rows = DeliveryNoteService(tenant_session).by_salesman_report(firm_scope=uuid4())
 
     # No notes in this schema, so no rows. What matters is that asking did not
     # raise: the query shape is what used to fail the moment a note carried a
