@@ -76,11 +76,18 @@ One firm on its own, which is much faster:
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
 ```
+
+**`RCPT` should be roughly three quarters of `INV`.** Money coming in arrived
+on 2026-08-23; before that every store held zero settlements, so receivables
+only ever grew and the commission report -- which is earned on money
+*collected* -- could only ever answer zero. One invoice in four is deliberately
+left outstanding and one in four paid in part, because a demo where every bill
+is settled has nothing for an ageing report to show.
 
 The history exercises the pricing rules as well as the documents. One
 customer per firm trades on a standing 7.5% discount, which every sale to them

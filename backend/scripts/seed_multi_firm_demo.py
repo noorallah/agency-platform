@@ -57,6 +57,8 @@ from app.business.models import (
     ProfileFeature,
     ProfileModule,
 )
+from app.commission.schemas import CommissionRuleCreate
+from app.commission.services import CommissionService
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy import (
@@ -99,9 +101,10 @@ from app.sales.schemas import (
     RouteProfileInput,
     RouteTypeWrite,
     TerritoryAssignCustomersRequest,
+    TerritoryAssignSalesmenRequest,
     TerritoryCreate,
 )
-from app.sales.schemas.territory import VisitFrequency
+from app.sales.schemas.territory import SalesmanAssignmentInput, VisitFrequency
 from app.sales.services import SalesTerritoryService
 from app.tax.models import TaxProfile, TaxSystem
 from app.uom.models import ConversionRule, Uom
@@ -132,6 +135,10 @@ class FirmSeedTarget:
     blueprint: FirmBlueprint
     firm_id: UUID
     tenant: TenantContext
+    #: The firm's salespeople, resolved on the platform session because
+    #: `users` lives only there. Carried rather than re-queried: the tenant
+    #: pass runs on a session that cannot see the table at all.
+    salesman_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -561,6 +568,12 @@ def main() -> int:
                 actor_id=actor_id,
                 firms=seeded_firms,
             )
+            sales_team = _ensure_sales_team(
+                session=session,
+                identity=identity,
+                actor_id=actor_id,
+                firms=seeded_firms,
+            )
             firm_targets = [
                 FirmSeedTarget(
                     blueprint=next(
@@ -568,6 +581,7 @@ def main() -> int:
                     ),
                     firm_id=firm.id,
                     tenant=_tenant_context_for_firm(settings, firm),
+                    salesman_ids=sales_team.get(firm.id, ()),
                 )
                 for firm in seeded_firms
             ]
@@ -589,7 +603,19 @@ def main() -> int:
                 _seed_branching(tenant_session, firm, blueprint, actor_id)
                 _seed_vendors(tenant_session, firm, blueprint, actor_id)
                 _seed_customers(tenant_session, firm, blueprint, actor_id)
-                _seed_territories(tenant_session, firm, blueprint, actor_id)
+                _seed_territories(
+                    tenant_session,
+                    firm,
+                    blueprint,
+                    actor_id,
+                    salesman_ids=target.salesman_ids,
+                )
+                _seed_commission(
+                    tenant_session,
+                    firm,
+                    actor_id,
+                    salesman_ids=target.salesman_ids,
+                )
                 _seed_products(tenant_session, firm, blueprint, actor_id)
                 # Clear the old trading history *before* laying down opening
                 # stock, not after. `reset_history` counts opening stock as
@@ -701,6 +727,58 @@ def _ensure_firm_admins(
             actor_id,
             firm_scope=firm.id,
         )
+
+
+def _ensure_sales_team(
+    *,
+    session: Session,
+    identity: IdentityService,
+    actor_id: UUID,
+    firms: list[Firm],
+) -> dict[UUID, tuple[UUID, ...]]:
+    """Give each firm two salespeople, and return them by firm.
+
+    Every store had **zero** rows in `territory_salesman_assignments` while
+    every customer sat on a round, which made a whole chain unreachable rather
+    than merely unseeded. `_validated_salesman` refuses any salesman who does
+    not cover the customer's territory, so naming one was refused on every
+    customer of every firm; `_derived_salesman` had nobody to derive; so no
+    document ever carried a `salesman_id`. That is why the by-salesman reports
+    and the create-time validation could both reach for `users` on the tenant
+    session for months without anybody seeing a 503, and why the commission
+    report can only report Unassigned.
+
+    Two people rather than one, because the interesting cases are plural: a
+    coverage screen with one salesman shows nothing about distribution, and a
+    commission report with one earner cannot be read against another.
+    """
+    role = _role_by_code(session, "SALES_EXECUTIVE")
+    team: dict[UUID, tuple[UUID, ...]] = {}
+    for firm in firms:
+        members: list[UUID] = []
+        for index, given in enumerate(("Asha", "Bala"), start=1):
+            user = _ensure_user(
+                session,
+                identity,
+                actor_id,
+                email=f"{firm.code.lower()}.sales{index}@agency.local",
+                full_name=f"{given} ({firm.code} Sales)",
+                firm_scope=firm.id,
+            )
+            identity.set_user_firms(
+                user.id,
+                [UserFirmAssignment(firm_id=firm.id, is_primary=True, is_active=True)],
+                actor_id,
+            )
+            identity.set_user_roles(
+                user.id,
+                [role.id],
+                actor_id,
+                firm_scope=firm.id,
+            )
+            members.append(user.id)
+        team[firm.id] = tuple(members)
+    return team
 
 
 def _ensure_master_user(
@@ -1606,7 +1684,12 @@ def _product_attributes_for_profile(
 
 
 def _seed_territories(
-    session: Session, firm: Firm, blueprint: FirmBlueprint, actor_id: UUID
+    session: Session,
+    firm: Firm,
+    blueprint: FirmBlueprint,
+    actor_id: UUID,
+    *,
+    salesman_ids: tuple[UUID, ...] = (),
 ) -> None:
     """Give the firm a region, two territories and a route under each.
 
@@ -1724,6 +1807,76 @@ def _seed_territories(
             route_id,
             TerritoryAssignCustomersRequest(customer_ids=assigned),
             firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
+    # And put somebody on each round. Without this the rounds exist, the
+    # customers are on them, and no document can name a salesman at all:
+    # `_validated_salesman` refuses anybody who does not cover the customer's
+    # territory, and `_derived_salesman` has nobody to derive. Every store had
+    # zero of these rows, so the whole order -> note -> invoice -> collection
+    # -> commission chain could only ever report Unassigned.
+    #
+    # Marked primary because the derivation deliberately names nobody when two
+    # people share a round with neither marked: an unmarked pair is a
+    # configuration the code reads as "cannot say", not as "either will do".
+    for index, route_id in enumerate(routes):
+        if not salesman_ids:
+            break
+        service.set_salesmen(
+            route_id,
+            TerritoryAssignSalesmenRequest(
+                assignments=[
+                    SalesmanAssignmentInput(
+                        user_id=salesman_ids[index % len(salesman_ids)],
+                        is_primary=True,
+                    )
+                ]
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def _seed_commission(
+    session: Session,
+    firm: Firm,
+    actor_id: UUID,
+    *,
+    salesman_ids: tuple[UUID, ...] = (),
+) -> None:
+    """Declare what the firm pays on money it collects.
+
+    Without a rule the commission report is honest and useless: it shows what
+    each salesman collected and zero against every one of them, because a firm
+    that has declared no rate has not agreed to pay one. A demo of a feature
+    should show the feature working.
+
+    A firm-wide default plus one person on a better rate, because the
+    precedence -- a rule of one's own beats the default, which beats nothing --
+    is the thing about this module worth seeing on screen, and it is invisible
+    when everybody earns the same.
+    """
+    service = CommissionService(session)
+    _rules, existing = service.list_rules(firm_id=firm.id, page=1, page_size=1)
+    if existing:
+        return
+    service.create_rule(
+        CommissionRuleCreate(
+            percentage=Decimal("2.5"),
+            effective_from=date(2024, 4, 1),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    if salesman_ids:
+        service.create_rule(
+            CommissionRuleCreate(
+                salesman_id=salesman_ids[0],
+                percentage=Decimal("4"),
+                effective_from=date(2024, 4, 1),
+            ),
+            firm_id=firm.id,
             actor_id=actor_id,
         )
 

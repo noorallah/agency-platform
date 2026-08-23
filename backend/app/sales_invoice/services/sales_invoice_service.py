@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -47,7 +48,6 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
-from app.identity.models import User
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
@@ -2255,13 +2255,19 @@ class SalesInvoiceService(TransactionalDocumentService):
         route_id: UUID | None,
     ) -> None:
         if salesman_id is not None:
-            user = self._session.scalar(
-                select(User.id).where(
-                    User.id == salesman_id, User.is_deleted.is_(False)
-                )
+            # The third copy of this check, and the third to reach for `users`
+            # on the request session -- `sales_order` and `delivery_note` were
+            # the other two. All three were invisible until the demo seed put
+            # a salesman on a round, at which point every document derived one
+            # and the whole chain failed at the invoice.
+            #
+            # It also asks the right question now: membership of *this* firm,
+            # not mere existence somewhere.
+            members = FirmMetadataReader(self._session).active_member_count(
+                firm_id, [salesman_id]
             )
-            if user is None:
-                raise ValidationError("Salesman user not found.")
+            if members != 1:
+                raise ValidationError("Salesman is not an active member of this firm.")
         if territory_id is not None:
             territory = self._session.scalar(
                 select(SalesTerritoryNode.id).where(
