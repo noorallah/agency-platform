@@ -3930,6 +3930,24 @@ class ApiClient {
   Future<Json> createSalesInvoice(Json body) =>
       request('POST', '/api/v1/sales-invoices', body: body);
 
+  Future<Json> salesInvoice(String id) =>
+      request('GET', '/api/v1/sales-invoices/$id');
+
+  /// [expectedVersion] rides along as `If-Match`. The update replaces the
+  /// whole line collection, so a lost race costs every line somebody entered
+  /// rather than a single field.
+  Future<Json> updateSalesInvoice(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) =>
+      request(
+        'PUT',
+        '/api/v1/sales-invoices/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      );
+
   Future<List<int>> downloadBytes(
     String path, {
     Map<String, String>? query,

@@ -367,6 +367,12 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal
     total_current_invoice_quantity: Decimal
+    #: The optimistic-concurrency counter this record was read at. A
+    #: client echoes it back as `If-Match`; the list carries it because
+    #: the desktop opens its editor from a list row rather than
+    #: re-reading the record, so an ETag alone could never reach it.
+    version: int
+
     #: How much was supplied free across the document.
     total_free_quantity: Decimal
 
