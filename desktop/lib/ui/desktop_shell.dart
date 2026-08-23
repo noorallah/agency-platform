@@ -43,6 +43,7 @@ import 'tax/tax_management_page.dart';
 import 'tax/tax_rule_simulator_page.dart';
 import 'tax/tax_rules_page.dart';
 import 'uom/profile_uom_defaults_dialog.dart';
+import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
@@ -1562,6 +1563,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
           section: UomManagementSection.packagingTypes,
+        ),
+      'packaging-levels' => PackagingLevelsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
       'conversion-rules' => UomManagementPage(
           api: widget.api,

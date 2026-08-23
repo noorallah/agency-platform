@@ -16,6 +16,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.uom.schemas import (
+    BarcodeLookupResponse,
     BusinessProfileUomDefaultResponse,
     BusinessProfileUomDefaultUpsert,
     ConversionRequest,
@@ -410,6 +411,27 @@ def upsert_profile_defaults(
         audit_firm_id=scope.firm_id,
     )
     return ApiResponse(data=BusinessProfileUomDefaultResponse.model_validate(row))
+
+
+@router.get(
+    "/barcode-lookup",
+    response_model=ApiResponse[BarcodeLookupResponse],
+)
+def lookup_barcode(
+    scope: UomViewScope,
+    code: Annotated[str, Query(min_length=1, max_length=300)],
+    db: Session = Depends(get_db),
+) -> ApiResponse[BarcodeLookupResponse]:
+    """Resolve a scanned code to a product and the stock one scan means.
+
+    A literal path, and it is declared above `/products/{product_id}/...`
+    deliberately: FastAPI matches in declaration order, and this repository has
+    had four features made unreachable by a literal sitting below a parameter
+    that swallowed it.
+    """
+    return ApiResponse(
+        data=UomService(db).lookup_barcode(firm_scope=scope.firm_id, code=code)
+    )
 
 
 @router.get(

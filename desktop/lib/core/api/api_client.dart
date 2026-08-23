@@ -1656,6 +1656,62 @@ class ApiClient {
   Future<void> deletePackagingType(String id) =>
       request('DELETE', '/api/v1/uom-framework/packaging-types/$id');
 
+  Future<List<PackagingLevelRecord>> packagingLevels(String productId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/uom-framework/products/$productId/packaging-levels',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            PackagingLevelRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<PackagingLevelRecord> createPackagingLevel(
+    String productId,
+    Json data,
+  ) async =>
+      PackagingLevelRecord.fromJson(
+        _unwrapMap(await request(
+          'POST',
+          '/api/v1/uom-framework/products/$productId/packaging-levels',
+          body: data,
+        )),
+      );
+
+  /// [expectedVersion] is the `version` of the record the user opened, sent as
+  /// `If-Match` so a concurrent edit is refused rather than overwritten.
+  Future<PackagingLevelRecord> updatePackagingLevel(
+    String productId,
+    String levelId,
+    Json data, {
+    int? expectedVersion,
+  }) async =>
+      PackagingLevelRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/uom-framework/products/$productId/packaging-levels/$levelId',
+          body: data,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deletePackagingLevel(String productId, String levelId) => request(
+        'DELETE',
+        '/api/v1/uom-framework/products/$productId/packaging-levels/$levelId',
+      );
+
+  /// Resolve a scanned code to a product and the stock one scan means.
+  Future<BarcodeLookup> lookupBarcode(String code) async =>
+      BarcodeLookup.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/uom-framework/barcode-lookup'
+            '?code=${Uri.encodeQueryComponent(code)}',
+      )));
+
   Future<PagedResult<ConversionRuleRecord>> conversionRules({
     int page = 1,
     int pageSize = 20,

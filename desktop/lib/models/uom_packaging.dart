@@ -231,3 +231,116 @@ class BusinessProfileUomDefaults {
         'allow_decimal': allowDecimal,
       };
 }
+
+
+/// One rung of a product's physical packaging hierarchy.
+///
+/// A piece goes in a box, a box in a carton, a carton on a pallet, and each
+/// rung carries its own barcode so a scanner reading a carton label knows it
+/// is holding 120 pieces. `conversionToBaseFactor` is how many base units one
+/// of these is.
+///
+/// Deliberately not the same thing as a conversion rule: rules are what
+/// documents convert with and are effective-dated; levels describe the
+/// physical packaging and carry the codes printed on it.
+class PackagingLevelRecord {
+  const PackagingLevelRecord({
+    required this.id,
+    required this.productId,
+    required this.levelName,
+    required this.conversionToBaseFactor,
+    this.parentLevelId = '',
+    this.packagingTypeId = '',
+    this.uomId = '',
+    this.barcode = '',
+    this.gtin = '',
+    this.ean = '',
+    this.upc = '',
+    this.status = 'ACTIVE',
+    this.displayOrder = 0,
+    this.version = 0,
+  });
+
+  final String id;
+  final String productId;
+  final String levelName;
+
+  /// How many base units one of these holds.
+  final String conversionToBaseFactor;
+
+  final String parentLevelId;
+  final String packagingTypeId;
+  final String uomId;
+  final String barcode;
+  final String gtin;
+  final String ean;
+  final String upc;
+  final String status;
+  final int displayOrder;
+
+  /// The optimistic-concurrency version this record was read at, sent back as
+  /// `If-Match` on save. Zero means the server published none.
+  final int version;
+
+  factory PackagingLevelRecord.fromJson(Json json) => PackagingLevelRecord(
+        id: stringValue(json['id']),
+        productId: stringValue(json['product_id']),
+        levelName: stringValue(json['level_name']),
+        conversionToBaseFactor:
+            stringValue(json['conversion_to_base_factor']).isEmpty
+                ? '1'
+                : stringValue(json['conversion_to_base_factor']),
+        parentLevelId: stringValue(json['parent_level_id']),
+        packagingTypeId: stringValue(json['packaging_type_id']),
+        uomId: stringValue(json['uom_id']),
+        barcode: stringValue(json['barcode']),
+        gtin: stringValue(json['gtin']),
+        ean: stringValue(json['ean']),
+        upc: stringValue(json['upc']),
+        status: stringValue(json['status']).isEmpty
+            ? 'ACTIVE'
+            : stringValue(json['status']),
+        displayOrder: (json['display_order'] as num?)?.toInt() ?? 0,
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// What one scanned code turned out to be.
+class BarcodeLookup {
+  const BarcodeLookup({
+    required this.code,
+    required this.productId,
+    required this.productCode,
+    required this.productName,
+    required this.baseQuantity,
+    this.packagingLevelId = '',
+    this.levelName = '',
+    this.matchedField = '',
+  });
+
+  final String code;
+  final String productId;
+  final String productCode;
+  final String productName;
+
+  /// How many base units one scan of this code represents.
+  final String baseQuantity;
+
+  /// Empty where the code is the product's own barcode, which is one unit.
+  final String packagingLevelId;
+  final String levelName;
+
+  /// `barcode`, `gtin`, `ean`, `upc`, or `product`.
+  final String matchedField;
+
+  factory BarcodeLookup.fromJson(Json json) => BarcodeLookup(
+        code: stringValue(json['code']),
+        productId: stringValue(json['product_id']),
+        productCode: stringValue(json['product_code']),
+        productName: stringValue(json['product_name']),
+        baseQuantity: stringValue(json['base_quantity']),
+        packagingLevelId: stringValue(json['packaging_level_id']),
+        levelName: stringValue(json['level_name']),
+        matchedField: stringValue(json['matched_field']),
+      );
+}

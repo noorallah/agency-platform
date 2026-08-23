@@ -256,8 +256,27 @@ PIECE  ×1
           └ PALLET ×5760
 ```
 
-This is what lets a scanner read a carton label and know it holds 120 pieces.
+This is what lets a scanner read a carton label and know it holds 120 pieces --
+through `GET /api/v1/uom-framework/barcode-lookup?code=...`, which resolves a
+code across every level's `barcode`, `gtin`, `ean` and `upc` and then the
+product's own barcode, and answers with the product and how many **base units**
+one scan represents. A product's own barcode is one base unit; there is no
+packaging around a piece to multiply by.
+
+Two refusals matter more than the happy path. A code **nothing carries** is a
+404 naming the code, because the next thing anybody does is re-scan. A code
+**two things carry** is a 409 saying how many -- a scanner that silently picked
+one of them would put the wrong stock on a document and nothing downstream
+would question it.
+
 Levels are per firm per product and are unique on `(firm, product, level_name)`.
+
+**Until 2026-08-23 none of this was reachable and none of it was read.** The
+four CRUD endpoints had existed since the module was written with nothing in
+the desktop calling them, so no firm could record a level; and no code path
+anywhere read the four code columns, so the sentence above was a claim with no
+implementation behind it. Global search matches `products.barcode` and has
+never looked at a packaging level.
 
 Note the division of labour: packaging levels describe the **physical**
 hierarchy and carry the barcodes; `uom_conversion_rules` are what documents
@@ -283,6 +302,7 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
 | Unit tests | `backend/tests/unit/test_uom_packaging_framework.py` |
 | NULL-ordering guard | `backend/tests/integration/test_uom_conversion_resolution.py` |
 | Desktop UI | `desktop/lib/ui/uom/uom_management_page.dart` |
+| Packaging levels and the scan lookup | `desktop/lib/ui/uom/packaging_levels_page.dart` |
 
 ## Traps
 
