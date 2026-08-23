@@ -329,6 +329,74 @@ quotation that has **not** lapsed — an expired one cannot be sent, accepted or
 converted, and the workspace badges `EXPIRED` separately from the status because
 `SENT` reads identically the day before and the day after.
 
+### 8.90–8.99 Discounts, free goods and what a bill says
+
+Everything in this block shipped on 2026-08-23. Most of it is arithmetic a
+screen shows and a person has to agree with, which is exactly what a manual
+pass is for.
+
+Sales → Customers and Sales → Quotations, as `whole01.admin` unless stated.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.90 | A customer's standing discount fills a line in | Customers → open one → **Financial** → set **Default discount %** to 10 → save. Then Quotations → **New Quotation** → choose that customer | Each line's **Discount %** reads 10, with a helper saying it is the customer's rate. The quoted total is 10% below the gross |
+| 8.91 | Typing over the standing rate wins | On that line, type `0` into Discount % | The line is charged in full and the helper stops offering the rate. Nothing sends 10 — an explicit zero is an instruction, not silence |
+| 8.92 | The discount reaches the bill, not just the offer | Convert that quotation to an order, dispatch it, raise the invoice, approve it | The **invoice** carries the same 10%. Until this date the percentage was stored on the invoice line and never applied — a 10% order was billed at full price with `10` sitting on the line as a lie |
+| 8.93 | An edit to the customer does not rewrite an old bill | After 8.92, change the customer's default to 25%, then open the approved invoice | It still reads 10%. An invoice inherits from the line it bills rather than re-reading the customer: a price agreed in March must not change in August |
+| 8.94 | A discount on the whole offer | New Quotation, two lines, put 10 into **Discount on the whole offer %** | The total drops 10% **of what the lines already discounted to**, not of the gross. Each line carries its own share, and the shares add up to the figure on the header |
+| 8.95 | The bill discount reduces the tax | Raise an invoice with a bill discount against a customer with a GST profile | Tax is charged on the reduced value. If tax is unchanged, the discount is being subtracted after tax — which is what a purchase order does and what sales deliberately does not |
+| 8.96 | Goods given away | On a quotation line, put 1 into **Free**, quantity 10 | The line is worth 10 × price, not 11 — free goods are outside the gross and outside the tax base. The printed document reads `10 + 1 free` |
+| 8.97 | A price comes from the product | Products → give a product a **selling price** and an **MRP**. Then New Quotation → choose it | The **Unit price** box is filled in, with a helper reading what it lists at and its MRP. Choose a different product and an untouched price follows; type your own and it survives the change |
+| 8.98 | A discount larger than the line | Type a discount amount above the line's value | Refused, saying a discount cannot exceed the line amount. Before this date four documents produced a negative taxable value, which the tax code read as zero tax while the negative flowed into the total |
+| 8.99 | A rate above a hundred | Type 500 into any Discount % | Refused by the form before it is sent, naming the limit |
+
+### 8.100–8.107 Billing from the desktop
+
+Until 2026-08-23 a firm using only the desktop could quote, order and dispatch
+and then had **no way to raise an invoice**. These cases are about the screen
+that closed that.
+
+Sales → Sales Invoices, as `whole01.admin`.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.100 | Raising a bill | Dispatch a delivery note, then **New Invoice** | The note appears in the picker with its customer and date. Quantities default to what is left to bill. Saving creates a **DRAFT** |
+| 8.101 | Only what is still billable is offered | Bill a note in full, then open **New Invoice** again | That note is gone from the list. It is the server that works this out — a client cannot know how much of a line earlier invoices already took |
+| 8.102 | Part-billing | Bill 2 of a 4-unit line, then open **New Invoice** again | The same note is offered with **2** remaining, and says how much is already billed |
+| 8.103 | Billing more than is left | Type a quantity above the remainder | Refused before it is sent, naming what is left |
+| 8.104 | Correcting a draft | Select a **DRAFT** invoice → **Edit** → change a quantity → Save | It saves. **Edit is disabled on an approved invoice** — once approved the journal is posted and the customer owes the money, so a correction is a cancellation and a fresh bill |
+| 8.105 | Two people editing one draft | Open the same draft in two places, save in one, then save in the other | The second is refused, saying the record changed. Sending the whole line collection means a lost race costs every line somebody entered |
+| 8.106 | Billing an order nothing shipped against | Approve a sales order and raise **no** delivery note, then **New Invoice** | The order is offered. Now raise a delivery note against it and look again — **the order is withdrawn from the list**. Offering both would let the same goods be billed twice, and no guard would catch it |
+| 8.107 | Nothing to bill | Bill everything, then **New Invoice** | It explains that nothing is waiting to be billed, rather than showing an empty form |
+
+### 8.110–8.115 An order follows its deliveries, and documents print
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.110 | Part-delivering moves the order | Approve an order for 10, dispatch 4 | The order reads **PARTIALLY_DELIVERED**. Dispatch the remaining 6 and it reads **DELIVERED**. Before this date both a finished order and an untouched one read APPROVED |
+| 8.111 | A second delivery is still allowed | After 8.110's first dispatch, raise another delivery note against the same order | It is allowed. The gate compared the order's status against the *delivery note's* enum, which agreed only because both spell APPROVED the same — writing the new status would have refused every second delivery |
+| 8.112 | The challan that travels | Delivery Notes → select one → **Print challan** | A PDF titled **DELIVERY CHALLAN**, naming consignee, the order it is against, the vehicle and driver if recorded, and three copies. It states the value of the goods and carries **no** reverse-charge line and no HSN-wise tax summary — it is not a tax invoice |
+| 8.113 | The offer, as a document | Quotations → select one → **Print** | A PDF titled **QUOTATION** carrying **Prices stand until**, which no other document has |
+| 8.114 | The credit note | Sales Returns → select one → **Print credit note** | A PDF titled **CREDIT NOTE** naming the reason, and stating the tax **component by component** — CGST and SGST, not just a total |
+| 8.115 | Print settings per document | Beside each Print button, open the settings dialog | Copies, letterhead and terms are per **document type**: changing the invoice's copies must not change the challan's |
+
+### 8.120–8.123 Packaging and a scanned code
+
+Sales → UOM & Packaging → **Packaging Levels**, as `whole01.admin`.
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.120 | Recording what a product ships in | Choose a product → **Add level** → name it CARTON, base units 120, barcode `8901234567906` | It saves and appears in the grid. These four endpoints existed since the module was written with no screen calling them |
+| 8.121 | A scanned code says what it is | Type that barcode into **Scan or type a code** → **Look up** | It answers with the product and **one scan is 120 base units**. Nothing read those barcodes before — the framework doc claimed a scanner could and nothing implemented it |
+| 8.122 | A code two things carry | Give a second product's level the same barcode, then look it up | Refused, saying how many carry it. A scanner that silently picked one would put the wrong stock on a document |
+| 8.123 | A code nobody carries | Look up any unused number | Refused, naming the code — the next thing anybody does is re-scan |
+
+### 8.130 By-salesman reports
+
+| ID | Case | Steps | Expected |
+| --- | --- | --- | --- |
+| 8.130 | A report that names a salesman | Tag a sales order and a delivery note with a salesman, then open the by-salesman reports for both — **as `elec01.admin`, whose firm is a dedicated database** | Both list the salesman by name. This is the case that matters on ELEC01 specifically: `users` lives only in the platform schema, and both reports read it on the firm's own session until 2026-08-23. Untagged documents hid it — the reports answered fine until one document carried a salesman, then both returned "The database is temporarily unavailable" |
+
 ### 8.80–8.84 A purchase order is submitted, then approved
 
 Built on 2026-08-16, after testing found the Open Orders tab permanently
