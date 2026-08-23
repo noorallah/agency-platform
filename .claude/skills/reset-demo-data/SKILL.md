@@ -82,6 +82,21 @@ WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
 ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | SO 57 | DN 57 | INV 48
 ```
 
+The history exercises the pricing rules as well as the documents. One
+customer per firm trades on a standing 7.5% discount, which every sale to them
+picks up server-side; a discount on the whole bill lands every fourth month;
+and a unit is thrown in free every third. None of it was there before
+2026-08-23, so nothing in the demo showed a discount and nothing exercised the
+apportionment across three tenancy modes. Checking that every discounted
+invoice's line shares sum to its header figure is a one-line query worth
+running after a seed:
+
+```sql
+SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
+  SELECT coalesce(sum(l.bill_discount_amount), 0) FROM sales_invoice_lines l
+  WHERE l.sales_invoice_id = i.id);   -- must be 0
+```
+
 **Read the DN count against the SO count.** They should match. A shortfall
 means deliveries were skipped, and the standalone script prints why:
 
