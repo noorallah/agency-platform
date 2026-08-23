@@ -9,8 +9,10 @@ import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
+import '../../core/notifications/notification_service.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_notice.dart';
+import 'sales_order_editor_dialog.dart';
 
 class SalesOrderManagementPage extends StatefulWidget {
   const SalesOrderManagementPage({
@@ -347,11 +349,80 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         // new, print, export and email -- fell through to a notification
         // saying the action was a placeholder.
         trailing: [
+          // First in the row. Until 2026-08-23 an order could only appear by
+          // converting a quotation, so a phone order had to be typed as a
+          // quotation and immediately accepted -- two documents, and an
+          // acceptance the customer never gave.
+          if (widget.permissions.hasPermission('SALES_CREATE'))
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: FilledButton.icon(
+                onPressed:
+                    widget.hasActiveFirm ? () => unawaited(_newOrder()) : null,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New Order'),
+              ),
+            ),
+          // Only a draft. Once approved the order is what the warehouse
+          // picks against and what credit was committed on, so a correction
+          // withdraws the approval rather than editing underneath it -- and
+          // the service refuses the write anyway.
+          if (widget.permissions.hasPermission('SALES_UPDATE'))
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: OutlinedButton.icon(
+                onPressed: _selected == null ||
+                        '${_selected?['status'] ?? ''}' != 'DRAFT'
+                    ? null
+                    : () => unawaited(_editOrder(_selected!)),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Edit'),
+              ),
+            ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
       );
+
+  /// Raise an order with nothing behind it -- the phone-order case.
+  Future<void> _newOrder() async {
+    final bool? created = await showDialog<bool>(
+      context: context,
+      builder: (_) => SalesOrderEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+      ),
+    );
+    if (created != true) return;
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Order drafted. Approve it to commit the stock and the credit.',
+      kind: AppNotificationKind.success,
+    );
+    await _load(requestedPage: 1);
+  }
+
+  /// Reopen a draft and correct it.
+  Future<void> _editOrder(Map<String, dynamic> order) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => SalesOrderEditorDialog(
+        api: widget.api,
+        today: DateTime.now(),
+        orderId: order['id'] as String,
+      ),
+    );
+    if (saved != true) return;
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Order updated.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
+  }
 
   /// A lifecycle button, disabled unless permission **and** the selected
   /// order's status allow it.

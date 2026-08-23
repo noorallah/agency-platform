@@ -180,15 +180,30 @@ line may keep what the draft already bills **plus** whatever is still unbilled
 elsewhere — the draft's own quantity counts against the source line and would
 otherwise be subtracted from the number the user is allowed to keep.
 
-## 2. A sales order cannot be raised directly from the desktop
+## 2. ~~A sales order cannot be raised directly from the desktop~~ — closed 2026-08-23
 
-Same shape, smaller cost. An order can only appear by converting a quotation,
-so a phone order has to be typed as a quotation and immediately accepted.
-`POST /api/v1/sales-orders` exists and the history generator uses it.
+An order could only appear by converting a quotation, so a phone order had to
+be typed as a quotation and immediately accepted — two documents, and an
+acceptance the customer never gave. `POST /api/v1/sales-orders` had existed the
+whole time with nothing on the desktop calling it, and the orphan-route guard
+could not see it: the generic `documentPage` / `documentAction` helpers match
+every two-segment sales route, so the create looked called.
 
-Partly relieved on 2026-08-23: an approved order can now be **billed**
-directly, so a firm that invoices before dispatch is no longer stuck. Raising
-the order still needs a quotation.
+**New Order** on the orders workspace opens a line editor of the same shape as
+the quotation's (`SALES_CREATE`); **Edit** reopens a draft (`SALES_UPDATE`),
+and only a draft — the service refuses anything past it, and an approved order
+is what the warehouse picks against and what credit was committed on. A
+non-draft opens read-only with a banner naming the status, rather than letting
+somebody retype the lines and be refused.
+
+**It does not capture a salesman.** `salesman_id` is optional on the API and
+this form does not offer it, because no endpoint lists a firm's people that a
+sales role may call — `users` is platform-only behind `USER_VIEW`, the
+territory list is gated on `TERRITORY_ASSIGN_SALESMEN`, and the commission list
+added the same day is gated on `COMMISSION_VIEW`. A phone order taken by a
+salesman therefore records none, and the money it eventually collects lands in
+the commission report's Unassigned bucket. Which permission should gate "list
+this firm's people" is the decision to take before a fourth copy exists.
 
 ## 3. ~~A sales order's status never moves as it is delivered~~ — closed 2026-08-23
 
@@ -293,8 +308,9 @@ entered.
 product form captured them and the grid sorted on them; no document defaulted
 a line's `unit_price` from either, so every price was typed again.
 
-The quotation editor — the only screen that types sales lines — now starts a
-line at the product's selling price and says what it lists at, MRP included.
+The quotation and sales-order editors — the only screens that type sales
+lines — now start a line at the product's selling price and say what it lists
+at, MRP included.
 Choosing a different product reprices an untouched line; a price somebody has
 typed survives, because refilling it would overwrite what they just agreed. A
 revision counts its stored prices as typed, so re-opening an offer cannot have
@@ -326,7 +342,20 @@ Where it sits in the precedence, which is the part to know:
 5. else nothing.
 
 A list is more specific than the blanket rate, so it outranks it; a typed
-figure outranks both, because a person deciding beats a table. A product no
+figure outranks both, because a person deciding beats a table.
+
+**Which is why no line editor may prefill the discount box.** The quotation
+editor filled it with the customer's standing rate — and with a literal `0`
+where they had none — on the reasoning that a salesman must see what is being
+quoted. The reasoning is right and the implementation defeated price lists the
+day they shipped: an explicit percentage outranks the list, so a customer on a
+blanket 10% and a 15% list was quoted 10%, and a customer with no blanket rate
+sent an explicit `0`, which refuses every arrangement — so **no price list
+could reach a quotation raised from the desktop at all**. Driven against a
+running backend: the same line resolved to 15% saying nothing and to nothing
+saying `discount_percent: "0"`. Both editors now leave the box blank and say
+what blank takes, and the running total says the rest is applied on save
+rather than quoting a figure the form cannot stand behind. A product no
 list mentions falls through to the blanket rate — which is why the resolver
 answers `None` for silence rather than zero, and a list that deliberately puts
 a product at nil blocks the blanket rate underneath.
