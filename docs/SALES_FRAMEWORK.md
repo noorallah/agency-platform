@@ -286,13 +286,24 @@ it was a precondition for the invoice editor rather than a tidy-up — the updat
 replaces the whole line collection, so a lost race costs every line somebody
 entered.
 
-## 6. The product's selling price is never used
+## 6. ~~The product's selling price is never used~~ — closed 2026-08-23
 
-`products.selling_price` and `products.mrp` are columns nothing reads. No
-document defaults a line's `unit_price` from the product; every price is typed,
-including in the quotation editor, which is the only screen that types lines.
+`products.selling_price` and `products.mrp` were columns nothing read. The
+product form captured them and the grid sorted on them; no document defaulted
+a line's `unit_price` from either, so every price was typed again.
 
-This is the cheapest of these to close and the most immediately visible.
+The quotation editor — the only screen that types sales lines — now starts a
+line at the product's selling price and says what it lists at, MRP included.
+Choosing a different product reprices an untouched line; a price somebody has
+typed survives, because refilling it would overwrite what they just agreed. A
+revision counts its stored prices as typed, so re-opening an offer cannot have
+the master rewrite a negotiated figure.
+
+**Deliberately client-side, unlike the customer's standing discount**, which
+the server applies. A discount is an arrangement: silence means "the usual
+deal". A price is the central term of the sale, and a document that says
+nothing about it is incomplete rather than ordinary — so `unit_price` stays
+required on the API and an integrator must state one.
 
 ## 7. There is no pricing beyond a single price per product
 

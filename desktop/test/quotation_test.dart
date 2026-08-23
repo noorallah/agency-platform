@@ -161,12 +161,16 @@ class _QuoteApi extends ApiClient {
             'code': 'SHAMP180',
             'name': 'Shampoo Bottle 180ml',
             'status': 'ACTIVE',
+            'selling_price': '180.00',
+            'mrp': '199.00',
           }),
           Product.fromJson({
             'id': 'p-2',
             'code': 'SOAP100',
             'name': 'Soap Bar 100g',
             'status': 'ACTIVE',
+            'selling_price': '40.00',
+            'mrp': '45.00',
           })
         ],
         total: 2,
@@ -878,6 +882,74 @@ void main() {
           Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
       expect(line['discount_percent'], '10');
       expect(line['free_quantity'], '1');
+    });
+
+
+    testWidgets("a line starts at the product's selling price",
+        (tester) async {
+      // `products.selling_price` and `mrp` were columns nothing read: the
+      // product form captured them, the grid sorted on them, and every
+      // document made somebody type the price again.
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('lists at 180.00, MRP 199.00'), findsOneWidget);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '2');
+      await tester.pumpAndSettle();
+      expect(find.text('Line 1: 360.00'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line['unit_price'], '180.00');
+    });
+
+    testWidgets('choosing a different product reprices an untouched line',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey<String>('quotation-line-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SOAP100  Soap Bar 100g').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('lists at 40.00, MRP 45.00'), findsOneWidget);
+    });
+
+    testWidgets('a typed price survives a change of product', (tester) async {
+      // Refilling it would overwrite a price the salesman had just agreed.
+      final _QuoteApi api = _QuoteApi();
+      await _pump(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Quotation'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Unit price'), '150');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('quotation-line-product-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SOAP100  Soap Bar 100g').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Quantity'), '1');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+      expect(line['unit_price'], '150');
+      // And the helper stops offering the list price once it is theirs.
+      expect(find.textContaining('lists at'), findsNothing);
     });
 
     testWidgets('it refuses a quantity or price of nothing', (tester) async {
