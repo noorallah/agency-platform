@@ -37,6 +37,7 @@ from app.core.exceptions import ValidationError
 from app.core.tenancy.lifecycle import _PLATFORM_TABLES
 from app.customers.models import Customer
 from app.delivery_note.services import DeliveryNoteService
+from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.services import SalesOrderService
 
 
@@ -183,3 +184,15 @@ def test_validating_a_salesman_on_create_does_not_reach_for_users_either(
                 route_id=None,
             )
         assert "active member" in str(refusal.value), type(service).__name__
+
+    # The invoice's own copy, which takes a narrower signature and was missed
+    # when the other two were fixed -- found the next day, when the demo seed
+    # first put a salesman on a round and every document began deriving one.
+    with pytest.raises(ValidationError) as refusal:
+        SalesInvoiceService(tenant_session)._validate_scope_references(
+            firm_id=firm,
+            salesman_id=stranger,
+            territory_id=None,
+            route_id=None,
+        )
+    assert "active member" in str(refusal.value)

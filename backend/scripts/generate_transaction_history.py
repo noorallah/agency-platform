@@ -67,6 +67,7 @@ from app.core.tenancy import (
     MultiTenantDatabaseProvider,
     TenantContext,
 )
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
@@ -90,12 +91,19 @@ from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
+    SalesInvoiceResponse,
     SalesInvoiceSourceType,
 )
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.settlements.schemas import (
+    SettlementAllocationWrite,
+    SettlementCreate,
+    SettlementMethodEnum,
+)
+from app.settlements.services import ReceiptService
 from app.vendors.models import Vendor
 
 ACTOR = UUID("00000000-0000-0000-0000-0000000000aa")
@@ -299,6 +307,7 @@ class Tally:
     sales_orders: int = 0
     delivery_notes: int = 0
     sales_invoices: int = 0
+    receipts: int = 0
     skipped: list[str] = field(default_factory=list)
 
     def line(self) -> str:
@@ -309,7 +318,8 @@ class Tally:
             f"{self.years} financial year(s) | PO {self.purchase_orders} | "
             f"GRN {self.goods_receipts} | PINV {self.purchase_invoices} | "
             f"SO {self.sales_orders} | "
-            f"DN {self.delivery_notes} | INV {self.sales_invoices}"
+            f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
+            f"RCPT {self.receipts}"
         )
 
 
@@ -401,6 +411,11 @@ class HistoryBuilder:
         self._target = target
         self._tally = Tally()
         self._features = resolve_capabilities(session, target.firm_id).features
+        #: Which invoices get collected, and how much of each. A counter
+        #: rather than randomness: a seed run has to be reproducible, and
+        #: `Math.random`-shaped data makes two runs impossible to compare.
+        self._collection_cycle = 0
+        self._today = utc_now().date()
 
     @property
     def tally(self) -> Tally:
@@ -795,8 +810,73 @@ class HistoryBuilder:
             firm_id=firm_id,
             actor_id=ACTOR,
         )
-        invoices.approve_invoice(raised.id, firm_scope=firm_id, actor_id=ACTOR)
+        approved = invoices.approve_invoice(
+            raised.id, firm_scope=firm_id, actor_id=ACTOR
+        )
         self._tally.sales_invoices += 1
+        self._session.commit()
+        self._collect(invoice=approved, customer=customer, on=on, firm_id=firm_id)
+
+    def _collect(
+        self,
+        *,
+        invoice: SalesInvoiceResponse,
+        customer: Customer,
+        on: date,
+        firm_id: UUID,
+    ) -> None:
+        """Take some of the money in, the way a distributor actually does.
+
+        Two years of trading used to produce **zero** settlements in every
+        store. Three things followed and none of them looked like a seeding
+        gap. Receivables only ever grew, so every ageing and outstanding
+        figure in the demo was the whole trading value. `app/settlements` --
+        the module handling every rupee in and out -- was exercised by nothing,
+        so the seed run could not act as the blunt integration test it is for
+        the other seven. And commission, which is earned on money *collected*,
+        could only ever report zero however many invoices were raised.
+
+        Not everything is collected, because a demo where every bill is paid
+        has nothing for an ageing report to show: one invoice in four is left
+        outstanding and one in four is paid in part, so the books hold a
+        realistic mix of settled, partly settled and open.
+        """
+        self._collection_cycle += 1
+        share = self._collection_cycle % 4
+        if share == 0:
+            return
+        total = Decimal(str(invoice.grand_total or "0")).quantize(Decimal("0.01"))
+        if total <= 0:
+            return
+        amount = (total / 2).quantize(Decimal("0.01")) if share == 2 else total
+        if amount <= 0:
+            return
+        # Money arrives after the bill, not with it. Thirty days is the
+        # ordinary term here and keeps the settlement inside the same
+        # accounting period as the invoice for all but the month end.
+        received_on = min(on + timedelta(days=30), self._today)
+        if received_on < on:
+            received_on = on
+        try:
+            ReceiptService(self._session).create(
+                SettlementCreate(
+                    party_id=customer.id,
+                    settlement_date=received_on,
+                    amount=amount,
+                    method=SettlementMethodEnum.BANK,
+                    narration=f"Collection against {invoice.invoice_number}",
+                    allocations=[
+                        SettlementAllocationWrite(invoice_id=invoice.id, amount=amount)
+                    ],
+                ),
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{received_on} collection: {error}")
+            self._session.rollback()
+            return
+        self._tally.receipts += 1
         self._session.commit()
 
 

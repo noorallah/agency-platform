@@ -428,6 +428,16 @@ invoice or a salesman — worth a decision if a firm refunds after paying.
 And it **reports rather than pays**: no payout posts to the ledger, which is a
 separate decision about which account it lands in.
 
+**The demo exercises it as of 2026-08-23**, which it could not before. Every
+store held zero salesman assignments while every customer sat on a round, so
+no document could name a salesman at all; and every store held zero
+settlements, so no money was ever collected. Commission is earned on money
+collected by a named salesman, which made it the one feature the seed could
+not show working. Two salespeople per firm now cover the rounds, three
+invoices in four are collected, and each firm carries a firm-wide rate plus
+one person on a better one — so the precedence a rule of one's own beats the
+default is visible on screen rather than only described here.
+
 **Sales › Commission** carries both halves: *Rates*, where the effective-dated
 rules are agreed, and *Collected*, the report over a period
 (`COMMISSION_VIEW` to read either, `COMMISSION_MANAGE` to change a rate). The
