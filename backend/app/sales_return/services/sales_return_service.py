@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -57,6 +58,7 @@ from app.sales_return.models import (
     SalesReturn,
     SalesReturnAttachment,
     SalesReturnLine,
+    SalesReturnLineTax,
     SalesReturnNote,
     SalesReturnSource,
 )
@@ -102,6 +104,33 @@ def _optional_uuid(value: object) -> UUID | None:
 def _decimal(value: object, default: Decimal = ZERO) -> Decimal:
     """Read a Decimal out of an untyped line spec."""
     return Decimal(str(value)) if value is not None else default
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnTaxComponent:
+    """One tax component credited on one line, as the engine reported it."""
+
+    tax_component_id: UUID | None
+    code: str
+    label: str
+    percentage: Decimal
+    base_amount: Decimal
+    amount: Decimal
+    included_in_price: bool
+    recoverable: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _ReturnLineTax:
+    """What the rule engine decided for one line, kept rather than discarded.
+
+    `_tax_amount` used to return one number and throw the components away,
+    which is why a printed credit note could state a total and no breakup --
+    and a GST credit note has to name each component it reverses.
+    """
+
+    total: Decimal
+    components: list[_ReturnTaxComponent]
 
 
 class SalesReturnService(TransactionalDocumentService):
@@ -1018,7 +1047,7 @@ class SalesReturnService(TransactionalDocumentService):
             tax_profile_id = _optional_uuid(spec.get("tax_profile_id")) or getattr(
                 source_line, "tax_profile_id", None
             )
-            tax_amount = self._tax_amount(
+            line_tax = self._tax_amount(
                 return_date=return_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -1036,6 +1065,7 @@ class SalesReturnService(TransactionalDocumentService):
                 ),
                 actor_id=actor_id,
             )
+            tax_amount = line_tax.total
             net_amount = self._q(
                 gross_amount
                 - discount_amount
@@ -1043,52 +1073,72 @@ class SalesReturnService(TransactionalDocumentService):
                 + charges_amount
                 + tax_amount
             )
-            self._session.add(
-                SalesReturnLine(
-                    sales_return_id=row.id,
-                    firm_id=firm_id,
-                    line_number=index,
-                    source_document_type=source_type,
-                    source_document_id=spec["source_document_id"],
-                    source_document_number=self._source_document_number(source_line),
-                    source_document_line_id=source_line.id,
-                    source_document_line_number=int(source_line.line_number),
-                    product_id=source_line.product_id,
-                    description=getattr(source_line, "description", None),
-                    dispatched_quantity=dispatched,
-                    already_returned_quantity=already_returned,
-                    current_return_quantity=return_quantity,
-                    restock_quantity=restock,
-                    damaged_quantity=damaged,
-                    scrap_quantity=scrap,
-                    reason_code=spec.get("reason_code"),
-                    item_condition=spec.get("item_condition"),
-                    is_damaged=bool(spec.get("is_damaged", False)),
-                    is_expired=bool(spec.get("is_expired", False)),
-                    unit_price=unit_price,
-                    discount_percent=line_discount.percent,
-                    discount_amount=discount_amount,
-                    bill_discount_amount=bill_share,
-                    charges_amount=charges_amount,
-                    gross_amount=gross_amount,
-                    tax_profile_id=tax_profile_id,
-                    tax_amount=tax_amount,
-                    net_amount=net_amount,
-                    packaging_type_id=_optional_uuid(spec.get("packaging_type_id")),
-                    sales_uom_id=source_uom_id,
-                    return_uom_id=return_uom_id,
-                    conversion_factor=conversion_factor,
-                    warehouse_id=_optional_uuid(spec.get("warehouse_id"))
-                    or row.warehouse_id,
-                    storage_node_id=_optional_uuid(spec.get("storage_node_id")),
-                    batch_number=spec.get("batch_number"),
-                    expiry_date=spec.get("expiry_date"),
-                    manufacturing_date=spec.get("manufacturing_date"),
-                    remarks=spec.get("remarks"),
-                    created_by=actor_id,
-                    updated_by=actor_id,
-                )
+            line = SalesReturnLine(
+                sales_return_id=row.id,
+                firm_id=firm_id,
+                line_number=index,
+                source_document_type=source_type,
+                source_document_id=spec["source_document_id"],
+                source_document_number=self._source_document_number(source_line),
+                source_document_line_id=source_line.id,
+                source_document_line_number=int(source_line.line_number),
+                product_id=source_line.product_id,
+                description=getattr(source_line, "description", None),
+                dispatched_quantity=dispatched,
+                already_returned_quantity=already_returned,
+                current_return_quantity=return_quantity,
+                restock_quantity=restock,
+                damaged_quantity=damaged,
+                scrap_quantity=scrap,
+                reason_code=spec.get("reason_code"),
+                item_condition=spec.get("item_condition"),
+                is_damaged=bool(spec.get("is_damaged", False)),
+                is_expired=bool(spec.get("is_expired", False)),
+                unit_price=unit_price,
+                discount_percent=line_discount.percent,
+                discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
+                charges_amount=charges_amount,
+                gross_amount=gross_amount,
+                tax_profile_id=tax_profile_id,
+                tax_amount=tax_amount,
+                net_amount=net_amount,
+                packaging_type_id=_optional_uuid(spec.get("packaging_type_id")),
+                sales_uom_id=source_uom_id,
+                return_uom_id=return_uom_id,
+                conversion_factor=conversion_factor,
+                warehouse_id=_optional_uuid(spec.get("warehouse_id"))
+                or row.warehouse_id,
+                storage_node_id=_optional_uuid(spec.get("storage_node_id")),
+                batch_number=spec.get("batch_number"),
+                expiry_date=spec.get("expiry_date"),
+                manufacturing_date=spec.get("manufacturing_date"),
+                remarks=spec.get("remarks"),
+                created_by=actor_id,
+                updated_by=actor_id,
             )
+            self._session.add(line)
+            # Flushed here so the components have a line id to hang from --
+            # the same shape `sales_invoice` uses, and for the same reason.
+            self._session.flush()
+            for sequence, component in enumerate(line_tax.components, start=1):
+                self._session.add(
+                    SalesReturnLineTax(
+                        sales_return_line_id=line.id,
+                        firm_id=firm_id,
+                        sequence=sequence,
+                        tax_component_id=component.tax_component_id,
+                        component_code=component.code,
+                        component_label=component.label,
+                        percentage=component.percentage,
+                        base_amount=component.base_amount,
+                        amount=component.amount,
+                        included_in_price=component.included_in_price,
+                        recoverable=component.recoverable,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
             totals["total_source_quantity"] += dispatched
             totals["total_already_returned_quantity"] += already_returned
             totals["total_current_return_quantity"] += return_quantity
@@ -1438,9 +1488,10 @@ class SalesReturnService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
-    ) -> Decimal:
+    ) -> _ReturnLineTax:
+        """Work out the line's tax, and keep everything that decided it."""
         if invoice_value <= ZERO:
-            return ZERO
+            return _ReturnLineTax(total=ZERO, components=[])
         tax_service = TaxFrameworkService(self._session)
         if tax_profile_id is None:
             product = self._session.get(Product, product_id)
@@ -1452,7 +1503,7 @@ class SalesReturnService(TransactionalDocumentService):
                 else None
             )
             if resolved is None:
-                return ZERO
+                return _ReturnLineTax(total=ZERO, components=[])
             tax_profile_id = resolved.id
         else:
             tax_service.assert_profile_effective_on(
@@ -1474,7 +1525,22 @@ class SalesReturnService(TransactionalDocumentService):
             firm_scope=firm_id,
             actor_id=actor_id,
         )
-        return self._q(response.total_tax_amount)
+        return _ReturnLineTax(
+            total=self._q(response.total_tax_amount),
+            components=[
+                _ReturnTaxComponent(
+                    tax_component_id=component.tax_component_id,
+                    code=component.code,
+                    label=component.label,
+                    percentage=self._q(component.percentage),
+                    base_amount=self._q(response.base_amount),
+                    amount=self._q(component.amount),
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in response.applied_components
+            ],
+        )
 
     # ---- import and export ---------------------------------------------
 

@@ -8,11 +8,11 @@ no way to tell the customer any of it had happened.
 It does not ask for money -- no due date and no bank block, because nothing is
 being collected -- but it does state what was credited, including the tax.
 
-One thing it cannot yet state is the tax **component by component**, which a
-GST credit note should. The invoice manages it only because it stores the
-breakup it charged; a return line has no equivalent table, and re-deriving at
-print time is what that storage exists to prevent. Recorded in
-`docs/SALES_FRAMEWORK.md` rather than guessed at.
+It states the tax **component by component**, which a GST credit note must,
+read from `sales_return_line_taxes` -- what was actually credited. Re-asking
+the rule engine at print time is what that storage exists to prevent: rules are
+effective-dated, so the engine can answer differently from what the customer
+got back.
 """
 
 from __future__ import annotations
@@ -38,7 +38,11 @@ from app.sales_invoice.services.invoice_pdf import (
     PartyBlock,
     TemplateSettings,
 )
-from app.sales_return.models import SalesReturn, SalesReturnLine
+from app.sales_return.models import (
+    SalesReturn,
+    SalesReturnLine,
+    SalesReturnLineTax,
+)
 from app.uom.models import Uom
 
 ZERO = Decimal("0")
@@ -99,6 +103,7 @@ class CreditNotePrintService:
         )
         products = self._products(line.product_id for line in lines)
         units = self._units(line.return_uom_id for line in lines)
+        taxes = self._taxes(line.id for line in lines)
 
         printed = [
             InvoiceLineBlock(
@@ -128,6 +133,10 @@ class CreditNotePrintService:
                 - line.bill_discount_amount,
                 total=line.net_amount,
                 batch=line.batch_number,
+                taxes=tuple(
+                    (item.component_code, item.percentage, item.amount)
+                    for item in taxes.get(line.id, [])
+                ),
             )
             for line in lines
         ]
@@ -156,21 +165,35 @@ class CreditNotePrintService:
             grand_total=row.grand_total,
             references=tuple(references),
             party_labels=("CREDITED TO", "RETURNED FROM"),
-            # No HSN-wise summary, and this is a shortfall rather than a
-            # choice. A GST credit note should state the components it
-            # reverses, the way the invoice does -- but the invoice can only
-            # do that because `sales_invoice_line_taxes` stores the breakup it
-            # charged (20260822_0096). A sales return line has no such table,
-            # and re-asking the rule engine at print time is exactly what that
-            # migration exists to avoid: rules are effective-dated, so the
-            # answer can differ from what was credited. So the note states the
-            # tax total and stops there until the breakup is stored.
-            show_tax_summary=False,
+            # The tax it gives back, component by component, read from what
+            # was credited rather than re-derived: rules are effective-dated,
+            # so asking the engine again at print time can answer differently
+            # from what the customer actually got back.
+            show_tax_summary=True,
+            # Nothing is being supplied, so no place of supply and no
+            # reverse-charge declaration.
             show_supply_terms=False,
             number_label="Credit note no.",
             date_label="Credit note date",
             words_label="CREDIT, IN WORDS",
         )
+
+    def _taxes(self, ids: Iterable[UUID]) -> dict[UUID, list[SalesReturnLineTax]]:
+        """Read the stored breakup for every line, in one query."""
+        wanted = {value for value in ids if value is not None}
+        if not wanted:
+            return {}
+        found: dict[UUID, list[SalesReturnLineTax]] = {}
+        for item in self._session.scalars(
+            select(SalesReturnLineTax)
+            .where(
+                SalesReturnLineTax.sales_return_line_id.in_(wanted),
+                SalesReturnLineTax.is_deleted.is_(False),
+            )
+            .order_by(SalesReturnLineTax.sequence.asc())
+        ).all():
+            found.setdefault(item.sales_return_line_id, []).append(item)
+        return found
 
     def _products(self, ids: Iterable[UUID | None]) -> dict[UUID, Product]:
         """Read the products the lines name, in one query."""
