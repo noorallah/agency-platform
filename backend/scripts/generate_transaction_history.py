@@ -468,6 +468,14 @@ class HistoryBuilder:
                 "Run generate_sample_data.py first."
             )
         assert branch is not None and warehouse is not None and vendor is not None
+        # One customer trades on a standing discount, so every sale to them
+        # picks it up server-side without any document asking for it. Set here
+        # rather than in the master seed because it is a fact about trading:
+        # without it nothing in the demo exercised the rule, and nothing on
+        # screen showed a discount.
+        if customers[0].default_discount_percent <= Decimal("0"):
+            customers[0].default_discount_percent = Decimal("7.5")
+            self._session.commit()
         return branch, warehouse, vendor, customers, products
 
     # -- calendar ------------------------------------------------------
@@ -675,12 +683,21 @@ class HistoryBuilder:
         quantity: str,
         unit_price: str,
         invoice: bool = True,
+        bill_discount_percent: str | None = None,
+        free_quantity: str = "0",
     ) -> None:
         """Take an order, dispatch it, and invoice it.
 
         ``invoice=False`` leaves the order dispatched but unbilled, which is
         what a real ledger looks like at a period end and what the pending and
         ageing reports need in order to have anything to show.
+
+        ``bill_discount_percent`` is passed to all three documents rather than
+        to the order alone: each one resolves and apportions it for itself, so
+        sending it to all three is what proves the three agree. ``free_quantity``
+        is goods thrown in -- real stock leaving the warehouse, outside the
+        gross and outside the tax base, and inherited by the invoice from the
+        line it bills.
         """
         firm_id = self._target.firm_id
         orders = SalesOrderService(self._session)
@@ -690,11 +707,17 @@ class HistoryBuilder:
                 branch_id=branch.id,
                 warehouse_id=warehouse.id,
                 order_date=on,
+                bill_discount_percent=(
+                    None
+                    if bill_discount_percent is None
+                    else Decimal(bill_discount_percent)
+                ),
                 lines=[
                     SalesOrderLineWrite(
                         line_number=1,
                         product_id=product.id,
                         quantity=Decimal(quantity),
+                        free_quantity=Decimal(free_quantity),
                         unit_price=Decimal(unit_price),
                     )
                 ],
@@ -714,11 +737,18 @@ class HistoryBuilder:
             DeliveryNoteCreate(
                 sales_order_id=order.id,
                 delivery_date=on,
+                bill_discount_percent=(
+                    None
+                    if bill_discount_percent is None
+                    else Decimal(bill_discount_percent)
+                ),
                 lines=[
                     DeliveryNoteLineWrite(
                         sales_order_line_id=so_line.id,
                         line_number=1,
                         current_delivery_quantity=Decimal(quantity),
+                        free_quantity=Decimal(free_quantity),
+                        unit_price=Decimal(unit_price),
                         warehouse_id=warehouse.id,
                     )
                 ],
@@ -746,6 +776,11 @@ class HistoryBuilder:
                 customer_id=customer.id,
                 branch_id=branch.id,
                 invoice_date=on,
+                bill_discount_percent=(
+                    None
+                    if bill_discount_percent is None
+                    else Decimal(bill_discount_percent)
+                ),
                 lines=[
                     SalesInvoiceLineWrite(
                         source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
@@ -807,6 +842,13 @@ def build_for_firm(
                 # Leave the last sale of every third month unbilled so ageing and
                 # pending reports have live rows rather than a clean sheet.
                 bill = not (offset == 1 and month_index % 3 == 2)
+                # A discount on the whole bill every fourth month, and one
+                # unit thrown in every third. Neither is on every document on
+                # purpose: a report that cannot tell a discounted sale from an
+                # ordinary one is not being tested by data where they are all
+                # the same.
+                whole_bill = "5" if month_index % 4 == 1 and offset == 0 else None
+                gift = "1" if month_index % 3 == 0 and offset == 1 else "0"
                 try:
                     builder.sell(
                         on=sell_on,
@@ -817,6 +859,8 @@ def build_for_firm(
                         quantity=sale_qty,
                         unit_price=sale_price,
                         invoice=bill,
+                        bill_discount_percent=whole_bill,
+                        free_quantity=gift,
                     )
                 except (ValidationError, BusinessRuleError) as error:
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")
