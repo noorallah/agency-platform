@@ -19,6 +19,7 @@ from app.commission.schemas import (
     CommissionRuleResponse,
     CommissionRuleStatusEnum,
     CommissionRuleUpdate,
+    CommissionSalesman,
 )
 from app.commission.services import CommissionService
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
@@ -64,6 +65,22 @@ def commission_report(
         salesman_id=salesman_id,
     )
     return ApiResponse(data=report)
+
+
+@router.get("/salesmen", response_model=ApiResponse[list[CommissionSalesman]])
+def commission_salesmen(
+    scope: CommissionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CommissionSalesman]]:
+    """List the people this firm can agree a rate with.
+
+    Guarded by `COMMISSION_VIEW` rather than by `USER_VIEW`, and deliberately
+    not shared with the territory module's twin, which is gated on
+    `TERRITORY_ASSIGN_SALESMEN` -- a permission whoever sets commission need
+    not hold. Without a list of its own the screen could only offer people who
+    already had a rule, so a brand-new rate could never be agreed from it.
+    """
+    return ApiResponse(data=CommissionService(db).salesmen(firm_id=scope.firm_id))
 
 
 @router.get("/rules", response_model=PaginatedResponse[CommissionRuleResponse])

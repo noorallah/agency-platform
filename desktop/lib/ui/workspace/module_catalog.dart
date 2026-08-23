@@ -300,13 +300,31 @@ abstract final class ModuleCatalog {
       icon: Icons.point_of_sale_outlined,
       description: 'Sales operations workspace.',
       workspaceTemplate: WorkspaceTemplateType.transaction,
-      requiredPermissions: ['SALES_VIEW', 'TERRITORY_VIEW'],
+      requiredPermissions: [
+        'SALES_VIEW',
+        'TERRITORY_VIEW',
+        // An accounts clerk who only reads what the team earned, and a
+        // pricing owner who only agrees rates, each reach this module
+        // through one tab of it and nothing else.
+        'PRICE_LIST_VIEW',
+        'COMMISSION_VIEW',
+      ],
       requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(
           id: 'territories',
           label: 'Geography',
           requiredPermissions: ['TERRITORY_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'price-lists',
+          label: 'Price Lists',
+          requiredPermissions: ['PRICE_LIST_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'commission',
+          label: 'Commission',
+          requiredPermissions: ['COMMISSION_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'route-types',

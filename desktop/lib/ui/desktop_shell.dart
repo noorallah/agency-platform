@@ -32,6 +32,8 @@ import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
+import 'commission/commission_page.dart';
+import 'pricing/price_list_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'quotations/quotation_management_page.dart';
@@ -1855,6 +1857,16 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
         ),
+      'price-lists' => PriceListPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
+      'commission' => CommissionPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1893,6 +1905,16 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Places',
           'The shared geography every address and route hangs off: country to '
               'locality.',
+        ),
+      'price-lists' => (
+          'Price Lists',
+          'What a firm has agreed to charge, and to whom: a rate off the '
+              'product price, from a date.',
+        ),
+      'commission' => (
+          'Commission',
+          'What a salesman earns on the money that actually came in, and the '
+              'rates that decide it.',
         ),
       _ => (module.label, module.description),
     };

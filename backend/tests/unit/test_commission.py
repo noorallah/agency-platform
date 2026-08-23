@@ -277,6 +277,46 @@ def test_an_invoice_with_no_salesman_is_bucketed_and_not_dropped() -> None:
     assert result.rows[-1].salesman_id is None, "the bucket sorts last"
 
 
+def test_the_firm_wide_default_does_not_pay_the_unassigned_bucket() -> None:
+    """A default is what a *person* with no rule of their own is paid.
+
+    The test above asserts the bucket earns nothing, but its firm has no
+    firm-wide rule, so it passed while `_rate_for` was reading the default for
+    an owner of None. Driving a seeded store found it: every one of ELEC01's
+    49 invoices carries no salesman, so the whole of a 3% default was reported
+    as commission payable to nobody. The collected figure stays -- it has to
+    reconcile against the cash book -- and only the payout is zero.
+    """
+    books = _Books(_session_factory()())
+    books.rule("3")
+    orphan = books.invoice("SI-1", "1000.00", None)
+    books.receipt(orphan, "500.00")
+
+    result = CommissionService(books.session).report(
+        firm_id=books.firm.id, from_date=YEAR[0], to_date=YEAR[1]
+    )
+    unassigned = [row for row in result.rows if row.salesman_id is None]
+    assert unassigned[0].collected_amount == Decimal("500.00")
+    assert unassigned[0].commission_amount == Decimal("0.00")
+    assert result.total_commission_amount == Decimal("0.00")
+
+
+def test_a_firm_can_list_the_people_it_may_agree_a_rate_with() -> None:
+    """The picker on the rules screen has to come from somewhere.
+
+    `users` lives only in the platform schema behind `USER_VIEW`, and the
+    territory module's twin of this list is gated on
+    `TERRITORY_ASSIGN_SALESMEN` -- neither of which whoever sets commission
+    holds. Without this endpoint the screen could only offer people who
+    already had a rule, so a brand-new rate could never be agreed from it.
+    """
+    books = _Books(_session_factory()())
+    people = CommissionService(books.session).salesmen(firm_id=books.firm.id)
+
+    assert {person.user_id for person in people} == {books.asha, books.bala}
+    assert all(person.full_name for person in people)
+
+
 def test_the_firm_wide_default_pays_a_salesman_with_no_rule_of_their_own() -> None:
     """A rule of one's own beats the default; the default beats nothing."""
     books = _Books(_session_factory()())

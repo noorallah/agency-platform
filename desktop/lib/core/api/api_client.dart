@@ -17,6 +17,8 @@ import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
+import '../../models/pricing.dart';
+import '../../models/commission.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
 import '../../models/goods_receipt.dart';
@@ -3140,6 +3142,135 @@ class ApiClient {
         'POST',
         '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
       );
+
+  // ---- price lists ---------------------------------------------------
+
+  Future<PagedResult<PriceListRecord>> priceLists({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/price-lists',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PriceListRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  PriceListRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<PriceListRecord> createPriceList(Json body) async =>
+      PriceListRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/price-lists', body: body)),
+      );
+
+  /// [expectedVersion] rides along as `If-Match`. The rates are replaced by
+  /// what is sent, so a lost race costs every rate somebody entered.
+  Future<PriceListRecord> updatePriceList(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PriceListRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/price-lists/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deletePriceList(String id) =>
+      request('DELETE', '/api/v1/price-lists/$id');
+
+  // ---- commission ----------------------------------------------------
+
+  Future<PagedResult<CommissionRuleRecord>> commissionRules({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/commission/rules',
+      query: {'page': '$page', 'page_size': '$pageSize'},
+    );
+    final dynamic data = response['data'];
+    return PagedResult<CommissionRuleRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  CommissionRuleRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<CommissionRuleRecord> createCommissionRule(Json body) async =>
+      CommissionRuleRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/commission/rules', body: body)),
+      );
+
+  Future<CommissionRuleRecord> updateCommissionRule(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      CommissionRuleRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/commission/rules/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deleteCommissionRule(String id) =>
+      request('DELETE', '/api/v1/commission/rules/$id');
+
+  /// The people this firm can agree a rate with.
+  ///
+  /// Its own endpoint rather than the territory module's: that one is gated
+  /// on `TERRITORY_ASSIGN_SALESMEN`, which whoever sets commission need not
+  /// hold, so calling it would 403 for exactly the user this screen is for.
+  Future<List<CommissionSalesman>> commissionSalesmen() async => _unwrapList(
+        await request('GET', '/api/v1/commission/salesmen'),
+        CommissionSalesman.fromJson,
+      );
+
+  /// What each salesman collected in a period, and what it earned them.
+  Future<CommissionReport> commissionReport({
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      CommissionReport.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/commission/report',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      )));
+
+  /// Read the record count a paginated envelope reports.
+  int _totalOf(Json response) {
+    final dynamic pagination = response['pagination'];
+    if (pagination is Map) {
+      return (pagination['total_records'] as num?)?.toInt() ?? 0;
+    }
+    return 0;
+  }
 
   Future<Json> create(String resource, Json body) =>
       request('POST', '/api/v1/$resource', body: body);
