@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import platform_reader
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -761,6 +762,28 @@ class SalesOrderService(TransactionalDocumentService):
             )
         ]
 
+    def _salesman_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Name the salesmen, reading the store that holds `users`.
+
+        `users` lives only in the platform schema, so a tenant session cannot
+        see it: on PostgreSQL this raised `UndefinedTable` and the report
+        answered 503 -- but only once a document carried a salesman, which no
+        seeded document did, so it sat latent. Fifth occurrence of the trap.
+
+        SQLite keeps every table in one schema, so the unit suite reads it on
+        the request session and could never have caught this.
+        """
+        if not ids:
+            return {}
+        statement = select(User.id, User.full_name).where(User.id.in_(ids))
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            rows = list(self._session.execute(statement).all())
+        else:
+            with platform_reader() as reader:
+                rows = list(reader.execute(statement).all())
+        return {row[0]: row[1] for row in rows}
+
     def orders_by_salesman(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderBySalesmanRecord]:
@@ -783,13 +806,9 @@ class SalesOrderService(TransactionalDocumentService):
                 continue
             totals[row.salesman_id] += row.grand_total
             counts[row.salesman_id] += 1
-            if row.salesman_id not in names:
-                user = self._session.scalar(
-                    select(User).where(User.id == row.salesman_id)
-                )
-                names[row.salesman_id] = (
-                    user.full_name if user is not None else str(row.salesman_id)
-                )
+        # One read for every salesman rather than one per row, and against the
+        # platform store rather than this firm's.
+        names = self._salesman_names(set(totals))
         return [
             SalesOrderBySalesmanRecord(
                 salesman_id=salesman_id,
