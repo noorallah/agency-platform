@@ -35,6 +35,19 @@ class _LineDraft {
   /// enters the line's value -- but stock moves for it, and the bill says so.
   final TextEditingController free;
 
+  /// True once somebody typed a price.
+  ///
+  /// A line nobody has priced follows whichever product is chosen; one that
+  /// has been typed into does not, because refilling it would overwrite a
+  /// price the salesman had just agreed.
+  bool priceEdited = false;
+
+  /// Fill the price from the product's own, unless it was typed into.
+  void followProduct(String price) {
+    if (priceEdited) return;
+    unitPrice.text = price;
+  }
+
   /// True once somebody typed in the discount box.
   ///
   /// A line nobody has touched follows whichever customer is chosen; one that
@@ -155,18 +168,52 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           free: (double.tryParse(line.freeQuantity) ?? 0) > 0
               ? line.freeQuantity
               : '',
-        )..discountEdited = true);
+        )
+          ..discountEdited = true
+          // What the offer holds is what was agreed; re-reading the product
+          // master would rewrite a price somebody negotiated.
+          ..priceEdited = true);
       }
     }
     if (_lines.isEmpty) _lines.add(_newLine());
   }
 
+  /// What a product sells for, as the price box should read.
+  ///
+  /// `products.selling_price` and `products.mrp` were columns nothing read:
+  /// the product form captured them, the grid sorted on them, and every
+  /// document made somebody type the price again. Shown rather than applied
+  /// silently on the server, because a price is the central term of a sale --
+  /// a document that says nothing about it is incomplete, not one that means
+  /// "the usual". The API still requires an explicit price for that reason.
+  String _priceOf(String? productId) {
+    for (final Product item in widget.products) {
+      if (item.id != productId) continue;
+      final double price = double.tryParse(item.sellingPrice.trim()) ?? 0;
+      return price > 0 ? item.sellingPrice.trim() : '0';
+    }
+    return '0';
+  }
+
+  /// Move an unpriced line onto the newly chosen product's price.
+  void _chooseProduct(_LineDraft line, String? productId) {
+    setState(() {
+      line.productId = productId;
+      line.followProduct(_priceOf(productId));
+    });
+  }
+
   /// A fresh line, defaulted to the first product so the row is savable as it
   /// stands rather than starting invalid.
-  _LineDraft _newLine() => _LineDraft(
-        productId: widget.products.isEmpty ? null : widget.products.first.id,
-        discount: _customerDiscount,
-      );
+  _LineDraft _newLine() {
+    final String? productId =
+        widget.products.isEmpty ? null : widget.products.first.id;
+    return _LineDraft(
+      productId: productId,
+      unitPrice: _priceOf(productId),
+      discount: _customerDiscount,
+    );
+  }
 
   /// The chosen customer's standing discount, as the box should read.
   ///
@@ -261,6 +308,22 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     return null;
   }
 
+  /// What the product lists at, where that is worth saying.
+  ///
+  /// Silent once somebody has typed: the number on screen is then theirs, and
+  /// repeating the list price beside it reads as a correction.
+  String? _priceHelper(_LineDraft line) {
+    if (line.priceEdited) return null;
+    for (final Product item in widget.products) {
+      if (item.id != line.productId) continue;
+      final double mrp = double.tryParse(item.mrp.trim()) ?? 0;
+      final double price = double.tryParse(item.sellingPrice.trim()) ?? 0;
+      if (price <= 0) return null;
+      return mrp > 0 ? 'lists at ${item.sellingPrice}, MRP ${item.mrp}' : null;
+    }
+    return null;
+  }
+
   /// A rate the server would refuse, caught before the round trip.
   String? _percentage(String? value) {
     final String text = (value ?? '').trim();
@@ -342,7 +405,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                 ],
                 validator: (value) =>
                     value == null ? 'Choose a product.' : null,
-                onChanged: (value) => setState(() => line.productId = value),
+                onChanged: (value) => _chooseProduct(line, value),
               ),
             ),
             IconButton(
@@ -378,10 +441,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
             Expanded(
               child: TextFormField(
                 controller: line.unitPrice,
-                decoration: const InputDecoration(labelText: 'Unit price'),
+                decoration: InputDecoration(
+                  labelText: 'Unit price',
+                  helperText: _priceHelper(line),
+                  helperMaxLines: 2,
+                ),
                 keyboardType: TextInputType.number,
                 validator: (value) => _positive(value, 'price'),
-                onChanged: (_) => setState(() {}),
+                // onChanged fires only for typing, never for the programmatic
+                // fill above, which is what keeps the two distinguishable.
+                onChanged: (_) => setState(() => line.priceEdited = true),
               ),
             ),
             const SizedBox(width: AppSpacing.md),
