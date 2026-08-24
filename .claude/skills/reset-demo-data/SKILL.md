@@ -76,11 +76,17 @@ One firm on its own, which is much faster:
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | SO 58 | DN 58 | INV 49 | RCPT 37
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
 ```
+
+**The four firms should agree line for line.** They differ only in tenancy
+mode, business profile and unit factors, so a count that differs is a signal.
+`PRET` read 1 and 2 on the two batch-tracked firms while the others read 5,
+with no refusal printed at the top level -- the notes said a traced product may
+only be issued from a batch, so a return has to name the one going back.
 
 **`RCPT` should be roughly three quarters of `INV`.** Money coming in arrived
 on 2026-08-23; before that every store held zero settlements, so receivables

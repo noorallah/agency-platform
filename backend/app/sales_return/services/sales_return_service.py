@@ -29,6 +29,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas import (
@@ -623,7 +624,7 @@ class SalesReturnService(TransactionalDocumentService):
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
                     transaction_date=row.return_date,
-                    amount=self._q(row.grand_total),
+                    amount=quantize_ledger(row.grand_total),
                     reference_type="SALES_RETURN",
                     reference_id=row.id,
                     reference_number=row.return_number,

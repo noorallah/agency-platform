@@ -510,7 +510,15 @@ class PurchaseReturnService(TransactionalDocumentService):
             raise ValidationError("Purchase return must contain at least one line.")
         movement_ids: list[UUID] = []
         for line in lines:
-            if line.warehouse_id is None:
+            # The header's warehouse when the line does not name one, exactly
+            # as `SalesReturnService.complete_return` has always done. This
+            # refused outright instead, which made a return created with only
+            # the header warehouse -- a *required* field -- a document that
+            # could be raised and approved and then never completed. Nothing
+            # in the demo had ever completed one, so the dead end went unseen
+            # until the history generator raised its first.
+            warehouse_id = line.warehouse_id or row.warehouse_id
+            if warehouse_id is None:
                 raise ValidationError(
                     "Warehouse is required on all return lines before completion."
                 )
@@ -528,7 +536,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 branch_id=row.branch_id,
-                warehouse_id=line.warehouse_id,
+                warehouse_id=warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 reference_number=row.return_number,
