@@ -88,6 +88,15 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSourceWrite,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_return.schemas import (
+    PurchaseReturnCreate,
+    PurchaseReturnLineWrite,
+    PurchaseReturnSourceType,
+)
+from app.purchase_return.services import PurchaseReturnService
+from app.quotation.schemas import QuotationCreate, QuotationLineWrite
+from app.quotation.services import QuotationService
+from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -95,9 +104,15 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSourceType,
 )
 from app.sales_invoice.services import SalesInvoiceService
-from app.sales_order.models import SalesOrderLine
+from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.sales_return.schemas import (
+    SalesReturnCreate,
+    SalesReturnLineWrite,
+    SalesReturnSourceType,
+)
+from app.sales_return.services import SalesReturnService
 from app.settlements.schemas import (
     SettlementAllocationWrite,
     SettlementCreate,
@@ -304,9 +319,12 @@ class Tally:
     purchase_orders: int = 0
     goods_receipts: int = 0
     purchase_invoices: int = 0
+    purchase_returns: int = 0
     sales_orders: int = 0
     delivery_notes: int = 0
+    quotations: int = 0
     sales_invoices: int = 0
+    sales_returns: int = 0
     receipts: int = 0
     skipped: list[str] = field(default_factory=list)
 
@@ -317,9 +335,10 @@ class Tally:
             # year plus the two before it, so the honest count is three.
             f"{self.years} financial year(s) | PO {self.purchase_orders} | "
             f"GRN {self.goods_receipts} | PINV {self.purchase_invoices} | "
-            f"SO {self.sales_orders} | "
+            f"PRET {self.purchase_returns} | "
+            f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
-            f"RCPT {self.receipts}"
+            f"RCPT {self.receipts} | SRET {self.sales_returns}"
         )
 
 
@@ -415,6 +434,12 @@ class HistoryBuilder:
         #: rather than randomness: a seed run has to be reproducible, and
         #: `Math.random`-shaped data makes two runs impossible to compare.
         self._collection_cycle = 0
+        #: Which lapsed offers were turned down rather than left unanswered.
+        self._quotation_cycle = 0
+        #: Which invoices see part of the goods come back.
+        self._return_cycle = 0
+        #: Which receipts send part of the goods back to the supplier.
+        self._vendor_return_cycle = 0
         self._today = utc_now().date()
 
     @property
@@ -640,6 +665,93 @@ class HistoryBuilder:
         # payables side of the ledger stayed at zero, nothing was ever owed to
         # a vendor, and a payment had nothing to be applied to.
         self._bill(receipt_id=receipt.id, on=on)
+        # And send a little of it back. `purchase_returns` held zero rows in
+        # every store: goods came in and none ever went out again, so the
+        # module that takes stock off and reverses the payable was exercised
+        # by nothing -- including the cancel path, which had no journal at all
+        # until 2026-08-22 and was found by hand rather than by any test.
+        self._return_to_vendor(
+            receipt_id=receipt.id,
+            vendor=vendor,
+            branch=branch,
+            warehouse=warehouse,
+            on=on + timedelta(days=3),
+        )
+
+    def _return_to_vendor(
+        self,
+        *,
+        receipt_id: UUID,
+        vendor: Vendor,
+        branch: Branch,
+        warehouse: Warehouse,
+        on: date,
+    ) -> None:
+        """Send part of one receipt back to the supplier.
+
+        One receipt in five, and part of the line rather than all of it: a
+        return of everything is the easy case and the one that hides whether
+        the payable and the input tax are reduced proportionally. Driven to
+        COMPLETED, because an approved-but-uncompleted return moves no stock
+        and posts no journal.
+        """
+        self._vendor_return_cycle += 1
+        if self._vendor_return_cycle % 5 != 0:
+            return
+        line = self._session.scalar(
+            select(GoodsReceiptLine).where(
+                GoodsReceiptLine.goods_receipt_id == receipt_id
+            )
+        )
+        if line is None:
+            return
+        received = Decimal(str(line.accepted_quantity or "0"))
+        quantity = (received / 4).quantize(Decimal("1"))
+        if quantity <= 0:
+            return
+        returns = PurchaseReturnService(self._session)
+        try:
+            row = returns.create_return(
+                PurchaseReturnCreate(
+                    vendor_id=vendor.id,
+                    branch_id=branch.id,
+                    warehouse_id=warehouse.id,
+                    return_date=on,
+                    return_reason="QUALITY_REJECTED",
+                    lines=[
+                        PurchaseReturnLineWrite(
+                            source_document_type=(
+                                PurchaseReturnSourceType.GOODS_RECEIPT
+                            ),
+                            source_document_id=receipt_id,
+                            source_document_line_id=line.id,
+                            line_number=1,
+                            current_return_quantity=quantity,
+                            # A traced product may only be issued from a
+                            # batch, so a return has to say which one is going
+                            # back. The receipt line already knows; on the two
+                            # batch-tracked firms, not carrying it across is
+                            # what made four returns in five refuse.
+                            batch_number=line.batch_number,
+                            expiry_date=line.expiry_date,
+                        )
+                    ],
+                ),
+                firm_id=self._target.firm_id,
+                actor_id=ACTOR,
+            )
+            returns.approve_return(
+                row.id, firm_scope=self._target.firm_id, actor_id=ACTOR
+            )
+            returns.complete_return(
+                row.id, firm_scope=self._target.firm_id, actor_id=ACTOR
+            )
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{on} purchase return: {error}")
+            self._session.rollback()
+            return
+        self._tally.purchase_returns += 1
+        self._session.commit()
 
     def _bill(self, *, receipt_id: UUID, on: date) -> None:
         """Raise and approve the supplier's invoice for one goods receipt."""
@@ -700,6 +812,7 @@ class HistoryBuilder:
         invoice: bool = True,
         bill_discount_percent: str | None = None,
         free_quantity: str = "0",
+        quote_first: bool = False,
     ) -> None:
         """Take an order, dispatch it, and invoice it.
 
@@ -713,34 +826,55 @@ class HistoryBuilder:
         is goods thrown in -- real stock leaving the warehouse, outside the
         gross and outside the tax base, and inherited by the invoice from the
         line it bills.
+
+        ``quote_first`` offers the sale before taking it, and the order is then
+        the *conversion* of that offer rather than a document typed from
+        nothing. Every store held zero quotations until 2026-08-24 -- a whole
+        module with its own lifecycle, its own numbering and the only desktop
+        screen that types sales lines, and nothing in the demo had ever raised
+        one, so nothing had ever converted one either.
         """
         firm_id = self._target.firm_id
         orders = SalesOrderService(self._session)
-        order = orders.create_order(
-            SalesOrderCreate(
-                customer_id=customer.id,
-                branch_id=branch.id,
-                warehouse_id=warehouse.id,
-                order_date=on,
-                bill_discount_percent=(
-                    None
-                    if bill_discount_percent is None
-                    else Decimal(bill_discount_percent)
+        order: SalesOrder | None = None
+        if quote_first:
+            order = self._quote_and_convert(
+                on=on,
+                branch=branch,
+                warehouse=warehouse,
+                customer=customer,
+                product=product,
+                quantity=quantity,
+                unit_price=unit_price,
+                bill_discount_percent=bill_discount_percent,
+                free_quantity=free_quantity,
+            )
+        if order is None:
+            order = orders.create_order(
+                SalesOrderCreate(
+                    customer_id=customer.id,
+                    branch_id=branch.id,
+                    warehouse_id=warehouse.id,
+                    order_date=on,
+                    bill_discount_percent=(
+                        None
+                        if bill_discount_percent is None
+                        else Decimal(bill_discount_percent)
+                    ),
+                    lines=[
+                        SalesOrderLineWrite(
+                            line_number=1,
+                            product_id=product.id,
+                            quantity=Decimal(quantity),
+                            free_quantity=Decimal(free_quantity),
+                            unit_price=Decimal(unit_price),
+                        )
+                    ],
                 ),
-                lines=[
-                    SalesOrderLineWrite(
-                        line_number=1,
-                        product_id=product.id,
-                        quantity=Decimal(quantity),
-                        free_quantity=Decimal(free_quantity),
-                        unit_price=Decimal(unit_price),
-                    )
-                ],
-            ),
-            firm_id=firm_id,
-            actor_id=ACTOR,
-        )
-        orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
         self._tally.sales_orders += 1
 
         so_line = self._session.scalar(
@@ -816,6 +950,194 @@ class HistoryBuilder:
         self._tally.sales_invoices += 1
         self._session.commit()
         self._collect(invoice=approved, customer=customer, on=on, firm_id=firm_id)
+        # After the collection, so a return credits an invoice that has
+        # already been partly settled -- which is the case that proves the
+        # outstanding figure is derived from the allocations rather than
+        # stored on the invoice.
+        self._return_some(
+            invoice=approved,
+            customer=customer,
+            warehouse=warehouse,
+            branch=branch,
+            on=on + timedelta(days=7),
+            firm_id=firm_id,
+        )
+
+    def _quote_and_convert(
+        self,
+        *,
+        on: date,
+        branch: Branch,
+        warehouse: Warehouse,
+        customer: Customer,
+        product: Product,
+        quantity: str,
+        unit_price: str,
+        bill_discount_percent: str | None,
+        free_quantity: str,
+    ) -> SalesOrder | None:
+        """Offer the sale, and convert it into the order when the offer stands.
+
+        Driven through the whole lifecycle -- DRAFT, SENT, ACCEPTED, CONVERTED
+        -- rather than created and converted, because each transition is a
+        rule the module enforces and a timeline event it records, and none of
+        them had ever run outside the unit suite.
+
+        **An offer whose window has closed is left as an offer.** `is_expired`
+        is judged against today, correctly and deliberately: nobody may send,
+        accept or convert a quotation that has lapsed. A history generator
+        backdating documents therefore cannot drive the lifecycle for any
+        month older than the validity window, and trying to gave 28 refusals
+        in one run. Those sales become a quotation nobody took up, which is
+        the ordinary fate of an offer and what makes the demo's quotation list
+        realistic -- EXPIRED is derived from `valid_until`, so the row shows
+        that state without anything storing it. The caller raises the order
+        directly, exactly as a phone order does.
+
+        The conversion is what builds the order: `convert_quotation` calls
+        `SalesOrderService.create_order` itself, so credit control, tax at the
+        order's date and unit conversion all happen on the order rather than
+        being frozen at whatever was true when the offer was typed.
+
+        Returns:
+            The order the offer became, or None when the offer had lapsed and
+            the caller should raise the order itself.
+
+        """
+        firm_id = self._target.firm_id
+        quotes = QuotationService(self._session)
+        quotation = quotes.create_quotation(
+            QuotationCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                quotation_date=on,
+                # An offer with a life: `send_quotation` refuses an expired
+                # one, so a window that has already closed cannot be sent.
+                valid_until=on + timedelta(days=30),
+                bill_discount_percent=(
+                    None
+                    if bill_discount_percent is None
+                    else Decimal(bill_discount_percent)
+                ),
+                lines=[
+                    QuotationLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal(quantity),
+                        free_quantity=Decimal(free_quantity),
+                        unit_price=Decimal(unit_price),
+                    )
+                ],
+            ),
+            firm_id=firm_id,
+            actor_id=ACTOR,
+        )
+        self._tally.quotations += 1
+        if quotes.is_expired(quotation):
+            # A lapsed offer can still be declined -- `decline_quotation` is
+            # deliberately not expiry-gated, because "the customer said no" is
+            # what actually happens to most quotes and is worth recording
+            # whenever it is heard. Declining every other one leaves the demo
+            # with all three honest outcomes: offers that lapsed unanswered,
+            # offers that were turned down, and offers that became orders.
+            if self._quotation_cycle % 2 == 0:
+                quotes.decline_quotation(
+                    quotation.id,
+                    firm_scope=firm_id,
+                    actor_id=ACTOR,
+                    reason="Bought elsewhere on price.",
+                )
+            self._quotation_cycle += 1
+            self._session.commit()
+            return None
+        self._quotation_cycle += 1
+        quotes.send_quotation(quotation.id, firm_scope=firm_id, actor_id=ACTOR)
+        quotes.accept_quotation(quotation.id, firm_scope=firm_id, actor_id=ACTOR)
+        _quotation, order = quotes.convert_quotation(
+            quotation.id,
+            firm_scope=firm_id,
+            actor_id=ACTOR,
+            order_date=on,
+        )
+        SalesOrderService(self._session).approve_order(
+            order.id, firm_scope=firm_id, actor_id=ACTOR
+        )
+        self._session.commit()
+        return order
+
+    def _return_some(
+        self,
+        *,
+        invoice: SalesInvoiceResponse,
+        customer: Customer,
+        warehouse: Warehouse,
+        branch: Branch,
+        on: date,
+        firm_id: UUID,
+    ) -> None:
+        """Take a little of it back, the way a distributor actually does.
+
+        `sales_returns` held zero rows in every store -- a complete module
+        with a lifecycle, a credit note, stock coming back and a journal
+        reversing the sale, and nothing in the demo had ever raised one. The
+        cancel path of this very module was one of three ledger defects fixed
+        on 2026-08-22, all found by hand because no seeded document exercised
+        them.
+
+        One invoice in six, and only part of the line: a return of everything
+        is the easy case, and the one that hides whether the credit is
+        pro-rated properly. Driven to COMPLETED so the stock actually comes
+        back and the journal actually posts -- an approved-but-not-completed
+        return moves neither.
+        """
+        self._return_cycle += 1
+        if self._return_cycle % 6 != 0:
+            return
+        line = self._session.scalar(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == invoice.id
+            )
+        )
+        if line is None:
+            return
+        # Half of what was billed, rounded down, and never less than one --
+        # a partial return is what proves the credit is apportioned rather
+        # than copied.
+        billed = Decimal(str(line.current_invoice_quantity or "0"))
+        quantity = (billed / 2).quantize(Decimal("1"))
+        if quantity <= 0:
+            return
+        returns = SalesReturnService(self._session)
+        try:
+            row = returns.create_return(
+                SalesReturnCreate(
+                    customer_id=customer.id,
+                    branch_id=branch.id,
+                    warehouse_id=warehouse.id,
+                    return_date=on,
+                    return_reason="DAMAGED_IN_TRANSIT",
+                    lines=[
+                        SalesReturnLineWrite(
+                            source_document_type=SalesReturnSourceType.SALES_INVOICE,
+                            source_document_id=invoice.id,
+                            source_document_line_id=line.id,
+                            line_number=1,
+                            current_return_quantity=quantity,
+                        )
+                    ],
+                ),
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            returns.approve_return(row.id, firm_scope=firm_id, actor_id=ACTOR)
+            returns.complete_return(row.id, firm_scope=firm_id, actor_id=ACTOR)
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{on} sales return: {error}")
+            self._session.rollback()
+            return
+        self._tally.sales_returns += 1
+        self._session.commit()
 
     def _collect(
         self,
@@ -929,6 +1251,12 @@ def build_for_firm(
                 # the same.
                 whole_bill = "5" if month_index % 4 == 1 and offset == 0 else None
                 gift = "1" if month_index % 3 == 0 and offset == 1 else "0"
+                # Every second sale is offered before it is taken, so the
+                # order is the conversion of a quotation rather than a
+                # document typed from nothing -- and the other half still
+                # covers the phone-order path, which is the one the desktop
+                # could not raise at all until 2026-08-23.
+                quoted = offset == 0
                 try:
                     builder.sell(
                         on=sell_on,
@@ -941,6 +1269,7 @@ def build_for_firm(
                         invoice=bill,
                         bill_discount_percent=whole_bill,
                         free_quantity=gift,
+                        quote_first=quoted,
                     )
                 except (ValidationError, BusinessRuleError) as error:
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")

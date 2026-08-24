@@ -7,7 +7,7 @@ import io
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -18,6 +18,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
@@ -107,14 +108,12 @@ def _optional_uuid(value: object) -> UUID | None:
 def _receivable_amount(value: Decimal) -> Decimal:
     """Round an invoice total to the scale the receivable ledger stores.
 
-    Documents carry four decimals; ``customer_receivable_transactions`` and the
-    customer balances built from it are ``Numeric(18, 2)``, and the schema
-    enforces that. Passing the document's own scale straight through raised a
-    validation error inside ``approve_invoice`` for any invoice whose total ran
-    to a fraction of a paisa -- 45 at 158.75 plus 18% tax is 8429.625 -- so the
-    approval failed with a 500 rather than posting.
+    Kept as a name local to this module, delegating to the shared helper. It
+    was a private copy of that rounding until 2026-08-24, which is exactly how
+    `sales_return` came to carry the same defect untouched: the fix lived here
+    and its sibling never saw it.
     """
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return quantize_ledger(value)
 
 
 @dataclass(frozen=True, slots=True)
