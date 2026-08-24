@@ -295,6 +295,27 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   nobody dispatched is one the warehouse cannot reconcile. The desktop's
   quotation editor is the only screen that can give a line away; there was no
   field for it anywhere before, so the column was unreachable without the API.
+- **What may be billed is what was charged, not what left the warehouse.** A
+  delivery note line holds both figures and they are not interchangeable:
+  `current_delivery_quantity` is what the customer is charged for, and
+  `delivered_quantity` is that plus the free goods converted into inventory
+  units, which is right for stock because all of it left. `sales_invoice`
+  capped billing on the second until 2026-08-24 and was wrong three ways for
+  it. It **let a bill charge for the gift** -- a seeded note dispatching 12
+  with 1 free had all 12 billed and still offered a thirteenth unit, accepted
+  at 195.00 plus tax. It pro-rated the inherited free goods by the wrong
+  denominator, so a full bill carried 12/13 of a free unit and printed
+  "12 + 0.923 free". And the units disagree -- `invoice_quantity` is converted
+  into the source line's *sales* UOM, `delivered_quantity` is post-conversion
+  inventory units -- so for any product whose two units differ the cap was
+  inflated by the whole conversion factor. The siblings were checked and are
+  right: `purchase_invoice` and `purchase_return` cap on `accepted_quantity`,
+  which excludes free goods, and `sales_return` on
+  `current_delivery_quantity`. **A quantity that has had free goods added to
+  it or been converted into another unit is not a billing cap**; the only
+  reason this survived was that every test billed from a sales order, where
+  the field is plain `quantity`, so the delivery-note path had no coverage at
+  all. Found by reading a rendered bill rather than the code.
 - **A sales order's status follows its deliveries as of 2026-08-23**, the way a
   purchase order has followed its receipts since 2026-08-18.
   `DeliveryNoteService._resync_order_status` writes `PARTIALLY_DELIVERED` and

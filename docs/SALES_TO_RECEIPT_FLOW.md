@@ -497,6 +497,22 @@ an explicit zero refuses the inheritance.
 else's document; a bill claiming free goods nobody dispatched is one the
 warehouse cannot reconcile, so it is refused rather than recorded.
 
+**What may be billed is what was charged, not what left the warehouse.** A
+delivery note line carries both: `current_delivery_quantity` is what the
+customer is being charged for, and `delivered_quantity` is that plus the free
+goods, converted into inventory units, because all of it really did leave the
+building. The invoice read the second as its billable cap until 2026-08-24,
+which was wrong three ways over. It **let a bill charge for the gift** -- a
+seeded note dispatching 12 with 1 free was billed for all 12 and still offered
+a thirteenth unit, which the system accepted at 195.00 plus tax. It pro-rated
+the inherited free goods by the wrong denominator, so a bill for all 12 carried
+12/13 of a free unit and printed "12 + 0.923 free", a fraction of a gift nobody
+can hand over. And the two figures are in different units -- the invoice
+quantity is converted into the source line's *sales* UOM, `delivered_quantity`
+is post-conversion inventory units -- so for any product whose two units differ
+the cap was inflated by the whole conversion factor as well. The cap is
+`current_delivery_quantity`; free goods are inherited, never billed.
+
 The printed bill shows it beside the quantity -- "10 + 1 free" -- rather than
 in a column of its own, which would be empty on almost every bill.
 
