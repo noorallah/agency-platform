@@ -3,9 +3,11 @@
 How an offer becomes goods off the shelf and money in the bank, which document
 does each part, and where every rupee is recorded.
 
-Everything below was **driven against a running backend on 2026-08-22** with the
-seeded `ELEC01` firm, not read off the code. The numbers in the trace are the
-ones the server produced.
+Everything below was **driven against a running backend** with the seeded
+`ELEC01` firm, not read off the code. The money trace is from 2026-08-22; the
+table map was measured on 2026-08-24, once the demo history finally held a
+quotation and a return to measure. The numbers are the ones the server
+produced.
 
 The mirror of [`PURCHASE_TO_PAYMENT_FLOW.md`](PURCHASE_TO_PAYMENT_FLOW.md),
 which does the same for buying. For the territory a sale is filed against, see
@@ -216,6 +218,84 @@ Stock down 4 units worth ₹401.95, revenue of ₹1,000, output tax of ₹180 ow
 the government, ₹1,180 into the bank, and ₹598.05 of gross margin sitting as the
 difference between 4000 and 5200. Receivables return to zero, which is how you
 tell the chain completed.
+
+## Which tables each step writes
+
+Measured, not read off the models: the chain below was driven end to end
+against `ELEC01` on **2026-08-24**, counting every live row in all 162 tables
+of the firm store before and after each call. A step's row is exactly what
+changed.
+
+| # | Step | Tables written |
+| --- | --- | --- |
+| 1 | Raise the quotation | `sales_quotations` +1, `sales_quotation_lines` +1, `tax_rule_execution_logs` +1, `document_lifecycle_events` +1, `audit_logs` +2 |
+| 2 | Send it | `document_lifecycle_events` +1, `audit_logs` +1 |
+| 3 | Customer accepts | `document_lifecycle_events` +1, `audit_logs` +1 |
+| 4 | Convert to an order | `sales_orders` +1, `sales_order_lines` +1, `tax_rule_execution_logs` +1, `document_lifecycle_events` +2, `audit_logs` +3 |
+| 5 | **Approve the order** | `inventory_transactions` +1, `stock_ledger_entries` +1, `document_lifecycle_events` +1, `audit_logs` +2 |
+| 6 | Raise the delivery note | `delivery_notes` +1, `delivery_note_lines` +1, `tax_rule_execution_logs` +1, `document_lifecycle_events` +1, `audit_logs` +2 |
+| 7 | Approve the note | `document_lifecycle_events` +1, `audit_logs` +1 |
+| 8 | **Dispatch** | `inventory_transactions` +2, `stock_ledger_entries` +2, `journal_entries` +1, `journal_lines` +2, `gl_postings` +2, `document_lifecycle_events` +1, `audit_logs` +6 |
+| 9 | Raise the invoice | `sales_invoices` +1, `sales_invoice_lines` +1, `sales_invoice_sources` +1, `sales_invoice_line_taxes` +2, `sales_invoice_accounting_events` +3, `tax_rule_execution_logs` +1, `document_lifecycle_events` +1, `audit_logs` +2 |
+| 10 | **Approve the invoice** | `customer_receivable_transactions` +1, `journal_entries` +1, `journal_lines` +3, `gl_postings` +3, `document_lifecycle_events` +1, `audit_logs` +4 |
+| 11 | **Record the receipt** | `settlements` +1, `settlement_allocations` +1, `customer_receivable_transactions` +1, `journal_entries` +1, `journal_lines` +2, `gl_postings` +2, `audit_logs` +4 |
+| 12 | Raise a sales return | `sales_returns` +1, `sales_return_lines` +1, `sales_return_sources` +1, `sales_return_line_taxes` +2, `tax_rule_execution_logs` +1, `document_lifecycle_events` +1, `audit_logs` +2 |
+| 13 | Approve the return | `document_lifecycle_events` +1, `audit_logs` +1 |
+| 14 | **Complete the return** | `inventory_transactions` +1, `stock_ledger_entries` +1, `customer_receivable_transactions` +1, `journal_entries` +**2**, `journal_lines` +5, `gl_postings` +5, `document_lifecycle_events` +1, `audit_logs` +7 |
+
+Six things in that table are worth saying out loud, because none is obvious
+from the code and two of them contradict a reasonable guess.
+
+**Steps 2, 3, 7 and 13 write nothing but history.** A lifecycle event and an
+audit row. That is the difference between paperwork and a movement, and it is
+why the "three moments" above are the only ones that matter.
+
+**Approving the order writes to the stock tables** — a reservation is recorded
+as a movement with no quantity change, so `inventory_transactions` and
+`stock_ledger_entries` both gain a row while the ledger gains nothing. A hold
+is a fact about stock, so it lives with stock; it is not a fact about money,
+so it never reaches the journal.
+
+**Dispatch writes two stock rows, not one.** The reservation is released and
+the goods are issued: two movements, because a stock ledger that jumped
+straight from reserved to gone could not explain either.
+
+**Raising an invoice writes tax and accounting rows before anything is
+approved.** `sales_invoice_line_taxes` stores the tax breakup per component
+so a bill reprints identically a year later, and
+`sales_invoice_accounting_events` stages what the approval will post. Both are
+written at *draft* time; neither is a ledger entry.
+
+**Completing a sales return writes two journal entries, not one.** The credit
+note reverses the sale, and a separate cost entry puts the goods back into
+inventory at what the movement actually returned. They are separate because
+they answer different questions and are valued from different sources — the
+counterparty leg from the document, the stock leg from the movement.
+
+**`tax_rule_execution_logs` grows on every document that prices a line** —
+quotation, order, delivery note, invoice, return: five rows for one sale, each
+holding three JSON documents. It is the fastest-growing table in the schema
+and the reason `scripts/purge_retention.py` exists. Nothing prunes it until
+somebody enables the `retention` compose profile.
+
+### The same steps, by what they touch
+
+| Concern | Tables | Written by |
+| --- | --- | --- |
+| The documents | `sales_quotations`, `sales_orders`, `delivery_notes`, `sales_invoices`, `sales_returns` and their `_lines` | steps 1, 4, 6, 9, 12 |
+| Where a line came from | `sales_invoice_sources`, `sales_return_sources`, and `source_document_line_id` on the line | steps 9, 12 |
+| The tax charged | `sales_invoice_line_taxes`, `sales_return_line_taxes`, `tax_rule_execution_logs` | every document that prices a line |
+| Stock | `inventory_transactions`, `stock_ledger_entries`, `inventories`, `batches` | steps 5, 8, 14 |
+| The general ledger | `journal_entries`, `journal_lines`, `gl_postings` | steps 8, 10, 11, 14 |
+| What the customer owes | `customer_receivable_transactions`, `customers.current_outstanding` | steps 10, 11, 14 |
+| Money that moved | `settlements`, `settlement_allocations` | step 11 |
+| History | `document_lifecycle_events`, `audit_logs` | every step |
+
+**`audit_logs` is the one table every single step writes**, which is the point
+of it — and it is per store, not central, so this is ELEC01's own trail and no
+query can ask what happened across every firm at once.
+
+---
 
 ## The verified trace
 

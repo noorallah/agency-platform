@@ -14,22 +14,75 @@ Two documents already cover parts of this and are not repeated here:
 
 ## The module map
 
-Sales is five document modules, plus the masters and the money either side of
-them. Route counts are what the application serves today.
+Sales is five document modules, plus the masters, the pricing and the money
+either side of them. Route counts are what the application serves today,
+counted off the routers on 2026-08-24.
 
 | Package | Documents | Routes | Desktop |
 | --- | --- | ---: | --- |
-| `app/quotation` | sales quotation | 16 | list, editor, lifecycle |
-| `app/sales_order` | sales order | 17 | list, lifecycle — **no editor** |
-| `app/delivery_note` | delivery note | 19 | list, editor, lifecycle |
+| `app/quotation` | sales quotation | 17 | list, editor, lifecycle |
+| `app/sales_order` | sales order | 17 | list, editor (raise and correct a draft), lifecycle |
+| `app/delivery_note` | delivery note | 20 | list, editor, lifecycle |
 | `app/sales_invoice` | sales invoice | 18 | list, editor (raise and correct), lifecycle, print |
-| `app/sales_return` | sales return / credit note | 17 | list, editor, lifecycle |
+| `app/sales_return` | sales return / credit note | 18 | list, editor, lifecycle |
 | `app/sales` | territory, route, beat plan, geography | 63 | six screens |
 | `app/customers` | customer, credit policy, receivables | 17 | list, editor, settings |
 | `app/settlements` | receipt (money in) | 5 | settlements workspace |
+| `app/pricing` | price list | 5 | list, editor |
+| `app/commission` | commission rule, commission report | 6 | rates and collected, one page |
 
 `app/settlements` is one implementation for money in and money out; a receipt
 and a payment differ only in signs. It is documented with the purchase side.
+
+### The tables sales owns
+
+Every one is firm-owned, so it exists **once per store** — a query answers for
+whichever schema the connection points at, and no query can span firms. Counts
+are `ELEC01` after a standard three-year seed, given so a store that looks
+wrong can be compared against one that is not.
+
+| Document | Header | Lines | Also | ELEC01 |
+| --- | --- | --- | --- | ---: |
+| Quotation | `sales_quotations` | `sales_quotation_lines` | `_attachments`, `_notes` | 29 / 29 |
+| Sales order | `sales_orders` | `sales_order_lines` | `_attachments`, `_notes` | 58 / 58 |
+| Delivery note | `delivery_notes` | `delivery_note_lines` | `_attachments`, `_notes` | 58 / 58 |
+| Sales invoice | `sales_invoices` | `sales_invoice_lines` | `_sources`, `_line_taxes`, `_accounting_events`, `_attachments`, `_notes` | 48 / 48 |
+| Sales return | `sales_returns` | `sales_return_lines` | `_sources`, `_line_taxes`, `_attachments`, `_notes` | 8 / 8 |
+| Receipt | `settlements` | `settlement_allocations` | — | 36 / 36 |
+
+Four things that are easy to get wrong about this shape.
+
+**Only the invoice and the return keep a stored tax breakup.**
+`sales_invoice_line_taxes` and `sales_return_line_taxes` hold one row per
+component per line — 96 rows against 48 invoice lines, because GST is CGST plus
+SGST — so a bill reprints identically a year after the rate changed. The three
+documents upstream re-resolve their tax on every read, which is right: an offer
+and an order are not what anybody is charged.
+
+**`_sources` exists only where a document bills another one.** An invoice line
+and a return line each name the delivery note or invoice line they came from,
+as a bare UUID with **no foreign key** — which is exactly why lines are
+reconciled on their line number rather than deleted and re-inserted, and why
+the three invoice modules, whose lines are terminal, are allowed to re-insert.
+
+**What a customer owes is never stored on the invoice.** It is derived from
+`settlement_allocations`, and the running balance lives in
+`customer_receivable_transactions` (92 rows: one per approved invoice, one per
+collection, one per completed return). A settlement is reversed rather than
+edited, and the reversal puts the balance back by the **deltas stored on the
+original row**, never by recomputing.
+
+**`sales_orders.status` and `delivery_notes.status` are lifecycle state and
+are not writable through an update body.** Both follow their downstream
+documents — `_resync_order_status` derives the order's from the notes that
+have left the warehouse, by summing rather than incrementing.
+
+The masters either side: `customers` with `credit_limit`,
+`default_discount_percent` and `credit_control_settings`; `products` with
+`selling_price` and `mrp`; `price_lists` / `price_list_items`; and the
+territory tables a sale is filed against. See
+[`SALES_TO_RECEIPT_FLOW.md`](SALES_TO_RECEIPT_FLOW.md) for which of them each
+step of a sale actually writes, measured rather than described.
 
 ## The chain
 
