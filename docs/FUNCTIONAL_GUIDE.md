@@ -36,7 +36,7 @@ settle a document, and it names the one step that has no screen.
 | **A — Stand the firm up** | 1 | Firm setup and access | ✅ |
 | | 2 | Business profile: what the firm may operate | ✅ |
 | | 3 | Document numbering and lifecycle | ✅ |
-| | 4 | Financial year and chart of accounts | ☐ |
+| | 4 | Financial year and chart of accounts | ✅ |
 | **B — Masters** | 5 | Branches and warehouses | ☐ |
 | | 6 | Geography | ☐ |
 | | 7 | Units and packaging | ☐ |
@@ -695,6 +695,195 @@ named after the module's central concept is the expensive option.
 
 ---
 
+# 4. Financial year and chart of accounts
+
+## What it does
+
+Holds the books. A **financial year** divided into **accounting periods** says
+when a document may be posted; a **chart of accounts** says where the money
+lands; and the **control-account mapping** translates "this is a sales invoice"
+into "debit 1100, credit 4000 and 2200".
+
+Nothing here is optional decoration. Documents post through one service that
+**refuses rather than guesses**, and a refused posting fails the document action
+that triggered it — so an unfinished setup here does not produce wrong books, it
+stops the firm trading.
+
+## Configure first
+
+| Needs | Why |
+| --- | --- |
+| The firm, provisioned (module 1) | The books live in the firm's own store |
+| Its `financial_year_start` | The year and its twelve periods are built from that date |
+
+Then four things must exist before **any** document can post:
+
+1. a **journal type**,
+2. a **voucher type**,
+3. an **open accounting period covering the document's date**,
+4. a **control account for every purpose that posting touches**.
+
+Each missing one produces a message naming it — *"No open accounting period
+covers 2026-08-28"*, *"This firm has no ledger account configured for:
+INVENTORY, COST_OF_GOODS_SOLD"*. Gaps in the mapping are reported **all at
+once** rather than one refusal at a time.
+
+**The whole set is created by `scripts/seed_finance_defaults.py --yes`** — see
+the runbook. The mapping in particular has no endpoint and no screen.
+
+## Workflow
+
+### A. Open the year
+
+| # | Step | Endpoint | Permission |
+| --- | --- | --- | --- |
+| 1 | Create the financial year | `POST /finance/financial-years` | `FINANCIAL_YEAR_CREATE` |
+| 2 | Create its periods (twelve monthly, by convention) | `POST /finance/accounting-periods` | `FINANCIAL_YEAR_CREATE` |
+| 3 | Close or reopen a period | `PATCH /finance/accounting-periods/{id}` | `FINANCIAL_YEAR_CLOSE` |
+
+A period is `OPEN`, `CLOSED` or `LOCKED`. Only `OPEN` accepts postings.
+**A locked period accepts exactly one edit: being reopened.**
+
+Periods are numbered and coded **within their year**, not within the firm — the
+seeder writes `P01`…`P12` every year, so scoping the code to the firm would have
+stopped a firm ever holding a second year, and with it year-end, comparatives
+and prior-year reporting.
+
+### B. Build the chart
+
+| # | Step | Endpoint | Permission |
+| --- | --- | --- | --- |
+| 1 | Account groups | `POST /finance/account-groups` | `ACCOUNT_MANAGE` |
+| 2 | Ledger accounts | `POST /finance/ledger-accounts` | `ACCOUNT_MANAGE` |
+| 3 | Cost and profit centres (optional) | `POST /finance/cost-centers`, `/profit-centers` | `ACCOUNT_MANAGE` |
+| 4 | Journal and voucher types | `POST /finance/journal-types`, `/voucher-types` | `ACCOUNT_MANAGE` |
+| 5 | **Map the control accounts** | *(script only)* | — |
+
+The seeded chart is a conventional distribution chart, not a claim about any
+firm's conventions. A firm that wants a different one builds it through the API
+and remaps its control accounts — changing a code or a name is an edit to seed
+data, not a migration.
+
+### C. Post by hand
+
+| # | Step | Endpoint | Permission |
+| --- | --- | --- | --- |
+| 1 | Draft a journal entry | `POST /finance/journal-entries` | `JOURNAL_CREATE` |
+| 2 | Post it | `POST /finance/journal-entries/{id}/post` | `JOURNAL_POST` |
+| 3 | Reverse it | `POST /finance/journal-entries/{id}/reverse` | `JOURNAL_REVERSE` |
+
+**A posted entry is reversed, never edited or deleted.** The reversal is a
+mirror entry linked to the original, so both stay on the record.
+
+### D. Read the books
+
+| Report | Endpoint | Permission |
+| --- | --- | --- |
+| Trial balance | `GET /finance/trial-balance` | `TRIAL_BALANCE_VIEW` |
+| General ledger for one account | `GET /finance/general-ledger/{id}` | `LEDGER_VIEW` |
+| Profit and loss | `GET /finance/profit-loss` | `PROFIT_LOSS_VIEW` |
+| Balance sheet | `GET /finance/balance-sheet` | `BALANCE_SHEET_VIEW` |
+| Account summaries | `GET /finance/account-summaries` | `LEDGER_VIEW` |
+
+## The default chart
+
+Nineteen accounts in five groups. The **Purpose** column is what document
+posting actually looks up — an account with no purpose mapped is invisible to it.
+
+| Code | Account | Type | Purpose |
+| --- | --- | --- | --- |
+| 1000 | Cash | Asset | `CASH` |
+| 1010 | Bank | Asset | `BANK` |
+| 1100 | Trade Receivables | Asset | `ACCOUNTS_RECEIVABLE` |
+| 1200 | Inventory | Asset | `INVENTORY` |
+| 1300 | Input Tax | Asset | `INPUT_TAX` |
+| 2100 | Trade Payables | Liability | `ACCOUNTS_PAYABLE` |
+| 2200 | Output Tax | Liability | `OUTPUT_TAX` |
+| 2300 | Goods Received Not Invoiced | Liability | `GOODS_RECEIVED_NOT_INVOICED` |
+| 3000 | Opening Balance Equity | Equity | `OPENING_BALANCE_EQUITY` |
+| 4000 | Sales | Income | `SALES_REVENUE` |
+| 4100 | Sales Returns | Income | `SALES_RETURNS` |
+| 4200 | Discount Received | Income | `DISCOUNT_RECEIVED` |
+| 4900 | Rounding | Income | `ROUNDING` |
+| 5000 | Purchases | Expense | `PURCHASE_EXPENSE` |
+| 5100 | Purchase Returns | Expense | `PURCHASE_RETURNS` |
+| 5200 | Cost of Goods Sold | Expense | `COST_OF_GOODS_SOLD` |
+| 5300 | Discount Allowed | Expense | `DISCOUNT_ALLOWED` |
+| 5400 | Purchase Price Variance | Expense | `PURCHASE_PRICE_VARIANCE` |
+| 5500 | Inventory Adjustment | Expense | `INVENTORY_ADJUSTMENT` |
+
+Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP`
+Direct Expenses, `EQ` Equity.
+
+**`2300` and `5400` are the two people ask about.** *Goods Received Not
+Invoiced* holds the accrual between a receipt and the bill for it. *Purchase
+Price Variance* takes the difference when goods leave stock at a different
+average from what a document said they cost — which is what stops a reversal
+putting the ledger out against the warehouse.
+
+A purpose must resolve to an account of the right classification: mapping
+revenue onto an expense account is refused at mapping time rather than
+discovered in a report.
+
+## How to use it
+
+| Task | Where |
+| --- | --- |
+| Open and close years and periods | **Masters › Financial Years** |
+| Post and reverse journal entries | **Finance › Journal Entries** |
+| Trial balance, P&L, balance sheet, ledger statement | **Finance** workspace |
+| Map control accounts | **Nowhere — script only** |
+
+## Tables
+
+All firm-owned, in the firm's own store.
+
+| Table | Holds | Columns that carry the meaning |
+| --- | --- | --- |
+| `financial_years` | The year | `starts_on`, `ends_on`, `is_active`, `is_locked` |
+| `accounting_periods` | Its periods | `period_number` and `code` unique **per year**, `status` (`OPEN`/`CLOSED`/`LOCKED`) |
+| `account_groups` | Classification for rollups | `code`, `account_type` |
+| `ledger_accounts` | The chart | `code`, `account_type`, group |
+| `firm_control_accounts` | **Purpose → account** | `purpose`, `ledger_account_id`. No API, no screen |
+| `journal_types`, `voucher_types` | Required references for any posting | `code` |
+| `journal_entries` | The entry | date, status, `reversal_of_id` |
+| `journal_lines` | Its legs | account, debit, credit, narration |
+| `gl_postings` | The ledger itself | what reports read |
+| `ledger_balances` | Running balances | — |
+| `customer_ledgers`, `vendor_ledgers` | Party sub-ledgers | — |
+
+## Rules that bite
+
+- **A posting failure fails the document.** Dispatch, invoice approval, receipts
+  and returns all refuse rather than proceed unposted. That is deliberate: stock
+  that moved with no accounting entry behind it is the gap the rule closes.
+- **A date with no open period stops everything dated in it** — including
+  backdated documents, which is what a firm building history hits first.
+- **A posted entry is reversed, never edited.** Reversals are linked, and a
+  lookup that filters only on POSTED will find the mirror and reverse the
+  reversal; the reversal chain must be excluded explicitly.
+- **The balance check and the stored lines must round the same way.** Checking
+  a document balanced at four decimals while storing legs at two once allowed
+  lines a cent apart with `is_balanced` true — and `gl_postings` copies line
+  amounts straight through.
+- **A ledger statement is dated by the journal date, not by when it was
+  posted.** It was ordered by the wall clock at posting once, which puts a
+  backdated entry in the wrong place.
+- **Twelve periods is a convention, not a rule.** The seeder writes twelve
+  monthly ones; the API will create any periods you ask for.
+
+### The gap, stated once
+
+`firm_control_accounts` is the only table in this module with no endpoint and no
+screen, and it is the one without which nothing posts. Financial years, periods,
+groups, accounts, journal and voucher types are all creatable through the API,
+so a firm can be fully set up in every visible respect and still be unable to
+approve an invoice. Either the mapping needs a screen, or provisioning should
+seed it — and a readiness check on the firm would say which of the four
+preconditions is missing before somebody discovers it at dispatch.
+
+---
+
 # Still to write
 
-Modules 4–20 in the table above. Each gets the same six parts.
+Modules 5–20 in the table above. Each gets the same six parts.
