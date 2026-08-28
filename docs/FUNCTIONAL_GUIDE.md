@@ -30,7 +30,7 @@ never typed: `uv run python scripts/dump_route_permissions.py --markdown <module
 | Phase | # | Module | Done |
 | --- | ---: | --- | --- |
 | **A — Stand the firm up** | 1 | Firm setup and access | ✅ |
-| | 2 | Business profile: what the firm may operate | ☐ |
+| | 2 | Business profile: what the firm may operate | ✅ |
 | | 3 | Document numbering and lifecycle | ☐ |
 | | 4 | Financial year and chart of accounts | ☐ |
 | **B — Masters** | 5 | Branches and warehouses | ☐ |
@@ -206,6 +206,184 @@ than assuming.
 
 ---
 
+# 2. Business profile: what the firm may operate
+
+## What it does
+
+One installation serves a pharmacy, an electronics distributor and a food
+wholesaler. They need different fields, different rules and different menus —
+and none of that is hardcoded per industry. A **business profile** is a named
+industry (PHARMACY, ELECTRONICS, WHOLESALE …) that switches on:
+
+- **features** — optional capabilities such as expiry tracking, serial numbers,
+  barcodes, warranty, drug licence;
+- **modules** — which workspaces the firm operates and in what menu order;
+- **custom fields** — extra fields on products, customers, vendors and other
+  masters, and which of them are mandatory for a given product category.
+
+A firm is assigned exactly one profile. Change the profile and the firm's
+fields, menus and refusals change with it — no code change, no migration.
+
+## Configure first
+
+| Needs | Why |
+| --- | --- |
+| The firm exists and is provisioned (module 1) | The catalogue is read from the firm's own store |
+| A **default profile** exists in that store | A firm with no assignment falls back to it. With no default either, **nothing is enforced at all** |
+| The catalogue is migrated into **every** store | `business_profiles`, `business_features` and the rest are firm-owned tables, not platform ones |
+
+**This is the trap that costs the most time.** The catalogue lives once per
+firm store, so a query against `firm_shared` shows the two dedicated-store
+firms as unassigned even when they are not, and a migration run only against
+the platform schema leaves those stores without the catalogue entirely. Use
+`scripts/migrate_all_stores.py`.
+
+## Workflow
+
+### A. Decide what an industry means
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Create or pick a profile | `PLATFORM-ADMIN` | Row in `business_profiles`; one is flagged the default |
+| 2 | Switch its features on or off | `PLATFORM-ADMIN` | Rows in `profile_features`. A feature marked `is_implemented = false` is **refused** |
+| 3 | Switch its modules on or off, set menu order | `PLATFORM-ADMIN` | Rows in `profile_modules` — two booleans: `is_enabled` (may use) and `is_visible` (appears in the menu) |
+
+### B. Give a firm its industry
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Assign the profile to the firm | `PLATFORM-ADMIN` | Row in `firm_business_profiles`, written **into that firm's own store** |
+| 2 | The firm's users sign in | — | `/active-features` and `/active-modules` answer what they may use |
+
+### C. What the firm then experiences
+
+| Situation | What happens |
+| --- | --- |
+| Reads anything | Always allowed. **The gates are write-only**, so switching a feature on can never hide data a firm already has |
+| Writes to a feature-owned endpoint | Refused outright if the feature is off — e.g. batches and serials |
+| Writes a feature-owned **field** on a shared resource | The write is refused only if it *populates* that field. Blank and unchanged always pass |
+| Has no profile at all | Falls back to the platform default (GENERIC). A configuration gap is not treated as a decision |
+
+The distinction in the middle two rows is the design: gating the whole endpoint
+suits a feature that owns its resource, but most features are optional *fields*
+on a resource every firm uses — gating the endpoint would stop a firm creating
+products because it does not scan barcodes.
+
+### D. Custom fields
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Define an attribute — name, data type, entity type, optionally scoped to one profile | `PLATFORM-ADMIN` | Row in `attribute_definitions` |
+| 2 | Make it mandatory for a profile + product category | `PLATFORM-ADMIN` | Row in `category_attribute_rules` |
+| 3 | Users fill it on the record | the module's own code | Value stored in that module's `*_attribute_values` table, in a typed column |
+
+**Mandatory is stated per profile and category, never globally.** Four
+attributes were once globally mandatory, which asked a pharmacy for an IMEI and
+an electronics distributor for an expiry date — and blocked product creation on
+any freshly migrated database.
+
+## How to use it
+
+All under **Administration**, each needing `PLATFORM_VIEW`:
+
+| Task | Where |
+| --- | --- |
+| Create industries, set what each enables | **Business Profiles** |
+| The feature catalogue | **Feature Management** |
+| The module catalogue, menu order and visibility | **Module Configuration** |
+| Define custom fields | **Attribute Definitions** |
+| Make a field mandatory for a category | **Mandatory Attributes** |
+| Point a firm at an industry | **Profile Assignment** (`FIRM_VIEW` + `PLATFORM_VIEW`) |
+
+## What each profile enables today
+
+Read live from `profile_features`:
+
+| Profile | Features |
+| --- | --- |
+| PHARMACY | ATTACHMENTS, BARCODE, BATCH_TRACKING, DRUG_LICENSE, EXPIRY_TRACKING, MANUFACTURING_DATE, SHELF_LIFE |
+| FOOD | ATTACHMENTS, BARCODE, BATCH_TRACKING, EXPIRY_TRACKING, MANUFACTURING_DATE, SHELF_LIFE |
+| MANUFACTURING | APPROVAL_WORKFLOW, ATTACHMENTS, BARCODE, BATCH_TRACKING, MANUFACTURING_DATE, MULTIPLE_WAREHOUSES |
+| WHOLESALE | ATTACHMENTS, BARCODE, BATCH_TRACKING, MULTIPLE_WAREHOUSES, TERRITORY |
+| AGENCY | ATTACHMENTS, BARCODE, MULTIPLE_WAREHOUSES, TERRITORY |
+| ELECTRONICS | ATTACHMENTS, BARCODE, SERIAL_NUMBER, WARRANTY |
+| RETAIL | ATTACHMENTS, BARCODE, EXPIRY_TRACKING, QR_CODE |
+| GARMENTS | ATTACHMENTS, BARCODE, QR_CODE |
+| RESTAURANT | ATTACHMENTS, EXPIRY_TRACKING, SHELF_LIFE |
+| GENERIC | ATTACHMENTS, BARCODE |
+| SERVICE | APPROVAL_WORKFLOW, ATTACHMENTS |
+| CUSTOM | *(none — configured per deployment)* |
+
+Modules run 10–12 per profile: RESTAURANT and SERVICE add kitchen/recipes and
+projects/contracts, ELECTRONICS and MANUFACTURING get 11, everyone else the ten
+core workspaces.
+
+**Eleven of twenty-one features are actually enforced.** `BATCH_TRACKING` and
+`SERIAL_NUMBER` gate whole endpoints; `EXPIRY_TRACKING`, `MANUFACTURING_DATE`,
+`SHELF_LIFE`, `WARRANTY`, `BARCODE`, `QR_CODE`, `DRUG_LICENSE`, `ATTACHMENTS`
+and `VEHICLE_TRACKING` gate fields. `TERRITORY`, `APPROVAL_WORKFLOW` and
+`MULTIPLE_WAREHOUSES` have working code and are deliberately ungated pending a
+product decision — enforcing `TERRITORY` today would take routes away from
+PHARMACY, FOOD and RETAIL, which plausibly sell by territory. The remaining
+seven have no code behind them.
+
+## Tables
+
+Every one is **firm-owned** — it exists once per store.
+
+| Table | Holds | Columns that carry the meaning |
+| --- | --- | --- |
+| `business_profiles` | The industries | `code`, `is_default` (the fallback for unassigned firms) |
+| `business_features` | The capability catalogue | `code`, `default_enabled`, `is_implemented` |
+| `business_modules` | The workspace catalogue | `code`, `default_enabled` |
+| `profile_features` | Which features an industry enables | `is_enabled` (overrides `default_enabled`), `configuration` |
+| `profile_modules` | Which modules an industry enables | `is_enabled`, `is_visible`, `display_order` |
+| `firm_business_profiles` | **The assignment** — firm → industry | `is_active` |
+| `attribute_definitions` | Custom field definitions | `entity_type` (`PRODUCT`, `CUSTOMER`, `VENDOR`…), optional profile scope, data type |
+| `category_attribute_rules` | Which fields are mandatory | `business_profile_id` (**NULL = every profile**), `category_code`, `is_mandatory` |
+| `business_profile_uom_defaults` | Default units per industry | `firm_id` **NULL = the profile-wide default**; a firm's own row wins |
+| `<module>_attribute_values` | The values themselves | Typed columns — `value_text`, `value_number`, `value_date`, `value_boolean`, never JSON |
+
+**How a capability is resolved:** firm → its assignment → else the default
+profile → else enforce nothing. Then per catalogue entry: an explicit
+`profile_features` / `profile_modules` row wins, otherwise the catalogue's
+`default_enabled`.
+
+## Rules that bite
+
+- **The gates are write-only.** Safe methods always pass, so turning a feature
+  on can never hide data.
+- **A firm with no resolvable profile is never gated.** A configuration gap is
+  not a decision.
+- **`is_implemented = false` refuses enabling**, and it is deliberately *not*
+  `is_active`: one is a fact about the codebase, the other an administrator's
+  choice. Conflating them lets someone switch on a feature that does nothing.
+- **Deleting a feature or module a profile still enables revokes the capability
+  for every firm on that profile** — writes those firms made yesterday start
+  being rejected.
+- **The desktop's menu filtering is cosmetic, not a security boundary.** It
+  hides entries; the server's `require_feature` / `require_module` is the
+  boundary.
+- **Mandatory attributes must be scoped.** A global `mandatory` flag asks every
+  industry for every field.
+- **Renaming the default profile once demoted it**, leaving the store with no
+  default and therefore no gating at all for unassigned firms. Fixed, but it is
+  the shape to watch when editing a profile.
+
+### One inconsistency worth fixing
+
+**`COMMISSION` is still catalogued as unimplemented while the module is live.**
+`20260810_0059` set `is_implemented = false` for the seven featureless codes,
+and `20260823_0102` then built commission rules, the collected report, its two
+permission codes and a desktop workspace — without flipping that flag. So an
+administrator cannot enable the `COMMISSION` feature, while commission itself
+works regardless, because nothing in `app/commission` calls `require_feature`.
+Nothing is broken for a firm today; the catalogue is simply lying about the
+product. Either flip the flag and gate the module on it, or drop the feature
+code.
+
+---
+
 # Still to write
 
-Modules 2–20 in the table above. Each gets the same six parts.
+Modules 3–20 in the table above. Each gets the same six parts.
