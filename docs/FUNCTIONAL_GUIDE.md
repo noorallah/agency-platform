@@ -25,6 +25,10 @@ there is a tax rate, and you cannot set a tax rate before there is a firm.
 Permission codes appear in the workflow tables. Endpoint tables are generated,
 never typed: `uv run python scripts/dump_route_permissions.py --markdown <module>`.
 
+**In a hurry?** [Runbook — a new firm, from nothing to trading](#runbook--a-new-firm-from-nothing-to-trading)
+is the five steps that take an empty installation to a firm that can raise and
+settle a document, and it names the one step that has no screen.
+
 ## The order
 
 | Phase | # | Module | Done |
@@ -203,6 +207,163 @@ Severity turns on who actually holds `PERMISSION_VIEW`: the seeded `VIEWER`
 role explicitly excludes it, so the likely answer is "administrators only",
 which makes the first row untidy rather than dangerous. Worth confirming rather
 than assuming.
+
+---
+
+# Runbook — a new firm, from nothing to trading
+
+Five steps. **Step 4 is the one that catches people**, because there is no
+screen for it and nothing tells you it is missing until a document refuses to
+post.
+
+## 1. Record the firm
+
+**Masters › Firms › New** (platform admin), or `POST /api/v1/firms`.
+
+Required: `name`, `code` (uppercase `A-Z0-9_-`, 2–50 characters), `country`
+(2 letters), `currency_code` (3 letters), `financial_year_start`. GST, PAN,
+address and contacts are optional. The desktop form pre-fills `IN` / `INR` and
+the current financial-year start as **defaults, not decisions** — all three stay
+editable.
+
+The one choice that can never be changed afterwards is where the data lives:
+
+| Mode | What the firm gets | Names derived as |
+| --- | --- | --- |
+| `SHARED` (the form's default) | The common store — nothing to build | `agency_platform` / `firm_shared` |
+| `SCHEMA` | Its own schema in the shared database | `firm_<code>` |
+| `DATABASE` | Its own database, optionally **on another server** | `erp_<code>` + schema `firm_<code>` |
+
+The prefixes come from the `AGENCY_TENANCY_*` settings in module 1. Naming a
+`connection_profile` puts the firm on that server; an unknown profile name is
+refused **here**, not at first use, so a typo cannot produce a firm that
+provisions nothing and fails far from the request that caused it.
+`database_type` must match the platform dialect.
+
+All five storage fields appear on the form under **Storage Mapping**, editable
+while creating and read-only once the firm exists — which is exactly what the
+service enforces.
+
+Two refusals to expect: a duplicate `code`, GST or PAN among live firms; and a
+database + schema pair another firm already claims, **soft-deleted firms
+included**, because their data is still sitting there.
+
+**Nothing has been built yet.** That is deliberate — a slow or unreachable
+target server must not fail the creation of a firm record.
+
+## 2. Provision the storage — dedicated firms only
+
+**Masters › Firms › Provision** (the action appears for any firm that is not
+SHARED, and stays enabled until its storage is ready), or
+`POST /api/v1/firms/{id}/provision`.
+
+It creates the database and/or schema, runs `alembic upgrade head` against it in
+a subprocess, prunes the platform-only tables, and stamps `provisioned_at`.
+Until that succeeds every request for the firm is refused by name — *"Firm
+storage for 'X' has not been provisioned yet"* — and a failure is kept in
+`provisioning_error` on the record rather than only in the log.
+
+**Re-running is the repair action**, not a risk: every step is create-if-missing
+and Alembic stops at head.
+
+What the new store holds afterwards comes from the migrations themselves — the
+business-profile catalogue, features and modules, units of measure, tax systems,
+geography masters. There is no application-level seeding step; the provisioning
+service's seed hook has no handler wired to it.
+
+## 3. Assign a business profile
+
+**Administration › Profile Assignment** (module 2). Decides the firm's features,
+modules and custom fields.
+
+Skip it and the firm falls back to the store's default profile (GENERIC); if the
+store has no default either, **nothing is enforced at all**.
+
+## 4. Seed the finance setup — no screen exists for this
+
+```powershell
+uv run python scripts/seed_finance_defaults.py --yes
+```
+
+It walks every active firm **in its own store**, resolved through the tenancy
+provider, so it works across all three deployment modes. It creates the account
+groups, the chart of accounts, twelve monthly periods from the financial-year
+start, the journal and voucher types, and the **control-account mapping**.
+Idempotent — re-running reports zeros. There is deliberately no `--dry-run`,
+because `FinanceService` commits inside each mutating method and a preview would
+write the chart and then claim it had not.
+
+**Why this step is load-bearing.** `firm_control_accounts` is what tells posting
+which ledger account is Inventory, Trade Receivables or Output Tax, and it has
+**no endpoint among the 33 finance routes and no desktop screen**. Financial
+years, periods, account groups and ledger accounts can all be created through
+the API; the mapping cannot. And a failed posting is allowed to fail the
+document action that triggered it, on purpose — stock that moved with no
+accounting entry behind it is the gap that rule closes.
+
+So a firm that skips step 4 can enter masters and raise drafts, and then:
+
+| Action | What happens |
+| --- | --- |
+| Dispatch a delivery note | Fails — no Cost of Goods Sold / Inventory accounts |
+| Approve a sales invoice | Fails — no Receivables / Sales / Output Tax |
+| Record a receipt | Fails — `settlements.journal_entry_id` is NOT NULL |
+| Record a customer's opening balance | Refused outright — a balance nobody can book is one the firm should not be told it has recorded |
+
+## 5. Give people access
+
+Three grants, deliberately held by different people (module 1):
+
+| Step | Where | Permission |
+| --- | --- | --- |
+| Create the account | **Administration › Users** | `USER_CREATE` |
+| Assign roles — *what* they may do | **Administration › Roles** | `ROLE_ASSIGN` |
+| Assign the firm — *whose data* | **Administration › User-Firm Assignments** | platform admin |
+
+Mark one membership `is_primary`: that is the firm that opens by default. A
+platform admin still has to pick a firm to open firm-owned screens.
+
+## Then the masters, in this order
+
+Each depends on the one before it:
+
+1. **Branches**, then **warehouses** under them
+2. **Units of measure** — check the profile defaults before products
+3. **Tax** — the profile and its rates, before anything is priced
+4. **Products**
+5. **Customers** and **vendors** (credit policy with them)
+6. **Territories and routes**, if the firm sells by round
+7. **Price lists**
+
+**Document numbering needs no setup.** Each module creates its document type,
+states and numbering rule lazily on the first save, and the series can be edited
+afterwards in **Settings › Numbering Series**.
+
+## Checking it worked
+
+| Check | Expect |
+| --- | --- |
+| The firm's storage is ready | `provisioned_at` set, `provisioning_error` empty |
+| Its capabilities resolve | `GET /api/v1/business-framework/active-features` returns the profile's list, not an empty one |
+| Finance is set up | `GET /api/v1/finance/ledger-accounts` returns the chart, and an accounting period covers today |
+| A person can actually work | They can sign in, the firm appears in their switcher, and a firm-owned screen opens |
+
+The end-to-end proof is raising one small sale — quotation to receipt — and
+watching the receivable return to zero. `docs/SALES_TO_RECEIPT_FLOW.md` traces
+exactly that, with the ledger lines each step raises.
+
+## What this runbook says about the product
+
+Two gaps are worth stating plainly rather than working around silently:
+
+- **Finance setup has no UI path.** A firm created entirely through the desktop
+  is not able to post anything until somebody with shell access runs a script.
+  Either the control-account mapping needs an endpoint and a screen, or
+  provisioning should seed it.
+- **Nothing tells a firm it is missing.** The refusal arrives at the first
+  dispatch or invoice approval, far from the setup step that was skipped. A
+  readiness check on the firm record — chart present, period open, mapping
+  complete — would move the message to where the decision was made.
 
 ---
 
