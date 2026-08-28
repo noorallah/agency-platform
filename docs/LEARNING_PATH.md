@@ -7,6 +7,14 @@ The ordering is measured rather than guessed. The dependency counts, line counts
 and endpoint counts below were taken from the tree on 2026-08-10; re-measure with
 the commands at the end if they look stale.
 
+**They are stale, and knowing how is useful.** Six modules built since that
+measurement are missing from the table entirely -- `quotation`, `sales_return`,
+`settlements`, `pricing`, `commission` and `diagnostics` -- and `sales` has grown
+from 44 endpoints to 62. [`LEARNING_PLAN.md`](LEARNING_PLAN.md) carries the same
+ordering as an eighteen-session schedule, re-measured on 2026-08-28, with what to
+run and a checkpoint per session. Read this file for *how to read a module*; read
+that one for *what to do on Tuesday*.
+
 **Dependency count is the honest difficulty signal.** Size is not: the smallest
 module in the repo imports twenty others, and the least-coupled one is 4,374
 lines with no user interface. Both are covered under "Looks easy, isn't".

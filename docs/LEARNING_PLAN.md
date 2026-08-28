@@ -1,0 +1,486 @@
+# A module-wise learning plan
+
+Eighteen working sessions that take you from "what is this repository" to being
+able to change a document module without breaking the ledger. Ordered by what
+you have to already know, not by what is interesting.
+
+Three learning documents now exist and they do different jobs:
+
+| Document | Use it when |
+| --- | --- |
+| [`REMOTE_READING_PLAN.md`](REMOTE_READING_PLAN.md) | You have nothing running and two days to read |
+| [`LEARNING_PATH.md`](LEARNING_PATH.md) | You want the reading **order** and how to read one module fast |
+| **This file** | You want a **schedule**: per session, what to read, what to run, and how to prove it landed |
+
+Every number below was measured on **2026-08-28**, not carried over. Re-measure
+with the commands at the end of `LEARNING_PATH.md` if they look stale.
+
+**The tree today:** 30 business modules under `backend/app/` plus `app/core`,
+**588 endpoints**, 102 migrations, 66 backend unit-test files, 101 desktop widget
+tests, and 23 desktop UI packages.
+
+---
+
+## How a session works
+
+The same five steps every time. They are in this order because each answers a
+question the next one assumes.
+
+1. **Read the unit test first**, not the router — `backend/tests/unit/test_<module>.py`.
+   It builds a SQLite in-memory database and calls route functions directly with
+   hand-built `Principal` and scope objects, so one file shows you the intended
+   call sequence, the permission codes and the shape of the result. It is the
+   closest thing to an executable specification the module has.
+2. **`models/`** — what is stored, what is indexed, which columns are NOT NULL.
+3. **`api/router.py`** — the surface: permission codes, the scope dependency,
+   declaration order.
+4. **`services/`** — the rules, and where the transaction commits.
+5. **`repositories/`** — the queries, and how soft delete is honoured.
+
+Then **drive it against a running backend**. Every session below has a *Drive*
+step, because this repository's history is unambiguous on the point: the defects
+that survived months of green test suites were all found by making a real HTTP
+call. `docs/RUNNING.md` gets you there; the demo users share the password
+`DemoAdmin@12345`, and `whole01.admin@agency.local` is the firm with two years
+of trading history.
+
+Finish each session with its **Checkpoint**. If you cannot answer it in your own
+words without opening the file again, do not move on.
+
+**Budget:** roughly 2–3 hours a session. Phase 3 sessions are longer — a
+document module coordinates a dozen others inside one transaction.
+
+---
+
+## The map
+
+| # | Session | Modules | LOC | Deps | Routes |
+| ---: | --- | --- | ---: | ---: | ---: |
+| **Phase 0 — the frame** ||||||
+| 1 | Shape, tenancy, and one request's journey | `core`, `common` | — | — | 2 |
+| 2 | One vertical slice, start to finish | `firms`, `identity` | 4,620 | 3 | 35 |
+| **Phase 1 — master data** ||||||
+| 3 | The reference master module | `customers` | 2,823 | 4 | 17 |
+| 4 | Masters with custom fields | `products`, `vendors` | 4,959 | 2–4 | 40 |
+| 5 | Bulk, exclusivity and geography | `branches`, `sales` (geo half) | 3,413+ | 3–5 | 39+ |
+| **Phase 2 — the frameworks** ||||||
+| 6 | What a firm is allowed to do | `business` | 3,249 | 3 | 29 |
+| 7 | Units and packaging | `uom` | 3,058 | 3 | 29 |
+| 8 | Tax — the hard one | `tax` | 5,641 | 3 | 52 |
+| 9 | Documents as configuration | `document_framework` | 2,741 | 5 | 17 |
+| 10 | Stock, batches and expiry | `inventory`, `batch_serial` | 8,385 | 5–8 | 46 |
+| **Phase 3 — the documents** ||||||
+| 11 | The reference transactional module | `purchase` | 3,087 | 11 | 15 |
+| 12 | The purchase chain | `goods_receipt`, `purchase_invoice`, `purchase_return` | 8,731 | 11–13 | 50 |
+| 13 | The sales chain, first half | `quotation`, `sales_order`, `delivery_note` | 8,545 | 11–15 | 54 |
+| 14 | The sales chain, second half | `sales_invoice`, `sales_return`, `pricing` | 9,097 | 4–13 | 41 |
+| **Phase 4 — the money** ||||||
+| 15 | The general ledger | `finance` | 6,027 | 1 | 33 |
+| 16 | Money in, money out | `settlements`, `commission` | 2,385 | 4–7 | 20 |
+| **Phase 5 — the edges** ||||||
+| 17 | Territory, routes and beats | `sales` (territory half) | 6,832 | 5 | 62 |
+| 18 | The seams | `search`, `diagnostics`, the desktop | 1,519 | 0–20 | 4 |
+
+**The difficulty cliff is between session 10 and session 11.** Dependency counts
+jump from 8 to 11. Everything before it you can hold in your head; a document
+module coordinates stock, tax, numbering, the ledger and the document it was
+built from inside a single transaction, and that is where nearly every serious
+defect in this repository has been found.
+
+---
+
+# Phase 0 — the frame
+
+## Session 1 — Shape, tenancy, and one request's journey
+
+Skipping this makes every later module look arbitrary, because most of what a
+router does is compose these pieces.
+
+**Read**
+- [`CLAUDE.md`](../CLAUDE.md) — the densest thing in the repo, and the only one
+  written to be read first. Every paragraph is a rule that exists because
+  something broke.
+- `backend/app/core/responses/models.py` — the `ApiResponse` / `PaginatedResponse`
+  envelope every endpoint returns.
+- `backend/app/core/database/entity.py` — `BaseEntity`: UUID id, created/updated
+  actor, `version`, `is_deleted`/`deleted_at`. Every business entity extends it.
+- `backend/app/common/scope.py` — **the single most important file to read
+  early**. Every firm-owned router composes it.
+- `backend/app/core/database/dependencies.py` — decides, per request, whether you
+  are on the platform schema or a firm's store.
+- `backend/app/core/tenancy/` — skim: how a firm resolves to `SHARED`, `SCHEMA`
+  or `DATABASE`, and how one on another server is reached.
+
+**Drive**
+
+Start the backend, log in as `whole01.admin@agency.local`, and make the same
+call three ways: with the right `X-Firm-ID`, with none, and with another firm's.
+Watch the 200 / 403 / 403 and find in the code where each was decided.
+
+**Checkpoint**
+- Why can a firm-owned service not run `select(User)` on its own session? Name
+  the error it gets and the helper that exists to avoid it.
+- Which paths always use the platform schema regardless of the header?
+- A firm is created. Can it serve requests immediately? What has to happen
+  first, and what refuses it until then?
+
+**Traps to have read about before session 2**: `users`, `firms` and `user_firms`
+exist only in the platform schema, and seven separate defects have come from
+forgetting it. Migrations advance **one schema per run**.
+
+## Session 2 — One vertical slice, start to finish
+
+`firms` is the smallest complete module and is **platform-only**, so you learn
+the five layers with firm scoping removed as a variable.
+
+**Read**
+- `tests/unit/test_firms_module.py`, then `app/firms/` in the five-step order.
+- `app/identity/system_seed.py` — `PERMISSION_GROUPS`. Any code passed to
+  `require_permission` must exist here or the endpoint silently becomes
+  platform-admin-only.
+- `app/common/audit/` — every mutation emits one row, and the trail is
+  append-only by database trigger.
+
+**Drive**
+
+`GET` a firm, note the `ETag`, `PUT` it back with `If-Match`, then `PUT` again
+with the stale value and watch the 409. Then read `audit_logs` and find both
+attempts.
+
+**Checkpoint**
+- Trace one write: router → service → repository → audit row. Where does the
+  transaction commit, and what else is inside it?
+- What does soft-deleting a firm do to its `code`, `gst_number` and `pan_number`,
+  and which index makes that work?
+- Why is the version published as **both** an `ETag` header and a body field?
+
+---
+
+# Phase 1 — master data
+
+## Session 3 — The reference master module: `customers`
+
+The designated reference for master data. Read the backend and
+`desktop/lib/ui/customers/` side by side — this is the session where the two
+applications become one picture.
+
+**Read**: `tests/unit/test_customer_management.py`, then the module;
+`app/customers/services/credit_control.py`; `docs/CUSTOMER_MANAGEMENT.md`.
+
+**Drive**: create a customer, set a credit limit, raise exposure against it, and
+call `GET /api/v1/customers/{id}/credit-status?amount=`. Then edit **one field**
+of a customer that has addresses and contacts, and check both survived.
+
+**Checkpoint**
+- `PUT` omits `credit_limit`. What happens, and which line of code decides?
+  What if it sends an explicit `null`?
+- Why is `CUSTOMER_MANAGE_SETTINGS` deliberately not granted to `SALES_MANAGER`?
+- What is a customer's outstanding derived from, and what is it never read from?
+
+**The trap this module exists to teach**: an update that dumps its whole write
+model turns an omission into an instruction. It shipped three times. `customers`
+guards on `model_fields_set` and reads `opening_balance` out of the dumped
+values with the row as its fallback.
+
+## Session 4 — Masters with custom fields: `products`, `vendors`
+
+**Read**: `tests/unit/test_product_master.py`,
+`tests/unit/test_entity_attributes.py`, then `app/products/`;
+`app/business/services/attribute_service.py`;
+`tests/unit/test_vendor_collections_survive_an_edit.py` and skim `app/vendors/`.
+
+**Drive**: define an attribute scoped to one business profile, set it on a
+product, then filter the product list by it. Confirm the value landed in a typed
+column, not JSON.
+
+**Checkpoint**
+- Where does an attribute's **definition** live, and where do its **values**?
+  Why are those two different tables?
+- What does it take to give a new module custom fields? (Four things.)
+- Why must attributes never be stored as JSON here — what broke when they were?
+
+## Session 5 — Bulk, exclusivity and geography: `branches`, geo masters
+
+39 endpoints, and the module where "the bulk endpoint is a second
+implementation" was learned the expensive way.
+
+**Read**: `tests/unit/test_branch_warehouse_management.py`,
+`tests/unit/test_branch_warehouse_partial_update.py`, then `app/branches/`; the
+six `geo_*` masters in `app/sales/models/`;
+`desktop/lib/ui/workspace/geo_area_picker.dart`.
+
+**Drive**: import a batch of branches where the fifth row clashes. Confirm
+nothing was written. Then promote a second branch to `is_default` and check the
+first was demoted, and that a partial unique index would have caught it anyway.
+
+**Checkpoint**
+- Why does an import stage and commit **once** rather than loop over `create`?
+- Why is `ondelete="RESTRICT"` not a guard on a soft-deleted table, and where
+  does the refusal actually have to live?
+- On a customer address, which is the truth — `city` or `city_id`?
+
+---
+
+# Phase 2 — the frameworks
+
+These four decide what a document is allowed to say. Read all four before any
+document module; each of them is called *while a document is being built*.
+
+## Session 6 — What a firm is allowed to do: `business`
+
+**Read**: `docs/BUSINESS_PROFILE_FRAMEWORK.md` (verified against a running
+backend), `tests/unit/test_business_profile_gating.py`, `app/business/gating.py`.
+
+**Drive**: turn off a feature a firm is using and watch a write be refused while
+its existing data stays readable.
+
+**Checkpoint**
+- `require_feature` vs `assert_feature_fields` — when is each the right one, and
+  why would gating the whole endpoint be wrong for `BARCODE`?
+- Why are the gates write-only?
+- A firm has no profile. Is it gated? Why is that the deliberate answer?
+- What does `is_implemented = false` mean, and why is it not `is_active`?
+
+## Session 7 — Units and packaging: `uom`
+
+**Read**: `docs/UOM_FRAMEWORK.md`, `tests/unit/test_uom_packaging_framework.py`,
+the resolver in `app/uom/services/`.
+
+**Checkpoint**
+- Seven unit slots on a product — name what each is for.
+- A product has its own conversion rule and the firm has a wider one. Which
+  wins, and what makes the ranking explicit rather than accidental?
+- Why is the rule's own revision called `version_number` and not `version`?
+
+**The trap**: PostgreSQL sorts NULLs first in `DESC` and SQLite last, so
+`ORDER BY product_id DESC` made the firm-wide rule outrank the product's own in
+production while the unit suite saw the right answer.
+
+## Session 8 — Tax, the hard one
+
+Do not skip it and do not rush it. You cannot trust any document total until you
+have read this module.
+
+**Read**: `docs/TAX_FRAMEWORK.md`, `tests/unit/test_tax_framework.py`,
+`TaxRuleService.simulate` line by line.
+
+**Drive**: `POST /simulate` for a line, then find the same three JSON documents
+in `tax_rule_execution_logs`.
+
+**Checkpoint**
+- Rules attach to the **transaction**, never to the product. What does the
+  product contribute to the matching context?
+- The evaluation order in one sentence, including what happens after the first
+  match.
+- Why must `simulate` never commit, and who is allowed to?
+- Which two amounts must **not** be added to a document total, and why?
+
+## Session 9 — Documents as configuration: `document_framework`
+
+**Read**: `tests/unit/test_document_framework.py`, `app/document_framework/` —
+types, states, numbering rules, timeline events, and
+`services/print_support.py`.
+
+**Checkpoint**
+- Lifecycle states are configuration, not enums. What does the service still
+  hardcode, and why is that not a contradiction?
+- Where does a document number come from, and what makes it per firm?
+
+## Session 10 — Stock, batches and expiry: `inventory`, `batch_serial`
+
+`inventory` only makes sense once you know what writes to it — which is why it
+sits here and not with the masters.
+
+**Read**: `docs/INVENTORY_FRAMEWORK.md`,
+`docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`,
+`tests/unit/test_inventory_foundation.py`,
+`tests/unit/test_inventory_transaction_vocabulary.py`.
+
+**Drive**: reserve stock, then issue it. Read `inventory_transactions` and
+`stock_ledger_entries` and account for **both** rows dispatch writes.
+
+**Checkpoint**
+- Reservation vs movement: what changes on hand, and what changes available?
+- What is the moving average, and which documents read it rather than the
+  document price?
+- Why does a stock ledger that jumped straight from reserved to gone explain
+  neither event?
+
+---
+
+# Phase 3 — the documents
+
+## Session 11 — The reference transactional module: `purchase`
+
+**Read**: `docs/PURCHASE_FRAMEWORK.md`, `tests/unit/test_purchase_management.py`,
+`app/purchase/services/`.
+
+**Checkpoint**
+- Which order transitions reach outside the module? (There are four.)
+- Why is `status` not writable through the update body — and what happened to a
+  `PARTIALLY_RECEIVED` order when it was?
+- Editing an APPROVED order does what? A RECEIVED one?
+
+## Session 12 — The purchase chain
+
+`goods_receipt` → `purchase_invoice` → `purchase_return`, in document order.
+
+**Read**: `docs/PURCHASE_TO_PAYMENT_FLOW.md` first — it traces order to payment
+with the ledger lines each step raises, driven against a running backend — then
+the three modules.
+
+**Drive**: run the whole chain yourself on WHOLE01. Then cancel a completed
+goods receipt and read the reversal journal.
+
+**Checkpoint**
+- A leg facing stock is valued from **what**? A leg facing a counterparty?
+- Why can an invoiced receipt not be cancelled at all?
+- `reverse_entry` copies the source module and id onto its mirror. What does a
+  naive lookup then do on the next cancellation, and what is the filter that
+  stops it?
+
+## Session 13 — The sales chain, first half
+
+`quotation` → `sales_order` → `delivery_note`.
+
+**Read**: `docs/SALES_FRAMEWORK.md` and `docs/SALES_TO_RECEIPT_FLOW.md`, then the
+three modules and their desktop editors.
+
+**Drive**: quote, convert, approve, dispatch. After each call, check what moved:
+stock on hand, available, the customer's outstanding, the journal count. Four of
+those steps move **nothing**, and knowing which is the point of the exercise.
+
+**Checkpoint**
+- Name the three moments that matter and what each does.
+- Why is `EXPIRED` derived rather than stored?
+- How does a sales order's status move as it is delivered, and why is it
+  **summed** rather than incremented?
+- Why do lines get reconciled on their line number instead of deleted and
+  re-inserted?
+
+## Session 14 — The sales chain, second half
+
+`sales_invoice` → `sales_return`, and `pricing` underneath both.
+
+**Read**: `app/core/utils/pricing.py` — the whole file, it is the one place a
+discount is resolved — then `app/pricing/`, `tests/unit/test_line_discount_rule.py`,
+`tests/unit/test_price_lists.py`, then the two document modules.
+
+**Drive**: raise a line saying nothing about the discount, then the same line
+sending `discount_percent: 0`. They resolve differently. Explain why before you
+run it, then check.
+
+**Checkpoint**
+- The five-step precedence, in order.
+- Why does a bill-level discount have to be **stored on each line** and taxed,
+  rather than subtracted after tax?
+- An invoice bills a line agreed in March. Whose discount does it use, and why
+  not the customer's current one?
+- Completing a sales return writes **two** journal entries. What is each for,
+  and where does each get its value from?
+
+---
+
+# Phase 4 — the money
+
+## Session 15 — The general ledger: `finance`
+
+Lowest coupling in the repo — one dependency — and **not a beginner module**.
+6,027 lines, 33 endpoints, and every posting rule the last four sessions
+depended on.
+
+**Read**: `tests/unit/test_finance_module.py`,
+`app/finance/services/control_accounts.py`, then
+`app/finance/services/document_posting.py` — sixteen posting and reversal
+methods, one per thing a document can do to the books. Read
+`post_goods_issue`, `post_sales_invoice` and `reverse_goods_receipt` together;
+the three of them contain the whole valuation argument.
+
+**Drive**: approve an invoice with the accounting period closed, and with a
+control account unmapped. Both refuse, and refusing is the feature.
+
+**Checkpoint**
+- Why does the balance check have to happen on the same rounding the lines are
+  stored at?
+- A ledger statement is ordered by what — and what was it ordered by before?
+- Which document events post automatically, and what does a firm have to
+  configure before any of them can?
+- A posting fails. What happens to the document action that triggered it, and
+  why is that the only safe answer?
+
+## Session 16 — Money in, money out: `settlements`, `commission`
+
+One implementation for both directions; a receipt and a payment differ only in
+signs.
+
+**Read**: `tests/unit/test_settlements.py`, `app/settlements/services/`,
+`tests/unit/test_commission.py`.
+
+**Drive**: over-pay an invoice, watch the split into balance and advance, then
+reverse the settlement and check both figures return **exactly**.
+
+**Checkpoint**
+- Why is a settlement reversed rather than edited or deleted?
+- Why are the balances put back from the **deltas stored on the original row**
+  rather than recomputed?
+- Commission is earned on what, and attributed from which field? Why not the
+  customer's current territory assignment?
+- Why is `settlements.journal_entry_id` NOT NULL?
+
+---
+
+# Phase 5 — the edges
+
+## Session 17 — Territory, routes and beats: `sales`
+
+Sounds like a small master; it is 6,832 lines across 62 endpoints — the largest
+router in the repository.
+
+**Read**: `docs/TERRITORY_FRAMEWORK.md`, the four `test_sales_territory_*.py`
+files, then the module.
+
+**Checkpoint**
+- What makes a node a route, and what does its effective window decide?
+- `PUT /{id}/customers` replaces the whole list. What follows for the screen that
+  calls it, and what does omitting `is_primary` mean?
+- Why must a sequence swap release before it reassigns?
+
+## Session 18 — The seams: `search`, `diagnostics`, the desktop
+
+**Read**: `app/search/` (991 lines, one endpoint, imports twenty modules),
+`app/diagnostics/`, then `desktop/docs/DESKTOP_FRAMEWORK.md` and
+`desktop/lib/ui/workspace/module_catalog.dart`.
+
+**Checkpoint**
+- Four `SearchDefinition`s are marked `platform_store`. Which, and what happened
+  before they were?
+- Why is the desktop's `/active-modules` filtering *not* a security boundary?
+- Adding a desktop module means adding what, exactly — and what does it
+  explicitly not mean?
+
+---
+
+## The four guard tests, and why they are worth reading early
+
+Each one exists because a whole class of defect kept recurring. Reading them is
+faster than learning their lessons the other way.
+
+| Test | Fails the build when |
+| --- | --- |
+| `test_route_declaration_order.py` | A literal path is declared after `/{id}` — ten endpoints were unreachable from the day they were written |
+| `test_routes_have_a_caller.py` | A route has no caller anywhere — whole features had gone missing this way |
+| `test_pagination_conventions.py` | A handler takes a bare `page_size: int = 20`, which turns an over-cap request into a 500 |
+| `test_time_conventions.py` | Anything reads the server's local clock instead of `utc_now()` |
+
+Plus `test_identity_hardening.py::test_every_enforced_permission_code_is_seeded`
+and `test_schema_registry.py`, which pin the two conventions from session 1.
+
+## What to do after session 18
+
+- Take one module through [`MODULE_REVIEW_CHECKLIST.md`](MODULE_REVIEW_CHECKLIST.md).
+  Its Findings column is a list of what actually broke, per module — every
+  checklist item derives from a real defect.
+- Re-seed the demo stores and drive a flow end to end
+  (`scripts/seed_multi_firm_demo.py`, then `scripts/verify_sample_data.py`).
+- Read [`BACKLOG.md`](BACKLOG.md) for *why* things are the way they are. It is a
+  poor way in and an excellent way back.
