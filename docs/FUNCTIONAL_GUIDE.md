@@ -35,7 +35,7 @@ settle a document, and it names the one step that has no screen.
 | --- | ---: | --- | --- |
 | **A — Stand the firm up** | 1 | Firm setup and access | ✅ |
 | | 2 | Business profile: what the firm may operate | ✅ |
-| | 3 | Document numbering and lifecycle | ☐ |
+| | 3 | Document numbering and lifecycle | ✅ |
 | | 4 | Financial year and chart of accounts | ☐ |
 | **B — Masters** | 5 | Branches and warehouses | ☐ |
 | | 6 | Geography | ☐ |
@@ -545,6 +545,156 @@ code.
 
 ---
 
+# 3. Document numbering and lifecycle
+
+## What it does
+
+Every transactional document needs two things a firm cares about: a **number**
+somebody can quote down the phone, and a **status** that decides what may still
+be done to it. Both are configuration held per firm, not code — so one firm can
+run `INV-000001` and another `SI/2026-2027/000001`, and neither needs a release.
+
+The same module keeps the **timeline** — an append-only record of every state a
+document passed through and who moved it — and the **print template** that
+decides what the printed copy says.
+
+## Configure first
+
+**Nothing.** This is the one module that needs no setup: the first time a firm
+saves a document of a given kind, its document type, its states and its default
+numbering rule are created on the spot.
+
+The one input it does read is the firm's `financial_year_start` (module 1),
+which decides the financial-year label a number carries and when the sequence
+resets.
+
+## Workflow
+
+### A. First save of a document kind, in a firm
+
+| # | What happens | Result |
+| --- | --- | --- |
+| 1 | The module bootstraps its own document type | Row in `document_type_definitions` — one per firm per kind |
+| 2 | It creates that type's states | Rows in `document_state_definitions`, one flagged the default |
+| 3 | It creates a default numbering rule | Row in `document_numbering_rules` with the module's prefix |
+
+Thirteen kinds bootstrap this way, each with its own prefix:
+
+| Prefix | Document | Prefix | Document |
+| --- | --- | --- | --- |
+| `QT` | Quotation | `PO` | Purchase order |
+| `SO` | Sales order | `GRN` | Goods receipt |
+| `DN` | Delivery note | `PI` | Purchase invoice |
+| `SI` | Sales invoice | `PR` | Purchase return |
+| `SR` | Sales return | `PC` | Physical count |
+| `RC` | Receipt | `PY` | Payment |
+| `RF` | Refund | | |
+
+### B. How a number is built
+
+Either from a `format_pattern` if the rule has one, or by joining these parts
+with the rule's `separator` (default `-`), skipping any that is switched off:
+
+```
+prefix  [company_code]  [branch_code]  [financial_year]  sequence  [suffix]
+  SI                                       2026-2027      000010
+                     →  SI-2026-2027-000010
+```
+
+`sequence_padding` decides the zeros (default 6). `include_company_code`,
+`include_branch_code` and `include_financial_year` are the switches.
+
+### C. How the sequence resets
+
+The counter is kept per **scope signature** — `financial year | branch |
+company` — so with `auto_reset` on, a new financial year starts again at 1 while
+last year's numbers stay untouched. A firm numbering per branch gets an
+independent run per branch, which is what a branch that files its own returns
+needs.
+
+### D. Manual numbers
+
+Only if the rule sets `manual_allowed`. Then a caller may supply its own number
+and the sequence is not consumed — for entering historical documents that
+already have numbers on paper.
+
+### E. Every move is recorded
+
+Each transition appends to `document_lifecycle_events`: which document, from
+which state to which, by whom, when. **Append-only** — the timeline is what the
+document's history *is*, and `GET /documents/{id}/timeline` is what a screen
+shows.
+
+Worth knowing what this costs: sending a quotation, accepting it, approving a
+delivery note and approving a sales return each write **nothing but** a
+lifecycle event and an audit row. That is the difference between paperwork and a
+movement.
+
+### F. Printing
+
+A firm can restyle what its documents say — the banner text (`TAX INVOICE` or
+`BILL OF SUPPLY`, both real documents), an accent colour, a header note, whether
+bank details appear. One template per firm per document type.
+
+Five documents render today: purchase order, tax invoice, delivery challan,
+quotation and credit note.
+
+## How to use it
+
+| Task | Where | Permission |
+| --- | --- | --- |
+| Change a prefix, padding, or what a number includes | **Settings › Numbering Series** | `SETTINGS_VIEW` to see; platform admin to change |
+| See what the next number will look like before saving | `GET /numbering-rules/{id}/preview` | firm membership |
+| Read a document's history | The document's timeline panel | firm membership |
+| Restyle the printed copy | Print template per document type | firm membership |
+
+**Reading is firm membership alone; changing is platform admin.** Numbering and
+lifecycle shape every document a firm will ever raise, so the module is
+deliberately readable by everyone in the firm and writable by nobody in it.
+
+## Tables
+
+| Table | Holds | Columns that carry the meaning |
+| --- | --- | --- |
+| `document_type_definitions` | One row per firm per document kind | `code`, unique per firm |
+| `document_state_definitions` | The states that kind can be in | `is_default`, `is_terminal`, `allows_edit`, `allows_print`, `allows_email`, `allows_export_pdf`, `sort_order`, `transition_rules` |
+| `document_numbering_rules` | How the number is composed | `prefix`, `suffix`, `separator`, `sequence_padding`, `include_financial_year` / `_branch_code` / `_company_code`, `auto_reset`, `manual_allowed`, `format_pattern`, `is_default` |
+| `document_number_sequences` | The live counter | `scope_signature` (`year\|branch\|company`), `next_sequence` |
+| `document_lifecycle_events` | The timeline, append-only | from-state, to-state, actor, timestamp |
+| `document_print_templates` | Per-firm print styling | `document_type`, `title_text`, `accent_color`, `header_note`, `show_bank_details`; one live row per firm per type |
+
+## Rules that bite
+
+- **A state is configuration; the transitions are not.** The states, their names
+  and their edit/print flags live in the database, but which transition a
+  service will actually perform is written in that service. Renaming a state in
+  the table does not teach `approve` about it.
+- **Nothing sweeps the tables.** A quotation's `EXPIRED` is derived from
+  `valid_until` on read, never stored, precisely because a job that had not run
+  yet would let a stale quote through.
+- **The counter is per scope, so changing what a number includes changes which
+  counter it uses.** Switching `include_branch_code` on mid-year starts a fresh
+  run per branch rather than continuing the firm-wide one.
+- **A number is reserved when the document is saved, not when it is approved.**
+  A cancelled draft has consumed its number, which is normal for a
+  numbering series but surprises people expecting no gaps.
+- **Timeline events are append-only** and cannot be edited away, like the audit
+  trail they sit beside.
+
+### Three tables nothing writes
+
+`document_headers`, `document_lines` and `document_totals` are declared, exported
+from the model package, and referenced by **no service, router, script or test**
+— every concrete module keeps its own header and line tables instead. They are a
+generic document store that was designed and then not used.
+
+They cost nothing at runtime, and they mislead: somebody reasonably reads the
+schema, finds a "documents" table, and looks there for a sales order that will
+never be in it. Either wire them up or drop them; leaving three empty tables
+named after the module's central concept is the expensive option.
+
+---
+
 # Still to write
 
-Modules 3–20 in the table above. Each gets the same six parts.
+Modules 4–20 in the table above. Each gets the same six parts.
