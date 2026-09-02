@@ -112,3 +112,168 @@ class PriceListItemRecord {
         discountPercent: stringValue(json['discount_percent']),
       );
 }
+
+
+/// One offer a firm runs: who it is for, what it gives, and when.
+///
+/// Unlike a price list, promotions **stack**. Several can apply to one order,
+/// in priority order, and each says whether it lets the ones behind it apply
+/// too. Percentages compound on what is left, so two ten percent offers take
+/// nineteen percent rather than twenty.
+class PromotionRecord {
+  const PromotionRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.version = 0,
+    this.description = '',
+    this.priority = 100,
+    this.status = 'DRAFT',
+    this.allowStacking = true,
+    this.effectiveFrom = '',
+    this.effectiveTo = '',
+    this.versionNumber = 1,
+    this.conditions = const <PromotionConditionRecord>[],
+    this.actions = const <PromotionActionRecord>[],
+  });
+
+  final String id;
+
+  /// The concurrency version this was read at, sent back as `If-Match`.
+  final int version;
+
+  final String code;
+  final String name;
+  final String description;
+
+  /// Lowest applies first. Ties break on code, so the order never wobbles.
+  final int priority;
+  final String status;
+
+  /// False ends the stack: the offers behind this one do not apply.
+  final bool allowStacking;
+  final String effectiveFrom;
+  final String effectiveTo;
+
+  /// The offer's published revision, which is not the concurrency counter.
+  final int versionNumber;
+  final List<PromotionConditionRecord> conditions;
+  final List<PromotionActionRecord> actions;
+
+  factory PromotionRecord.fromJson(Json json) => PromotionRecord(
+        id: stringValue(json['id']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        priority: (json['priority'] as num?)?.toInt() ?? 100,
+        status: stringValue(json['status']),
+        allowStacking: boolValue(json['allow_stacking'], fallback: true),
+        effectiveFrom: stringValue(json['effective_from']),
+        effectiveTo: stringValue(json['effective_to']),
+        versionNumber: (json['version_number'] as num?)?.toInt() ?? 1,
+        conditions: json['conditions'] is List
+            ? (json['conditions'] as List)
+                .whereType<Map>()
+                .map((item) => PromotionConditionRecord.fromJson(
+                    Map<String, dynamic>.from(item)))
+                .toList()
+            : const <PromotionConditionRecord>[],
+        actions: json['actions'] is List
+            ? (json['actions'] as List)
+                .whereType<Map>()
+                .map((item) => PromotionActionRecord.fromJson(
+                    Map<String, dynamic>.from(item)))
+                .toList()
+            : const <PromotionActionRecord>[],
+      );
+}
+
+/// One test an order must pass for its promotion to apply.
+class PromotionConditionRecord {
+  const PromotionConditionRecord({
+    required this.fieldKey,
+    required this.operator,
+    this.id = '',
+    this.sequence = 1,
+    this.valueText = '',
+    this.valueNumber = '',
+  });
+
+  final String id;
+  final int sequence;
+  final String fieldKey;
+  final String operator;
+  final String valueText;
+  final String valueNumber;
+
+  factory PromotionConditionRecord.fromJson(Json json) =>
+      PromotionConditionRecord(
+        id: stringValue(json['id']),
+        sequence: (json['sequence'] as num?)?.toInt() ?? 1,
+        fieldKey: stringValue(json['field_key']),
+        operator: stringValue(json['operator']),
+        valueText: stringValue(json['value_text']),
+        valueNumber: stringValue(json['value_number']),
+      );
+
+  Json toJson() => <String, dynamic>{
+        'sequence': sequence,
+        'field_key': fieldKey,
+        'operator': operator,
+        if (valueText.trim().isNotEmpty) 'value_text': valueText.trim(),
+        if (valueNumber.trim().isNotEmpty) 'value_number': valueNumber.trim(),
+      };
+}
+
+/// One benefit a promotion gives when it applies.
+class PromotionActionRecord {
+  const PromotionActionRecord({
+    required this.actionType,
+    this.id = '',
+    this.sequence = 1,
+    this.percent = '',
+    this.amount = '',
+    this.buyQuantity = '',
+    this.freeQuantity = '',
+  });
+
+  final String id;
+  final int sequence;
+  final String actionType;
+  final String percent;
+  final String amount;
+  final String buyQuantity;
+  final String freeQuantity;
+
+  factory PromotionActionRecord.fromJson(Json json) {
+    final Map<String, dynamic> params = json['parameters'] is Map
+        ? Map<String, dynamic>.from(json['parameters'] as Map)
+        : <String, dynamic>{};
+    // The server stores every parameter as text, and a value it never set
+    // reads back as the string "None" rather than as an absent key.
+    String read(String key) {
+      final String value = stringValue(params[key]);
+      return value == 'None' ? '' : value;
+    }
+
+    return PromotionActionRecord(
+      id: stringValue(json['id']),
+      sequence: (json['sequence'] as num?)?.toInt() ?? 1,
+      actionType: stringValue(json['action_type']),
+      percent: read('percent'),
+      amount: read('amount'),
+      buyQuantity: read('buy_quantity'),
+      freeQuantity: read('free_quantity'),
+    );
+  }
+
+  Json toJson() => <String, dynamic>{
+        'sequence': sequence,
+        'action_type': actionType,
+        if (percent.trim().isNotEmpty) 'percent': percent.trim(),
+        if (amount.trim().isNotEmpty) 'amount': amount.trim(),
+        if (buyQuantity.trim().isNotEmpty) 'buy_quantity': buyQuantity.trim(),
+        if (freeQuantity.trim().isNotEmpty) 'free_quantity': freeQuantity.trim(),
+      };
+}
