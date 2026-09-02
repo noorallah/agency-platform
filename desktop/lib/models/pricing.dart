@@ -93,12 +93,18 @@ class PriceListItemRecord {
     this.id = '',
     this.productCode = '',
     this.productName = '',
+    this.minQuantity = '0',
   });
 
   final String id;
   final String productId;
   final String productCode;
   final String productName;
+
+  /// The quantity this rate starts at. Zero is the ordinary rate; a higher
+  /// figure is a break, and the highest one at or below the line's quantity
+  /// wins — so a list holding 0, 50 and 200 prices a line of 120 at the 50.
+  final String minQuantity;
   final String discountPercent;
 
   String get label =>
@@ -109,6 +115,7 @@ class PriceListItemRecord {
         productId: stringValue(json['product_id']),
         productCode: stringValue(json['product_code']),
         productName: stringValue(json['product_name']),
+        minQuantity: stringValue(json['min_quantity']),
         discountPercent: stringValue(json['discount_percent']),
       );
 }

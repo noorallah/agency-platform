@@ -59,7 +59,11 @@ class _PriceListDialogState extends State<PriceListDialog> {
           : widget.existing!.territoryId;
   late List<_RateDraft> _rates = [
     for (final PriceListItemRecord item in widget.existing?.items ?? const [])
-      _RateDraft(productId: item.productId, percent: item.discountPercent),
+      _RateDraft(
+        productId: item.productId,
+        percent: item.discountPercent,
+        from: item.minQuantity,
+      ),
   ];
 
   bool _saving = false;
@@ -93,6 +97,7 @@ class _PriceListDialogState extends State<PriceListDialog> {
           productId:
               widget.products.isEmpty ? null : widget.products.first.id,
           percent: '',
+          from: '',
         ),
       ];
     });
@@ -113,6 +118,10 @@ class _PriceListDialogState extends State<PriceListDialog> {
         if (rate.productId != null && rate.percent.text.trim().isNotEmpty)
           <String, dynamic>{
             'product_id': rate.productId,
+            // Blank means the ordinary rate, which is what a list held
+            // before breaks existed.
+            'min_quantity':
+                rate.from.text.trim().isEmpty ? '0' : rate.from.text.trim(),
             'discount_percent': rate.percent.text.trim(),
           },
     ];
@@ -351,6 +360,18 @@ class _PriceListDialogState extends State<PriceListDialog> {
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: TextFormField(
+            controller: rate.from,
+            decoration: const InputDecoration(
+              labelText: 'From qty',
+              helperText: 'Blank is any',
+              helperMaxLines: 2,
+            ),
+            keyboardType: TextInputType.number,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: TextFormField(
             controller: rate.percent,
             decoration: const InputDecoration(labelText: 'Discount %'),
             keyboardType: TextInputType.number,
@@ -397,11 +418,22 @@ class _PriceListDialogState extends State<PriceListDialog> {
 
 /// One product's rate while it is being typed.
 class _RateDraft {
-  _RateDraft({required this.productId, required String percent})
-      : percent = TextEditingController(text: percent);
+  _RateDraft({
+    required this.productId,
+    required String percent,
+    required String from,
+  })  : percent = TextEditingController(text: percent),
+        from = TextEditingController(text: from == '0' ? '' : from);
 
   String? productId;
+
+  /// The quantity this rate starts at. Shown blank for zero, because "from 0"
+  /// is how the form says "any quantity" and typing a nought is noise.
+  final TextEditingController from;
   final TextEditingController percent;
 
-  void dispose() => percent.dispose();
+  void dispose() {
+    percent.dispose();
+    from.dispose();
+  }
 }

@@ -327,6 +327,17 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   **in the service**: `ondelete="RESTRICT"` is not a guard on a soft-deleted
   table, so a retired group would otherwise stay on every customer's record
   while vanishing from every list -- the same trap the geography masters have.
+- **A price list holds a ladder, not a rate.** `price_list_items.min_quantity`
+  is the quantity a rate starts at, and `PriceListResolver.rate_for(product,
+  quantity)` takes the **highest break at or below** the line -- so 0, 50 and
+  200 prices a line of 120 at the 50. Zero is the ordinary rate, which is what
+  every existing row became, so no list changed what it promised. Two things to
+  know: the unique key had to widen to `(list, product, min_quantity)` or a
+  list could still hold only one row per product, which is the whole
+  limitation; and a **more specific list replaces the ladder rather than
+  merging into it** -- a customer's own arrangement is the arrangement, not an
+  amendment to the firm-wide one, and merging would silently give them breaks
+  nobody agreed with them.
 - **A discount on the whole document reaches the lines, and therefore the tax.**
   `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
   delivery note or sales invoice is resolved by `resolve_bill_discount` and

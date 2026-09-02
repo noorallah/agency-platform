@@ -820,7 +820,7 @@ class QuotationService(TransactionalDocumentService):
                     gross=gross,
                     percent=item.discount_percent,
                     amount=item.discount_amount,
-                    price_list_percent=prices.rate_for(item.product_id),
+                    price_list_percent=prices.rate_for(item.product_id, item.quantity),
                     customer_default=customer_discount,
                 )
             )

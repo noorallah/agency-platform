@@ -264,4 +264,28 @@ void main() {
     // reporting success.
     expect(api.savedBody, isNull);
   });
+
+  testWidgets('a quantity break is sent, and blank means any quantity',
+      (tester) async {
+    final _PricingApi api = _PricingApi();
+    await _pumpDialog(tester, api);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'SLAB');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'Slabs');
+    await tester.tap(find.widgetWithText(TextButton, 'Add product'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Discount %').last, '8');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'From qty').last, '50');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final Map<String, dynamic> item = Map<String, dynamic>.from(
+        (api.savedBody!['items'] as List).single as Map);
+    expect(item['min_quantity'], '50');
+    expect(item['discount_percent'], '8');
+  });
 }
