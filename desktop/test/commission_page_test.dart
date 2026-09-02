@@ -1102,4 +1102,81 @@ void main() {
     expect(api.created!['product_category_id'], 'cat-cold');
     expect(api.created!['product_id'], isNull);
   });
+
+  testWidgets('a floor and a target bonus are sent as agreed', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '10');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Earns nothing below'), '100000');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Extra when the target is met'), '5');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created!['minimum_amount'], '100000');
+    expect(api.created!['bonus_percentage'], '5');
+  });
+
+  testWidgets('an empty floor is sent as no floor, not as zero',
+      (tester) async {
+    // Zero is a floor everybody clears; absent is no floor at all. Sending
+    // the wrong one would be harmless here and wrong the moment somebody
+    // reads the record to explain a payout.
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '10');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created!['minimum_amount'], isNull);
+    expect(api.created!['bonus_percentage'], '0');
+  });
+
+  testWidgets('the report says whether the target was met', (tester) async {
+    final _CommissionApi api = _CommissionApi(report: <String, dynamic>{
+      'from_date': '2026-04-01',
+      'to_date': '2026-04-30',
+      'total_collected_amount': '0.00',
+      'total_invoiced_amount': '12000.00',
+      'total_commission_amount': '1800.00',
+      'rows': <Json>[
+        <String, dynamic>{
+          'salesman_id': 'user-1',
+          'salesman_name': 'Priya Nair',
+          'target_met': true,
+          'collected_amount': '0.00',
+          'invoiced_amount': '12000.00',
+          'basis': 'INVOICED',
+          'commission_amount': '1800.00',
+          'invoice_count': 2,
+        },
+        <String, dynamic>{
+          'salesman_id': 'user-2',
+          'salesman_name': 'Bala Iyer',
+          'target_met': null,
+          'collected_amount': '0.00',
+          'invoiced_amount': '4000.00',
+          'basis': 'INVOICED',
+          'commission_amount': '400.00',
+          'invoice_count': 1,
+        },
+      ],
+    });
+    await _pump(tester, api);
+    await _showCollected(tester);
+
+    expect(find.text('Met'), findsOneWidget);
+    // Not "Missed": nobody set them a number, so there is nothing they failed.
+    expect(find.text('None set'), findsOneWidget);
+    expect(find.text('Missed'), findsNothing);
+  });
 }

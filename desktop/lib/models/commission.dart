@@ -59,6 +59,8 @@ class CommissionRuleRecord {
     this.productCategoryName = '',
     this.rateType = 'PERCENT',
     this.perUnitAmount = '0',
+    this.minimumAmount = '',
+    this.bonusPercentage = '0',
   });
 
   final String id;
@@ -98,6 +100,13 @@ class CommissionRuleRecord {
   /// PERCENT or PER_UNIT — a share of the money, or a sum for each unit sold.
   final String rateType;
   final String perUnitAmount;
+
+  /// Nothing is earned under this rule until the period reaches this. Empty
+  /// is no floor at all, which is most rules.
+  final String minimumAmount;
+
+  /// An extra percentage, paid only when the period's targets were met.
+  final String bonusPercentage;
 
   /// What the rule covers, in the words a person would use.
   String get scopeLabel {
@@ -156,6 +165,8 @@ class CommissionRuleRecord {
             ? 'PERCENT'
             : stringValue(json['rate_type']),
         perUnitAmount: stringValue(json['per_unit_amount']),
+        minimumAmount: stringValue(json['minimum_amount']),
+        bonusPercentage: stringValue(json['bonus_percentage']),
         slabs: [
           for (final dynamic slab
               in json['slabs'] is List ? json['slabs'] as List : const [])
@@ -169,6 +180,7 @@ class CommissionRuleRecord {
 class CommissionRow {
   const CommissionRow({
     required this.salesmanName,
+    this.targetMet,
     required this.collectedAmount,
     required this.commissionAmount,
     required this.invoiceCount,
@@ -182,6 +194,11 @@ class CommissionRow {
   /// dropped, because a total that silently omits it cannot be reconciled.
   final String salesmanId;
   final String salesmanName;
+
+  /// Whether every target this person had over the period was met, taken
+  /// together. Null where they had none — which is not a failure, it is
+  /// somebody nobody set a number for.
+  final bool? targetMet;
   final String collectedAmount;
 
   /// Approved invoice value raised in the period. Shown whatever the
@@ -199,6 +216,7 @@ class CommissionRow {
   factory CommissionRow.fromJson(Json json) => CommissionRow(
         salesmanId: stringValue(json['salesman_id']),
         salesmanName: stringValue(json['salesman_name']),
+        targetMet: json['target_met'] as bool?,
         collectedAmount: stringValue(json['collected_amount']),
         invoicedAmount: stringValue(json['invoiced_amount']),
         basis: stringValue(json['basis']),

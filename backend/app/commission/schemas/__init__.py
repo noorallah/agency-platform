@@ -103,6 +103,14 @@ class CommissionRuleCreate(CommissionSchema):
     per_unit_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
+    #: Nothing is earned under this rule until the subtotal reaches this.
+    minimum_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    #: An extra percentage, paid only when the period's targets were met.
+    bonus_percentage: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
     max_commission_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
@@ -151,6 +159,12 @@ class CommissionRuleUpdate(CommissionSchema):
     per_unit_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
+    minimum_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    bonus_percentage: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
     max_commission_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
@@ -181,6 +195,8 @@ class CommissionRuleResponse(CommissionSchema):
     product_category_name: str
     rate_type: CommissionRateTypeEnum
     per_unit_amount: Decimal
+    minimum_amount: Decimal | None
+    bonus_percentage: Decimal
     max_commission_amount: Decimal | None
     slabs: list[CommissionSlabResponse]
     version: int
@@ -195,6 +211,10 @@ class SalesmanCommissionRecord(CommissionSchema):
     #: against the cash book.
     salesman_id: UUID | None
     salesman_name: str
+    #: Whether every target this person had over the period was met, taken
+    #: together. Null where they had none -- which is not a failure, it is a
+    #: person nobody set a number for. A bonus is paid only on True.
+    target_met: bool | None
     collected_amount: Decimal
     #: Approved invoice value raised in the period and tagged to this person.
     #: Reported whatever the arrangement, because a firm paying on collections
