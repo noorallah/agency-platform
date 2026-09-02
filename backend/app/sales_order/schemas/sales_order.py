@@ -347,3 +347,29 @@ class SalesOrderByTerritoryRecord(SalesOrderSchema):
     territory_name: str
     order_count: int
     total_value: Decimal
+
+
+class SalesWorkflowSettingsResponse(SalesOrderSchema):
+    """Expose which sales stages the firm fills in by hand."""
+
+    quotation_stage: bool
+    sales_order_stage: bool
+    delivery_note_stage: bool
+    default_branch_id: UUID | None
+    default_warehouse_id: UUID | None
+    is_configured: bool
+
+
+class SalesWorkflowSettingsWrite(SalesOrderSchema):
+    """Replace which sales stages the firm fills in by hand.
+
+    Every stage is sent on every write. There is no partial form of this: the
+    three switches are read together to decide what a document must synthesise,
+    and a caller that omitted one would be asking for a chain nobody described.
+    """
+
+    quotation_stage: bool
+    sales_order_stage: bool
+    delivery_note_stage: bool
+    default_branch_id: UUID | None = None
+    default_warehouse_id: UUID | None = None

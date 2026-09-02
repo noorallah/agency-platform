@@ -84,8 +84,10 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
+from app.sales_invoice.services.sales_chain_service import SalesChainService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -315,12 +317,32 @@ class SalesInvoiceService(TransactionalDocumentService):
     def create_invoice(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesInvoice:
-        """Create one sales invoice."""
+        """Create one sales invoice and commit it."""
+        row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_invoice(
+        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesInvoice:
+        """Create one sales invoice without committing it.
+
+        See `SalesOrderService.stage_order`. This is the last document in the
+        chain, so it is usually the caller that commits -- but it must not
+        commit itself, or the documents synthesised before it would be durable
+        while its own approval could still refuse.
+        """
         assert_feature_fields(
             self._session,
             firm_id,
             feature="ATTACHMENTS",
             values={"attachments": data.attachments},
+        )
+        # Raise whatever earlier documents this firm has chosen not to type.
+        # A firm on the whole chain gets its payload back untouched, so this
+        # costs one settings read and changes nothing for anybody else.
+        data = SalesChainService(self._session).ensure_invoice_source(
+            data, firm_id=firm_id, actor_id=actor_id
         )
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
@@ -414,7 +436,11 @@ class SalesInvoiceService(TransactionalDocumentService):
             place_of_supply=self._place_of_supply(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_direct_sales_order=data.allow_direct_sales_order,
+            # A record of how this bill was raised, not a permission:
+            # true when the bill dispatched its own goods.
+            allow_direct_sales_order=self._raised_its_own_dispatch(
+                data, firm_id=firm_id
+            ),
             allow_over_invoice=data.allow_over_invoice,
             over_invoice_percent=self._q(data.over_invoice_percent),
             status=SalesInvoiceStatus.DRAFT.value,
@@ -478,7 +504,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             after_data={"invoice_number": row.invoice_number, "status": row.status},
         )
         self._flush_or_conflict("Sales invoice number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_invoice(
@@ -529,7 +554,6 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_direct_sales_order = data.allow_direct_sales_order
         row.allow_over_invoice = data.allow_over_invoice
         row.over_invoice_percent = self._q(data.over_invoice_percent)
         row.additional_charges = self._q(data.additional_charges)
@@ -623,7 +647,20 @@ class SalesInvoiceService(TransactionalDocumentService):
     def approve_invoice(
         self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> SalesInvoice:
-        """Approve one sales invoice."""
+        """Approve one sales invoice and commit it."""
+        row = self.stage_approval(invoice_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_approval(
+        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesInvoice:
+        """Approve one sales invoice without committing it.
+
+        Posts the receivable and the revenue journal. `post_receivable_transaction`
+        has always taken `commit=False` here for the same reason the rest of
+        this split exists: the money and the document have to land together.
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
@@ -689,7 +726,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
         return row
 
     def cancel_invoice(
@@ -1120,11 +1156,17 @@ class SalesInvoiceService(TransactionalDocumentService):
     def import_invoices(
         self, data: SalesInvoiceImportRequest, *, firm_id: UUID, actor_id: UUID
     ) -> list[SalesInvoice]:
-        """Import a validated batch of sales invoices atomically."""
-        return [
-            self.create_invoice(record, firm_id=firm_id, actor_id=actor_id)
+        """Import a validated batch of sales invoices atomically.
+
+        It looped over a committing method while claiming to be atomic. See
+        `SalesOrderService.import_orders`.
+        """
+        rows = [
+            self.stage_invoice(record, firm_id=firm_id, actor_id=actor_id)
             for record in data.records
         ]
+        self._session.commit()
+        return rows
 
     def _replace_sources(
         self,
@@ -1566,29 +1608,16 @@ class SalesInvoiceService(TransactionalDocumentService):
                     }
                 )
             elif source_type == SalesInvoiceSourceType.SALES_ORDER.value:
-                if not data.allow_direct_sales_order:
-                    raise ValidationError("Direct sales order invoicing is disabled.")
-                order = self._session.scalar(
-                    select(SalesOrder).where(
-                        SalesOrder.id == source_id,
-                        SalesOrder.firm_id == firm_id,
-                        SalesOrder.is_deleted.is_(False),
-                    )
-                )
-                if order is None:
-                    raise ResourceNotFoundError("Sales order not found.")
-                source_rows.append(
-                    {
-                        "source_document_type": source_type,
-                        "source_document_id": order.id,
-                        "source_document_number": order.order_number,
-                        "source_document_date": order.order_date,
-                        "customer_id": order.customer_id,
-                        "branch_id": order.branch_id,
-                        "salesman_id": order.salesman_id,
-                        "territory_id": order.territory_id,
-                        "route_id": order.route_id,
-                    }
+                # Reaching here means the firm raises its own delivery notes --
+                # `SalesChainService` has already converted this source into
+                # the note it dispatched otherwise. Billing an order directly
+                # would post revenue with no movement behind it: no stock out,
+                # no cost of goods sold, and the order's reservation left open
+                # for ever. It used to be permitted by a boolean the caller set
+                # on itself, which is not a control.
+                raise ValidationError(
+                    "This firm ships on a delivery note before it bills. "
+                    "Dispatch the order, or turn the delivery-note stage off."
                 )
             else:
                 raise ValidationError("Unsupported source document type.")
@@ -1939,6 +1968,22 @@ class SalesInvoiceService(TransactionalDocumentService):
         documents.extend(self._billable_orders(firm_scope=firm_scope, limit=limit))
         return documents
 
+    def _raised_its_own_dispatch(
+        self, data: SalesInvoiceCreate, *, firm_id: UUID
+    ) -> bool:
+        """Report whether this bill shipped the goods it charges for.
+
+        True when the firm's configuration leaves the delivery note to the
+        service, which is the only way an invoice now reaches approval without
+        somebody having dispatched its goods by hand. Recorded so a reader can
+        tell the two kinds of bill apart afterwards.
+        """
+        return (
+            not SalesWorkflowService(self._session)
+            .settings_for(firm_id)
+            .delivery_note_stage
+        )
+
     def _billable_orders(
         self, *, firm_scope: UUID, limit: int
     ) -> list[BillableDocument]:
@@ -1954,7 +1999,18 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         So an order is offered only while it has no delivery note at all. Once
         anything ships, the note is the document that knows what left.
+
+        And only where the firm leaves delivery notes to the service, since
+        that is the only configuration in which billing an order dispatches
+        anything. Offering one to a firm that ships by hand invites a bill the
+        service now refuses.
         """
+        if (
+            SalesWorkflowService(self._session)
+            .settings_for(firm_scope)
+            .delivery_note_stage
+        ):
+            return []
         delivered = select(DeliveryNote.sales_order_id).where(
             DeliveryNote.firm_id == firm_scope,
             DeliveryNote.is_deleted.is_(False),

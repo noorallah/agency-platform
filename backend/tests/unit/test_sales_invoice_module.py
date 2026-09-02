@@ -83,7 +83,11 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
 )
 from app.sales_invoice.services import SalesInvoiceService
-from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.models import (
+    SalesOrder,
+    SalesOrderLine,
+    SalesWorkflowSettings,
+)
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -219,7 +223,12 @@ def _scope(firm_id: UUID) -> ResolvedFirmScope:
 def _invoice_from_sales_order(
     session: Session, *, firm_id: UUID
 ) -> tuple[SalesInvoiceService, UUID]:
-    """Create an approved sales order and invoice it directly."""
+    """Dispatch a four-by-hundred order and bill what left the warehouse.
+
+    It used to bill the order directly, which the application no longer allows
+    for a firm that ships on a delivery note -- and which was how a bill could
+    post revenue with no stock movement and no cost of goods sold behind it.
+    """
     branch = _branch(session, firm_id=firm_id)
     warehouse = _warehouse(session, firm_id=firm_id, branch_id=branch.id)
     customer = _customer(session, firm_id=firm_id)
@@ -249,24 +258,61 @@ def _invoice_from_sales_order(
     )
     assert order_line is not None
 
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-OPENING",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm_id,
+        actor_id=uuid4(),
+    )
+    orders.approve_order(order.id, firm_scope=firm_id, actor_id=uuid4())
+    notes = DeliveryNoteService(session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(note.id, firm_scope=firm_id, actor_id=uuid4())
+    notes.dispatch_note(note.id, firm_scope=firm_id, actor_id=uuid4())
+    note_line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert note_line is not None
+
     service = SalesInvoiceService(session)
     invoice = service.create_invoice(
         SalesInvoiceCreate(
             customer_id=customer.id,
             branch_id=branch.id,
-            invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
+            invoice_date=date(2026, 8, 5),
             source_documents=[
                 {
-                    "source_document_type": SalesInvoiceSourceType.SALES_ORDER,
-                    "source_document_id": order.id,
+                    "source_document_type": SalesInvoiceSourceType.DELIVERY_NOTE,
+                    "source_document_id": note.id,
                 }
             ],
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("100"),
@@ -448,19 +494,55 @@ def test_subtotal_is_the_taxable_base_and_charges_land_in_grand_total() -> None:
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
     )
     assert order_line is not None
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-OPENING",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    notes = DeliveryNoteService(session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(note.id, firm_scope=firm.id, actor_id=uuid4())
+    notes.dispatch_note(note.id, firm_scope=firm.id, actor_id=uuid4())
+    note_line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert note_line is not None
 
     service = SalesInvoiceService(session)
     invoice = service.create_invoice(
         SalesInvoiceCreate(
             customer_id=customer.id,
             branch_id=branch.id,
-            invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
+            invoice_date=date(2026, 8, 5),
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("100"),
@@ -646,7 +728,7 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
     assert len(reversals) == 1, "one mirror entry, named after the invoice"
 
 
-def _order_line_for(
+def _dispatched_line_for(
     session: Session,
     *,
     firm: object,
@@ -655,8 +737,13 @@ def _order_line_for(
     customer: object,
     product: object,
 ) -> tuple[object, object]:
-    """Raise an approved-shaped sales order and return it with its line."""
-    order = SalesOrderService(session).create_order(
+    """Raise an order, ship it, and return the note with its line.
+
+    Billing an order directly is no longer how a firm on the whole chain
+    raises a bill, and it was never how the goods left the warehouse.
+    """
+    orders = SalesOrderService(session)
+    order = orders.create_order(
         SalesOrderCreate(
             customer_id=customer.id,
             branch_id=branch.id,
@@ -678,7 +765,44 @@ def _order_line_for(
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
     )
     assert line is not None
-    return order, line
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-OPENING",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    notes = DeliveryNoteService(session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(note.id, firm_scope=firm.id, actor_id=uuid4())
+    notes.dispatch_note(note.id, firm_scope=firm.id, actor_id=uuid4())
+    note_line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert note_line is not None
+    return note, note_line
 
 
 def test_the_invoice_records_when_payment_falls_due() -> None:
@@ -695,7 +819,7 @@ def test_the_invoice_records_when_payment_falls_due() -> None:
     customer.payment_terms_days = 21
     session.commit()
     product = _product(session, firm_id=firm.id)
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -709,12 +833,11 @@ def test_the_invoice_records_when_payment_falls_due() -> None:
             customer_id=customer.id,
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -738,7 +861,7 @@ def test_a_due_date_the_caller_gives_is_not_overwritten() -> None:
     customer.payment_terms_days = 21
     session.commit()
     product = _product(session, firm_id=firm.id)
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -753,12 +876,11 @@ def test_a_due_date_the_caller_gives_is_not_overwritten() -> None:
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
             due_date=date(2026, 9, 30),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -797,7 +919,7 @@ def test_the_invoice_fixes_the_place_of_supply_when_it_is_raised() -> None:
     )
     session.commit()
     product = _product(session, firm_id=firm.id)
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -812,12 +934,11 @@ def test_the_invoice_fixes_the_place_of_supply_when_it_is_raised() -> None:
             customer_id=customer.id,
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -946,7 +1067,7 @@ def test_the_line_keeps_the_tax_it_charged_component_by_component() -> None:
     customer = _customer(session, firm_id=firm.id)
     product = _product(session, firm_id=firm.id)
     profile = _gst_profile(session, firm=firm, actor_id=actor_id)
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -961,12 +1082,11 @@ def test_the_line_keeps_the_tax_it_charged_component_by_component() -> None:
             customer_id=customer.id,
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -1018,7 +1138,7 @@ def test_a_line_records_the_profile_the_product_resolved() -> None:
     # is decided by its own date, so a rate change needs no product edit.
     product.tax_profile_group_code = profile.group_code
     session.commit()
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -1032,12 +1152,11 @@ def test_a_line_records_the_profile_the_product_resolved() -> None:
             customer_id=customer.id,
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -1098,29 +1217,36 @@ def _invoice_one_line(
     firm_id: UUID,
     branch_id: UUID,
     customer_id: UUID,
-    order: SalesOrder,
-    order_line: SalesOrderLine,
+    note: DeliveryNote,
+    note_line: DeliveryNoteLine,
     quantity: Decimal = Decimal("4"),
     discount_percent: Decimal | None = None,
     bill_discount_percent: Decimal | None = None,
     bill_discount_amount: Decimal | None = None,
     free_quantity: Decimal | None = None,
 ) -> SalesInvoiceResponse:
-    """Bill one order line and return the response the client would see."""
+    """Bill one dispatched note line, and return what the client would see.
+
+    These cases used to bill straight off a sales order, because that was the
+    shortest fixture that would produce an invoice. It was also the reason the
+    delivery-note path had no coverage at all, which is how a bill charging for
+    goods that had been given away survived until 2026-08-24. Billing what was
+    dispatched is both what the application now requires and the path worth
+    testing.
+    """
     service = SalesInvoiceService(session)
     invoice = service.create_invoice(
         SalesInvoiceCreate(
             customer_id=customer_id,
             branch_id=branch_id,
-            invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
+            invoice_date=date(2026, 8, 5),
             bill_discount_percent=bill_discount_percent,
             bill_discount_amount=bill_discount_amount,
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=quantity,
                     unit_price=Decimal("100"),
@@ -1148,6 +1274,7 @@ class _Billing:
         )
         self.customer = _customer(session, firm_id=self.firm.id)
         self.product = _product(session, firm_id=self.firm.id)
+        self._note: tuple[DeliveryNote, DeliveryNoteLine] | None = None
         self.order, self.order_line = _order_for_invoicing(
             session,
             firm_id=self.firm.id,
@@ -1158,15 +1285,68 @@ class _Billing:
             **order_kwargs,  # type: ignore[arg-type]
         )
 
-    def bill(self, **kwargs: object) -> SalesInvoiceResponse:
-        """Invoice the order line."""
+    def ships_on_the_bill(self) -> None:
+        """Leave the delivery note to the service, as a counter firm does.
+
+        The goods still have to be there: billing now dispatches them.
+        """
+        InventoryService(self.session).create_adjustment(
+            InventoryAdjustmentCreate(
+                branch_id=self.branch.id,
+                warehouse_id=self.warehouse.id,
+                product_id=self.product.id,
+                quantity=Decimal("100"),
+                reference_number="ADJ-COUNTER",
+                reference_type="ADJUSTMENT",
+                transaction_date=date(2026, 8, 3),
+            ),
+            firm_scope=self.firm.id,
+            actor_id=uuid4(),
+        )
+        self.session.add(
+            SalesWorkflowSettings(
+                firm_id=self.firm.id,
+                quotation_stage=False,
+                sales_order_stage=True,
+                delivery_note_stage=False,
+            )
+        )
+        self.session.commit()
+
+    def dispatch(
+        self,
+        quantity: Decimal = Decimal("4"),
+        free_quantity: Decimal = Decimal("0"),
+    ) -> tuple[DeliveryNote, DeliveryNoteLine]:
+        """Ship the order once, so there is something to bill."""
+        if self._note is None:
+            note = _dispatched_note(
+                self, quantity=quantity, free_quantity=free_quantity
+            )
+            line = self.session.scalar(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == note.id
+                )
+            )
+            assert line is not None
+            self._note = (note, line)
+        return self._note
+
+    def bill(
+        self,
+        dispatch_quantity: Decimal = Decimal("4"),
+        dispatch_free: Decimal = Decimal("0"),
+        **kwargs: object,
+    ) -> SalesInvoiceResponse:
+        """Ship the order and invoice what left."""
+        note, note_line = self.dispatch(dispatch_quantity, dispatch_free)
         return _invoice_one_line(
             self.session,
             firm_id=self.firm.id,
             branch_id=self.branch.id,
             customer_id=self.customer.id,
-            order=self.order,
-            order_line=self.order_line,
+            note=note,
+            note_line=note_line,
             **kwargs,  # type: ignore[arg-type]
         )
 
@@ -1248,7 +1428,7 @@ def test_a_bill_discount_reduces_the_tax_the_customer_is_charged() -> None:
     customer = _customer(session, firm_id=firm.id)
     product = _product(session, firm_id=firm.id)
     profile = _gst_profile(session, firm=firm, actor_id=actor_id)
-    order, order_line = _order_line_for(
+    note, note_line = _dispatched_line_for(
         session,
         firm=firm,
         branch=branch,
@@ -1263,13 +1443,12 @@ def test_a_bill_discount_reduces_the_tax_the_customer_is_charged() -> None:
             customer_id=customer.id,
             branch_id=branch.id,
             invoice_date=date(2026, 8, 4),
-            allow_direct_sales_order=True,
             bill_discount_percent=Decimal("10"),
             lines=[
                 SalesInvoiceLineWrite(
-                    source_document_type=SalesInvoiceSourceType.SALES_ORDER,
-                    source_document_id=order.id,
-                    source_document_line_id=order_line.id,
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("250"),
@@ -1326,13 +1505,20 @@ def test_a_bill_states_what_was_given_away() -> None:
     setup.order_line.free_quantity = Decimal("1")
     setup.session.commit()
 
-    response = setup.bill()
+    # The gift has to leave the warehouse on the note before the bill can
+    # state it: an invoice inherits free goods from the line it bills.
+    response = setup.bill(
+        dispatch_quantity=Decimal("3"),
+        dispatch_free=Decimal("1"),
+        quantity=Decimal("3"),
+    )
 
     assert response.lines[0].free_quantity == Decimal("1.0000")
     assert response.total_free_quantity == Decimal("1.0000")
-    # Free is free: it is outside the gross and outside the tax base.
-    assert response.lines[0].gross_amount == Decimal("400.0000")
-    assert response.grand_total == Decimal("400.0000")
+    # Free is free: it is outside the gross and outside the tax base. Three
+    # units are charged and a fourth is given, so the gross is three.
+    assert response.lines[0].gross_amount == Decimal("300.0000")
+    assert response.grand_total == Decimal("300.0000")
 
 
 def test_free_goods_are_pro_rated_across_a_partial_invoice() -> None:
@@ -1341,7 +1527,11 @@ def test_free_goods_are_pro_rated_across_a_partial_invoice() -> None:
     setup.order_line.free_quantity = Decimal("2")
     setup.session.commit()
 
-    response = setup.bill(quantity=Decimal("2"))
+    response = setup.bill(
+        dispatch_quantity=Decimal("2"),
+        dispatch_free=Decimal("2"),
+        quantity=Decimal("1"),
+    )
 
     assert response.lines[0].free_quantity == Decimal("1.0000")
 
@@ -1406,6 +1596,13 @@ def _dispatched_note(
                     current_delivery_quantity=quantity,
                     free_quantity=free_quantity,
                     unit_price=Decimal("100"),
+                    # Carry the deal the order struck. A delivery note resolves
+                    # a silent discount from the customer's *current* rate
+                    # rather than from the order line it ships, so saying
+                    # nothing here would let an edit to the master rewrite a
+                    # price agreed weeks earlier.
+                    discount_percent=setup.order_line.discount_percent or None,
+                    discount_amount=setup.order_line.discount_amount or None,
                 )
             ],
         ),
@@ -1699,9 +1896,13 @@ def test_an_approved_order_with_nothing_shipped_can_be_billed() -> None:
     """Offer an approved order that nothing has shipped against.
 
     Billing before dispatch is real -- a firm paid up front invoices the order
-    -- and `allow_direct_sales_order` has always permitted it.
+    -- and it is now the firm's configuration that permits it rather than a
+    boolean the caller set on its own invoice. An order is offered only where
+    the delivery note is left to the service, because that is the only way
+    billing one dispatches anything.
     """
     setup = _Billing(_session_factory()())
+    setup.ships_on_the_bill()
     SalesOrderService(setup.session).approve_order(
         setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
     )
@@ -1750,6 +1951,7 @@ def test_a_draft_order_is_not_billable() -> None:
 def test_an_order_billed_in_full_drops_off_the_list() -> None:
     """Same rule the delivery note follows."""
     setup = _Billing(_session_factory()())
+    setup.ships_on_the_bill()
     service = SalesInvoiceService(setup.session)
     SalesOrderService(setup.session).approve_order(
         setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
@@ -1759,7 +1961,6 @@ def test_an_order_billed_in_full_drops_off_the_list() -> None:
             customer_id=setup.customer.id,
             branch_id=setup.branch.id,
             invoice_date=date(2026, 8, 5),
-            allow_direct_sales_order=True,
             lines=[
                 SalesInvoiceLineWrite(
                     source_document_type=SalesInvoiceSourceType.SALES_ORDER,

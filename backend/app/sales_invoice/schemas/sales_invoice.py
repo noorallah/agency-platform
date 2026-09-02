@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class SalesInvoiceSchema(BaseModel):
@@ -113,11 +113,23 @@ class BillableDocument(SalesInvoiceSchema):
 
 
 class SalesInvoiceLineWrite(SalesInvoiceSchema):
-    """Carry one sales invoice line into a request."""
+    """Carry one sales invoice line into a request.
 
-    source_document_type: SalesInvoiceSourceType
-    source_document_id: UUID
-    source_document_line_id: UUID
+    A line either bills something already raised -- naming the source document
+    and the line within it -- or names a bare `product_id`, which only a firm
+    whose configuration synthesises the earlier stages may do. The two forms
+    are exclusive: a line carrying both says two different things about where
+    the goods came from, and nothing could decide which to believe.
+    """
+
+    #: All three together, or none of them. Absent means the firm's
+    #: configuration is expected to supply the document this line bills.
+    source_document_type: SalesInvoiceSourceType | None = None
+    source_document_id: UUID | None = None
+    source_document_line_id: UUID | None = None
+    #: Required only on a bare line, where there is no source line to read the
+    #: product off.
+    product_id: UUID | None = None
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
     unit_price: Decimal = Field(
@@ -151,6 +163,31 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     manufacturing_date: date | None = None
     remarks: str | None = None
 
+    @model_validator(mode="after")
+    def _one_provenance(self) -> "SalesInvoiceLineWrite":
+        """Refuse a line that names both a source and a product, or neither."""
+        source_fields = (
+            self.source_document_type,
+            self.source_document_id,
+            self.source_document_line_id,
+        )
+        named = [field is not None for field in source_fields]
+        if any(named) and not all(named):
+            raise ValueError(
+                "A line billing a source document must name its type, its id "
+                "and its line together."
+            )
+        if all(named) and self.product_id is not None:
+            raise ValueError(
+                "A line names either the source document it bills or a "
+                "product, never both."
+            )
+        if not any(named) and self.product_id is None:
+            raise ValueError(
+                "A line must name either the source document it bills or a " "product."
+            )
+        return self
+
 
 class SalesInvoiceCreate(SalesInvoiceSchema):
     """Create one sales invoice."""
@@ -171,7 +208,6 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_direct_sales_order: bool = False
     allow_over_invoice: bool = False
     over_invoice_percent: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=9, decimal_places=4

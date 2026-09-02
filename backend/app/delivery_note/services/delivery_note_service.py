@@ -247,7 +247,19 @@ class DeliveryNoteService(TransactionalDocumentService):
     def create_note(
         self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID
     ) -> DeliveryNote:
-        """Create one delivery note."""
+        """Create one delivery note and commit it."""
+        row = self.stage_note(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_note(
+        self, data: DeliveryNoteCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> DeliveryNote:
+        """Create one delivery note without committing it.
+
+        See `SalesOrderService.stage_order` for why the split exists: a caller
+        composing the chain needs every step of it in one transaction.
+        """
         assert_feature_fields(
             self._session,
             firm_id,
@@ -373,7 +385,6 @@ class DeliveryNoteService(TransactionalDocumentService):
             },
         )
         self._flush_or_conflict("Delivery note number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_note(
@@ -471,7 +482,15 @@ class DeliveryNoteService(TransactionalDocumentService):
     def approve_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
-        """Approve one delivery note."""
+        """Approve one delivery note and commit it."""
+        row = self.stage_approval(note_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_approval(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> DeliveryNote:
+        """Approve one delivery note without committing it."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
@@ -495,13 +514,26 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
         return row
 
     def dispatch_note(
         self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> DeliveryNote:
-        """Dispatch one delivery note."""
+        """Dispatch one delivery note and commit it."""
+        row = self.stage_dispatch(note_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_dispatch(
+        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> DeliveryNote:
+        """Dispatch one delivery note without committing it.
+
+        This is where stock leaves and cost of goods sold is posted, so it is
+        the step a composed chain most needs rolled back with everything else:
+        committing here and failing at the invoice is goods gone with nothing
+        owed for them.
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.DISPATCHED.value:
             return row
@@ -533,7 +565,6 @@ class DeliveryNoteService(TransactionalDocumentService):
             firm_id=firm_scope,
             actor_id=actor_id,
         )
-        self._session.commit()
         return row
 
     def complete_note(
@@ -957,11 +988,18 @@ class DeliveryNoteService(TransactionalDocumentService):
     def import_notes(
         self, data: DeliveryNoteImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[DeliveryNote]:
-        """Import a validated batch of delivery notes atomically."""
-        return [
-            self.create_note(record, firm_id=firm_scope, actor_id=actor_id)
+        """Import a validated batch of delivery notes atomically.
+
+        It looped over a committing method while claiming to be atomic, so a
+        batch that failed part-way left the records before it written and the
+        corrected file unusable. See `SalesOrderService.import_orders`.
+        """
+        rows = [
+            self.stage_note(record, firm_id=firm_scope, actor_id=actor_id)
             for record in data.records
         ]
+        self._session.commit()
+        return rows
 
     def _customer_discount(self, customer_id: UUID) -> Decimal | None:
         """Return the customer's standing discount, if they have one.

@@ -209,7 +209,22 @@ class SalesOrderService(TransactionalDocumentService):
     def create_order(
         self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> SalesOrder:
-        """Create one sales order."""
+        """Create one sales order and commit it."""
+        row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_order(
+        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesOrder:
+        """Create one sales order without committing it.
+
+        Split out so a caller composing several documents -- an import, or a
+        firm whose configuration says this stage is synthesised -- can write
+        them all under one transaction. Nothing here is durable until somebody
+        commits, which is the whole point: a chain that commits at every step
+        leaves a dispatched delivery note behind when the invoice fails.
+        """
         assert_feature_fields(
             self._session,
             firm_id,
@@ -315,7 +330,6 @@ class SalesOrderService(TransactionalDocumentService):
             after_data={"order_number": row.order_number, "status": row.status},
         )
         self._flush_or_conflict("Sales order number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_order(
@@ -427,7 +441,19 @@ class SalesOrderService(TransactionalDocumentService):
     def approve_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> SalesOrder:
-        """Approve one sales order."""
+        """Approve one sales order and commit it."""
+        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_approval(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> SalesOrder:
+        """Approve one sales order without committing it.
+
+        Reserves stock and commits credit, so a caller composing the chain gets
+        both effects rolled back with everything else if a later step refuses.
+        """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
@@ -458,7 +484,6 @@ class SalesOrderService(TransactionalDocumentService):
             firm_id=firm_scope,
             after_data={"order_number": row.order_number, "status": row.status},
         )
-        self._session.commit()
         return row
 
     def cancel_order(
@@ -906,11 +931,21 @@ class SalesOrderService(TransactionalDocumentService):
     def import_orders(
         self, data: SalesOrderImportRequest, *, firm_scope: UUID, actor_id: UUID
     ) -> list[SalesOrder]:
-        """Import a validated batch of sales orders atomically."""
-        return [
-            self.create_order(record, firm_id=firm_scope, actor_id=actor_id)
+        """Import a validated batch of sales orders atomically.
+
+        It said "atomically" and looped over a method that commits, so a batch
+        whose fifth record clashed returned an error with the first four
+        already written -- and the corrected file then failed on those four as
+        duplicates, which is the shape that made the branch and warehouse
+        imports impossible to complete. Staging and committing once is what the
+        docstring always claimed.
+        """
+        rows = [
+            self.stage_order(record, firm_id=firm_scope, actor_id=actor_id)
             for record in data.records
         ]
+        self._session.commit()
+        return rows
 
     def _customer_discount(self, customer_id: UUID) -> Decimal | None:
         """Return the customer's standing discount, if they have one.
