@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
+import '../../models/customer.dart';
+import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -67,6 +69,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   bool get _editing => widget.invoiceId != null;
 
+  /// Which stages this firm types. A firm that types neither the order nor the
+  /// delivery note has nothing to pick from, so it names products instead and
+  /// the server raises the documents behind the bill.
+  SalesWorkflowSettings _stages = SalesWorkflowSettings.wholeChain;
+  bool get _direct => _stages.billsDirectly && !_editing;
+
+  List<Customer> _customers = const [];
+  List<Product> _products = const [];
+  String? _customerId;
+  final List<_DirectLine> _directLines = <_DirectLine>[_DirectLine()];
+
   @override
   void initState() {
     super.initState();
@@ -85,12 +98,36 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   Future<void> _load() async {
     try {
-      final List<BillableDocument> rows = await widget.api.billableDocuments();
+      // Fail open to the whole chain: an unreadable setting must leave the
+      // dialog working the way it always has, not strand the user in a mode
+      // their firm does not use.
+      SalesWorkflowSettings stages = SalesWorkflowSettings.wholeChain;
+      try {
+        stages = await widget.api.salesWorkflowSettings();
+      } on ApiException {
+        stages = SalesWorkflowSettings.wholeChain;
+      }
+      final bool direct = stages.billsDirectly && widget.invoiceId == null;
+      final List<BillableDocument> rows =
+          direct ? const [] : await widget.api.billableDocuments();
+      final List<Customer> customers = direct
+          ? (await widget.api.customers(pageSize: 100, sortBy: 'name',
+                  descending: false))
+              .items
+          : const [];
+      final List<Product> products = direct
+          ? (await widget.api.products(pageSize: 100, sortBy: 'name',
+                  descending: false))
+              .items
+          : const [];
       final String? id = widget.invoiceId;
       final Json? existing =
           id == null ? null : _unwrap(await widget.api.salesInvoice(id));
       if (!mounted) return;
       setState(() {
+        _stages = stages;
+        _customers = customers;
+        _products = products;
         _billable = rows;
         _existing = existing;
         _loading = false;
@@ -231,6 +268,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   String _iso(DateTime value) => value.toIso8601String().split('T').first;
 
   Json? _payload() {
+    if (_direct) return _directPayload();
     final BillableDocument? document = _document;
     if (document == null) return null;
     if (!(_form.currentState?.validate() ?? false)) return null;
@@ -260,6 +298,48 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'reference_number': _reference.text.trim(),
       // Omitted when blank: absent is what tells the server there is no
       // discount on the bill, and an empty string is a schema error.
+      if (_billDiscount.text.trim().isNotEmpty)
+        'bill_discount_percent': _billDiscount.text.trim(),
+      'lines': lines,
+    };
+  }
+
+  /// A bill that names products rather than the paperwork behind them.
+  ///
+  /// The server raises the order and the delivery note as it saves, so what
+  /// leaves the warehouse is still recorded on a delivery note and cost of
+  /// goods sold still belongs to it.
+  Json? _directPayload() {
+    final String? customerId = _customerId;
+    if (customerId == null) return null;
+    if (!(_form.currentState?.validate() ?? false)) return null;
+    final List<Json> lines = <Json>[];
+    for (final _DirectLine line in _directLines) {
+      final String product = line.productId ?? '';
+      final String quantity = line.quantity.text.trim();
+      if (product.isEmpty) continue;
+      // A line billed at nothing is left off rather than sent as a zero, the
+      // same rule the document path follows.
+      if (quantity.isEmpty || (double.tryParse(quantity) ?? 0) <= 0) continue;
+      lines.add(<String, dynamic>{
+        'product_id': product,
+        'line_number': lines.length + 1,
+        'current_invoice_quantity': quantity,
+        'unit_price': line.price.text.trim().isEmpty
+            ? '0'
+            : line.price.text.trim(),
+        // Omitted when blank on purpose. Saying nothing takes whatever
+        // arrangement the customer already has; sending a zero refuses it.
+        if (line.discount.text.trim().isNotEmpty)
+          'discount_percent': line.discount.text.trim(),
+      });
+    }
+    if (lines.isEmpty) return null;
+    return <String, dynamic>{
+      'customer_id': customerId,
+      'invoice_date': _iso(widget.today),
+      if (_reference.text.trim().isNotEmpty)
+        'reference_number': _reference.text.trim(),
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
       'lines': lines,
@@ -315,14 +395,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                   child: CircularProgressIndicator(),
                 ),
               )
-            : _billable.isEmpty && !_editing
-                ? const WorkspaceEmptyState(
-                    title: 'Nothing is waiting to be billed',
-                    message: 'Dispatch a delivery note and it appears here. '
-                        'A note that has already been invoiced in full does '
-                        'not.',
-                  )
-                : _form_(theme),
+            : _direct
+                ? _directForm(theme)
+                : _billable.isEmpty && !_editing
+                    ? const WorkspaceEmptyState(
+                        title: 'Nothing is waiting to be billed',
+                        message: 'Dispatch a delivery note and it appears '
+                            'here. A note that has already been invoiced in '
+                            'full does not.',
+                      )
+                    : _form_(theme),
       ),
       actions: [
         TextButton(
@@ -330,13 +412,153 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed:
-              _saving || (_billable.isEmpty && !_editing) ? null : _save,
+          onPressed: _saving || (!_direct && _billable.isEmpty && !_editing)
+              ? null
+              : _save,
           child: Text(
             _saving ? 'Saving…' : (_editing ? 'Save' : 'Create draft'),
           ),
         ),
       ],
+    );
+  }
+
+  /// One screen: who is buying, what they are taking, and what it costs.
+  Widget _directForm(ThemeData theme) => Form(
+        key: _form,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'This firm bills directly. Saving raises the order and the '
+                'delivery note behind this bill, so the goods leave the '
+                'warehouse and the cost is recorded with them.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<String>(
+                initialValue: _customerId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Customer'),
+                items: [
+                  for (final Customer item in _customers)
+                    DropdownMenuItem(
+                      value: item.id,
+                      child: Text(item.name, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                validator: (value) =>
+                    value == null ? 'Choose a customer.' : null,
+                onChanged: (value) => setState(() => _customerId = value),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              for (int index = 0; index < _directLines.length; index++)
+                _directLineRow(index, theme),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () =>
+                      setState(() => _directLines.add(_DirectLine())),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add line'),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _billDiscount,
+                decoration: const InputDecoration(
+                  labelText: 'Discount on the whole bill %',
+                  helperText: 'Comes off what the lines discounted to, and '
+                      'the tax falls with it.',
+                  helperMaxLines: 2,
+                ),
+                keyboardType: TextInputType.number,
+                validator: _percentage,
+                onChanged: (_) => setState(() {}),
+              ),
+              TextFormField(
+                controller: _reference,
+                decoration:
+                    const InputDecoration(labelText: "Customer's reference"),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  _error!,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+
+  Widget _directLineRow(int index, ThemeData theme) {
+    final _DirectLine line = _directLines[index];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: DropdownButtonFormField<String>(
+              initialValue: line.productId,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Product'),
+              items: [
+                for (final Product item in _products)
+                  DropdownMenuItem(
+                    value: item.id,
+                    child: Text(item.name, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (value) => setState(() => line.productId = value),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: TextFormField(
+              controller: line.quantity,
+              decoration: const InputDecoration(labelText: 'Qty'),
+              keyboardType: TextInputType.number,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: TextFormField(
+              controller: line.price,
+              decoration: const InputDecoration(labelText: 'Price'),
+              keyboardType: TextInputType.number,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: TextFormField(
+              controller: line.discount,
+              decoration: const InputDecoration(
+                labelText: 'Disc %',
+                // Never prefilled. A literal 0 reads as a refusal of every
+                // standing arrangement, so blank is what takes the
+                // customer's own rate.
+                helperText: 'Blank takes theirs',
+                helperMaxLines: 2,
+              ),
+              keyboardType: TextInputType.number,
+              validator: _percentage,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove line',
+            onPressed: _directLines.length == 1
+                ? null
+                : () => setState(() => _directLines.removeAt(index)),
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ],
+      ),
     );
   }
 
@@ -479,4 +701,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (parsed < 0 || parsed > 100) return 'Between 0 and 100.';
     return null;
   }
+}
+
+
+/// One line of a bill raised without any paperwork behind it.
+class _DirectLine {
+  String? productId;
+  final TextEditingController quantity = TextEditingController();
+  final TextEditingController price = TextEditingController();
+  final TextEditingController discount = TextEditingController();
 }

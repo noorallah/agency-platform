@@ -884,6 +884,31 @@ class ApiClient {
         ),
       );
 
+  /// Which stages of a sale this firm fills in by hand.
+  ///
+  /// Readable with `SALES_VIEW` -- somebody whose screens the setting moves
+  /// should be able to see the rule behind it -- and writable only with
+  /// `SALES_MANAGE_SETTINGS`.
+  Future<SalesWorkflowSettings> salesWorkflowSettings() async =>
+      SalesWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/sales-orders/workflow-settings'),
+        ),
+      );
+
+  Future<SalesWorkflowSettings> updateSalesWorkflowSettings(
+    SalesWorkflowSettings settings,
+  ) async =>
+      SalesWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/sales-orders/workflow-settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
   Future<CreditControlSettings> creditControlSettings() async =>
       CreditControlSettings.fromJson(
         _unwrapMap(await request('GET', '/api/v1/customers/credit-settings')),

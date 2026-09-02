@@ -16,6 +16,7 @@ import '../models/entities.dart';
 import '../models/inventory.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
+import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'inventory/inventory_management_page.dart';
@@ -164,6 +165,10 @@ class _DesktopShellState extends State<DesktopShell> {
   late final WorkspaceRouter _router;
   late bool _sidebarCollapsed;
   Set<String>? _activeBusinessModuleCodes;
+
+  /// Which sales stages this firm types. The whole chain until told otherwise,
+  /// which is both the platform default and the safe answer on a failed read.
+  SalesWorkflowSettings _salesStages = SalesWorkflowSettings.wholeChain;
   int _lastFirmContextVersion = 0;
 
   /// How often the status bar asks whether the server is still there.
@@ -231,6 +236,24 @@ class _DesktopShellState extends State<DesktopShell> {
     if (mounted) setState(() {});
   }
 
+  /// Learn which stages of a sale this firm types.
+  ///
+  /// Fails open to the whole chain, exactly as `_isEnabledByBusinessProfile`
+  /// does: an unreachable settings endpoint must not hide screens a firm
+  /// depends on. Hiding here is cosmetic either way -- the server refuses a
+  /// bare bill from a firm on the whole chain regardless of what is on screen.
+  Future<void> _refreshSalesStages() async {
+    try {
+      final SalesWorkflowSettings settings =
+          await widget.session.api.salesWorkflowSettings();
+      if (!mounted) return;
+      setState(() => _salesStages = settings);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _salesStages = SalesWorkflowSettings.wholeChain);
+    }
+  }
+
   Future<void> _refreshBusinessModules() async {
     try {
       final List<String> moduleCodes =
@@ -250,6 +273,7 @@ class _DesktopShellState extends State<DesktopShell> {
     }
     _lastFirmContextVersion = version;
     _refreshBusinessModules();
+    _refreshSalesStages();
   }
 
   void _select(AppModule section) {
@@ -276,6 +300,7 @@ class _DesktopShellState extends State<DesktopShell> {
         ),
       )
       .where(_isEnabledByBusinessProfile)
+      .where(_isTypedByThisFirm)
       .toList();
 
   bool _isEnabledByBusinessProfile(ModuleDefinition module) {
@@ -286,6 +311,19 @@ class _DesktopShellState extends State<DesktopShell> {
     final String? code = ModuleCatalog.businessModuleCode(module.id);
     return code == null || configured.contains(code);
   }
+
+  /// Hide the screens for stages this firm does not fill in by hand.
+  ///
+  /// All four sales documents share the single business module code `SALES`,
+  /// so this cannot be expressed through the business profile -- it is its own
+  /// predicate. Sales returns are never hidden: a counter sale still comes
+  /// back, and a return is the only correct way to undo one.
+  bool _isTypedByThisFirm(ModuleDefinition module) => switch (module.id) {
+        AppModule.quotations => _salesStages.quotationStage,
+        AppModule.salesOrders => _salesStages.salesOrderStage,
+        AppModule.deliveryNotes => _salesStages.deliveryNoteStage,
+        _ => true,
+      };
 
 
   @override
