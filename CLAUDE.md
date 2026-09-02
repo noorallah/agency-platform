@@ -462,6 +462,27 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   `created_at=now` by hand on every insert.
   `tests/integration/test_multi_schema_tenancy.py::test_every_deployed_table_can_be_inserted_into`
   is the guard.
+- **A commission payout is snapshotted, and it posts.** `commission_payouts`
+  goes DRAFT → APPROVED → PAID, or CANCELLED. **The report is read once, at
+  accrual, and never again** -- it walks live documents, so re-reading it would
+  answer differently after a settlement is reversed or a rate corrected, and
+  the journal posted at approval would then disagree with the record beside
+  it. One live payout per person per overlapping period, or the same
+  collections are paid twice; a CANCELLED one holds no claim, which is what
+  makes a period accrued at the wrong rate correctable. Approval posts
+  `Dr COMMISSION_EXPENSE / Cr COMMISSION_PAYABLE` and payment
+  `Dr COMMISSION_PAYABLE / Cr` the money account -- two purposes, because an
+  approved payout is a liability that outlives the month it was earned in.
+  Both are nominated per firm in `firm_control_accounts`, and the seeded chart
+  carries `5600` and `2400` (**not** 2200, which is Output Tax). Adjustments
+  need a reason and only work on a draft. `COMMISSION_PAY` is separate from
+  `COMMISSION_MANAGE` and **not** granted to `SALES_MANAGER`: whoever states a
+  debt must not be the one who moves the cash. Two traps found by driving it:
+  a journal reference is unique, so the accrual, the payment and the reversal
+  need distinct ones (`...`, `...-PAY`, `...-REV`) or an approved payout can
+  never be paid; and `JournalEntryEngine._load_accounts` already scopes
+  accounts to the firm, so a second check in the calling service changes no
+  outcome and was removed.
 - **Commission is a ladder, a basis and a ceiling, not one rate.**
   `commission_rules` still holds a flat `percentage`, and a rule with no slabs
   still pays it -- but a rule with `commission_rule_slabs` ignores that column

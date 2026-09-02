@@ -43,6 +43,8 @@ class ControlAccountPurpose(StrEnum):
     INVENTORY_ADJUSTMENT = "INVENTORY_ADJUSTMENT"
     OPENING_BALANCE_EQUITY = "OPENING_BALANCE_EQUITY"
     DISCOUNT_ALLOWED = "DISCOUNT_ALLOWED"
+    COMMISSION_EXPENSE = "COMMISSION_EXPENSE"
+    COMMISSION_PAYABLE = "COMMISSION_PAYABLE"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
     ROUNDING = "ROUNDING"
     CASH = "CASH"
@@ -78,6 +80,13 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     # credit and could not post at all.
     ControlAccountPurpose.OPENING_BALANCE_EQUITY: frozenset({"EQUITY"}),
     ControlAccountPurpose.DISCOUNT_ALLOWED: frozenset({"EXPENSE"}),
+    # What the firm has agreed to pay its salespeople, and what it still
+    # owes them until it does. Two purposes rather than one, because an
+    # approved payout is a liability that outlives the month it was
+    # earned in -- booking the expense straight against cash would say the
+    # firm owes nobody the moment it recognises the cost.
+    ControlAccountPurpose.COMMISSION_EXPENSE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.COMMISSION_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),

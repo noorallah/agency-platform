@@ -22,7 +22,11 @@ String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
 PermissionService _permissions({
-  List<String> perms = const ['COMMISSION_VIEW', 'COMMISSION_MANAGE'],
+  List<String> perms = const [
+    'COMMISSION_VIEW',
+    'COMMISSION_MANAGE',
+    'COMMISSION_PAY',
+  ],
 }) =>
     PermissionService()
       ..applyAccessToken(_accessToken({
@@ -36,6 +40,8 @@ class _CommissionApi extends ApiClient {
     this.report,
     this.refusal,
     this.salesmen = const [],
+    this.payouts = const [],
+    this.accounts = const [],
   })
       : super(
           baseUrl: 'http://localhost:8000',
@@ -57,8 +63,17 @@ class _CommissionApi extends ApiClient {
   /// which is what makes a rate for somebody who has never had one possible.
   final List<Json> salesmen;
 
+  /// What `GET /commission/payouts` answers with.
+  final List<Json> payouts;
+
+  /// What `GET /finance/ledger-accounts` answers with -- deliberately
+  /// including an income account, so the screen has something to filter out.
+  final List<Json> accounts;
+
   final List<String> requested = <String>[];
   Json? created;
+  Json? accrued;
+  Json? paid;
   Json? updated;
   String? updatedPath;
   int? sentVersion;
@@ -75,6 +90,28 @@ class _CommissionApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (path.contains('/finance/ledger-accounts')) {
+      return <String, dynamic>{'data': accounts};
+    }
+    if (path.contains('/commission/payouts')) {
+      if (path.endsWith('/accrue')) {
+        accrued = body;
+        return <String, dynamic>{'data': const <Json>[]};
+      }
+      if (path.endsWith('/approve') || path.endsWith('/cancel')) {
+        sentVersion = expectedVersion;
+        return <String, dynamic>{'data': _draftPayout()};
+      }
+      if (path.endsWith('/pay')) {
+        paid = body;
+        sentVersion = expectedVersion;
+        return <String, dynamic>{'data': _draftPayout()};
+      }
+      return <String, dynamic>{
+        'data': payouts,
+        'pagination': <String, dynamic>{'total_records': payouts.length},
+      };
+    }
     if (path.contains('/commission/report')) {
       return <String, dynamic>{'data': report ?? _emptyReport()};
     }
@@ -106,6 +143,29 @@ class _CommissionApi extends ApiClient {
     return <String, dynamic>{'data': const <Json>[]};
   }
 }
+
+/// One accrued period, still a draft: nothing has reached the ledger.
+Json _draftPayout() => <String, dynamic>{
+      'id': 'p-1',
+      'salesman_id': 'user-1',
+      'salesman_name': 'Asha Rao',
+      'period_start': '2026-04-01',
+      'period_end': '2026-04-30',
+      'basis': 'COLLECTED',
+      'measured_amount': '5000.00',
+      'earned_amount': '500.00',
+      'adjustment_amount': '0.00',
+      'adjustment_reason': null,
+      'payable_amount': '500.00',
+      'status': 'DRAFT',
+      'accrued_on': '2026-04-30',
+      'paid_on': null,
+      'money_account_id': null,
+      'journal_entry_id': null,
+      'payment_journal_entry_id': null,
+      'notes': null,
+      'version': 3,
+    };
 
 /// The firm-wide default: a rate belonging to nobody in particular.
 Json _firmWideRule() => <String, dynamic>{
@@ -186,6 +246,12 @@ Future<void> _pump(
 /// Move to the collections half of the screen, which reads the report.
 Future<void> _showCollected(WidgetTester tester) async {
   await tester.tap(find.text('Collected'));
+  await tester.pumpAndSettle();
+}
+
+/// Move to the payouts part of the screen.
+Future<void> _showPayouts(WidgetTester tester) async {
+  await tester.tap(find.text('Payouts'));
   await tester.pumpAndSettle();
 }
 
@@ -493,6 +559,7 @@ void main() {
     final _CommissionApi api = _CommissionApi(
       rules: <Json>[_firmWideRule(), _salesmanRule()],
       report: _report(),
+      payouts: <Json>[_draftPayout()],
     );
     tester.view.physicalSize = const Size(1366, 768);
     tester.view.devicePixelRatio = 1;
@@ -511,8 +578,18 @@ void main() {
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();
     await _showCollected(tester);
+    await _showPayouts(tester);
 
     expect(tester.takeException(), isNull);
+    // The row actions have to be reachable, not merely rendered. Eight
+    // columns put Approve past the right edge at every window size, where a
+    // test that only asked whether the widget existed said nothing was wrong.
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+    expect(
+      api.requested,
+      contains('POST /api/v1/commission/payouts/p-1/approve'),
+    );
   });
 
   testWidgets('a firm with no commission permission at all sees nothing',
@@ -679,5 +756,175 @@ void main() {
     // column says the rule is on invoiced value.
     expect(find.text('40000.00'), findsWidgets);
     expect(find.text('Invoiced value'), findsOneWidget);
+  });
+
+  // --------------------------------------------------------------------
+  // Payouts
+  // --------------------------------------------------------------------
+
+  testWidgets('a draft payout offers approval and nothing else',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(payouts: <Json>[_draftPayout()]);
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    expect(find.text('Asha Rao'), findsOneWidget);
+    expect(find.text('Approve'), findsOneWidget);
+    // Paying an unapproved payout is refused by the server, and a button that
+    // is going to be refused reads as a working action until somebody needs
+    // it.
+    expect(find.text('Pay'), findsNothing);
+    expect(find.text('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('an approved payout offers payment', (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      payouts: <Json>[
+        <String, dynamic>{..._draftPayout(), 'status': 'APPROVED'},
+      ],
+    );
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    expect(find.text('Pay'), findsOneWidget);
+    expect(find.text('Approve'), findsNothing);
+  });
+
+  testWidgets('a paid payout offers nothing at all', (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      payouts: <Json>[
+        <String, dynamic>{..._draftPayout(), 'status': 'PAID'},
+      ],
+    );
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    expect(find.text('Approve'), findsNothing);
+    expect(find.text('Pay'), findsNothing);
+    expect(find.text('Cancel'), findsNothing);
+  });
+
+  testWidgets('without COMMISSION_PAY the Pay action is not offered',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      payouts: <Json>[
+        <String, dynamic>{..._draftPayout(), 'status': 'APPROVED'},
+      ],
+    );
+    await _pump(
+      tester,
+      api,
+      // Whoever states a debt should not be the one who moves the cash.
+      permissions: _permissions(
+        perms: const ['COMMISSION_VIEW', 'COMMISSION_MANAGE'],
+      ),
+    );
+    await _showPayouts(tester);
+
+    expect(find.text('Pay'), findsNothing);
+    expect(find.text('Cancel'), findsOneWidget);
+  });
+
+  testWidgets('approving carries the version the row was read at',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(payouts: <Json>[_draftPayout()]);
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.text('Approve'));
+    await tester.pumpAndSettle();
+
+    expect(api.requested, contains('POST /api/v1/commission/payouts/p-1/approve'));
+    expect(api.sentVersion, 3);
+  });
+
+  testWidgets('an accrual sends only the period', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'From'), '2026-04-01');
+    await tester.enterText(find.widgetWithText(TextField, 'To'), '2026-04-30');
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue'));
+    await tester.pumpAndSettle();
+
+    // The amounts come from the report, not from anybody's typing.
+    expect(api.accrued, <String, dynamic>{
+      'period_start': '2026-04-01',
+      'period_end': '2026-04-30',
+    });
+  });
+
+  testWidgets('an accrual period that runs backwards is refused before sending',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue period'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'From'), '2026-04-30');
+    await tester.enterText(find.widgetWithText(TextField, 'To'), '2026-04-01');
+    await tester.tap(find.widgetWithText(FilledButton, 'Accrue'));
+    await tester.pumpAndSettle();
+
+    expect(api.accrued, isNull);
+    expect(find.textContaining('cannot end before it starts'), findsOneWidget);
+  });
+
+  testWidgets('the payment form offers only accounts money can leave from',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      payouts: <Json>[
+        <String, dynamic>{..._draftPayout(), 'status': 'APPROVED'},
+      ],
+      accounts: <Json>[
+        <String, dynamic>{
+          'id': 'acct-cash',
+          'firm_id': 'firm-1',
+          'account_group_id': 'g1',
+          'code': '1000',
+          'name': 'Cash',
+          'account_type': 'ASSET',
+          'description': '',
+          'is_balance_sheet': true,
+          'is_profit_loss': false,
+          'requires_cost_center': false,
+          'requires_profit_center': false,
+          'is_active': true,
+        },
+        <String, dynamic>{
+          'id': 'acct-sales',
+          'firm_id': 'firm-1',
+          'account_group_id': 'g2',
+          'code': '4000',
+          'name': 'Sales Revenue',
+          'account_type': 'INCOME',
+          'description': '',
+          'is_balance_sheet': false,
+          'is_profit_loss': true,
+          'requires_cost_center': false,
+          'requires_profit_center': false,
+          'is_active': true,
+        },
+      ],
+    );
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    await tester.tap(find.text('Pay'));
+    await tester.pumpAndSettle();
+
+    // Offering the whole chart would invite a payment posted against revenue.
+    expect(find.text('1000 — Cash'), findsOneWidget);
+    expect(find.text('4000 — Sales Revenue'), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Record payment'));
+    await tester.pumpAndSettle();
+    expect(api.paid!['money_account_id'], 'acct-cash');
   });
 }

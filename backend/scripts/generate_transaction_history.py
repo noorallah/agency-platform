@@ -155,6 +155,10 @@ RESET_ORDER: tuple[str, ...] = (
     # makes the next return collide with a number the surviving rows already
     # hold -- which is exactly how a fresh WHOLE01 answered 409 to the first
     # return raised against it.
+    # Commission payouts before anything else: they reference the journal
+    # entries the history clears, and a payout that outlives its journal is a
+    # debt the books can no longer explain.
+    "commission_payouts",
     "sales_quotation_attachments",
     "sales_quotation_notes",
     "sales_quotation_lines",

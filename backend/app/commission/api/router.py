@@ -20,7 +20,14 @@ from app.commission.schemas import (
     CommissionRuleStatusEnum,
     CommissionRuleUpdate,
 )
-from app.commission.services import CommissionService
+from app.commission.schemas.payout import (
+    CommissionPayoutAccrue,
+    CommissionPayoutPay,
+    CommissionPayoutResponse,
+    CommissionPayoutStatusEnum,
+    CommissionPayoutUpdate,
+)
+from app.commission.services import CommissionPayoutService, CommissionService
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -40,6 +47,12 @@ CommissionViewScope = Annotated[
 ]
 CommissionManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("COMMISSION_MANAGE")
+]
+#: Money leaving the firm is a separate authority from agreeing a rate. A sales
+#: manager who could approve their own team's payouts -- or their own -- is the
+#: segregation of duties this pair exists to keep.
+CommissionPayScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("COMMISSION_PAY")
 ]
 
 
@@ -171,3 +184,196 @@ def delete_commission_rule(
     )
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----------------------------------------------------------------------
+# Payouts
+#
+# Declared **above** `/rules/{rule_id}` is unnecessary here -- the prefixes
+# differ -- but `/payouts/accrue` is declared above `/payouts/{payout_id}`
+# for the reason the module docstring gives.
+# ----------------------------------------------------------------------
+
+
+@router.get("/payouts", response_model=PaginatedResponse[CommissionPayoutResponse])
+def list_commission_payouts(
+    scope: CommissionViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    salesman_id: Annotated[UUID | None, Query()] = None,
+    payout_status: Annotated[
+        CommissionPayoutStatusEnum | None, Query(alias="status")
+    ] = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CommissionPayoutResponse]:
+    """Return a page of commission payouts."""
+    service = CommissionPayoutService(db)
+    rows, total = service.list_payouts(
+        firm_id=scope.firm_id,
+        page=page,
+        page_size=page_size,
+        salesman_id=salesman_id,
+        status=payout_status,
+    )
+    names = service.names_for(scope.firm_id)
+    return PaginatedResponse(
+        data=[service.payout_response(row, names) for row in rows],
+        pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
+    )
+
+
+@router.post(
+    "/payouts/accrue",
+    response_model=ApiResponse[list[CommissionPayoutResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def accrue_commission_payouts(
+    payload: CommissionPayoutAccrue,
+    scope: CommissionManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CommissionPayoutResponse]]:
+    """Turn what a period earned into draft payouts."""
+    service = CommissionPayoutService(db)
+    rows = service.accrue(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    db.commit()
+    names = service.names_for(scope.firm_id)
+    return ApiResponse(
+        data=[service.payout_response(row, names) for row in rows],
+        message=(
+            f"{len(rows)} payout(s) accrued."
+            if rows
+            else "Nobody earned anything in that period."
+        ),
+    )
+
+
+@router.get(
+    "/payouts/{payout_id}", response_model=ApiResponse[CommissionPayoutResponse]
+)
+def get_commission_payout(
+    payout_id: UUID,
+    scope: CommissionViewScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CommissionPayoutResponse]:
+    """Return one commission payout."""
+    service = CommissionPayoutService(db)
+    row = service.get_payout(payout_id, firm_id=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(
+        data=service.payout_response(row, service.names_for(scope.firm_id))
+    )
+
+
+@router.put(
+    "/payouts/{payout_id}", response_model=ApiResponse[CommissionPayoutResponse]
+)
+def update_commission_payout(
+    payout_id: UUID,
+    payload: CommissionPayoutUpdate,
+    scope: CommissionManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CommissionPayoutResponse]:
+    """Adjust or annotate a payout that has not been approved."""
+    service = CommissionPayoutService(db)
+    row = service.update_payout(
+        payout_id,
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    db.commit()
+    db.refresh(row)
+    set_etag(response, row)
+    return ApiResponse(
+        data=service.payout_response(row, service.names_for(scope.firm_id)),
+        message="Payout updated.",
+    )
+
+
+@router.post(
+    "/payouts/{payout_id}/approve",
+    response_model=ApiResponse[CommissionPayoutResponse],
+)
+def approve_commission_payout(
+    payout_id: UUID,
+    scope: CommissionManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CommissionPayoutResponse]:
+    """Recognise the debt and post the accrual journal."""
+    service = CommissionPayoutService(db)
+    row = service.approve(
+        payout_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    db.commit()
+    db.refresh(row)
+    set_etag(response, row)
+    return ApiResponse(
+        data=service.payout_response(row, service.names_for(scope.firm_id)),
+        message="Payout approved and posted.",
+    )
+
+
+@router.post(
+    "/payouts/{payout_id}/pay", response_model=ApiResponse[CommissionPayoutResponse]
+)
+def pay_commission_payout(
+    payout_id: UUID,
+    payload: CommissionPayoutPay,
+    scope: CommissionPayScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CommissionPayoutResponse]:
+    """Settle an approved payout against the account the money left."""
+    service = CommissionPayoutService(db)
+    row = service.pay(
+        payout_id,
+        payload,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    db.commit()
+    db.refresh(row)
+    set_etag(response, row)
+    return ApiResponse(
+        data=service.payout_response(row, service.names_for(scope.firm_id)),
+        message="Payout paid.",
+    )
+
+
+@router.post(
+    "/payouts/{payout_id}/cancel",
+    response_model=ApiResponse[CommissionPayoutResponse],
+)
+def cancel_commission_payout(
+    payout_id: UUID,
+    scope: CommissionManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CommissionPayoutResponse]:
+    """Withdraw a payout, reversing the accrual if one was posted."""
+    service = CommissionPayoutService(db)
+    row = service.cancel(
+        payout_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
+    )
+    db.commit()
+    db.refresh(row)
+    set_etag(response, row)
+    return ApiResponse(
+        data=service.payout_response(row, service.names_for(scope.firm_id)),
+        message="Payout cancelled.",
+    )

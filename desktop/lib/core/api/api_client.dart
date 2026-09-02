@@ -3444,6 +3444,93 @@ class ApiClient {
   Future<void> deleteSalesTarget(String id) =>
       request('DELETE', '/api/v1/sales-targets/$id');
 
+  // ---- commission payouts ---------------------------------------------
+
+  Future<PagedResult<CommissionPayoutRecord>> commissionPayouts({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/commission/payouts',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<CommissionPayoutRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => CommissionPayoutRecord.fromJson(
+                  Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Turn what a period earned into draft payouts, one per person.
+  Future<List<CommissionPayoutRecord>> accrueCommissionPayouts(
+      Json body) async {
+    final Json response =
+        await request('POST', '/api/v1/commission/payouts/accrue', body: body);
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            CommissionPayoutRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<CommissionPayoutRecord> updateCommissionPayout(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      CommissionPayoutRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/commission/payouts/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<CommissionPayoutRecord> approveCommissionPayout(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CommissionPayoutRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/commission/payouts/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<CommissionPayoutRecord> payCommissionPayout(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      CommissionPayoutRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/commission/payouts/$id/pay',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<CommissionPayoutRecord> cancelCommissionPayout(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CommissionPayoutRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/commission/payouts/$id/cancel',
+        expectedVersion: expectedVersion,
+      )));
+
   // ---- commission ----------------------------------------------------
 
   Future<PagedResult<CommissionRuleRecord>> commissionRules({

@@ -191,6 +191,20 @@ CHART: tuple[SeedAccount, ...] = (
         "EQ",
         ControlAccountPurpose.OPENING_BALANCE_EQUITY,
     ),
+    SeedAccount(
+        "5600",
+        "Commission Expense",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.COMMISSION_EXPENSE,
+    ),
+    SeedAccount(
+        "2400",
+        "Commission Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.COMMISSION_PAYABLE,
+    ),
 )
 
 
