@@ -3376,6 +3376,74 @@ class ApiClient {
   Future<void> deletePromotionCoupon(String id) =>
       request('DELETE', '/api/v1/promotions/coupons/$id');
 
+  // ---- sales targets --------------------------------------------------
+
+  Future<PagedResult<SalesTargetRecord>> salesTargets({
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-targets',
+      query: {'page': '$page', 'page_size': '$pageSize'},
+    );
+    final dynamic data = response['data'];
+    return PagedResult<SalesTargetRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  SalesTargetRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Every target overlapping the window, against what it took.
+  ///
+  /// Each is measured over its own period and on its own basis; the window
+  /// only chooses which targets are worth reporting.
+  Future<List<SalesTargetAchievementRecord>> salesTargetAchievement({
+    required String fromDate,
+    required String toDate,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/sales-targets/achievement',
+      query: {'from_date': fromDate, 'to_date': toDate},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) => SalesTargetAchievementRecord.fromJson(
+            Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<SalesTargetRecord> createSalesTarget(Json body) async =>
+      SalesTargetRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/sales-targets', body: body)),
+      );
+
+  Future<SalesTargetRecord> updateSalesTarget(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      SalesTargetRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/sales-targets/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deleteSalesTarget(String id) =>
+      request('DELETE', '/api/v1/sales-targets/$id');
+
   // ---- commission ----------------------------------------------------
 
   Future<PagedResult<CommissionRuleRecord>> commissionRules({

@@ -173,6 +173,7 @@ document is built, on the document's own date.
 | Concern | Where | Enforced? |
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
+| Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
 | Territory and route | `app/sales` | A route's effective window decides whether a document may be tagged with it, judged on the document's own date |
@@ -570,9 +571,26 @@ invoices carries no salesman, so the whole default was being reported as
 commission payable to nobody. The collected figure stays; only the payout is
 zero.
 
-## 10. No sales targets or quotas
+## 10. ~~No sales targets or quotas~~ — landed 2026-09-03
 
-Nothing to measure the by-salesman and by-territory reports against.
+`app/sales_targets` gives the by-salesman and by-territory reports the half
+they were missing: they answered "how much" and never "how much against what".
+
+Two things are configuration rather than a decision baked in. **`basis` is
+INVOICED or COLLECTED**, because firms genuinely differ about what counts as
+sold -- and commission here is earned on money collected, so a firm running
+both can align them or not. And **the period is given as dates**, not derived
+from a name: a firm's quarter does not always start where the calendar's does.
+
+**Achievement is measured over the target's own period and on its own basis**,
+never over the window a report asks for. A target for April is April's
+achievement whether the report covers the month, the quarter or the year --
+the window only chooses which targets are worth reporting. Measuring over the
+window instead would answer a monthly target with a year of sales.
+
+Attribution is the document's own `salesman_id`, the same rule commission
+follows. A target beaten reports a shortfall of zero rather than a negative
+number, which is a sentence nobody can read.
 
 ## 11. Sending a bill by email is on the backlog
 

@@ -107,3 +107,100 @@ class CommissionReport {
         ],
       );
 }
+
+
+/// What a firm expects a salesman or a round to sell, over a period.
+class SalesTargetRecord {
+  const SalesTargetRecord({
+    required this.id,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.targetAmount,
+    this.salesmanId = '',
+    this.salesmanName = '',
+    this.territoryId = '',
+    this.periodType = 'MONTHLY',
+    this.basis = 'INVOICED',
+    this.notes = '',
+    this.status = 'ACTIVE',
+    this.version = 0,
+  });
+
+  final String id;
+  final String salesmanId;
+  final String salesmanName;
+  final String territoryId;
+  final String periodStart;
+  final String periodEnd;
+  final String periodType;
+
+  /// INVOICED or COLLECTED — what this firm counts as having been sold.
+  final String basis;
+  final String targetAmount;
+  final String notes;
+  final String status;
+  final int version;
+
+  /// Who the target is for. Neither a salesman nor a round means the firm.
+  String get scopeLabel =>
+      salesmanName.isNotEmpty ? salesmanName : 'Whole firm';
+
+  factory SalesTargetRecord.fromJson(Json json) => SalesTargetRecord(
+        id: stringValue(json['id']),
+        salesmanId: stringValue(json['salesman_id']),
+        salesmanName: stringValue(json['salesman_name']),
+        territoryId: stringValue(json['territory_id']),
+        periodStart: stringValue(json['period_start']),
+        periodEnd: stringValue(json['period_end']),
+        periodType: stringValue(json['period_type']),
+        basis: stringValue(json['basis']),
+        targetAmount: stringValue(json['target_amount']),
+        notes: stringValue(json['notes']),
+        status: stringValue(json['status']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// One target, and what actually happened against it.
+class SalesTargetAchievementRecord {
+  const SalesTargetAchievementRecord({
+    required this.targetId,
+    required this.salesmanName,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.targetAmount,
+    required this.achievedAmount,
+    required this.shortfallAmount,
+    required this.achievedPercent,
+    this.basis = 'INVOICED',
+    this.periodType = 'MONTHLY',
+  });
+
+  final String targetId;
+  final String salesmanName;
+  final String periodStart;
+  final String periodEnd;
+  final String periodType;
+  final String basis;
+  final String targetAmount;
+  final String achievedAmount;
+
+  /// What is left to sell, floored at zero: a target beaten is not a
+  /// shortfall of a negative amount.
+  final String shortfallAmount;
+  final String achievedPercent;
+
+  factory SalesTargetAchievementRecord.fromJson(Json json) =>
+      SalesTargetAchievementRecord(
+        targetId: stringValue(json['target_id']),
+        salesmanName: stringValue(json['salesman_name']),
+        periodStart: stringValue(json['period_start']),
+        periodEnd: stringValue(json['period_end']),
+        periodType: stringValue(json['period_type']),
+        basis: stringValue(json['basis']),
+        targetAmount: stringValue(json['target_amount']),
+        achievedAmount: stringValue(json['achieved_amount']),
+        shortfallAmount: stringValue(json['shortfall_amount']),
+        achievedPercent: stringValue(json['achieved_percent']),
+      );
+}

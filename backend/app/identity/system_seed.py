@@ -204,6 +204,10 @@ PERMISSION_GROUPS = {
         "PRICE_LIST_VIEW",
         "PRICE_LIST_MANAGE",
     ),
+    "sales_targets": (
+        "SALES_TARGET_VIEW",
+        "SALES_TARGET_MANAGE",
+    ),
     "promotions": (
         "PROMOTION_VIEW",
         # `SALES_MANAGER` is granted `PROMOTION_VIEW` alone, below: a promotion
@@ -294,6 +298,7 @@ _operational_permissions = _codes(
     "uom_framework",
     "pricing",
     "promotions",
+    "sales_targets",
     "commission",
     "accounting",
     "report",
@@ -346,6 +351,9 @@ ROLE_PERMISSION_CODES = {
             # discount the firm gives away is a control over the role, and
             # `PROMOTION_MANAGE` is deliberately absent here.
             "PROMOTION_VIEW",
+            # Reads the number their team is measured on. Setting it is the
+            # firm's decision, not the role the target constrains.
+            "SALES_TARGET_VIEW",
             # A sales manager reads what their team earned; setting the rate
             # they are paid on is not theirs, the way the credit policy that
             # limits their own sales is not theirs to switch off.

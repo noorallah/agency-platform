@@ -34,6 +34,7 @@ import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'commission/commission_page.dart';
+import 'commission/sales_target_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
@@ -1911,6 +1912,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'targets' => SalesTargetPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1959,6 +1965,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Promotions',
           'The offers running now. Several apply to one order, in priority '
               'order, and percentages compound on what is left.',
+        ),
+      'targets' => (
+          'Targets',
+          'What the firm expects to sell, and how it went. Each target is '
+              'measured over its own period, not the window above it.',
         ),
       'commission' => (
           'Commission',
