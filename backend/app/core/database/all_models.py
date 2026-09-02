@@ -35,6 +35,7 @@ from app.inventory.models import (
 )
 from app.pricing.models import price_list  # noqa: F401
 from app.products.models import product  # noqa: F401
+from app.promotions.models import promotion  # noqa: F401
 from app.purchase.models import purchase  # noqa: F401
 from app.purchase_invoice.models import purchase_invoice  # noqa: F401
 from app.purchase_return.models import purchase_return  # noqa: F401

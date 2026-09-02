@@ -204,6 +204,13 @@ PERMISSION_GROUPS = {
         "PRICE_LIST_VIEW",
         "PRICE_LIST_MANAGE",
     ),
+    "promotions": (
+        "PROMOTION_VIEW",
+        # `SALES_MANAGER` is granted `PROMOTION_VIEW` alone, below: a promotion
+        # is a discount the firm gives away, and the role measured on what it
+        # sells does not set it.
+        "PROMOTION_MANAGE",
+    ),
     "commission": (
         "COMMISSION_VIEW",
         "COMMISSION_MANAGE",
@@ -286,6 +293,7 @@ _operational_permissions = _codes(
     "batch_serial",
     "uom_framework",
     "pricing",
+    "promotions",
     "commission",
     "accounting",
     "report",
@@ -333,6 +341,11 @@ ROLE_PERMISSION_CODES = {
             "PRODUCT_VIEW",
             "TERRITORY_VIEW",
             "TERRITORY_ASSIGN_CUSTOMERS",
+            # Reads the offers their team sells under. Setting them is not
+            # theirs, for the reason the commission rate below is not: a
+            # discount the firm gives away is a control over the role, and
+            # `PROMOTION_MANAGE` is deliberately absent here.
+            "PROMOTION_VIEW",
             # A sales manager reads what their team earned; setting the rate
             # they are paid on is not theirs, the way the credit policy that
             # limits their own sales is not theirs to switch off.

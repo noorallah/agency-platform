@@ -11,11 +11,16 @@ invoice line as a lie.
 Three rules live here, and nowhere else:
 
 **What was asked for wins over what was assumed.** An explicit amount beats an
-explicit percentage, which beats what the firm's price lists promise this
-customer on this product, which beats the customer's blanket standing rate. An explicit
+explicit percentage, which beats what the firm's promotions earned this line,
+which beats what the firm's price lists promise this customer on this product,
+which beats the customer's blanket standing rate. An explicit
 zero is an instruction -- it is how somebody says "not this time" to a customer
 who normally gets ten percent -- so `None` and `0` are different answers and the
 schemas must keep them apart.
+
+A promotion sits below anything typed and above the standing arrangements for
+the same reason each of those is where it is: a person deciding beats a rule,
+and an offer the firm is running today is more specific than a list agreed once.
 
 **The stored pair agrees with itself.** Where an amount is given, the percentage
 recorded is the one that amount actually represents, rather than whatever the
@@ -53,6 +58,7 @@ def resolve_line_discount(
     gross: Decimal,
     percent: Decimal | None = None,
     amount: Decimal | None = None,
+    promotion_amount: Decimal | None = None,
     price_list_percent: Decimal | None = None,
     customer_default: Decimal | None = None,
     subject: str = "the line amount",
@@ -65,6 +71,12 @@ def resolve_line_discount(
         percent: The percentage the caller asked for, or None if they said
             nothing. Zero is an answer, not a silence.
         amount: The currency figure the caller asked for, or None.
+        promotion_amount: What the firm's promotions earned this line, already
+            stacked and compounded by the promotion engine, or None where none
+            applied. Ranked below anything typed, for the same reason the price
+            list is -- a person deciding beats a rule -- and above the price
+            list, because an offer the firm is running now is more specific
+            than a standing arrangement.
         price_list_percent: What the firm's price lists promise this customer
             on this product, or None where no list mentions it. Ranked above
             the blanket rate because it is the more specific arrangement, and
@@ -91,6 +103,9 @@ def resolve_line_discount(
     elif percent is not None:
         applied = quantize_money(gross * quantize_money(percent) / HUNDRED)
         source = "percent"
+    elif promotion_amount is not None:
+        applied = quantize_money(promotion_amount)
+        source = "promotion"
     elif price_list_percent is not None:
         # A list that names the product at zero is an arrangement too, so this
         # branch is taken on `is not None` rather than on being positive --

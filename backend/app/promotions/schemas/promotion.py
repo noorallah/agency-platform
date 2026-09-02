@@ -1,0 +1,302 @@
+"""Validated contracts for promotions."""
+
+from datetime import date
+from decimal import Decimal
+from enum import StrEnum
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class PromotionSchema(BaseModel):
+    """Apply strict input and ORM response behavior."""
+
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
+
+
+class PromotionStatus(StrEnum):
+    """Supported promotion lifecycle statuses.
+
+    Only ACTIVE promotions are evaluated. DRAFT is editable in place; an ACTIVE
+    one is superseded by a new version rather than edited, so a document priced
+    under it stays explicable.
+    """
+
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
+class PromotionConditionOperator(StrEnum):
+    """Supported promotion condition operators."""
+
+    EQUALS = "EQUALS"
+    NOT_EQUALS = "NOT_EQUALS"
+    IN = "IN"
+    NOT_IN = "NOT_IN"
+    GREATER_THAN = "GREATER_THAN"
+    GREATER_OR_EQUAL = "GREATER_OR_EQUAL"
+    LESS_THAN = "LESS_THAN"
+    LESS_OR_EQUAL = "LESS_OR_EQUAL"
+    BETWEEN = "BETWEEN"
+    EXISTS = "EXISTS"
+    NOT_EXISTS = "NOT_EXISTS"
+
+
+class PromotionField(StrEnum):
+    """The keys a promotion may be matched on.
+
+    Every one of these is either already on a sales document header or already
+    derived per line while the document is priced. That is deliberate: the tax
+    review found rules scoped by a country no document ever sent, so those
+    rules could never fire and nobody knew. A key nothing can satisfy is worse
+    than a key that does not exist.
+    """
+
+    CUSTOMER_ID = "customer_id"
+    BRANCH_ID = "branch_id"
+    TERRITORY_ID = "territory_id"
+    ROUTE_ID = "route_id"
+    SALESMAN_ID = "salesman_id"
+    PRODUCT_ID = "product_id"
+    PRODUCT_CATEGORY_ID = "product_category_id"
+    PRODUCT_TYPE = "product_type"
+    LINE_QUANTITY = "line_quantity"
+    LINE_GROSS = "line_gross"
+    DOCUMENT_GROSS = "document_gross"
+    TRANSACTION_TYPE = "transaction_type"
+    TRANSACTION_DATE = "transaction_date"
+
+
+class PromotionActionType(StrEnum):
+    """The benefits a promotion may give.
+
+    Five, and each one changes a value the sales documents already store and
+    already tax correctly. Nothing here is declared and unread -- the tax review
+    recorded two flags that were stored, returned and acted on by nobody, which
+    silently produced wrong money.
+    """
+
+    LINE_DISCOUNT_PERCENT = "LINE_DISCOUNT_PERCENT"
+    LINE_DISCOUNT_AMOUNT = "LINE_DISCOUNT_AMOUNT"
+    BILL_DISCOUNT_PERCENT = "BILL_DISCOUNT_PERCENT"
+    BILL_DISCOUNT_AMOUNT = "BILL_DISCOUNT_AMOUNT"
+    FREE_QUANTITY = "FREE_QUANTITY"
+
+
+class PromotionConditionWrite(PromotionSchema):
+    """Carry one promotion condition into a request."""
+
+    sequence: int = Field(default=1, ge=1)
+    field_key: PromotionField
+    operator: PromotionConditionOperator
+    value_text: str | None = Field(default=None, max_length=500)
+    value_number: Decimal | None = Field(default=None, max_digits=18, decimal_places=4)
+    value_date: date | None = None
+    value_boolean: bool | None = None
+    value_json: list[object] | None = None
+
+    @model_validator(mode="after")
+    def _value_matches_operator(self) -> "PromotionConditionWrite":
+        """Refuse a condition whose operator has nothing to compare against.
+
+        `IN` with no list and `BETWEEN` with one bound are conditions that can
+        never be true, which is a configuration nobody would write on purpose
+        and one no screen would explain afterwards.
+        """
+        listed = {
+            PromotionConditionOperator.IN,
+            PromotionConditionOperator.NOT_IN,
+        }
+        if self.operator in listed and not self.value_json:
+            raise ValueError("IN and NOT_IN need a list of values.")
+        if self.operator is PromotionConditionOperator.BETWEEN and (
+            not isinstance(self.value_json, list) or len(self.value_json) != 2
+        ):
+            raise ValueError("BETWEEN needs exactly two values.")
+        unary = {
+            PromotionConditionOperator.EXISTS,
+            PromotionConditionOperator.NOT_EXISTS,
+        }
+        if (
+            self.operator not in unary
+            and self.operator not in listed
+            and self.operator is not PromotionConditionOperator.BETWEEN
+            and self.value_text is None
+            and self.value_number is None
+            and self.value_date is None
+            and self.value_boolean is None
+        ):
+            raise ValueError("This operator needs a value to compare against.")
+        return self
+
+
+class PromotionActionWrite(PromotionSchema):
+    """Carry one promotion action into a request."""
+
+    sequence: int = Field(default=1, ge=1)
+    action_type: PromotionActionType
+    #: A rate, for the two percent actions. Bounded at 100 because a promotion
+    #: that takes more than the line is a configuration that would make the
+    #: document unsaveable rather than cheap.
+    percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    amount: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
+    #: For FREE_QUANTITY: how many must be bought, and how many come free.
+    buy_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+    free_quantity: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
+
+    @model_validator(mode="after")
+    def _parameters_match_the_action(self) -> "PromotionActionWrite":
+        """Refuse an action missing the number it needs to do anything."""
+        percent_actions = {
+            PromotionActionType.LINE_DISCOUNT_PERCENT,
+            PromotionActionType.BILL_DISCOUNT_PERCENT,
+        }
+        amount_actions = {
+            PromotionActionType.LINE_DISCOUNT_AMOUNT,
+            PromotionActionType.BILL_DISCOUNT_AMOUNT,
+        }
+        if self.action_type in percent_actions and self.percent is None:
+            raise ValueError("A percentage benefit needs a percent.")
+        if self.action_type in amount_actions and self.amount is None:
+            raise ValueError("An amount benefit needs an amount.")
+        if self.action_type is PromotionActionType.FREE_QUANTITY and (
+            self.buy_quantity is None or self.free_quantity is None
+        ):
+            raise ValueError("Free goods need a buy quantity and a free quantity.")
+        return self
+
+
+class PromotionWrite(PromotionSchema):
+    """Create or replace one promotion."""
+
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    priority: int = Field(default=100, ge=1, le=9999)
+    status: PromotionStatus = PromotionStatus.DRAFT
+    allow_stacking: bool = True
+    effective_from: date | None = None
+    effective_to: date | None = None
+    conditions: list[PromotionConditionWrite] = Field(
+        default_factory=list, max_length=50
+    )
+    actions: list[PromotionActionWrite] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def _window_is_ordered(self) -> "PromotionWrite":
+        """Refuse a window that ends before it starts."""
+        if (
+            self.effective_from is not None
+            and self.effective_to is not None
+            and self.effective_to < self.effective_from
+        ):
+            raise ValueError("A promotion cannot end before it starts.")
+        return self
+
+
+class PromotionConditionResponse(PromotionSchema):
+    """Expose one stored condition."""
+
+    id: UUID
+    sequence: int
+    field_key: str
+    operator: str
+    value_text: str | None
+    value_number: Decimal | None
+    value_date: date | None
+    value_boolean: bool | None
+    value_json: list[object] | dict[str, object] | None
+
+
+class PromotionActionResponse(PromotionSchema):
+    """Expose one stored action."""
+
+    id: UUID
+    sequence: int
+    action_type: str
+    parameters: dict[str, object]
+
+
+class PromotionResponse(PromotionSchema):
+    """Expose one stored promotion."""
+
+    id: UUID
+    firm_id: UUID
+    code: str
+    name: str
+    description: str | None
+    priority: int
+    status: str
+    allow_stacking: bool
+    effective_from: date | None
+    effective_to: date | None
+    version_group_id: UUID
+    version_number: int
+    supersedes_promotion_id: UUID | None
+    conditions: list[PromotionConditionResponse]
+    actions: list[PromotionActionResponse]
+    version: int
+
+
+class PromotionLineRequest(PromotionSchema):
+    """One line the engine is asked to price."""
+
+    line_number: int = Field(ge=1)
+    product_id: UUID | None = None
+    quantity: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    gross: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    #: True when somebody typed a discount on this line. Promotions are not
+    #: evaluated for it -- a person deciding beats a rule -- and the trace says
+    #: so, rather than reporting a benefit the line never received.
+    caller_priced: bool = False
+
+
+class PromotionEvaluationRequest(PromotionSchema):
+    """Ask what benefits a document earns."""
+
+    transaction_type: str = Field(min_length=1, max_length=40)
+    transaction_date: date
+    customer_id: UUID | None = None
+    branch_id: UUID | None = None
+    territory_id: UUID | None = None
+    route_id: UUID | None = None
+    salesman_id: UUID | None = None
+    #: True when somebody typed a discount on the whole bill, for the same
+    #: reason `PromotionLineRequest.caller_priced` exists.
+    caller_priced_bill: bool = False
+    lines: list[PromotionLineRequest] = Field(default_factory=list, max_length=1000)
+
+
+class PromotionLineOutcome(PromotionSchema):
+    """What one line earned."""
+
+    line_number: int
+    discount_amount: Decimal
+    free_quantity: Decimal
+    applied_promotion_codes: list[str]
+
+
+class PromotionDecision(PromotionSchema):
+    """Why one promotion did or did not apply."""
+
+    promotion_id: UUID
+    code: str
+    priority: int
+    matched: bool
+    reason: str
+
+
+class PromotionEvaluationResponse(PromotionSchema):
+    """What the document earned, and why."""
+
+    lines: list[PromotionLineOutcome]
+    bill_discount_amount: Decimal
+    applied_promotion_codes: list[str]
+    decisions: list[PromotionDecision]
