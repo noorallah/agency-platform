@@ -16,12 +16,14 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import create_engine, select
+import pytest
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -30,7 +32,9 @@ from app.promotions.models import (
     Promotion,
     PromotionAction,
     PromotionCondition,
+    PromotionCoupon,
     PromotionExecutionLog,
+    PromotionRedemption,
 )
 from app.promotions.schemas import (
     PromotionActionType,
@@ -777,3 +781,338 @@ def test_a_hand_priced_line_is_left_alone_and_the_trace_says_so() -> None:
     assert result.applied_promotion_codes == []
     assert result.decisions[0].matched is False
     assert "priced by hand" in result.decisions[0].reason
+
+
+def _coupon(
+    session: Session,
+    *,
+    firm_id: UUID,
+    promotion: Promotion,
+    code: str = "SAVE",
+    max_redemptions: int | None = None,
+    max_per_customer: int | None = None,
+) -> PromotionCoupon:
+    """Attach a coupon to one promotion."""
+    row = PromotionCoupon(
+        firm_id=firm_id,
+        promotion_id=promotion.id,
+        code=code,
+        status=PromotionStatus.ACTIVE.value,
+        max_redemptions=max_redemptions,
+        max_redemptions_per_customer=max_per_customer,
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+class _Shop:
+    """A firm with stock, a customer and somewhere to ship from."""
+
+    def __init__(self, session: Session, code: str = "SHOP01") -> None:
+        """Build the masters one order needs."""
+        self.session = session
+        self.firm = _firm(session, code=code)
+        self.branch = Branch(
+            firm_id=self.firm.id,
+            code="BR-001",
+            name="Branch BR-001",
+            display_name="Branch BR-001",
+            currency_code="INR",
+            working_hours={"start": "09:00", "end": "18:00"},
+            status="ACTIVE",
+        )
+        session.add(self.branch)
+        session.commit()
+        self.warehouse = Warehouse(
+            firm_id=self.firm.id,
+            branch_id=self.branch.id,
+            code="WH-001",
+            name="Warehouse WH-001",
+            display_name="Warehouse WH-001",
+            status="ACTIVE",
+        )
+        session.add(self.warehouse)
+        self.customer = Customer(
+            firm_id=self.firm.id,
+            code="CUS-001",
+            customer_type="RETAIL",
+            name="Customer CUS-001",
+            display_name="Customer CUS-001",
+            currency_code="INR",
+            status="ACTIVE",
+        )
+        session.add(self.customer)
+        session.commit()
+        self.product = _product(session, firm_id=self.firm.id)
+
+    def order(self, *, coupon_code: str | None = None) -> object:
+        """Raise one order for four at 250."""
+        return SalesOrderService(self.session).create_order(
+            SalesOrderCreate(
+                customer_id=self.customer.id,
+                branch_id=self.branch.id,
+                warehouse_id=self.warehouse.id,
+                order_date=date(2026, 8, 4),
+                coupon_code=coupon_code,
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=self.product.id,
+                        quantity=Decimal("4"),
+                        unit_price=Decimal("250"),
+                    )
+                ],
+            ),
+            firm_id=self.firm.id,
+            actor_id=uuid4(),
+        )
+
+    def line_of(self, order: object) -> SalesOrderLine:
+        """Return that order's only line."""
+        line = self.session.scalar(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+        )
+        assert line is not None
+        return line
+
+
+def test_a_coupon_offer_does_nothing_until_the_code_is_presented() -> None:
+    """An offer claimed by name is not one a document stumbles into."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+    _coupon(session, firm_id=shop.firm.id, promotion=promotion, code="SAVE10")
+
+    without = shop.line_of(shop.order())
+    assert without.discount_amount == Decimal("0.0000")
+
+    with_code = shop.line_of(shop.order(coupon_code="SAVE10"))
+    assert with_code.discount_amount == Decimal("100.0000")
+
+
+def test_a_code_nobody_recognises_leaves_the_order_saveable() -> None:
+    """A typo in a field that gives money away must not refuse the order.
+
+    The offer simply does not apply, and the trace says which -- refusing the
+    whole document would stop a sale over a mistyped coupon.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+
+    line = shop.line_of(shop.order(coupon_code="NOSUCHTHING"))
+
+    assert line.discount_amount == Decimal("0.0000")
+
+
+def test_a_draft_claims_nothing_and_an_approval_claims_it() -> None:
+    """A draft edited five times and never approved has claimed nothing."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TEN",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    order = shop.order()
+
+    pending = session.scalars(
+        select(PromotionRedemption).where(PromotionRedemption.status == "PENDING")
+    ).all()
+    assert len(pending) == 1, "the claim is recorded while the engine knows it"
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(PromotionRedemption)
+            .where(PromotionRedemption.status == "CLAIMED")
+        )
+        == 0
+    ), "but a draft counts against no limit"
+
+    SalesOrderService(session).approve_order(
+        order.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+
+    claimed = session.scalars(
+        select(PromotionRedemption).where(PromotionRedemption.status == "CLAIMED")
+    ).all()
+    assert len(claimed) == 1
+    assert claimed[0].benefit_amount == Decimal("100.0000")
+
+
+def test_an_offer_that_has_run_out_refuses_the_approval() -> None:
+    """The last one of something goes to whoever approves first.
+
+    Refused rather than quietly repriced: the customer agreed a price, and
+    changing it underneath them at approval is not this service's decision.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="FIRSTONE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions = 1
+    session.commit()
+
+    first = shop.order()
+    second = shop.order()
+    orders = SalesOrderService(session)
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+    with pytest.raises(ValidationError) as refused:
+        orders.approve_order(second.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    assert "FIRSTONE" in str(refused.value)
+
+
+def test_cancelling_gives_the_claim_back() -> None:
+    """A reversal is recorded, not a deletion: both facts matter."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="ONLYONE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions = 1
+    session.commit()
+
+    orders = SalesOrderService(session)
+    first = shop.order()
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    orders.cancel_order(
+        first.id,
+        firm_scope=shop.firm.id,
+        actor_id=uuid4(),
+        reason="changed their mind",
+    )
+
+    reversed_rows = session.scalars(
+        select(PromotionRedemption).where(PromotionRedemption.status == "REVERSED")
+    ).all()
+    assert len(reversed_rows) == 1
+    assert reversed_rows[0].reversed_at is not None
+
+    # And the offer is available again, which is the point of reversing it.
+    second = shop.order()
+    orders.approve_order(second.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(PromotionRedemption)
+            .where(PromotionRedemption.status == "CLAIMED")
+        )
+        == 1
+    )
+
+
+def test_a_per_customer_limit_stops_the_same_shop_twice() -> None:
+    """A campaign-wide limit and a per-customer one are different questions.
+
+    The second order is priced without the offer rather than refused at
+    approval: once the customer has used it, quoting it again would promise a
+    price the approval could not honour. The refusal exists for the race, not
+    for the ordinary case -- see the test below it.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="ONEEACH",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions_per_customer = 1
+    session.commit()
+
+    orders = SalesOrderService(session)
+    first = shop.order()
+    assert shop.line_of(first).discount_amount == Decimal("100.0000")
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+    second = shop.order()
+
+    assert shop.line_of(second).discount_amount == Decimal("0.0000")
+    # And approving it is fine: there was nothing to claim, so nothing to
+    # refuse.
+    orders.approve_order(second.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+
+def test_the_refusal_is_for_the_race_two_orders_priced_before_either_approved() -> None:
+    """Both were quoted the last one; only the first approval may have it.
+
+    This is the case the row lock exists for. Refused rather than quietly
+    repriced, because the customer agreed a price and changing it underneath
+    them at approval is not this service's decision to make.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="LASTONE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions_per_customer = 1
+    session.commit()
+
+    orders = SalesOrderService(session)
+    first = shop.order()
+    second = shop.order()
+    assert shop.line_of(second).discount_amount == Decimal(
+        "100.0000"
+    ), "both were priced while the offer still had room"
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+    with pytest.raises(ValidationError) as refused:
+        orders.approve_order(second.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    assert "LASTONE" in str(refused.value)
+
+
+def test_a_used_up_offer_stops_being_offered_at_all() -> None:
+    """Once it is gone, the next order is priced without it from the start.
+
+    The refusal at approval is the last line of defence for a race. Ordinary
+    exhaustion should be visible while the document is still being priced, so
+    nobody is quoted a price that cannot be honoured.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="GONE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions = 1
+    session.commit()
+
+    orders = SalesOrderService(session)
+    first = shop.order()
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+    later = shop.line_of(shop.order())
+
+    assert later.discount_amount == Decimal("0.0000"), (
+        "an exhausted offer is not quoted, so nobody is promised a price that "
+        "the approval would then refuse"
+    )

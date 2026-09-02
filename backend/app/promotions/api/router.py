@@ -14,13 +14,15 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.promotions.schemas import (
+    PromotionCouponResponse,
+    PromotionCouponWrite,
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
     PromotionResponse,
     PromotionStatus,
     PromotionWrite,
 )
-from app.promotions.services import PromotionService
+from app.promotions.services import CouponService, PromotionService
 from app.promotions.services.promotion_crud import PromotionCrudService
 
 router = APIRouter(
@@ -95,6 +97,94 @@ def simulate_promotions(
     result = PromotionService(db).evaluate(data, firm_scope=scope.firm_id)
     db.commit()
     return ApiResponse(data=result)
+
+
+# Every coupon path is a literal above `/{promotion_id}`, or FastAPI reads
+# "coupons" as a promotion id and answers 422.
+@router.get("/coupons", response_model=PaginatedResponse[PromotionCouponResponse])
+def list_coupons(
+    scope: PromotionViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[PromotionCouponResponse]:
+    """List the firm's coupons and how much of each has been claimed."""
+    params = PaginationParams(page=page, page_size=page_size)
+    service = CouponService(db)
+    rows, total = service.list_coupons(
+        firm_scope=scope.firm_id,
+        page=params.page,
+        page_size=params.page_size,
+        search=search,
+    )
+    return PaginatedResponse(
+        data=[service.coupon_response(row) for row in rows],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/coupons",
+    response_model=ApiResponse[PromotionCouponResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_coupon(
+    data: PromotionCouponWrite,
+    scope: PromotionManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PromotionCouponResponse]:
+    """Mint one coupon against an existing offer."""
+    service = CouponService(db)
+    row = service.create_coupon(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.coupon_response(row))
+
+
+@router.get("/coupons/{coupon_id}", response_model=ApiResponse[PromotionCouponResponse])
+def get_coupon(
+    coupon_id: UUID,
+    scope: PromotionViewScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PromotionCouponResponse]:
+    """Return one coupon."""
+    service = CouponService(db)
+    row = service.get_coupon(coupon_id, firm_scope=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=service.coupon_response(row))
+
+
+@router.put("/coupons/{coupon_id}", response_model=ApiResponse[PromotionCouponResponse])
+def update_coupon(
+    coupon_id: UUID,
+    data: PromotionCouponWrite,
+    scope: PromotionManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PromotionCouponResponse]:
+    """Change a coupon's limits, window or status. The code itself is fixed."""
+    service = CouponService(db)
+    current = service.get_coupon(coupon_id, firm_scope=scope.firm_id)
+    assert_version(current.version, expected_version)
+    row = service.update_coupon(
+        coupon_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    set_etag(response, row)
+    return ApiResponse(data=service.coupon_response(row))
+
+
+@router.delete("/coupons/{coupon_id}", response_model=ApiResponse[dict[str, str]])
+def delete_coupon(
+    coupon_id: UUID,
+    scope: PromotionManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str]]:
+    """Retire one coupon."""
+    CouponService(db).delete_coupon(
+        coupon_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data={"status": "deleted"})
 
 
 @router.get("/{promotion_id}", response_model=ApiResponse[PromotionResponse])

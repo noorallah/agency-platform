@@ -70,6 +70,7 @@ class _PromotionApi extends ApiClient {
         );
 
   final List<PromotionRecord> rows;
+  List<PromotionCouponRecord> coupons = const <PromotionCouponRecord>[];
 
   Json? savedBody;
   int? sentVersion;
@@ -82,6 +83,17 @@ class _PromotionApi extends ApiClient {
     String search = '',
   }) async =>
       PagedResult<PromotionRecord>(items: rows, total: rows.length);
+
+  @override
+  Future<PagedResult<PromotionCouponRecord>> promotionCoupons({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+  }) async =>
+      PagedResult<PromotionCouponRecord>(
+        items: coupons,
+        total: coupons.length,
+      );
 
   @override
   Future<PromotionRecord> createPromotion(Json body) async {
@@ -218,5 +230,49 @@ void main() {
     );
 
     expect(find.widgetWithText(FilledButton, 'New promotion'), findsNothing);
+  });
+
+  testWidgets('the coupon list says how much of each is left', (tester) async {
+    final _PromotionApi api = _PromotionApi(rows: <PromotionRecord>[_promotion()])
+      ..coupons = const <PromotionCouponRecord>[
+        PromotionCouponRecord(
+          id: 'c-1',
+          promotionId: 'promo-1',
+          promotionCode: 'TEN',
+          code: 'SAVE10',
+          maxRedemptions: 100,
+          redemptionCount: 37,
+        ),
+      ];
+    await _pumpPage(tester, api);
+
+    await tester.tap(find.text('Coupons'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('SAVE10'), findsOneWidget);
+    // What is left, not only what was allowed -- a limit on its own does not
+    // tell somebody whether the campaign is nearly spent.
+    expect(find.text('37 of 100 used'), findsOneWidget);
+  });
+
+  testWidgets('an unlimited coupon says so rather than showing a blank',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi()
+      ..coupons = const <PromotionCouponRecord>[
+        PromotionCouponRecord(
+          id: 'c-2',
+          promotionId: 'promo-1',
+          promotionCode: 'TEN',
+          code: 'OPEN',
+          redemptionCount: 5,
+        ),
+      ];
+    await _pumpPage(tester, api);
+
+    await tester.tap(find.text('Coupons'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('5 used'), findsOneWidget);
+    expect(find.text('No limit'), findsOneWidget);
   });
 }

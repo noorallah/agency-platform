@@ -277,3 +277,76 @@ class PromotionActionRecord {
         if (freeQuantity.trim().isNotEmpty) 'free_quantity': freeQuantity.trim(),
       };
 }
+
+
+/// A code a customer presents to claim an offer.
+///
+/// The benefit, the conditions and the stacking rule all live on the promotion
+/// the coupon names. What a coupon adds is that the offer applies only when
+/// somebody asks for it by name -- and a limit on how often.
+class PromotionCouponRecord {
+  const PromotionCouponRecord({
+    required this.id,
+    required this.promotionId,
+    required this.code,
+    this.promotionCode = '',
+    this.version = 0,
+    this.description = '',
+    this.status = 'ACTIVE',
+    this.maxRedemptions,
+    this.maxRedemptionsPerCustomer,
+    this.effectiveFrom = '',
+    this.effectiveTo = '',
+    this.redemptionCount = 0,
+  });
+
+  final String id;
+  final String promotionId;
+  final String promotionCode;
+  final String code;
+  final String description;
+  final String status;
+  final int version;
+
+  /// Null is no limit, which is a different answer from zero.
+  final int? maxRedemptions;
+  final int? maxRedemptionsPerCustomer;
+  final String effectiveFrom;
+  final String effectiveTo;
+
+  /// What has actually been claimed, so a screen can say how much is left
+  /// rather than only what was allowed.
+  final int redemptionCount;
+
+  /// How the count reads beside the limit, or just the count when unlimited.
+  String get usageLabel => maxRedemptions == null
+      ? '$redemptionCount used'
+      : '$redemptionCount of $maxRedemptions used';
+
+  factory PromotionCouponRecord.fromJson(Json json) => PromotionCouponRecord(
+        id: stringValue(json['id']),
+        promotionId: stringValue(json['promotion_id']),
+        promotionCode: stringValue(json['promotion_code']),
+        code: stringValue(json['code']),
+        description: stringValue(json['description']),
+        status: stringValue(json['status']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+        maxRedemptions: (json['max_redemptions'] as num?)?.toInt(),
+        maxRedemptionsPerCustomer:
+            (json['max_redemptions_per_customer'] as num?)?.toInt(),
+        effectiveFrom: stringValue(json['effective_from']),
+        effectiveTo: stringValue(json['effective_to']),
+        redemptionCount: (json['redemption_count'] as num?)?.toInt() ?? 0,
+      );
+
+  Json toJson() => <String, dynamic>{
+        'promotion_id': promotionId,
+        'code': code,
+        if (description.isNotEmpty) 'description': description,
+        'status': status,
+        'max_redemptions': maxRedemptions,
+        'max_redemptions_per_customer': maxRedemptionsPerCustomer,
+        if (effectiveFrom.isNotEmpty) 'effective_from': effectiveFrom,
+        if (effectiveTo.isNotEmpty) 'effective_to': effectiveTo,
+      };
+}

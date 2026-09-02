@@ -296,6 +296,24 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   amount pro-rated by the share shipped, and the price list and standing rate
   are deliberately not consulted -- the order resolved both already, so a line
   that came out at nothing came out at nothing on purpose.
+- **A claim on an offer is counted at approval, never while a document is
+  priced.** `promotion_redemptions` records PENDING when the engine prices a
+  document, CLAIMED when it is approved under a `with_for_update` lock on the
+  promotion, and REVERSED when it is cancelled -- and **only CLAIMED counts
+  against a limit**. A counter on the promotion would have to be written during
+  pricing, which must never commit, so it would either publish a half-written
+  order or count a draft edited five more times and never approved. Two
+  behaviours follow and both are deliberate: an offer already exhausted is
+  **not quoted at all**, so nobody is promised a price the approval would
+  refuse; and two documents priced while it still had room race at approval,
+  where the loser is **refused by name** rather than silently repriced --
+  changing an agreed price underneath somebody is not the service's decision.
+  A coupon is a way of reaching an offer, not a second kind of one: the
+  benefit, the conditions and the stacking rule stay on the promotion, and
+  `sales_orders.coupon_code` is on the order rather than the quotation because
+  the order is what gets approved. An unrecognised code leaves the order
+  saveable and simply gives nothing -- a typo in a field that gives money away
+  must not refuse a sale.
 - **A discount on the whole document reaches the lines, and therefore the tax.**
   `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
   delivery note or sales invoice is resolved by `resolve_bill_discount` and

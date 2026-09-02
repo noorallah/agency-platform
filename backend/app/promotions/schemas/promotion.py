@@ -184,6 +184,11 @@ class PromotionWrite(PromotionSchema):
     allow_stacking: bool = True
     effective_from: date | None = None
     effective_to: date | None = None
+    #: Whether the customer has to ask for this offer by name.
+    requires_coupon: bool = False
+    #: Null is no limit, which is a different answer from zero.
+    max_redemptions: int | None = Field(default=None, ge=1)
+    max_redemptions_per_customer: int | None = Field(default=None, ge=1)
     conditions: list[PromotionConditionWrite] = Field(
         default_factory=list, max_length=50
     )
@@ -237,6 +242,9 @@ class PromotionResponse(PromotionSchema):
     allow_stacking: bool
     effective_from: date | None
     effective_to: date | None
+    requires_coupon: bool
+    max_redemptions: int | None
+    max_redemptions_per_customer: int | None
     version_group_id: UUID
     version_number: int
     supersedes_promotion_id: UUID | None
@@ -268,6 +276,9 @@ class PromotionEvaluationRequest(PromotionSchema):
     territory_id: UUID | None = None
     route_id: UUID | None = None
     salesman_id: UUID | None = None
+    #: The code the customer presented, if any. A promotion requiring one
+    #: never applies without it.
+    coupon_code: str | None = Field(default=None, max_length=40)
     #: True when somebody typed a discount on the whole bill, for the same
     #: reason `PromotionLineRequest.caller_priced` exists.
     caller_priced_bill: bool = False
@@ -293,10 +304,67 @@ class PromotionDecision(PromotionSchema):
     reason: str
 
 
+class PromotionApplication(PromotionSchema):
+    """One offer that applied, and what it gave away.
+
+    Carries the id as well as the code, because a claim is recorded against
+    the promotion row and a code is only unique among live ones.
+    """
+
+    promotion_id: UUID
+    code: str
+    coupon_id: UUID | None = None
+    benefit_amount: Decimal
+
+
 class PromotionEvaluationResponse(PromotionSchema):
     """What the document earned, and why."""
 
     lines: list[PromotionLineOutcome]
     bill_discount_amount: Decimal
     applied_promotion_codes: list[str]
+    applied: list[PromotionApplication] = Field(default_factory=list)
     decisions: list[PromotionDecision]
+
+
+class PromotionCouponWrite(PromotionSchema):
+    """Create or replace one coupon."""
+
+    promotion_id: UUID
+    code: str = Field(min_length=1, max_length=40)
+    description: str | None = None
+    status: PromotionStatus = PromotionStatus.ACTIVE
+    max_redemptions: int | None = Field(default=None, ge=1)
+    max_redemptions_per_customer: int | None = Field(default=None, ge=1)
+    effective_from: date | None = None
+    effective_to: date | None = None
+
+    @model_validator(mode="after")
+    def _window_is_ordered(self) -> "PromotionCouponWrite":
+        """Refuse a window that ends before it starts."""
+        if (
+            self.effective_from is not None
+            and self.effective_to is not None
+            and self.effective_to < self.effective_from
+        ):
+            raise ValueError("A coupon cannot end before it starts.")
+        return self
+
+
+class PromotionCouponResponse(PromotionSchema):
+    """Expose one stored coupon, and how much of it is left."""
+
+    id: UUID
+    promotion_id: UUID
+    promotion_code: str
+    code: str
+    description: str | None
+    status: str
+    max_redemptions: int | None
+    max_redemptions_per_customer: int | None
+    effective_from: date | None
+    effective_to: date | None
+    #: What has actually been claimed, so a screen can say how much is left
+    #: rather than only what was allowed.
+    redemption_count: int
+    version: int

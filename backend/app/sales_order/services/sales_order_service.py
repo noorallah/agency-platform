@@ -48,7 +48,7 @@ from app.promotions.schemas import (
     PromotionEvaluationResponse,
     PromotionLineRequest,
 )
-from app.promotions.services import PromotionService
+from app.promotions.services import PromotionService, RedemptionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import (
@@ -84,6 +84,17 @@ from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
 
 ZERO = Decimal("0")
+
+
+def _normalized_coupon(code: str | None) -> str | None:
+    """Store a coupon the one way it is matched.
+
+    Upper case and trimmed, so `save10`, ` SAVE10 ` and `SAVE10` are the same
+    claim rather than three -- a customer reading a code off a leaflet types
+    whichever they see.
+    """
+    token = (code or "").strip().upper()
+    return token or None
 
 
 class PromotionBenefits:
@@ -325,6 +336,7 @@ class SalesOrderService(TransactionalDocumentService):
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
+            coupon_code=_normalized_coupon(data.coupon_code),
             credit_limit_snapshot=self._q(customer.credit_limit),
             outstanding_balance_snapshot=self._q(customer.opening_balance),
             status=SalesOrderStatus.DRAFT.value,
@@ -424,6 +436,7 @@ class SalesOrderService(TransactionalDocumentService):
         row.currency_code = data.currency_code
         row.exchange_rate = data.exchange_rate
         row.remarks = data.remarks
+        row.coupon_code = _normalized_coupon(data.coupon_code)
         row.credit_limit_snapshot = self._q(customer.credit_limit)
         row.outstanding_balance_snapshot = self._q(customer.opening_balance)
         row.additional_charges = self._q(data.additional_charges)
@@ -502,6 +515,12 @@ class SalesOrderService(TransactionalDocumentService):
         # is the promise, invoicing only bills it. Under WARN this records the
         # assessment on the order; under BLOCK it raises before reserving.
         self._credit_assessment = self._assess_credit(row, firm_scope=firm_scope)
+        # Before stock is reserved: an offer that has run out refuses the
+        # approval, and refusing after a reservation would leave stock held
+        # against an order nobody approved.
+        RedemptionService(self._session).claim(
+            firm_id=firm_scope, document_id=row.id, actor_id=actor_id
+        )
         self._reserve_inventory(row, actor_id=actor_id)
         row.status = SalesOrderStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -527,6 +546,12 @@ class SalesOrderService(TransactionalDocumentService):
         )
         return row
 
+    def _release_promotions(self, row: SalesOrder, *, actor_id: UUID) -> None:
+        """Give back whatever this order claimed from an offer."""
+        RedemptionService(self._session).reverse(
+            firm_id=row.firm_id, document_id=row.id, actor_id=actor_id
+        )
+
     def cancel_order(
         self,
         order_id: UUID,
@@ -545,6 +570,10 @@ class SalesOrderService(TransactionalDocumentService):
         from_status = row.status
         if row.status == SalesOrderStatus.APPROVED.value:
             self._release_inventory(row, actor_id=actor_id)
+        # Whatever it took from an offer goes back, whether the order was
+        # approved or still a draft: a pending claim on a cancelled order is
+        # not going to become a real one.
+        self._release_promotions(row, actor_id=actor_id)
         row.status = SalesOrderStatus.CANCELLED.value
         row.cancel_reason = reason.strip() if reason else None
         row.updated_by = actor_id
@@ -1005,6 +1034,7 @@ class SalesOrderService(TransactionalDocumentService):
         *,
         lines: list[SalesOrderLineWrite],
         grosses: list[Decimal],
+        actor_id: UUID,
         bill_priced: bool = False,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this document earns.
@@ -1022,6 +1052,7 @@ class SalesOrderService(TransactionalDocumentService):
                 territory_id=row.territory_id,
                 route_id=row.route_id,
                 salesman_id=row.salesman_id,
+                coupon_code=row.coupon_code,
                 caller_priced_bill=bill_priced,
                 lines=[
                     PromotionLineRequest(
@@ -1038,6 +1069,19 @@ class SalesOrderService(TransactionalDocumentService):
                 ],
             ),
             firm_scope=row.firm_id,
+        )
+        # What the offers gave is recorded now, while the engine still knows
+        # it -- but as a pending claim, counting against no limit. A draft
+        # somebody edits five times and never approves has claimed nothing.
+        RedemptionService(self._session).stage(
+            outcome.applied,
+            firm_id=row.firm_id,
+            customer_id=row.customer_id,
+            document_type="SALES_ORDER",
+            document_id=row.id,
+            document_number=row.order_number,
+            on=row.order_date,
+            actor_id=actor_id,
         )
         return PromotionBenefits(outcome)
 
@@ -1135,6 +1179,7 @@ class SalesOrderService(TransactionalDocumentService):
             row,
             lines=lines,
             grosses=grosses,
+            actor_id=actor_id,
             bill_priced=bill_amount is not None or bill_percent is not None,
         )
 

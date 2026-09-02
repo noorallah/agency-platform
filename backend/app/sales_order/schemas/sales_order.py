@@ -100,6 +100,11 @@ class SalesOrderCreate(SalesOrderSchema):
         default=None, gt=0, max_digits=18, decimal_places=6
     )
     remarks: str | None = None
+    #: The code the customer presented, if any. An offer that requires one is
+    #: not applied without it, and a code nobody recognises leaves the order
+    #: saveable -- a typo in a field that gives money away must not refuse a
+    #: sale.
+    coupon_code: str | None = Field(default=None, max_length=40)
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
