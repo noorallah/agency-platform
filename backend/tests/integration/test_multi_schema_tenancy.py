@@ -224,3 +224,43 @@ def test_live_firm_schemas_match_the_orm(engine: Engine) -> None:
                 if column.name not in columns:
                     missing.append(f"{schema}.{table.name}.{column.name}")
     assert not missing, f"schema drift against the ORM: {sorted(missing)}"
+
+
+def test_every_deployed_table_can_be_inserted_into(engine: Engine) -> None:
+    """`created_at` and `updated_at` carry a default in the deployed schemas.
+
+    `Base.metadata.create_all` supplies one from the ORM and a hand-written
+    ``op.create_table`` does not, so a migration that spells the two timestamp
+    columns out without ``server_default`` builds a table that **cannot be
+    inserted into at all** -- the first write raises NotNullViolation. The
+    unit suite cannot see it: it builds its schema from the ORM, so the
+    columns it tests against always have the default the migration forgot.
+
+    That shipped once, in `commission_rule_slabs`, and was found by driving a
+    real firm rather than by any test. This is the guard, and it costs one
+    query.
+    """
+    inspector = inspect(engine)
+    schemas = [
+        name
+        for name in inspector.get_schema_names()
+        if name in {"firm_shared", "wholesale_hub"}
+    ]
+    if not schemas:
+        pytest.skip("no firm schemas deployed in this database")
+
+    undefaulted: list[str] = []
+    for schema in schemas:
+        present = set(inspector.get_table_names(schema=schema))
+        for table in Base.metadata.sorted_tables:
+            if table.name not in present:
+                continue
+            for column in inspector.get_columns(table.name, schema=schema):
+                if column["name"] not in {"created_at", "updated_at"}:
+                    continue
+                if not column["nullable"] and column["default"] is None:
+                    undefaulted.append(f"{schema}.{table.name}.{column['name']}")
+    assert not undefaulted, (
+        "these columns are NOT NULL with no default, so the first insert "
+        f"fails: {sorted(undefaulted)}"
+    )

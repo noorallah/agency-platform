@@ -173,6 +173,7 @@ document is built, on the document's own date.
 | Concern | Where | Enforced? |
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
+| Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate or a ladder; paid on money collected or on invoiced value, with an optional per-period ceiling |
 | Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
@@ -570,6 +571,53 @@ that named nobody. Driving a seeded store found it — every one of ELEC01's 49
 invoices carries no salesman, so the whole default was being reported as
 commission payable to nobody. The collected figure stays; only the payout is
 zero.
+
+## 9a. Commission is a ladder, not a single rate — landed 2026-09-03
+
+`app/commission` held **one** flat percentage per salesman. That is one
+arrangement of several, and the two most common in distribution were both
+unexpressible: a slab scheme, and paying on invoiced value rather than on
+money collected.
+
+Four things are now the firm's to declare.
+
+**A ladder.** `commission_rule_slabs` holds bands of value, each with its own
+rate. A rule with no slabs pays its flat `percentage`, which is every rule
+agreed before this existed and keeps working unchanged. A rule *with* slabs
+ignores that column entirely — there is one answer to what a rule pays, and a
+flat rate sitting beside a ladder that overrides it is the number somebody
+eventually reads as the deal, which is why the list column shows the shape
+rather than the field.
+
+**How the ladder reads.** `slab_mode` is MARGINAL (each band at its own rate,
+the way income tax reads) or WHOLE_AMOUNT (everything at the rate of the band
+reached). Both are in ordinary use and they pay very differently — 120,000
+against 2% to 100,000 and 3% above pays 2,600 one way and 3,600 the other — so
+this is declared, never inferred. Bands are half-open: a rate quoted "from
+100,000" pays at exactly 100,000.
+
+**What the rate is of.** `basis` is COLLECTED (the default, and what this
+module has always paid on) or INVOICED. A rule pays on one basis only, and the
+overlap guard refuses a second live rule over the same person and days
+*whatever its basis*, so a firm changing over replaces the rule rather than
+quietly paying twice for one sale. The report shows both figures regardless,
+because a firm paying one way still wants to see the other — and a row on an
+INVOICED rule would otherwise show an earning with nothing behind it.
+
+**A ceiling.** `max_commission_amount` caps what one rule pays one person for
+one period, and is applied **after** the ladder: it limits what was earned,
+not what was sold. Capping the value first would push the amount down a rung
+and pay less than the ceiling the firm agreed.
+
+Two rules the arithmetic turns on. **A ladder must be whole** — starting at
+zero, meeting exactly, open-ended only at the top — because a gap is an amount
+the rule cannot answer for and an overlap is two answers to one question. And
+**each arrangement's ladder runs on its own subtotal**: the governing rule is
+still resolved on each row's own date, so a rate change mid-period splits the
+period rather than carrying the first window's volume into the second
+window's thresholds.
+
+Driven against WHOLE01, on its own schema, across all four shapes.
 
 ## 10. ~~No sales targets or quotas~~ — landed 2026-09-03
 
