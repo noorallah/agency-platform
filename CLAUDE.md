@@ -462,6 +462,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   `created_at=now` by hand on every insert.
   `tests/integration/test_multi_schema_tenancy.py::test_every_deployed_table_can_be_inserted_into`
   is the guard.
+- **A commission rule has a floor and a target bonus, and both are fields on
+  the rule.** `minimum_amount` earns **nothing at all** below it and pays on
+  **all** of it above -- deliberately not a zero-percent bottom slab, which
+  pays from the first rupee once the ladder is climbed and is a different
+  deal. `bonus_percentage` is an extra percentage on the same value, paid only
+  when the salesman's targets over the period were met, and added **before**
+  the cap so a firm's ceiling still holds. A field rather than a second rule
+  because two live rules over one person's days are refused, and weakening
+  that guard to allow a bonus rule would reopen the defect it exists to close.
+  **Targets over a window are judged taken together** (the achievements summed
+  against the targets summed), because requiring every month makes an annual
+  bonus unearnable and requiring one makes it unmissable. **Somebody with no
+  target reports `target_met: null`, not false**, and earns no bonus: nobody
+  set them a number, so there is nothing they failed. Margin-based commission
+  is the one spec item still unbuilt -- `sales_invoice_lines` carries no cost.
 - **A commission rule can be about goods, and the report resolves per line.**
   `product_id`/`product_category_id` on `commission_rules` make a rule a
   statement about lines rather than about the document, resolved in **six

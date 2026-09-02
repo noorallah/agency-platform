@@ -122,6 +122,22 @@ class CommissionRule(BaseEntity):
     per_unit_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Nothing is earned under this rule at all until the subtotal reaches
+    #: this. "No commission below ten lakh a quarter" is an ordinary
+    #: arrangement, and it is a threshold on the *arrangement* rather than a
+    #: rung of a ladder -- a zero-percent bottom slab would pay from the first
+    #: rupee once the ladder was climbed, which is a different deal.
+    minimum_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: An extra percentage on the same subtotal, paid only when the salesman's
+    #: targets for the period were met. Zero, the default, is no bonus.
+    #:
+    #: A field rather than a second rule, because two rules over one person's
+    #: days are refused: the overlap guard exists precisely so that a payout
+    #: is never left to whichever row a query returned first, and weakening it
+    #: to allow a bonus rule would reopen that.
+    bonus_percentage: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
 
 class CommissionBasis(StrEnum):

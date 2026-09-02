@@ -45,6 +45,7 @@ from app.core.utils.pricing import apportion
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_targets.services import SalesTargetService
 from app.settlements.models import (
     Settlement,
     SettlementAllocation,
@@ -213,6 +214,8 @@ class CommissionService:
             product_category_id=data.product_category_id,
             rate_type=data.rate_type.value,
             per_unit_amount=data.per_unit_amount,
+            minimum_amount=data.minimum_amount,
+            bonus_percentage=data.bonus_percentage,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -289,6 +292,10 @@ class CommissionService:
             row.rate_type = CommissionRateTypeEnum(values["rate_type"]).value
         if values.get("per_unit_amount") is not None:
             row.per_unit_amount = values["per_unit_amount"]
+        if "minimum_amount" in values:
+            row.minimum_amount = values["minimum_amount"]
+        if values.get("bonus_percentage") is not None:
+            row.bonus_percentage = values["bonus_percentage"]
         if data.slabs is not None:
             self._replace_slabs(row, data.slabs, actor_id=actor_id)
         if row.effective_to is not None and row.effective_to < row.effective_from:
@@ -537,9 +544,25 @@ class CommissionService:
                 )
 
     def _earned(
-        self, rule: CommissionRule, amount: Decimal, *, quantity: Decimal = ZERO
+        self,
+        rule: CommissionRule,
+        amount: Decimal,
+        *,
+        quantity: Decimal = ZERO,
+        target_met: bool | None = None,
     ) -> Decimal:
         """Return what one rule pays on one subtotal.
+
+        A rule with a `minimum_amount` pays **nothing at all** until the
+        subtotal reaches it. That is a threshold on the arrangement, not a rung
+        of a ladder: a zero-percent bottom slab would start paying from the
+        first rupee once the threshold was crossed, which is a different deal
+        from "no commission below ten lakh".
+
+        A `bonus_percentage` is added only when the period's targets were met.
+        `target_met` is None where the person had no target, which is not a
+        failure -- it is somebody nobody set a number for -- and a bonus for
+        beating a target that does not exist would pay everybody.
 
         A PER_UNIT rule pays its rate for every unit sold and ignores the
         money entirely -- that is what "two rupees a case" means, and it is
@@ -565,13 +588,23 @@ class CommissionService:
             amount: What was collected or invoiced under it.
             quantity: How many units were sold under it, which is what a
                 PER_UNIT rate multiplies and what a PERCENT rule ignores.
+            target_met: Whether this person's targets over the period were met,
+                or None if they had none.
 
         Returns:
             The commission, before rounding to the ledger's two places.
 
         """
+        # The threshold is judged on what was sold, before any rate is
+        # applied -- "below ten lakh" is a statement about trading, not about
+        # a payout.
+        if rule.minimum_amount is not None and amount < Decimal(
+            str(rule.minimum_amount)
+        ):
+            return ZERO
         if rule.rate_type == CommissionRateType.PER_UNIT.value:
             earned = quantity * Decimal(str(rule.per_unit_amount))
+            earned += self._bonus(rule, amount, target_met)
             if rule.max_commission_amount is not None:
                 earned = min(earned, Decimal(str(rule.max_commission_amount)))
             return earned
@@ -592,9 +625,27 @@ class CommissionService:
                     else min(amount, Decimal(str(slab.to_amount)))
                 )
                 earned += (ceiling - floor) * Decimal(str(slab.percentage)) / HUNDRED
+        earned += self._bonus(rule, amount, target_met)
         if rule.max_commission_amount is not None:
             earned = min(earned, Decimal(str(rule.max_commission_amount)))
         return earned
+
+    @staticmethod
+    def _bonus(
+        rule: CommissionRule, amount: Decimal, target_met: bool | None
+    ) -> Decimal:
+        """Return the target bonus this rule pays on this subtotal.
+
+        Only on a target actually met. A person with no target has nothing to
+        beat, so `target_met` is None and the bonus is zero -- paying it there
+        would hand a bonus to everybody the firm never set a number for, which
+        is the opposite of what a target bonus is.
+
+        The bonus is added before the cap, so a firm's ceiling still holds.
+        """
+        if target_met is not True or rule.bonus_percentage == ZERO:
+            return ZERO
+        return amount * Decimal(str(rule.bonus_percentage)) / HUNDRED
 
     @staticmethod
     def _rung_reached(slabs: Sequence[CommissionRuleSlab], amount: Decimal) -> Decimal:
@@ -629,6 +680,10 @@ class CommissionService:
             ),
             "rate_type": row.rate_type,
             "per_unit_amount": str(row.per_unit_amount),
+            "minimum_amount": (
+                str(row.minimum_amount) if row.minimum_amount is not None else None
+            ),
+            "bonus_percentage": str(row.bonus_percentage),
             "max_commission_amount": (
                 str(row.max_commission_amount)
                 if row.max_commission_amount is not None
@@ -702,6 +757,8 @@ class CommissionService:
             ),
             rate_type=CommissionRateTypeEnum(row.rate_type),
             per_unit_amount=row.per_unit_amount,
+            minimum_amount=row.minimum_amount,
+            bonus_percentage=row.bonus_percentage,
             max_commission_amount=row.max_commission_amount,
             slabs=[
                 CommissionSlabResponse(
@@ -830,12 +887,18 @@ class CommissionService:
                 )
                 bases.setdefault(owner, set()).add(kind)
 
+        # Whether each person's targets over the period were met, asked once
+        # rather than per rule: a target is about the person and the window,
+        # not about the arrangement they are paid under.
+        met = self._targets_met(firm_id, from_date, to_date)
+
         earned: dict[UUID | None, Decimal] = {}
         for (owner, rule_id), subtotal in under_rule.items():
             earned[owner] = earned.get(owner, ZERO) + self._earned(
                 by_id[rule_id],
                 subtotal,
                 quantity=under_rule_quantity.get((owner, rule_id), ZERO),
+                target_met=met.get(owner),
             )
 
         names = self.names_for(firm_id)
@@ -845,6 +908,7 @@ class CommissionService:
                 salesman_name=(
                     UNASSIGNED_LABEL if owner is None else self._name_of(owner, names)
                 ),
+                target_met=met.get(owner),
                 collected_amount=quantize_ledger(collected.get(owner, ZERO)),
                 invoiced_amount=quantize_ledger(invoiced.get(owner, ZERO)),
                 basis=self._basis_label(bases.get(owner, set())),
@@ -1014,6 +1078,53 @@ class CommissionService:
             if found is not None:
                 return found
         return None
+
+    def _targets_met(
+        self, firm_id: UUID, from_date: date, to_date: date
+    ) -> dict[UUID | None, bool]:
+        """Say, per salesman, whether their targets over the window were met.
+
+        **Taken together**, not one by one: a year holding twelve monthly
+        targets is met when the twelve achievements add up to the twelve
+        numbers. Requiring every single month would make an annual bonus
+        almost impossible to earn, and requiring only one would make it
+        almost impossible to miss.
+
+        Each target is still measured over its own period and on its own
+        basis -- that is `SalesTargetService`'s rule and this does not
+        second-guess it; it only adds the two columns up.
+
+        A person with no target is absent from the answer rather than False.
+        Nobody set them a number, so there is nothing they failed.
+
+        Args:
+            firm_id: The owning firm.
+            from_date: First day of the report window.
+            to_date: Last day of it.
+
+        Returns:
+            True or False per salesman who had a target in the window.
+
+        """
+        targeted: dict[UUID | None, Decimal] = {}
+        achieved: dict[UUID | None, Decimal] = {}
+        for row in SalesTargetService(self._session).achievement(
+            firm_scope=firm_id, from_date=from_date, to_date=to_date
+        ):
+            # A target naming a round rather than a person belongs to nobody
+            # in particular, so it cannot decide anybody's bonus.
+            if row.salesman_id is None:
+                continue
+            targeted[row.salesman_id] = (
+                targeted.get(row.salesman_id, ZERO) + row.target_amount
+            )
+            achieved[row.salesman_id] = (
+                achieved.get(row.salesman_id, ZERO) + row.achieved_amount
+            )
+        return {
+            owner: achieved.get(owner, ZERO) >= total
+            for owner, total in targeted.items()
+        }
 
     def _lines_of(self, invoice_ids: set[UUID]) -> dict[UUID, list["_BilledLine"]]:
         """Return what each invoice was made of, with each line's share of it.

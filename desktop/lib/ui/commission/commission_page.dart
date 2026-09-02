@@ -750,6 +750,7 @@ class _CommissionPageState extends State<CommissionPage> {
         GridColumn(key: 'collected', label: 'Collected'),
         GridColumn(key: 'invoiced', label: 'Invoiced'),
         GridColumn(key: 'basis', label: 'Paid on'),
+        GridColumn(key: 'target', label: 'Target'),
         GridColumn(key: 'commission', label: 'Commission'),
         GridColumn(key: 'invoices', label: 'Invoices'),
       ],
@@ -763,6 +764,13 @@ class _CommissionPageState extends State<CommissionPage> {
         // Both figures are shown whatever the arrangement, so this column is
         // what says which of the two the payout beside it was worked out on.
         basisLabel(row.basis),
+        // Not a tick or a cross: a person with no target has not failed
+        // anything, and saying "Missed" there would read as one.
+        switch (row.targetMet) {
+          true => 'Met',
+          false => 'Missed',
+          null => 'None set',
+        },
         row.commissionAmount,
         '${row.invoiceCount}',
       ],
@@ -822,6 +830,10 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
   late String _status = widget.rule?.status ?? 'ACTIVE';
   late final TextEditingController _perUnit = TextEditingController(
       text: trimDecimal(widget.rule?.perUnitAmount ?? ''));
+  late final TextEditingController _minimum = TextEditingController(
+      text: trimDecimal(widget.rule?.minimumAmount ?? ''));
+  late final TextEditingController _bonus = TextEditingController(
+      text: trimDecimal(widget.rule?.bonusPercentage ?? ''));
 
   late String _basis = widget.rule?.basis ?? 'COLLECTED';
   late String _slabMode = widget.rule?.slabMode ?? 'MARGINAL';
@@ -849,6 +861,8 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     _to.dispose();
     _cap.dispose();
     _perUnit.dispose();
+    _minimum.dispose();
+    _bonus.dispose();
     for (final _SlabDraft slab in _slabs) {
       slab.dispose();
     }
@@ -970,6 +984,10 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
         'rate_type': _rateType,
         'per_unit_amount':
             _perUnit.text.trim().isEmpty ? '0' : _perUnit.text.trim(),
+        'minimum_amount':
+            _minimum.text.trim().isEmpty ? null : _minimum.text.trim(),
+        'bonus_percentage':
+            _bonus.text.trim().isEmpty ? '0' : _bonus.text.trim(),
         // Always sent, including as null: this form shows the whole scope, so
         // clearing it here has to clear it on the record.
         'product_id': _productId.isEmpty ? null : _productId,
@@ -1201,6 +1219,37 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                   labelText: 'Most this pays per period',
                   helperText: 'Leave empty for no ceiling. It caps what was '
                       'earned, not what was sold.',
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _minimum,
+                enabled: !_saving,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Earns nothing below',
+                  helperText: 'Leave empty for no floor. Below it the rule '
+                      'pays nothing at all, and above it it pays on all of it.',
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _bonus,
+                enabled: !_saving,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Extra when the target is met',
+                  helperText: 'Paid on the same value, only when the period\'s '
+                      'targets were met. Somebody with no target earns none.',
+                  suffixText: '%',
                 ),
               ),
               const SizedBox(height: AppSpacing.md),

@@ -174,7 +174,7 @@ document is built, on the document's own date.
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
 | Commission payouts | `commission_payouts`, per firm | Accrue → approve (posts) → pay (clears). `COMMISSION_PAY` to move the money, which `SALES_MANAGER` does not hold |
-| Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate, a ladder, or an amount per unit; scoped to a product, a category or everything; paid on money collected or on invoiced value, with an optional per-period ceiling |
+| Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate, a ladder, or an amount per unit; scoped to a product, a category or everything; paid on money collected or on invoiced value, with an optional floor, ceiling and target bonus |
 | Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
@@ -704,6 +704,46 @@ firm-wide rule, themselves.
 
 **Sales › Commission › Payouts** carries the whole run: Accrue a period, then
 Approve, Pay or Cancel per row.
+
+## 9d. A floor, and a bonus for meeting a target — landed 2026-09-03
+
+Two arrangements every distribution firm runs, neither of which could be
+expressed.
+
+**`minimum_amount` is a floor on the arrangement.** Below it the rule earns
+nothing at all; at or above it, it pays on **all** of it. Deliberately not a
+zero-percent bottom slab, which is a different deal: a ladder pays from the
+first rupee once it is climbed, while "no commission below ten lakh a quarter"
+pays nothing until the quarter is made. It is judged on what was sold, before
+any rate is applied, because that is what the sentence is about.
+
+**`bonus_percentage` is an extra percentage on the same value**, paid only
+when the salesman's targets over the period were met. It is a field on the
+rule rather than a second rule, because two live rules over one person's days
+are refused — the overlap guard exists so a payout is never left to whichever
+row a query returned first, and weakening it to allow a bonus rule would
+reopen exactly that. The bonus is added **before** the cap, so a firm's
+ceiling still holds.
+
+**Targets over the window are judged taken together.** A year holding twelve
+monthly numbers is met when the twelve achievements add up to the twelve
+targets. Requiring every single month would make an annual bonus almost
+impossible to earn; requiring only one would make it almost impossible to
+miss. Each target is still measured over its own period and on its own basis
+— that is `app/sales_targets`' rule and this only adds the two columns up.
+
+**Somebody with no target earns no bonus, and has not failed.** The report
+says `target_met: null` rather than false: nobody set them a number, so there
+is nothing they missed, and paying the bonus there would hand it to everybody
+the firm never measured.
+
+## What is still not built
+
+**Margin-based commission.** `sales_invoice_lines` carries no cost, so a
+margin would have to be reconstructed from the stock ledger's moving average
+per movement — reachable, but a real piece of work and not something to
+declare before it exists. It is the last item of the original incentive spec
+with no code behind it.
 
 ## 10. ~~No sales targets or quotas~~ — landed 2026-09-03
 
