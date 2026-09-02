@@ -113,6 +113,10 @@ class SalesOrder(BaseEntity):
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The coupon the customer presented, if any. Stored on the order rather
+    #: than the quotation because the order is the document that is approved,
+    #: and approval is when a claim can be counted -- an offer is not a claim.
+    coupon_code: Mapped[str | None] = mapped_column(String(40))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     close_reason: Mapped[str | None] = mapped_column(Text)
 

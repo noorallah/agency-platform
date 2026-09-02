@@ -126,6 +126,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _customerReference = TextEditingController();
   final TextEditingController _reference = TextEditingController();
+  final TextEditingController _coupon = TextEditingController();
   final TextEditingController _remarks = TextEditingController();
 
   /// A deal struck on the whole order. The server takes it off what the lines
@@ -195,6 +196,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     }
     _customerReference.dispose();
     _reference.dispose();
+    _coupon.dispose();
     _remarks.dispose();
     _billDiscountPercent.dispose();
     _billDiscountAmount.dispose();
@@ -290,6 +292,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _deliveryDate = DateTime.tryParse(stringValue(order['delivery_date']));
     _customerReference.text = stringValue(order['customer_reference']);
     _reference.text = stringValue(order['reference_number']);
+    _coupon.text = stringValue(order['coupon_code']);
     _remarks.text = stringValue(order['remarks']);
     // Blank rather than '0' where there was none, so the box reads as empty
     // and the payload omits it.
@@ -471,6 +474,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         'customer_reference': _customerReference.text.trim(),
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
+      // Omitted when blank, like every other optional field: an empty string
+      // is a code that matches nothing rather than the absence of one.
+      if (_coupon.text.trim().isNotEmpty) 'coupon_code': _coupon.text.trim(),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
       // Omitted when blank: absent is what tells the server there is no
       // discount on the order, and an empty string is a schema error.
@@ -964,6 +970,22 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                     enabled: !_locked,
                     decoration:
                         const InputDecoration(labelText: 'Our reference'),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: TextFormField(
+                    controller: _coupon,
+                    enabled: !_locked,
+                    decoration: const InputDecoration(
+                      labelText: 'Coupon',
+                      // A code that matches nothing leaves the order saveable
+                      // and simply gives no benefit -- worth saying, so a typo
+                      // is not mistaken for a broken offer.
+                      helperText: 'Unrecognised codes are ignored',
+                      helperMaxLines: 2,
+                    ),
+                    textCapitalization: TextCapitalization.characters,
                   ),
                 ),
               ]),

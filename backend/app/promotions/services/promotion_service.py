@@ -28,14 +28,20 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import quantize_money
 from app.products.models import Product
-from app.promotions.models import Promotion, PromotionExecutionLog
+from app.promotions.models import (
+    Promotion,
+    PromotionCoupon,
+    PromotionExecutionLog,
+    PromotionRedemption,
+)
 from app.promotions.schemas import (
     PromotionActionType,
+    PromotionApplication,
     PromotionConditionOperator,
     PromotionDecision,
     PromotionEvaluationRequest,
@@ -93,11 +99,19 @@ class PromotionService:
         products = self._products_for(data)
         bill_discount = ZERO
         applied: list[str] = []
+        applications: list[PromotionApplication] = []
         decisions: list[PromotionDecision] = []
 
+        coupon = self._coupon_for(data, firm_scope=firm_scope)
         for promotion in self._active_promotions(
             firm_scope=firm_scope, on=data.transaction_date
         ):
+            refusal = self._unavailable(
+                promotion, coupon=coupon, data=data, firm_scope=firm_scope
+            )
+            if refusal is not None:
+                decisions.append(self._decision(promotion, False, refusal))
+                continue
             matched_lines = [
                 state
                 for state, line in zip(states, data.lines, strict=True)
@@ -132,14 +146,35 @@ class PromotionService:
                 )
                 continue
 
-            bill_discount += self._apply(
+            before_lines = sum((state.discount for state in states), ZERO)
+            added_bill = self._apply(
                 promotion,
                 matched=matched_lines,
                 states=states,
                 bill_discount=bill_discount,
                 allow_bill=not data.caller_priced_bill,
             )
+            bill_discount += added_bill
             applied.append(promotion.code)
+            applications.append(
+                PromotionApplication(
+                    promotion_id=promotion.id,
+                    code=promotion.code,
+                    coupon_id=(
+                        coupon.id
+                        if coupon is not None and coupon.promotion_id == promotion.id
+                        else None
+                    ),
+                    # What this offer alone took off, line and bill together --
+                    # so a campaign can be costed without re-pricing every
+                    # document it touched.
+                    benefit_amount=quantize_money(
+                        sum((state.discount for state in states), ZERO)
+                        - before_lines
+                        + added_bill
+                    ),
+                )
+            )
             for state in matched_lines:
                 state.codes.append(promotion.code)
             decisions.append(self._decision(promotion, True, "Applied."))
@@ -165,6 +200,7 @@ class PromotionService:
             ],
             bill_discount_amount=quantize_money(bill_discount),
             applied_promotion_codes=applied,
+            applied=applications,
             decisions=decisions,
         )
         self._log(data, response, firm_scope=firm_scope)
@@ -212,6 +248,118 @@ class PromotionService:
             if seen is None or row.version_number > seen.version_number:
                 newest[row.version_group_id] = row
         return [row for row in in_force if newest[row.version_group_id] is row]
+
+    def _coupon_for(
+        self, data: PromotionEvaluationRequest, *, firm_scope: UUID
+    ) -> PromotionCoupon | None:
+        """Return the live coupon the document presented, if it presented one.
+
+        A code that names nothing, or names something out of its window, is not
+        an error here: the promotion it would have reached simply does not
+        apply, and the trace says which. Refusing the whole document would stop
+        an order being saved because of a typo in a field that gives money
+        away.
+        """
+        code = (data.coupon_code or "").strip().upper()
+        if not code:
+            return None
+        row = self._session.scalar(
+            select(PromotionCoupon).where(
+                PromotionCoupon.firm_id == firm_scope,
+                PromotionCoupon.code == code,
+                PromotionCoupon.is_deleted.is_(False),
+                PromotionCoupon.status == PromotionStatus.ACTIVE.value,
+            )
+        )
+        if row is None:
+            return None
+        on = data.transaction_date
+        if row.effective_from is not None and on < row.effective_from:
+            return None
+        if row.effective_to is not None and on > row.effective_to:
+            return None
+        return row
+
+    def _unavailable(
+        self,
+        promotion: Promotion,
+        *,
+        coupon: PromotionCoupon | None,
+        data: PromotionEvaluationRequest,
+        firm_scope: UUID,
+    ) -> str | None:
+        """Say why this promotion is out of reach, or nothing if it is not.
+
+        Checked before the conditions, because "you did not present the code"
+        and "your order does not qualify" are different answers and a firm
+        chasing an offer that did not fire needs to know which.
+
+        A limit is counted from the redemption ledger rather than from a
+        counter on the promotion. A counter would have to be written while the
+        document is priced, and pricing must never commit -- so it would either
+        publish a half-written order or count a draft that is edited five more
+        times and never approved.
+        """
+        if promotion.requires_coupon and (
+            coupon is None or coupon.promotion_id != promotion.id
+        ):
+            return "This offer is claimed with a coupon, and none was presented."
+        claimed = self._claimed(promotion, firm_scope=firm_scope)
+        if (
+            promotion.max_redemptions is not None
+            and claimed >= promotion.max_redemptions
+        ):
+            return "This offer has been claimed as often as it allows."
+        if promotion.max_redemptions_per_customer is not None and data.customer_id:
+            by_customer = self._claimed(
+                promotion, firm_scope=firm_scope, customer_id=data.customer_id
+            )
+            if by_customer >= promotion.max_redemptions_per_customer:
+                return "This customer has claimed this offer as often as they may."
+        if coupon is not None and coupon.promotion_id == promotion.id:
+            coupon_claimed = self._claimed(
+                promotion, firm_scope=firm_scope, coupon_id=coupon.id
+            )
+            if (
+                coupon.max_redemptions is not None
+                and coupon_claimed >= coupon.max_redemptions
+            ):
+                return "This coupon has been used as often as it allows."
+            if coupon.max_redemptions_per_customer is not None and data.customer_id:
+                mine = self._claimed(
+                    promotion,
+                    firm_scope=firm_scope,
+                    coupon_id=coupon.id,
+                    customer_id=data.customer_id,
+                )
+                if mine >= coupon.max_redemptions_per_customer:
+                    return "This customer has used this coupon as often as they may."
+        return None
+
+    def _claimed(
+        self,
+        promotion: Promotion,
+        *,
+        firm_scope: UUID,
+        customer_id: UUID | None = None,
+        coupon_id: UUID | None = None,
+    ) -> int:
+        """Count live claims on one offer. A reversal does not count."""
+        statement = (
+            select(func.count())
+            .select_from(PromotionRedemption)
+            .where(
+                PromotionRedemption.firm_id == firm_scope,
+                PromotionRedemption.promotion_id == promotion.id,
+                PromotionRedemption.is_deleted.is_(False),
+                PromotionRedemption.status == "CLAIMED",
+            )
+        )
+        if customer_id is not None:
+            statement = statement.where(PromotionRedemption.customer_id == customer_id)
+        if coupon_id is not None:
+            statement = statement.where(PromotionRedemption.coupon_id == coupon_id)
+        return int(self._session.scalar(statement) or 0)
 
     def _products_for(
         self, data: PromotionEvaluationRequest

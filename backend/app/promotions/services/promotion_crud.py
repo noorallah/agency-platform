@@ -100,6 +100,9 @@ class PromotionCrudService:
             allow_stacking=data.allow_stacking,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
+            requires_coupon=data.requires_coupon,
+            max_redemptions=data.max_redemptions,
+            max_redemptions_per_customer=data.max_redemptions_per_customer,
             version_group_id=uuid4(),
             version_number=1,
             created_by=actor_id,
@@ -142,6 +145,9 @@ class PromotionCrudService:
             row.allow_stacking = data.allow_stacking
             row.effective_from = data.effective_from
             row.effective_to = data.effective_to
+            row.requires_coupon = data.requires_coupon
+            row.max_redemptions = data.max_redemptions
+            row.max_redemptions_per_customer = data.max_redemptions_per_customer
             row.updated_by = actor_id
             self._replace_children(row, data, actor_id=actor_id)
             record_audit(
@@ -166,6 +172,9 @@ class PromotionCrudService:
             allow_stacking=data.allow_stacking,
             effective_from=data.effective_from,
             effective_to=data.effective_to,
+            requires_coupon=data.requires_coupon,
+            max_redemptions=data.max_redemptions,
+            max_redemptions_per_customer=data.max_redemptions_per_customer,
             version_group_id=row.version_group_id,
             version_number=row.version_number + 1,
             supersedes_promotion_id=row.id,
@@ -292,6 +301,9 @@ class PromotionCrudService:
             allow_stacking=row.allow_stacking,
             effective_from=row.effective_from,
             effective_to=row.effective_to,
+            requires_coupon=row.requires_coupon,
+            max_redemptions=row.max_redemptions,
+            max_redemptions_per_customer=row.max_redemptions_per_customer,
             version_group_id=row.version_group_id,
             version_number=row.version_number,
             supersedes_promotion_id=row.supersedes_promotion_id,

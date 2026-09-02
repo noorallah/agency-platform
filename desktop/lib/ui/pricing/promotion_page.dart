@@ -40,8 +40,15 @@ class PromotionPage extends StatefulWidget {
 class _PromotionPageState extends State<PromotionPage> {
   final TextEditingController _search = TextEditingController();
 
+  /// Which half of the screen is showing. Offers and the codes that reach
+  /// them are two lists about one thing, so they share a screen rather than
+  /// competing for a place in the sales module's tab bar.
+  bool _showingCoupons = false;
+
   List<PromotionRecord> _rows = const [];
+  List<PromotionCouponRecord> _coupons = const [];
   PromotionRecord? _selected;
+  PromotionCouponRecord? _selectedCoupon;
   int _total = 0;
   int _page = 1;
   bool _loading = true;
@@ -68,6 +75,21 @@ class _PromotionPageState extends State<PromotionPage> {
       _error = null;
     });
     try {
+      if (_showingCoupons) {
+        final PagedResult<PromotionCouponRecord> coupons =
+            await widget.api.promotionCoupons(page: page, search: _search.text);
+        if (!mounted) return;
+        setState(() {
+          _coupons = coupons.items;
+          _total = coupons.total;
+          _page = page;
+          _loading = false;
+          _selectedCoupon = _coupons
+              .where((row) => row.id == _selectedCoupon?.id)
+              .firstOrNull;
+        });
+        return;
+      }
       final PagedResult<PromotionRecord> result = await widget.api.promotions(
         page: page,
         search: _search.text,
@@ -125,8 +147,23 @@ class _PromotionPageState extends State<PromotionPage> {
     return ManagementWorkspaceLayout(
       toolbar: Wrap(
         spacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          if (_mayManage)
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Offers')),
+              ButtonSegment(value: true, label: Text('Coupons')),
+            ],
+            selected: {_showingCoupons},
+            onSelectionChanged: (choice) {
+              setState(() {
+                _showingCoupons = choice.first;
+                _page = 1;
+              });
+              unawaited(_load(requestedPage: 1));
+            },
+          ),
+          if (_mayManage && !_showingCoupons)
             FilledButton.icon(
               onPressed: () => unawaited(_edit()),
               icon: const Icon(Icons.add),
@@ -144,11 +181,13 @@ class _PromotionPageState extends State<PromotionPage> {
         hintText: 'Search by name...',
         onSearch: (_) => unawaited(_load(requestedPage: 1)),
       ),
-      primaryContent: _content(),
-      detailsPanel: _selected == null ? null : _details(_selected!),
+      primaryContent: _showingCoupons ? _couponContent() : _content(),
+      detailsPanel: _showingCoupons
+          ? null
+          : (_selected == null ? null : _details(_selected!)),
       statusBar: WorkspaceStatusBar(
         total: _total,
-        selected: _selected != null,
+        selected: _showingCoupons ? _selectedCoupon != null : _selected != null,
         message: _loading ? 'Loading...' : null,
       ),
     );
@@ -210,6 +249,47 @@ class _PromotionPageState extends State<PromotionPage> {
         }
         if (action == WorkspaceContextAction.delete) unawaited(_delete(row));
       },
+    );
+  }
+
+  Widget _couponContent() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return WorkspaceEmptyState(title: 'Coupons unavailable', message: _error!);
+    }
+    if (_coupons.isEmpty) {
+      return const WorkspaceEmptyState(
+        title: 'No coupons yet',
+        message: 'A coupon is a code a customer presents to claim an offer. '
+            'The benefit lives on the offer; the coupon decides who reaches '
+            'it, and how often.',
+      );
+    }
+    return EnterpriseDataGrid<PromotionCouponRecord>(
+      items: _coupons,
+      total: _total,
+      pageOffset: (_page - 1) * 20,
+      rowsPerPage: 20,
+      selectedId: _selectedCoupon?.id,
+      columns: const [
+        GridColumn(key: 'code', label: 'Code'),
+        GridColumn(key: 'promotion', label: 'Offer'),
+        GridColumn(key: 'used', label: 'Claimed'),
+        GridColumn(key: 'per', label: 'Per customer'),
+        GridColumn(key: 'status', label: 'Status'),
+      ],
+      id: (row) => row.id,
+      cells: (row) => [
+        row.code,
+        row.promotionCode,
+        row.usageLabel,
+        row.maxRedemptionsPerCustomer == null
+            ? 'No limit'
+            : '${row.maxRedemptionsPerCustomer}',
+        row.status,
+      ],
+      onSelect: (row) => setState(() => _selectedCoupon = row),
+      onPageChanged: (page) => unawaited(_load(requestedPage: page)),
     );
   }
 

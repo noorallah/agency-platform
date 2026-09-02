@@ -12,7 +12,7 @@ refuses further stacking is reached. That is what a firm means by running a
 customer discount and a seasonal offer at the same time.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -20,6 +20,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -78,6 +79,17 @@ class Promotion(BaseEntity):
     #: that ran in April must still explain an April order in September.
     effective_from: Mapped[date | None] = mapped_column(Date)
     effective_to: Mapped[date | None] = mapped_column(Date)
+    #: Whether the customer has to ask for this offer by name. A promotion
+    #: requiring a coupon never applies on its own, however well a document
+    #: otherwise matches it.
+    requires_coupon: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: How many times the campaign may be claimed in total, and by any one
+    #: customer. Null is no limit, which is a different answer from zero --
+    #: hence nullable rather than a default nobody chose.
+    max_redemptions: Mapped[int | None] = mapped_column(Integer)
+    max_redemptions_per_customer: Mapped[int | None] = mapped_column(Integer)
     #: The promotion's published revision. `version` -- inherited from
     #: `BaseEntity` -- is the optimistic-concurrency counter and must not be
     #: reused for this, which is the trap `uom.ConversionRule` fell into.
@@ -208,3 +220,94 @@ class PromotionExecutionLog(BaseEntity):
     result_payload: Mapped[dict[str, object]] = mapped_column(
         JSON, nullable=False, default=dict
     )
+
+
+class PromotionCoupon(BaseEntity):
+    """A code a customer presents to claim an offer.
+
+    A coupon is a way of *reaching* a promotion, not a second kind of one: the
+    benefit, the conditions and the stacking rule all still live on the
+    promotion it names. What a coupon adds is that the offer applies only when
+    somebody asks for it by name.
+    """
+
+    __tablename__ = "promotion_coupons"
+    __table_args__ = (
+        UniqueConstraint("firm_id", "code", name="UQ_promotion_coupons_firm_code"),
+        Index("IX_promotion_coupons_firm_promotion", "firm_id", "promotion_id"),
+    )
+
+    #: No foreign key, for the reason `Promotion.firm_id` gives above.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    promotion_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("promotions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
+    )
+    #: How many times this coupon may be claimed in total, and by any one
+    #: customer. Null means no limit -- which is different from zero, and the
+    #: reason both are nullable rather than defaulting to a number nobody
+    #: chose.
+    max_redemptions: Mapped[int | None] = mapped_column(Integer)
+    max_redemptions_per_customer: Mapped[int | None] = mapped_column(Integer)
+    effective_from: Mapped[date | None] = mapped_column(Date)
+    effective_to: Mapped[date | None] = mapped_column(Date)
+
+    promotion: Mapped[Promotion] = relationship(lazy="selectin")
+
+
+class PromotionRedemption(BaseEntity):
+    """One claim on an offer, and what it was worth.
+
+    Written when a document is **approved**, never while it is priced. Pricing
+    runs on the caller's session and must never commit -- so a counter
+    incremented there would either publish a half-written order or count a
+    draft that is edited five more times before anybody approves it.
+
+    Reversed rather than deleted when the document is cancelled: what a
+    customer claimed and what they gave back are two facts, and a ledger that
+    forgets the first cannot explain the second.
+    """
+
+    __tablename__ = "promotion_redemptions"
+    __table_args__ = (
+        Index("IX_promotion_redemptions_firm_promotion", "firm_id", "promotion_id"),
+        Index("IX_promotion_redemptions_firm_customer", "firm_id", "customer_id"),
+        Index("IX_promotion_redemptions_document", "firm_id", "document_id"),
+    )
+
+    #: No foreign key, for the reason `Promotion.firm_id` gives above.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    promotion_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("promotions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    coupon_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("promotion_coupons.id", ondelete="RESTRICT")
+    )
+    customer_id: Mapped[UUID | None] = mapped_column(UUIDType(), index=True)
+    #: The document that claimed it. A bare UUID with no foreign key, because
+    #: more than one table can hold one -- the same shape
+    #: `source_document_line_id` has.
+    document_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    document_number: Mapped[str | None] = mapped_column(String(60))
+    redeemed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    #: What the claim was worth, so a campaign can be costed without re-pricing
+    #: every document it touched.
+    benefit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: CLAIMED or REVERSED. Only a claim counts against a limit.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="CLAIMED", server_default="CLAIMED"
+    )
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

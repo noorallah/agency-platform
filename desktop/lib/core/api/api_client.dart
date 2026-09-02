@@ -3270,6 +3270,59 @@ class ApiClient {
   Future<void> deletePromotion(String id) =>
       request('DELETE', '/api/v1/promotions/$id');
 
+  Future<PagedResult<PromotionCouponRecord>> promotionCoupons({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/promotions/coupons',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PromotionCouponRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => PromotionCouponRecord.fromJson(
+                  Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<PromotionCouponRecord> createPromotionCoupon(Json body) async =>
+      PromotionCouponRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/promotions/coupons', body: body),
+        ),
+      );
+
+  /// The code itself is fixed once minted -- it is on a leaflet somebody is
+  /// holding -- so only the limits, the window and the status may change.
+  Future<PromotionCouponRecord> updatePromotionCoupon(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PromotionCouponRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/promotions/coupons/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deletePromotionCoupon(String id) =>
+      request('DELETE', '/api/v1/promotions/coupons/$id');
+
   // ---- commission ----------------------------------------------------
 
   Future<PagedResult<CommissionRuleRecord>> commissionRules({
