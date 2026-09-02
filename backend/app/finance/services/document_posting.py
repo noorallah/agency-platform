@@ -94,6 +94,17 @@ STOCK_ADJUSTMENT_PURPOSES = (
 
 RECEIPT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 
+#: Recognising what a salesman has earned: a cost the firm has incurred
+#: and a debt it has not yet settled.
+COMMISSION_ACCRUAL_PURPOSES = (
+    ControlAccountPurpose.COMMISSION_EXPENSE,
+    ControlAccountPurpose.COMMISSION_PAYABLE,
+)
+
+#: Settling it. The money account is chosen per payment, so only the debt
+#: side is resolved from the mapping.
+COMMISSION_PAYMENT_PURPOSES = (ControlAccountPurpose.COMMISSION_PAYABLE,)
+
 #: A refund is money out against the same account a receipt is money
 #: in against: what the customer paid in advance is being handed back.
 REFUND_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
@@ -949,6 +960,137 @@ class DocumentPostingService:
             lines=[money_leg, party_leg],
             source_module="settlements",
             source_id=settlement_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_commission_accrual(
+        self,
+        *,
+        firm_id: UUID,
+        payout_id: UUID,
+        reference: str,
+        accrued_on: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Recognise what a salesman has earned but not yet been paid.
+
+        Two legs: the cost the firm has incurred, and the debt it now owes.
+        Booking the expense straight against cash instead would say the firm
+        owes nobody the moment it recognises the cost, which is wrong for
+        every period that closes before the money goes out -- and that is most
+        of them.
+
+        Args:
+            firm_id: The owning firm.
+            payout_id: The source payout.
+            reference: The payout's reference, used as the journal reference.
+            accrued_on: The date the accrual is booked on.
+            amount: What is owed.
+            actor_id: The user approving it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, COMMISSION_ACCRUAL_PURPOSES)
+        context = self.context_for(firm_id, accrued_on)
+        total = quantize_ledger(quantize_money(amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.COMMISSION_EXPENSE],
+                debit_amount=total,
+                credit_amount=ZERO,
+                description=f"Commission {reference}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.COMMISSION_PAYABLE],
+                debit_amount=ZERO,
+                credit_amount=total,
+                description=f"Commission {reference}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=accrued_on,
+            reference_number=reference,
+            description=f"Commission accrual {reference}",
+            lines=lines,
+            source_module="commission",
+            source_id=payout_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_commission_payment(
+        self,
+        *,
+        firm_id: UUID,
+        payout_id: UUID,
+        reference: str,
+        paid_on: date,
+        amount: Decimal,
+        money_account_id: UUID,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Settle a commission debt against the account the money left.
+
+        The mirror image of the accrual: the payable falls and the cash or
+        bank account falls with it. The expense is not touched -- it was
+        recognised when the payout was approved, and recognising it again here
+        would double the cost in whichever period the money happened to move.
+
+        Args:
+            firm_id: The owning firm.
+            payout_id: The source payout.
+            reference: The payout's reference.
+            paid_on: The date the money moved.
+            amount: How much moved.
+            money_account_id: The cash or bank account it left.
+            actor_id: The user recording the payment.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        accounts = self._require_mapping(firm_id, COMMISSION_PAYMENT_PURPOSES)
+        context = self.context_for(firm_id, paid_on)
+        total = quantize_ledger(quantize_money(amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.COMMISSION_PAYABLE],
+                debit_amount=total,
+                credit_amount=ZERO,
+                description=f"Commission paid {reference}",
+            ),
+            JournalLineData(
+                ledger_account_id=money_account_id,
+                debit_amount=ZERO,
+                credit_amount=total,
+                description=f"Commission paid {reference}",
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=paid_on,
+            reference_number=reference,
+            description=f"Commission payment {reference}",
+            lines=lines,
+            source_module="commission",
+            source_id=payout_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

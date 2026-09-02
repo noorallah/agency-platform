@@ -218,6 +218,13 @@ PERMISSION_GROUPS = {
     "commission": (
         "COMMISSION_VIEW",
         "COMMISSION_MANAGE",
+        # Money leaving the firm is a separate authority from agreeing what is
+        # owed. Whoever accrues and approves a payout is stating a debt;
+        # whoever pays it is moving cash, and one person holding both is the
+        # segregation of duties this split exists to keep. Deliberately not
+        # granted to `SALES_MANAGER`, who would otherwise be able to pay their
+        # own team -- and, on a rule with no salesman, themselves.
+        "COMMISSION_PAY",
     ),
     "accounting": (
         "ACCOUNT_VIEW",

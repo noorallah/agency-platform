@@ -294,3 +294,119 @@ class SalesTargetAchievementRecord {
         achievedPercent: stringValue(json['achieved_percent']),
       );
 }
+
+
+/// What a firm owes one salesman for one period, and how far it has got.
+///
+/// The amounts are what the report said **when it was accrued**. Nothing
+/// re-reads them: the report walks live documents, so asking it again in
+/// September would answer differently than it did in April, and a payout that
+/// changed after it was approved is one nobody can reconcile against the
+/// journal behind it.
+class CommissionPayoutRecord {
+  const CommissionPayoutRecord({
+    required this.id,
+    required this.salesmanId,
+    required this.salesmanName,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.earnedAmount,
+    required this.payableAmount,
+    this.basis = 'COLLECTED',
+    this.measuredAmount = '0.00',
+    this.adjustmentAmount = '0.00',
+    this.adjustmentReason = '',
+    this.status = 'DRAFT',
+    this.accruedOn = '',
+    this.paidOn = '',
+    this.moneyAccountId = '',
+    this.journalEntryId = '',
+    this.paymentJournalEntryId = '',
+    this.notes = '',
+    this.version = 0,
+  });
+
+  final String id;
+  final String salesmanId;
+  final String salesmanName;
+  final String periodStart;
+  final String periodEnd;
+  final String basis;
+
+  /// The money the rate was applied to — collected or invoiced, per [basis].
+  final String measuredAmount;
+  final String earnedAmount;
+  final String adjustmentAmount;
+  final String adjustmentReason;
+
+  /// Earned plus the adjustment: what is actually owed, and what posted.
+  final String payableAmount;
+  final String status;
+  final String accruedOn;
+  final String paidOn;
+  final String moneyAccountId;
+  final String journalEntryId;
+  final String paymentJournalEntryId;
+  final String notes;
+  final int version;
+
+  /// The period, named the way a person would say it.
+  ///
+  /// Almost every payout covers one calendar month, and "2026-04-01 to
+  /// 2026-04-30" is both harder to read and wide enough to push the row's
+  /// actions off a 1366-wide window. The full range is still shown for a
+  /// period that is not a whole month, because there it is the only honest
+  /// description.
+  String get periodLabel {
+    const List<String> months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    if (periodStart.length == 10 && periodEnd.length == 10) {
+      final String startMonth = periodStart.substring(0, 7);
+      final bool wholeMonth = startMonth == periodEnd.substring(0, 7) &&
+          periodStart.endsWith('-01') &&
+          _isLastOfMonth(periodEnd);
+      if (wholeMonth) {
+        final int index = int.tryParse(startMonth.substring(5, 7)) ?? 0;
+        if (index >= 1 && index <= 12) {
+          return '${months[index - 1]} ${startMonth.substring(0, 4)}';
+        }
+      }
+    }
+    return '$periodStart to $periodEnd';
+  }
+
+  static bool _isLastOfMonth(String iso) {
+    final DateTime? day = DateTime.tryParse(iso);
+    if (day == null) return false;
+    return DateTime(day.year, day.month + 1, 0).day == day.day;
+  }
+
+  bool get isDraft => status == 'DRAFT';
+  bool get isApproved => status == 'APPROVED';
+
+  factory CommissionPayoutRecord.fromJson(Json json) => CommissionPayoutRecord(
+        id: stringValue(json['id']),
+        salesmanId: stringValue(json['salesman_id']),
+        salesmanName: stringValue(json['salesman_name']),
+        periodStart: stringValue(json['period_start']),
+        periodEnd: stringValue(json['period_end']),
+        basis: stringValue(json['basis']),
+        measuredAmount: stringValue(json['measured_amount']),
+        earnedAmount: stringValue(json['earned_amount']),
+        adjustmentAmount: stringValue(json['adjustment_amount']),
+        adjustmentReason: stringValue(json['adjustment_reason']),
+        payableAmount: stringValue(json['payable_amount']),
+        status: stringValue(json['status']).isEmpty
+            ? 'DRAFT'
+            : stringValue(json['status']),
+        accruedOn: stringValue(json['accrued_on']),
+        paidOn: stringValue(json['paid_on']),
+        moneyAccountId: stringValue(json['money_account_id']),
+        journalEntryId: stringValue(json['journal_entry_id']),
+        paymentJournalEntryId: stringValue(json['payment_journal_entry_id']),
+        notes: stringValue(json['notes']),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
+}

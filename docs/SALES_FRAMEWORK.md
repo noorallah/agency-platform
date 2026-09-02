@@ -173,6 +173,7 @@ document is built, on the document's own date.
 | Concern | Where | Enforced? |
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
+| Commission payouts | `commission_payouts`, per firm | Accrue → approve (posts) → pay (clears). `COMMISSION_PAY` to move the money, which `SALES_MANAGER` does not hold |
 | Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate or a ladder; paid on money collected or on invoiced value, with an optional per-period ceiling |
 | Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
@@ -618,6 +619,52 @@ period rather than carrying the first window's volume into the second
 window's thresholds.
 
 Driven against WHOLE01, on its own schema, across all four shapes.
+
+## 9b. ~~Commission reports rather than pays~~ — closed 2026-09-03
+
+`app/commission` answered what a period earned and stopped there, so the number
+lived on a screen and never in the books. `commission_payouts` is the record of
+a debt: **accrued** from the report, **adjusted** while it is still a draft,
+**approved** into the ledger, **paid**, or **cancelled**.
+
+**The report is read once, at accrual, and never again.** Everything
+afterwards reads the stored row. The report walks live documents, so asking it
+in September answers differently than it did in April — a settlement reversed,
+an invoice cancelled, a rate corrected — and a payout that changes after it was
+approved is one nobody can reconcile against the journal it posted.
+`CustomerService.reverse_receivable_transaction` reads stored deltas for the
+same reason.
+
+**One live payout per person per overlapping period.** Two would pay the same
+collections twice and nothing downstream could say which was real. A CANCELLED
+payout holds no claim, which is what makes a period accrued at the wrong rate
+correctable at all.
+
+**The ledger.** Approval posts `Dr Commission Expense / Cr Commission Payable`;
+payment posts `Dr Commission Payable / Cr` whichever cash or bank account the
+money left. Two accounts rather than one, because an approved payout is a
+liability that outlives the month it was earned in — booking the expense
+straight against cash would say the firm owes nobody the moment it recognises
+the cost. Both accounts are the firm's to nominate through
+`firm_control_accounts` (`COMMISSION_EXPENSE`, `COMMISSION_PAYABLE`), the way
+every other posting purpose is; the default chart carries `5600` and `2400` so
+the first payout does not fail on an unmapped purpose.
+
+Three smaller rules. An **adjustment needs a reason** and is only possible
+while the payout is a draft — a number nobody can explain at the year end is
+not an adjustment, and changing what was approved would leave the journal and
+the record apart. **A paid payout cannot be cancelled**: the money has gone,
+and undoing that is a payment the other way. And the **Unassigned bucket never
+becomes a payout** — it stays in the report so the collections reconcile
+against the cash book, and there is nobody to pay it to.
+
+`COMMISSION_PAY` is a permission of its own and is deliberately **not** granted
+to `SALES_MANAGER`. Whoever states a debt should not be the one who moves the
+cash; a sales manager holding both could pay their own team, and on a
+firm-wide rule, themselves.
+
+**Sales › Commission › Payouts** carries the whole run: Accrue a period, then
+Approve, Pay or Cancel per row.
 
 ## 10. ~~No sales targets or quotas~~ — landed 2026-09-03
 

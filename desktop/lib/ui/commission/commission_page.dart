@@ -9,7 +9,9 @@ import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/firm_member.dart';
 import '../../models/entities.dart';
+import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import 'payout_dialogs.dart';
 
 /// What each salesman earns, and what a period of collections earned them.
 ///
@@ -41,8 +43,8 @@ class CommissionPage extends StatefulWidget {
   State<CommissionPage> createState() => _CommissionPageState();
 }
 
-/// Which half of the screen is showing.
-enum _CommissionView { rules, report }
+/// Which part of the screen is showing.
+enum _CommissionView { rules, report, payouts }
 
 class _CommissionPageState extends State<CommissionPage> {
   late final TextEditingController _from =
@@ -65,8 +67,18 @@ class _CommissionPageState extends State<CommissionPage> {
   /// existing rules, which makes every rate but the first impossible to add.
   List<FirmMember> _people = const <FirmMember>[];
 
+  List<CommissionPayoutRecord> _payouts = const [];
+  List<LedgerAccount> _moneyAccounts = const [];
+  String? _payoutsError;
+  bool _loadingPayouts = false;
+
   bool get _mayView => widget.permissions.hasPermission('COMMISSION_VIEW');
   bool get _mayManage => widget.permissions.hasPermission('COMMISSION_MANAGE');
+
+  /// Money leaving the firm is a separate authority from agreeing what is
+  /// owed, so the Pay action is gated on its own code. The screen hides the
+  /// button rather than letting the server refuse after the dialog.
+  bool get _mayPay => widget.permissions.hasPermission('COMMISSION_PAY');
 
   static DateTime _firstOfThisMonth() {
     final DateTime now = DateTime.now();
@@ -154,6 +166,93 @@ class _CommissionPageState extends State<CommissionPage> {
     }
   }
 
+
+  Future<void> _loadPayouts() async {
+    setState(() {
+      _loadingPayouts = true;
+      _payoutsError = null;
+    });
+    try {
+      final List<CommissionPayoutRecord> rows =
+          await fetchAllPages<CommissionPayoutRecord>(
+        (page) => widget.api.commissionPayouts(page: page),
+      );
+      // Only the accounts money can actually leave from. Offering the whole
+      // chart would invite a payment posted against revenue.
+      final List<LedgerAccount> accounts = _mayPay
+          ? (await widget.api.ledgerAccounts(isActive: true))
+              .items
+              .where((account) => account.accountType == 'ASSET')
+              .toList()
+          : const <LedgerAccount>[];
+      if (!mounted) return;
+      setState(() {
+        _payouts = rows;
+        _moneyAccounts = accounts;
+        _loadingPayouts = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _payoutsError = error.message;
+        _loadingPayouts = false;
+      });
+    }
+  }
+
+  Future<void> _accrue() async {
+    final bool? ran = await showDialog<bool>(
+      context: context,
+      builder: (context) => CommissionAccrualDialog(api: widget.api),
+    );
+    if (ran == true) await _loadPayouts();
+  }
+
+  /// Run one payout action and say what happened either way.
+  Future<void> _payoutAction(
+    CommissionPayoutRecord payout,
+    Future<CommissionPayoutRecord> Function() action,
+    String done,
+  ) async {
+    try {
+      await action();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${payout.salesmanName} — $done',
+        kind: AppNotificationKind.success,
+      );
+      await _loadPayouts();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+    }
+  }
+
+  Future<void> _pay(CommissionPayoutRecord payout) async {
+    final Json? details = await showDialog<Json>(
+      context: context,
+      builder: (context) => CommissionPaymentDialog(
+        payout: payout,
+        accounts: _moneyAccounts,
+      ),
+    );
+    if (details == null) return;
+    await _payoutAction(
+      payout,
+      () => widget.api.payCommissionPayout(
+        payout.id,
+        details,
+        expectedVersion: payout.version,
+      ),
+      'paid.',
+    );
+  }
+
   Future<void> _edit({CommissionRuleRecord? rule}) async {
     final bool? saved = await showDialog<bool>(
       context: context,
@@ -228,6 +327,7 @@ class _CommissionPageState extends State<CommissionPage> {
       );
     }
     final bool onRules = _view == _CommissionView.rules;
+    final bool onPayouts = _view == _CommissionView.payouts;
     return ManagementWorkspaceLayout(
       toolbar: Wrap(
         spacing: AppSpacing.sm,
@@ -239,14 +339,24 @@ class _CommissionPageState extends State<CommissionPage> {
               icon: const Icon(Icons.add),
               label: const Text('Add rule'),
             ),
+          if (onPayouts && _mayManage)
+            FilledButton.icon(
+              onPressed: _accrue,
+              icon: const Icon(Icons.playlist_add_check),
+              label: const Text('Accrue period'),
+            ),
           OutlinedButton.icon(
-            onPressed: onRules ? _loadRules : _loadReport,
+            onPressed: onPayouts
+                ? _loadPayouts
+                : (onRules ? _loadRules : _loadReport),
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh'),
           ),
         ],
       ),
-      searchPanel: onRules ? const SizedBox.shrink() : _periodPanel(),
+      searchPanel: _view == _CommissionView.report
+          ? _periodPanel()
+          : const SizedBox.shrink(),
       viewBar: SegmentedButton<_CommissionView>(
         segments: const [
           ButtonSegment(
@@ -259,6 +369,11 @@ class _CommissionPageState extends State<CommissionPage> {
             label: Text('Collected'),
             icon: Icon(Icons.payments_outlined),
           ),
+          ButtonSegment(
+            value: _CommissionView.payouts,
+            label: Text('Payouts'),
+            icon: Icon(Icons.account_balance_wallet_outlined),
+          ),
         ],
         selected: {_view},
         showSelectedIcon: false,
@@ -269,17 +384,153 @@ class _CommissionPageState extends State<CommissionPage> {
               !_loadingReport) {
             _loadReport();
           }
+          if (_view == _CommissionView.payouts &&
+              _payouts.isEmpty &&
+              !_loadingPayouts) {
+            _loadPayouts();
+          }
         },
       ),
-      primaryContent: onRules ? _rulesContent() : _reportContent(),
+      primaryContent: onPayouts
+          ? _payoutsContent()
+          : (onRules ? _rulesContent() : _reportContent()),
       statusBar: WorkspaceStatusBar(
-        total: onRules ? _rules.length : (_report?.rows.length ?? 0),
+        total: switch (_view) {
+          _CommissionView.rules => _rules.length,
+          _CommissionView.report => _report?.rows.length ?? 0,
+          _CommissionView.payouts => _payouts.length,
+        },
         selected: onRules && _selectedId != null,
-        message: onRules
-            ? 'A rate with no salesman applies to everybody without one of '
-                'their own.'
-            : 'Earned on money collected, not on invoiced value.',
+        message: switch (_view) {
+          _CommissionView.rules =>
+            'A rate with no salesman applies to everybody without one of '
+                'their own.',
+          _CommissionView.report =>
+            'What each rule paid, on the basis that rule declares.',
+          _CommissionView.payouts =>
+            'Approving posts the cost and the debt; paying clears it.',
+        },
       ),
+    );
+  }
+
+
+  // ------------------------------------------------------------------
+  // Payouts
+  // ------------------------------------------------------------------
+
+  Widget _payoutsContent() {
+    if (_loadingPayouts) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const CommissionNotice(
+          icon: Icons.receipt_long_outlined,
+          text: 'A payout holds what the report said when it was accrued. '
+              'Nothing re-reads it, so approving in April and asking again in '
+              'September give the same number.',
+        ),
+        if (_payoutsError != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _ErrorLine(message: _payoutsError!),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        Expanded(child: _payoutsGrid()),
+      ],
+    );
+  }
+
+  Widget _payoutsGrid() {
+    if (_payouts.isEmpty) {
+      return WorkspaceEmptyState(
+        title: 'No payouts yet',
+        message: _mayManage
+            ? 'Accrue a period to turn what it earned into draft payouts.'
+            : 'Accruing a period needs the manage commission permission.',
+      );
+    }
+    return EnterpriseDataGrid<CommissionPayoutRecord>(
+      items: _payouts,
+      total: _payouts.length,
+      pageOffset: 0,
+      rowsPerPage: _payouts.length,
+      availableRowsPerPage: [_payouts.length],
+      columns: const [
+        GridColumn(key: 'salesman', label: 'Salesman'),
+        GridColumn(key: 'period', label: 'Period'),
+        GridColumn(key: 'earned', label: 'Earned'),
+        GridColumn(key: 'payable', label: 'Payable'),
+        GridColumn(key: 'status', label: 'Status'),
+        GridColumn(key: 'actions', label: ''),
+      ],
+      id: (row) => row.id,
+      cells: (row) => [
+        row.salesmanName,
+        row.periodLabel,
+        row.earnedAmount,
+        // The adjustment is folded in here rather than given a column of its
+        // own, and the basis into the status. Every column costs about 220
+        // pixels, and at 1366 an eighth one put the actions past the right
+        // edge -- an Approve nobody can reach without scrolling sideways is
+        // one nobody finds. Both notes appear only where there is something
+        // to say.
+        row.adjustmentAmount == '0.00'
+            ? row.payableAmount
+            : '${row.payableAmount}  (adj ${row.adjustmentAmount})',
+        row.basis.isEmpty
+            ? row.status
+            : '${row.status} · ${basisLabel(row.basis).toLowerCase()}',
+        '',
+      ],
+      onSelect: (_) {},
+      onPageChanged: (_) {},
+      cellBuilder: (columnIndex, value, row) =>
+          columnIndex == 5 ? _payoutActions(row) : Text(value),
+    );
+  }
+
+  /// Only what this row can actually do next.
+  ///
+  /// An action the server is going to refuse is worse than none: it reads as
+  /// a working action until the moment somebody needs it. Paying is gated on
+  /// its own code, because whoever states a debt should not be the one who
+  /// moves the cash.
+  Widget _payoutActions(CommissionPayoutRecord row) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (row.isDraft && _mayManage)
+          TextButton(
+            onPressed: () => _payoutAction(
+              row,
+              () => widget.api.approveCommissionPayout(
+                row.id,
+                expectedVersion: row.version,
+              ),
+              'approved. The cost and the debt are on the ledger.',
+            ),
+            child: const Text('Approve'),
+          ),
+        if (row.isApproved && _mayPay)
+          TextButton(
+            onPressed: () => _pay(row),
+            child: const Text('Pay'),
+          ),
+        if ((row.isDraft || row.isApproved) && _mayManage)
+          TextButton(
+            onPressed: () => _payoutAction(
+              row,
+              () => widget.api.cancelCommissionPayout(
+                row.id,
+                expectedVersion: row.version,
+              ),
+              'cancelled. The period is free to accrue again.',
+            ),
+            child: const Text('Cancel'),
+          ),
+      ],
     );
   }
 
