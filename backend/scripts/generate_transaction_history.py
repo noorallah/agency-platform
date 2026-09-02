@@ -49,7 +49,7 @@ from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import inspect, select, text
 from sqlalchemy.engine import Inspector
@@ -78,6 +78,11 @@ from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services import GoodsReceiptService
 from app.products.models import Product
+from app.promotions.models import (
+    Promotion,
+    PromotionAction,
+    PromotionCondition,
+)
 from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderStatus
 from app.purchase.services import PurchaseService
@@ -207,6 +212,13 @@ RESET_ORDER: tuple[str, ...] = (
     "product_valuations",
     "document_lifecycle_events",
     "document_number_sequences",
+    # The offers and what they gave away. Children first: a promotion's
+    # conditions and actions reference it, and a superseded revision
+    # references the one it replaced.
+    "promotion_execution_logs",
+    "promotion_actions",
+    "promotion_conditions",
+    "promotions",
 )
 
 
@@ -323,6 +335,7 @@ class Tally:
     sales_orders: int = 0
     delivery_notes: int = 0
     quotations: int = 0
+    promotions: int = 0
     sales_invoices: int = 0
     sales_returns: int = 0
     receipts: int = 0
@@ -336,6 +349,7 @@ class Tally:
             f"{self.years} financial year(s) | PO {self.purchase_orders} | "
             f"GRN {self.goods_receipts} | PINV {self.purchase_invoices} | "
             f"PRET {self.purchase_returns} | "
+            f"PROMO {self.promotions} | "
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns}"
@@ -519,6 +533,144 @@ class HistoryBuilder:
         return branch, warehouse, vendor, customers, products
 
     # -- calendar ------------------------------------------------------
+
+    def promotions(self, first_year_start: date) -> None:
+        """Put three offers on the firm, so the engine prices real documents.
+
+        Chosen to exercise the parts of the engine that arithmetic alone does
+        not. `BULK5` is quantity-based and **stacks**; `CLEARANCE` stacks
+        behind it; and `BIGORDER` sits between them and refuses to stack, so a
+        large order demonstrably gets `BULK5` and `BIGORDER` and **not**
+        `CLEARANCE`. A seed where every offer stacked would leave that rule
+        exercised by nothing.
+
+        `BULK5` is also seeded as two revisions with adjoining windows -- the
+        rate improves half way through the history -- because superseding
+        leaves the predecessor ACTIVE, and an engine that failed to collapse to
+        one live version per offer would hand the customer both. That is the
+        trap a stacking engine inherits from copying the tax query, and a
+        seeded document is what makes it visible.
+
+        Rows are built directly rather than through `PromotionCrudService`,
+        which refuses a second promotion carrying an existing code -- exactly
+        what a superseded revision is.
+        """
+        midpoint = date(first_year_start.year + 1, first_year_start.month, 1)
+        bulk_group = uuid4()
+
+        # The rate a bulk buyer gets, improved half way through. Adjoining
+        # windows, so only one revision is ever in force on a given day.
+        self._promotion(
+            code="BULK5",
+            name="Five percent on a bulk line",
+            priority=10,
+            allow_stacking=True,
+            effective_from=first_year_start,
+            effective_to=midpoint - timedelta(days=1),
+            version_group_id=bulk_group,
+            version_number=1,
+            actions=[("LINE_DISCOUNT_PERCENT", {"percent": "5"})],
+            conditions=[("line_quantity", "GREATER_OR_EQUAL", Decimal("25"))],
+        )
+        self._promotion(
+            code="BULK5",
+            name="Seven and a half percent on a bulk line",
+            priority=10,
+            allow_stacking=True,
+            effective_from=midpoint,
+            effective_to=None,
+            version_group_id=bulk_group,
+            version_number=2,
+            actions=[("LINE_DISCOUNT_PERCENT", {"percent": "7.5"})],
+            conditions=[("line_quantity", "GREATER_OR_EQUAL", Decimal("25"))],
+        )
+        # Off the whole bill on a large order, and nothing after it applies.
+        self._promotion(
+            code="BIGORDER",
+            name="Two hundred off a large order",
+            priority=20,
+            allow_stacking=False,
+            effective_from=first_year_start,
+            effective_to=None,
+            version_group_id=uuid4(),
+            version_number=1,
+            actions=[("BILL_DISCOUNT_AMOUNT", {"amount": "200"})],
+            conditions=[("document_gross", "GREATER_OR_EQUAL", Decimal("4500"))],
+        )
+        # Behind the one that does not stack, so a large order proves it was
+        # skipped rather than merely absent.
+        self._promotion(
+            code="CLEARANCE",
+            name="One percent, when nothing has ended the stack",
+            priority=30,
+            allow_stacking=True,
+            effective_from=first_year_start,
+            effective_to=None,
+            version_group_id=uuid4(),
+            version_number=1,
+            actions=[("LINE_DISCOUNT_PERCENT", {"percent": "1"})],
+            conditions=[],
+        )
+        self._session.commit()
+
+    def _promotion(
+        self,
+        *,
+        code: str,
+        name: str,
+        priority: int,
+        allow_stacking: bool,
+        effective_from: date,
+        effective_to: date | None,
+        version_group_id: UUID,
+        version_number: int,
+        actions: list[tuple[str, dict[str, str]]],
+        conditions: list[tuple[str, str, Decimal]],
+    ) -> None:
+        """Write one promotion with its actions and conditions."""
+        firm_id = self._target.firm_id
+        row = Promotion(
+            firm_id=firm_id,
+            code=code,
+            name=name,
+            priority=priority,
+            status="ACTIVE",
+            allow_stacking=allow_stacking,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            version_group_id=version_group_id,
+            version_number=version_number,
+            created_by=ACTOR,
+            updated_by=ACTOR,
+        )
+        self._session.add(row)
+        self._session.flush()
+        for index, (action_type, parameters) in enumerate(actions, start=1):
+            self._session.add(
+                PromotionAction(
+                    firm_id=firm_id,
+                    promotion_id=row.id,
+                    sequence=index,
+                    action_type=action_type,
+                    parameters=parameters,
+                    created_by=ACTOR,
+                    updated_by=ACTOR,
+                )
+            )
+        for index, (field_key, operator, value) in enumerate(conditions, start=1):
+            self._session.add(
+                PromotionCondition(
+                    firm_id=firm_id,
+                    promotion_id=row.id,
+                    sequence=index,
+                    field_key=field_key,
+                    operator=operator,
+                    value_number=value,
+                    created_by=ACTOR,
+                    updated_by=ACTOR,
+                )
+            )
+        self._tally.promotions += 1
 
     def ensure_year(self, year_start: date) -> None:
         """Create the financial year and its periods if they are not there.
@@ -1209,8 +1361,13 @@ def build_for_firm(
     builder = HistoryBuilder(session, target)
     branch, warehouse, vendor, customers, products = builder.masters()
 
+    years_in_scope = _financial_years(years, today)
+    # Before a single document is priced: an offer agreed after the order it
+    # was meant to discount is an offer that discounts nothing.
+    builder.promotions(years_in_scope[0])
+
     cycle = 0
-    for year_start in _financial_years(years, today):
+    for year_start in years_in_scope:
         builder.ensure_year(year_start)
         for month_index, month_start in enumerate(_month_starts(year_start, today)):
             buy_on = _day_in(month_start, 4, today)
