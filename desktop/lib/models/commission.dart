@@ -53,6 +53,12 @@ class CommissionRuleRecord {
     this.slabMode = 'MARGINAL',
     this.maxCommissionAmount = '',
     this.slabs = const <CommissionSlabRecord>[],
+    this.productId = '',
+    this.productName = '',
+    this.productCategoryId = '',
+    this.productCategoryName = '',
+    this.rateType = 'PERCENT',
+    this.perUnitAmount = '0',
   });
 
   final String id;
@@ -82,8 +88,35 @@ class CommissionRuleRecord {
   /// rule agreed before ladders existed.
   final List<CommissionSlabRecord> slabs;
 
+  /// The goods this rule is about. Both empty is a rule about the whole
+  /// document, which is most of them.
+  final String productId;
+  final String productName;
+  final String productCategoryId;
+  final String productCategoryName;
+
+  /// PERCENT or PER_UNIT — a share of the money, or a sum for each unit sold.
+  final String rateType;
+  final String perUnitAmount;
+
+  /// What the rule covers, in the words a person would use.
+  String get scopeLabel {
+    if (productId.isNotEmpty) {
+      return productName.isEmpty ? 'One product' : productName;
+    }
+    if (productCategoryId.isNotEmpty) {
+      return productCategoryName.isEmpty
+          ? 'One category'
+          : productCategoryName;
+    }
+    return 'Everything';
+  }
+
   /// What the rule pays, in one line a person can read off a list.
   String get rateLabel {
+    // A per-unit rate is not a percentage and has no ladder: showing either
+    // would be showing a field this rule does not use.
+    if (rateType == 'PER_UNIT') return '$perUnitAmount per unit';
     if (slabs.isEmpty) return '$percentage%';
     final String shape =
         slabMode == 'WHOLE_AMOUNT' ? 'whole amount' : 'marginal';
@@ -115,6 +148,14 @@ class CommissionRuleRecord {
             ? 'MARGINAL'
             : stringValue(json['slab_mode']),
         maxCommissionAmount: stringValue(json['max_commission_amount']),
+        productId: stringValue(json['product_id']),
+        productName: stringValue(json['product_name']),
+        productCategoryId: stringValue(json['product_category_id']),
+        productCategoryName: stringValue(json['product_category_name']),
+        rateType: stringValue(json['rate_type']).isEmpty
+            ? 'PERCENT'
+            : stringValue(json['rate_type']),
+        perUnitAmount: stringValue(json['per_unit_amount']),
         slabs: [
           for (final dynamic slab
               in json['slabs'] is List ? json['slabs'] as List : const [])

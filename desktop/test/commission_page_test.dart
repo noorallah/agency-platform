@@ -42,6 +42,8 @@ class _CommissionApi extends ApiClient {
     this.salesmen = const [],
     this.payouts = const [],
     this.accounts = const [],
+    this.goods = const [],
+    this.goodsCategories = const [],
   })
       : super(
           baseUrl: 'http://localhost:8000',
@@ -70,6 +72,11 @@ class _CommissionApi extends ApiClient {
   /// including an income account, so the screen has something to filter out.
   final List<Json> accounts;
 
+  /// What `GET /products` and `GET /products/categories` answer with -- what
+  /// a rule can be scoped to.
+  final List<Json> goods;
+  final List<Json> goodsCategories;
+
   final List<String> requested = <String>[];
   Json? created;
   Json? accrued;
@@ -90,6 +97,15 @@ class _CommissionApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (path.contains('/products/categories')) {
+      return <String, dynamic>{'data': goodsCategories};
+    }
+    if (path.contains('/api/v1/products')) {
+      return <String, dynamic>{
+        'data': goods,
+        'pagination': <String, dynamic>{'total_records': goods.length},
+      };
+    }
     if (path.contains('/finance/ledger-accounts')) {
       return <String, dynamic>{'data': accounts};
     }
@@ -143,6 +159,15 @@ class _CommissionApi extends ApiClient {
     return <String, dynamic>{'data': const <Json>[]};
   }
 }
+
+/// One product a rule can be scoped to.
+Json _milk() => <String, dynamic>{
+      'id': 'prod-milk',
+      'code': 'MILK',
+      'name': 'Milk',
+      'product_type': 'GOODS',
+      'status': 'ACTIVE',
+    };
 
 /// One accrued period, still a draft: nothing has reached the ledger.
 Json _draftPayout() => <String, dynamic>{
@@ -926,5 +951,155 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Record payment'));
     await tester.pumpAndSettle();
     expect(api.paid!['money_account_id'], 'acct-cash');
+  });
+
+  // --------------------------------------------------------------------
+  // What a rule is about
+  // --------------------------------------------------------------------
+
+  testWidgets('a rule can be scoped to one product', (tester) async {
+    final _CommissionApi api = _CommissionApi(goods: <Json>[_milk()]);
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '5');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(2));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Product — Milk').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created!['product_id'], 'prod-milk');
+    // Always sent, including as null, because the form shows the whole scope.
+    expect(api.created!.containsKey('product_category_id'), isTrue);
+    expect(api.created!['product_category_id'], isNull);
+  });
+
+  testWidgets('a per-unit rate on collections is refused before sending',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(goods: <Json>[_milk()]);
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    // Scope it, then make it per-unit, and leave the basis on collections.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(2));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Product — Milk').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(3));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('An amount for each unit sold').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Each unit earns'), '2.5');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created, isNull, reason: 'money collected has no units in it');
+    expect(find.textContaining('has no units in it'), findsOneWidget);
+  });
+
+  testWidgets('a per-unit rate across everything is refused before sending',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(goods: <Json>[_milk()]);
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Invoiced value').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(3));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('An amount for each unit sold').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Each unit earns'), '2.5');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created, isNull);
+    expect(find.textContaining('which product or category'), findsOneWidget);
+  });
+
+  testWidgets('the list says what each rule is about', (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      rules: <Json>[
+        <String, dynamic>{
+          ..._salesmanRule(),
+          'product_id': 'prod-milk',
+          'product_name': 'Milk',
+        },
+        _firmWideRule(),
+      ],
+    );
+    await _pump(tester, api);
+
+    // Two rules over the same days are ordinary when they are about
+    // different goods, so the column that tells them apart is not optional.
+    expect(find.text('Milk'), findsOneWidget);
+    expect(find.text('Everything'), findsOneWidget);
+  });
+
+  testWidgets('a per-unit rule shows its rate, not a percentage it ignores',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      rules: <Json>[
+        <String, dynamic>{
+          ..._salesmanRule(),
+          'percentage': '4.0000',
+          'rate_type': 'PER_UNIT',
+          'per_unit_amount': '2.5000',
+          'product_id': 'prod-milk',
+          'product_name': 'Milk',
+        },
+      ],
+    );
+    await _pump(tester, api);
+
+    expect(find.text('4%'), findsNothing);
+    expect(find.text('2.5000 per unit'), findsOneWidget);
+  });
+
+  testWidgets('a rule can be scoped to one category', (tester) async {
+    final _CommissionApi api = _CommissionApi(
+      goods: <Json>[_milk()],
+      goodsCategories: <Json>[
+        <String, dynamic>{
+          'id': 'cat-cold',
+          'code': 'COLD',
+          'name': 'Cold chain',
+          'parent_id': null,
+          'level': 0,
+          'path': 'COLD',
+          'is_active': true,
+        },
+      ],
+    );
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '5');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.byType(DropdownButtonFormField<String>).at(2));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Category — Cold chain').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // One control, so choosing a category clears any product: the server
+    // refuses a rule naming both, and two dropdowns would let somebody build
+    // exactly the rule that gets refused.
+    expect(api.created!['product_category_id'], 'cat-cold');
+    expect(api.created!['product_id'], isNull);
   });
 }

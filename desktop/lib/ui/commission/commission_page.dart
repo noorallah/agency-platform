@@ -10,6 +10,7 @@ import '../../models/commission.dart';
 import '../../models/firm_member.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
+import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
 import 'payout_dialogs.dart';
 
@@ -67,6 +68,12 @@ class _CommissionPageState extends State<CommissionPage> {
   /// existing rules, which makes every rate but the first impossible to add.
   List<FirmMember> _people = const <FirmMember>[];
 
+  /// What a rule can be scoped to. Loaded with the rules so the editor has
+  /// them the moment it opens -- a picker that fetches on open shows an empty
+  /// list for as long as the request takes, and somebody saves through it.
+  List<Product> _goods = const <Product>[];
+  List<ProductCategoryRecord> _goodsCategories = const <ProductCategoryRecord>[];
+
   List<CommissionPayoutRecord> _payouts = const [];
   List<LedgerAccount> _moneyAccounts = const [];
   String? _payoutsError;
@@ -110,12 +117,18 @@ class _CommissionPageState extends State<CommissionPage> {
           await fetchAllPages<CommissionRuleRecord>(
         (page) => widget.api.commissionRules(page: page),
       );
-      final List<FirmMember> people =
-          await widget.api.firmMembers();
+      final List<FirmMember> people = await widget.api.firmMembers();
+      final List<Product> goods = await fetchAllPages<Product>(
+        (page) => widget.api.products(page: page, pageSize: 100),
+      );
+      final List<ProductCategoryRecord> categories =
+          await widget.api.productCategories();
       if (!mounted) return;
       setState(() {
         _rules = rows;
         _people = people;
+        _goods = goods;
+        _goodsCategories = categories;
         _loadingRules = false;
       });
     } on ApiException catch (error) {
@@ -261,6 +274,8 @@ class _CommissionPageState extends State<CommissionPage> {
         rule: rule,
         // The firm's people, plus anybody a rule names who has since left.
         known: _knownSalesmen(),
+        goods: _goods,
+        goodsCategories: _goodsCategories,
       ),
     );
     if (saved == true) await _loadRules();
@@ -578,6 +593,7 @@ class _CommissionPageState extends State<CommissionPage> {
       selectedId: _selectedId,
       columns: const [
         GridColumn(key: 'who', label: 'Applies to'),
+        GridColumn(key: 'goods', label: 'On'),
         GridColumn(key: 'rate', label: 'Rate'),
         GridColumn(key: 'basis', label: 'Paid on'),
         GridColumn(key: 'window', label: 'In force'),
@@ -586,10 +602,14 @@ class _CommissionPageState extends State<CommissionPage> {
       id: (row) => row.id,
       cells: (row) => [
         row.whoLabel,
-        // A ladder has no single rate, so the column says what shape the
-        // arrangement is rather than printing the flat field the ladder
-        // overrides -- which would be the number somebody read as the deal.
-        row.slabs.isEmpty ? '${trimDecimal(row.percentage)}%' : row.rateLabel,
+        row.scopeLabel,
+        // Neither a ladder nor a per-unit rate has a single percentage, so
+        // the column says what shape the arrangement is rather than printing
+        // a field the rule does not use -- which would be the number somebody
+        // read as the deal.
+        row.slabs.isEmpty && row.rateType == 'PERCENT'
+            ? '${trimDecimal(row.percentage)}%'
+            : row.rateLabel,
         row.basis == 'INVOICED' ? 'Invoiced value' : 'Money collected',
         row.windowLabel,
         row.status,
@@ -764,6 +784,8 @@ class CommissionRuleDialog extends StatefulWidget {
     super.key,
     required this.api,
     required this.known,
+    this.goods = const <Product>[],
+    this.goodsCategories = const <ProductCategoryRecord>[],
     this.rule,
   });
 
@@ -771,6 +793,11 @@ class CommissionRuleDialog extends StatefulWidget {
 
   /// The people who can be named, besides the firm as a whole.
   final List<FirmMember> known;
+
+  /// What a rule can be scoped to. A rule naming neither is about the whole
+  /// document, which is what every rule was before scoping existed.
+  final List<Product> goods;
+  final List<ProductCategoryRecord> goodsCategories;
 
   /// The rule being changed, or null to record a new one.
   final CommissionRuleRecord? rule;
@@ -793,8 +820,17 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
   /// The empty string is the firm-wide default, which belongs to nobody.
   late String _salesmanId = widget.rule?.salesmanId ?? '';
   late String _status = widget.rule?.status ?? 'ACTIVE';
+  late final TextEditingController _perUnit = TextEditingController(
+      text: trimDecimal(widget.rule?.perUnitAmount ?? ''));
+
   late String _basis = widget.rule?.basis ?? 'COLLECTED';
   late String _slabMode = widget.rule?.slabMode ?? 'MARGINAL';
+  late String _rateType = widget.rule?.rateType ?? 'PERCENT';
+
+  /// What the rule is about. Empty is everything; at most one is ever set,
+  /// because the server refuses both -- a product is the narrower of the two.
+  late String _productId = widget.rule?.productId ?? '';
+  late String _categoryId = widget.rule?.productCategoryId ?? '';
 
   /// The ladder being edited, as typed text so a half-finished rung does not
   /// have to parse. Empty is a flat rate, which is what most rules are.
@@ -812,6 +848,7 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     _from.dispose();
     _to.dispose();
     _cap.dispose();
+    _perUnit.dispose();
     for (final _SlabDraft slab in _slabs) {
       slab.dispose();
     }
@@ -820,6 +857,22 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
 
   /// Say what is wrong, or nothing.
   String? _validate() {
+    if (_rateType == 'PER_UNIT') {
+      final double? perUnit = double.tryParse(_perUnit.text.trim());
+      if (perUnit == null || perUnit <= 0) {
+        return 'Enter what each unit earns, for example 2.50.';
+      }
+      // Both of the server's own rules about a per-unit rate, restated while
+      // the numbers are still on screen.
+      if (_basis != 'INVOICED') {
+        return 'A per-unit rate can only be paid on invoiced value: money '
+            'collected has no units in it.';
+      }
+      if (_productId.isEmpty && _categoryId.isEmpty) {
+        return 'Say which product or category a per-unit rate is for.';
+      }
+      return _windowProblem();
+    }
     final double? percentage = double.tryParse(_percentage.text.trim());
     if (percentage == null) {
       return 'Enter the rate as a number, for example 2.5.';
@@ -831,6 +884,11 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     if (ladder != null) {
       return ladder;
     }
+    return _windowProblem();
+  }
+
+  /// Say what is wrong with the effective window, or nothing.
+  String? _windowProblem() {
     final DateTime? from = parseIsoDate(_from.text);
     if (from == null) {
       return 'Enter the date the rate starts, written as YYYY-MM-DD.';
@@ -909,6 +967,13 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
         'status': _status,
         'basis': _basis,
         'slab_mode': _slabMode,
+        'rate_type': _rateType,
+        'per_unit_amount':
+            _perUnit.text.trim().isEmpty ? '0' : _perUnit.text.trim(),
+        // Always sent, including as null: this form shows the whole scope, so
+        // clearing it here has to clear it on the record.
+        'product_id': _productId.isEmpty ? null : _productId,
+        'product_category_id': _categoryId.isEmpty ? null : _categoryId,
         'max_commission_amount':
             _cap.text.trim().isEmpty ? null : _cap.text.trim(),
         // Always sent, including as an empty list: this form shows the whole
@@ -1057,7 +1122,59 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                     : (value) => setState(() => _basis = value ?? _basis),
               ),
               const SizedBox(height: AppSpacing.md),
-              _LadderEditor(
+              _ScopePicker(
+                productId: _productId,
+                categoryId: _categoryId,
+                goods: widget.goods,
+                categories: widget.goodsCategories,
+                enabled: !_saving,
+                onChanged: (product, category) => setState(() {
+                  _productId = product;
+                  _categoryId = category;
+                }),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _rateType,
+                decoration: const InputDecoration(
+                  labelText: 'Rate shape',
+                  helperText: 'A share of the money, or a sum for each unit.',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'PERCENT',
+                    child: Text('Percentage of the value'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'PER_UNIT',
+                    child: Text('An amount for each unit sold'),
+                  ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _rateType = value ?? _rateType),
+              ),
+              if (_rateType == 'PER_UNIT') ...[
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  controller: _perUnit,
+                  enabled: !_saving,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Each unit earns',
+                    helperText: 'Paid for every unit sold, whatever it sold '
+                        'for. Only on invoiced value, and only for named '
+                        'goods.',
+                  ),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              if (_rateType == 'PERCENT') _LadderEditor(
                 slabs: _slabs,
                 mode: _slabMode,
                 enabled: !_saving,
@@ -1142,6 +1259,92 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
           child: Text(_saving ? 'Saving…' : 'Save'),
         ),
       ],
+    );
+  }
+}
+
+
+/// What a commission rule is about: everything, one category, or one product.
+///
+/// One control rather than two pickers, because the server refuses a rule that
+/// names both -- a product is the narrower of the two -- and two independent
+/// dropdowns would let somebody build exactly the rule that gets refused.
+class _ScopePicker extends StatelessWidget {
+  const _ScopePicker({
+    required this.productId,
+    required this.categoryId,
+    required this.goods,
+    required this.categories,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String productId;
+  final String categoryId;
+  final List<Product> goods;
+  final List<ProductCategoryRecord> categories;
+  final bool enabled;
+  final void Function(String productId, String categoryId) onChanged;
+
+  static const String _everything = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final String selected = productId.isNotEmpty
+        ? 'p:$productId'
+        : (categoryId.isNotEmpty ? 'c:$categoryId' : _everything);
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem<String>(
+        value: _everything,
+        child: Text('Everything sold'),
+      ),
+      for (final ProductCategoryRecord category in categories)
+        DropdownMenuItem<String>(
+          value: 'c:${category.id}',
+          child: Text(
+            'Category — ${category.name}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      for (final Product product in goods)
+        DropdownMenuItem<String>(
+          value: 'p:${product.id}',
+          child: Text(
+            'Product — ${product.name}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ];
+    // A stored id that is not in the loaded list must stay as an item of its
+    // own, or `DropdownButtonFormField` asserts and the form saves as blank.
+    if (selected != _everything &&
+        !items.any((item) => item.value == selected)) {
+      items.add(DropdownMenuItem<String>(
+        value: selected,
+        child: const Text('(no longer listed)'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      isExpanded: true,
+      initialValue: selected,
+      decoration: const InputDecoration(
+        labelText: 'On',
+        helperText: 'A rule about named goods beats a broader one for those '
+            'lines; the broader one still covers the rest.',
+      ),
+      items: items,
+      onChanged: enabled
+          ? (value) {
+              final String choice = value ?? _everything;
+              if (choice.startsWith('p:')) {
+                onChanged(choice.substring(2), '');
+              } else if (choice.startsWith('c:')) {
+                onChanged('', choice.substring(2));
+              } else {
+                onChanged('', '');
+              }
+            }
+          : null,
     );
   }
 }
