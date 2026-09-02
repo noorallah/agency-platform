@@ -48,7 +48,9 @@ class PriceListResolver:
         on: date,
     ) -> None:
         """Load the applicable rates for one document."""
-        self._rates: dict[UUID, Decimal] = {}
+        # Each product's whole ladder: (quantity the rate starts at, rate),
+        # ascending. A product with no breaks has one entry starting at zero.
+        self._rates: dict[UUID, list[tuple[Decimal, Decimal]]] = {}
         # No early exit for a document naming neither a customer nor a
         # territory: the firm's own standing list still applies to it.
         self._load(
@@ -93,7 +95,12 @@ class PriceListResolver:
         )
 
         rows = session.execute(
-            select(PriceListItem.product_id, PriceListItem.discount_percent)
+            select(
+                PriceListItem.product_id,
+                PriceListItem.min_quantity,
+                PriceListItem.discount_percent,
+                specificity.label("rank"),
+            )
             .join(PriceList, PriceList.id == PriceListItem.price_list_id)
             .where(
                 PriceList.firm_id == firm_id,
@@ -104,19 +111,53 @@ class PriceListResolver:
                 or_(*scope),
                 PriceListItem.is_deleted.is_(False),
             )
-            .order_by(specificity.asc(), PriceList.effective_from.asc())
+            .order_by(
+                specificity.asc(),
+                PriceList.effective_from.asc(),
+                PriceListItem.min_quantity.asc(),
+            )
         ).all()
 
-        for product_id, percent in rows:
-            self._rates[product_id] = Decimal(str(percent))
+        # Each product keeps its whole ladder, ordered by the quantity the
+        # rate starts at. A more specific list replaces the ladder rather than
+        # merging into it: a customer's own arrangement is the arrangement,
+        # not an amendment to the firm-wide one.
+        ladders: dict[UUID, dict[Decimal, Decimal]] = {}
+        seen: dict[UUID, int] = {}
+        for product_id, min_quantity, percent, rank in rows:
+            if seen.get(product_id) != rank:
+                seen[product_id] = rank
+                ladders[product_id] = {}
+            ladders[product_id][Decimal(str(min_quantity))] = Decimal(str(percent))
+        for product_id, ladder in ladders.items():
+            self._rates[product_id] = sorted(ladder.items())
 
-    def rate_for(self, product_id: UUID | None) -> Decimal | None:
+    def rate_for(
+        self, product_id: UUID | None, quantity: Decimal | None = None
+    ) -> Decimal | None:
         """Return the promised rate, or None where no list mentions the product.
 
         None rather than zero, and the distinction carries weight: a product no
         list mentions falls through to the customer's blanket rate, where a
         product a list deliberately puts at zero does not.
+
+        Where a list holds quantity breaks, the **highest break at or below the
+        line's quantity** wins: breaks of 0, 50 and 200 price a line of 120 at
+        the 50. A caller that says nothing about quantity gets the ordinary
+        rate, which is what every list held before breaks existed.
         """
         if product_id is None:
             return None
-        return self._rates.get(product_id)
+        breaks = self._rates.get(product_id)
+        if not breaks:
+            return None
+        wanted = Decimal(str(quantity)) if quantity is not None else ZERO
+        best: Decimal | None = None
+        for threshold, percent in breaks:
+            if threshold <= wanted:
+                best = percent
+            else:
+                # Sorted ascending, so the first break above the quantity ends
+                # it -- nothing further down can apply either.
+                break
+        return best

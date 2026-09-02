@@ -213,6 +213,7 @@ class PriceListService:
                     price_list_id=row.id,
                     firm_id=firm_scope,
                     product_id=item.product_id,
+                    min_quantity=item.min_quantity,
                     discount_percent=item.discount_percent,
                     created_by=actor_id,
                     updated_by=actor_id,
@@ -283,6 +284,7 @@ class PriceListService:
                 PriceListItemResponse(
                     id=item.id,
                     product_id=item.product_id,
+                    min_quantity=item.min_quantity,
                     product_code=(
                         products[item.product_id].code
                         if item.product_id in products

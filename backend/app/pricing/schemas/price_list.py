@@ -19,6 +19,12 @@ class PriceListItemWrite(PricingSchema):
     """One product's rate on a list."""
 
     product_id: UUID
+    #: The quantity this rate starts at. Zero is the ordinary rate; a higher
+    #: figure is a break, and the highest one at or below the line's quantity
+    #: wins. A list may hold several rows for one product, one per break.
+    min_quantity: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     discount_percent: Decimal = Field(ge=0, le=100, max_digits=9, decimal_places=4)
 
 
@@ -63,6 +69,7 @@ class PriceListItemResponse(PricingSchema):
     product_id: UUID
     product_code: str | None = None
     product_name: str | None = None
+    min_quantity: Decimal
     discount_percent: Decimal
 
 

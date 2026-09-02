@@ -88,8 +88,14 @@ class PriceListItem(BaseEntity):
 
     __tablename__ = "price_list_items"
     __table_args__ = (
+        # The quantity is part of the key: a list may hold several rates for
+        # one product, each starting at a different quantity, and without it
+        # only one break per product could exist.
         UniqueConstraint(
-            "price_list_id", "product_id", name="UQ_price_list_items_list_product"
+            "price_list_id",
+            "product_id",
+            "min_quantity",
+            name="UQ_price_list_items_list_product_quantity",
         ),
         Index("IX_price_list_items_list", "price_list_id"),
         Index("IX_price_list_items_product", "firm_id", "product_id"),
@@ -104,6 +110,13 @@ class PriceListItem(BaseEntity):
     firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
     product_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The quantity this rate starts at. Zero is the ordinary rate, and a
+    #: higher figure is a break: buy this many and the rate improves. The
+    #: highest break at or below the line's quantity wins, so a list can hold
+    #: 0, 50 and 200 and a line of 120 takes the 50.
+    min_quantity: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"

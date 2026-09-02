@@ -27,6 +27,8 @@ from app.core.exceptions import ValidationError
 from app.customers.models import Customer, CustomerGroup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
+from app.pricing.models import PriceList, PriceListItem
+from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.promotions.models import (
     Promotion,
@@ -1193,3 +1195,89 @@ def test_an_offer_can_be_aimed_at_a_whole_segment() -> None:
     # A shop outside the segment gets nothing from it.
     other = _Shop(session, code="SEG04")
     assert other.line_of(other.order()).discount_amount == Decimal("0.0000")
+
+
+def test_a_price_list_break_improves_the_rate_as_the_quantity_rises() -> None:
+    """Slab pricing: five percent, or eight over fifty.
+
+    A list held one rate per product, so this could not be expressed at all --
+    and it is how a distributor actually sells.
+    """
+    session = _session_factory()()
+    shop = _Shop(session, code="SLAB01")
+    price_list = PriceList(
+        firm_id=shop.firm.id,
+        code="TRADE",
+        name="Trade rates",
+        effective_from=date(2026, 1, 1),
+        status="ACTIVE",
+    )
+    session.add(price_list)
+    session.flush()
+    for threshold, rate in (
+        (Decimal("0"), Decimal("5")),
+        (Decimal("50"), Decimal("8")),
+    ):
+        session.add(
+            PriceListItem(
+                price_list_id=price_list.id,
+                firm_id=shop.firm.id,
+                product_id=shop.product.id,
+                min_quantity=threshold,
+                discount_percent=rate,
+            )
+        )
+    session.commit()
+
+    prices = PriceListResolver(
+        session,
+        firm_id=shop.firm.id,
+        customer_id=shop.customer.id,
+        territory_id=None,
+        on=date(2026, 8, 4),
+    )
+
+    assert prices.rate_for(shop.product.id, Decimal("10")) == Decimal("5")
+    assert prices.rate_for(shop.product.id, Decimal("49")) == Decimal("5")
+    # The break is inclusive: buying exactly fifty earns it.
+    assert prices.rate_for(shop.product.id, Decimal("50")) == Decimal("8")
+    assert prices.rate_for(shop.product.id, Decimal("120")) == Decimal("8")
+    # A caller that says nothing about quantity gets the ordinary rate, which
+    # is what every list held before breaks existed.
+    assert prices.rate_for(shop.product.id) == Decimal("5")
+
+
+def test_a_break_above_every_quantity_is_never_reached() -> None:
+    """A ladder starting above the line leaves the line with no list rate."""
+    session = _session_factory()()
+    shop = _Shop(session, code="SLAB02")
+    price_list = PriceList(
+        firm_id=shop.firm.id,
+        code="BULKONLY",
+        name="Bulk only",
+        effective_from=date(2026, 1, 1),
+        status="ACTIVE",
+    )
+    session.add(price_list)
+    session.flush()
+    session.add(
+        PriceListItem(
+            price_list_id=price_list.id,
+            firm_id=shop.firm.id,
+            product_id=shop.product.id,
+            min_quantity=Decimal("100"),
+            discount_percent=Decimal("12"),
+        )
+    )
+    session.commit()
+
+    prices = PriceListResolver(
+        session,
+        firm_id=shop.firm.id,
+        customer_id=shop.customer.id,
+        territory_id=None,
+        on=date(2026, 8, 4),
+    )
+
+    assert prices.rate_for(shop.product.id, Decimal("99")) is None
+    assert prices.rate_for(shop.product.id, Decimal("100")) == Decimal("12")

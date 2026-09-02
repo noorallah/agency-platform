@@ -1212,7 +1212,7 @@ class SalesOrderService(TransactionalDocumentService):
                 percent=item.discount_percent,
                 amount=item.discount_amount,
                 promotion_amount=benefits.line_discount(index),
-                price_list_percent=prices.rate_for(item.product_id),
+                price_list_percent=prices.rate_for(item.product_id, item.quantity),
                 customer_default=customer_discount,
                 customer_group_default=group_discount,
             )
