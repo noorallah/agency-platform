@@ -264,6 +264,25 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   An invoice **inherits from the line it bills** rather than re-reading the
   customer, so an edit to the master in August cannot rewrite a price agreed in
   March; a rate inherits as itself, an amount is pro-rated by the share billed.
+- **Promotions stack; tax does not.** `app/promotions` copies `app/tax`'s shape
+  -- rule, typed condition rows, action rows, execution log -- but where the tax
+  engine breaks at the first match, the promotion engine applies every matching
+  offer in `priority ASC, code ASC, version_number DESC, created_at ASC` order
+  until one with `allow_stacking = false` is applied. Two consequences worth
+  knowing before touching it. **Percentages compound on what is left**, so two
+  stacked ten percent offers take nineteen percent -- which is the retail
+  meaning and also the only basis on which stacked benefits cannot exceed the
+  line, and `resolve_line_discount` refuses one that does. And **a stacking
+  engine must collapse to one live version per `version_group_id`**: superseding
+  leaves the predecessor ACTIVE and tax survives that only by stopping at the
+  first match, so copying its query verbatim hands the customer the same offer
+  twice -- 190.00 for one ten percent promotion, which is what the guard was run
+  against before the collapse existed. The result feeds one new tier in
+  `app/core/utils/pricing.py`, between what was typed and the price list, and
+  `PromotionService.evaluate` never commits for the reason
+  `TaxRuleService.simulate` never does. A line somebody priced by hand is
+  skipped and the trace says so: a log that reports a benefit the line never
+  received is a lie told to the person asking why the price is what it is.
 - **A discount on the whole document reaches the lines, and therefore the tax.**
   `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
   delivery note or sales invoice is resolved by `resolve_bill_discount` and

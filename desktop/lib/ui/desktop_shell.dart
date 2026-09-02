@@ -35,6 +35,7 @@ import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'commission/commission_page.dart';
 import 'pricing/price_list_page.dart';
+import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
 import 'quotations/quotation_management_page.dart';
@@ -1900,6 +1901,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'promotions' => PromotionPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'commission' => CommissionPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1948,6 +1954,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Price Lists',
           'What a firm has agreed to charge, and to whom: a rate off the '
               'product price, from a date.',
+        ),
+      'promotions' => (
+          'Promotions',
+          'The offers running now. Several apply to one order, in priority '
+              'order, and percentages compound on what is left.',
         ),
       'commission' => (
           'Commission',

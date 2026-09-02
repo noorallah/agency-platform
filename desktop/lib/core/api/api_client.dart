@@ -3217,6 +3217,59 @@ class ApiClient {
   Future<void> deletePriceList(String id) =>
       request('DELETE', '/api/v1/price-lists/$id');
 
+  // ---- promotions ----------------------------------------------------
+
+  Future<PagedResult<PromotionRecord>> promotions({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/promotions',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PromotionRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  PromotionRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<PromotionRecord> createPromotion(Json body) async =>
+      PromotionRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/promotions', body: body)),
+      );
+
+  /// [expectedVersion] rides along as `If-Match`. A live promotion is
+  /// superseded rather than edited, so the answer may be a new revision.
+  Future<PromotionRecord> updatePromotion(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PromotionRecord.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/promotions/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deletePromotion(String id) =>
+      request('DELETE', '/api/v1/promotions/$id');
+
   // ---- commission ----------------------------------------------------
 
   Future<PagedResult<CommissionRuleRecord>> commissionRules({

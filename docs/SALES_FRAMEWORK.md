@@ -173,6 +173,7 @@ document is built, on the document's own date.
 | Concern | Where | Enforced? |
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
+| Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
 | Territory and route | `app/sales` | A route's effective window decides whether a document may be tagged with it, judged on the document's own date |
 | Tax | `app/tax` profiles and rules | Yes, per line |
@@ -474,16 +475,46 @@ sends the version it read as `If-Match`: a lost race would otherwise discard
 every rate somebody else had just entered. Territory-scoped lists are still
 API-only; the screen agrees them with one customer or with everybody.
 
-## 8. No schemes or promotions
+## 8. ~~No schemes or promotions~~ — the engine landed 2026-09-02
 
-"Buy 10, get 1 free" and "5% off over ₹50,000 on a line" are conditions on a
-line with actions on a line — the same shape `app/tax` already implements as an
-effective-dated, priority-ordered, first-match-wins rule engine with an
-execution log. `free_quantity` and the discount fields are the *result* such a
-rule would write; today somebody types them by hand on every document.
+`app/promotions` is `app/tax`'s shape — a rule row, typed condition child rows,
+action rows and an execution log — with one deliberate difference. **Tax stops
+at the first matching rule; promotions stack.** Every matching offer applies, in
+priority order, until one that refuses further stacking is reached, which is
+what a firm means by running a customer discount and a seasonal offer together.
 
-Whatever is built must run **before** tax and store its result on the line, for
-the same reason the bill discount does.
+Two rules make stacking safe:
+
+- **The order is total** — `priority ASC, code ASC, version_number DESC,
+  created_at ASC`. With a stacking engine the order *is* the money, so the same
+  document must always price the same.
+- **Percentages compound on what is left, never add on the gross.** Two stacked
+  ten percent offers take nineteen percent, not twenty. That is the ordinary
+  retail meaning, and it also makes it arithmetically impossible for stacked
+  benefits to exceed the line — which matters, because `resolve_line_discount`
+  refuses a discount larger than the line and a promotion nobody could configure
+  their way out of would make a document unsaveable rather than cheap.
+
+It runs **before** tax and stores its result on the line, so a promotion reduces
+the taxable value exactly as a bill discount does. Integration is one new tier in
+the shared rule:
+
+    explicit amount → explicit percent → promotion → price list → standing rate
+
+A person deciding still beats a rule; an offer running today still beats a list
+agreed once. A line somebody priced by hand is skipped entirely and the
+execution log says so, rather than reporting a benefit the line never received.
+
+**Resolved once, inherited thereafter.** A promotion is evaluated where the line
+is first priced and carried forward as an explicit figure, so an offer that
+expires between the order and the invoice does not change the bill.
+
+**What phase 1 does not do**, and deliberately does not declare: coupons, usage
+limits, customer groups, Buy X Get Y across *different* products, gifts,
+loyalty, cashback and free shipping. The last three have no home in the data
+model — there is no customer credit ledger and no freight field a "free
+shipping" benefit could target — and declaring an action nothing reads is the
+defect the tax review recorded twice over.
 
 ## 9. ~~No salesman commission~~ — the backend landed 2026-08-23
 

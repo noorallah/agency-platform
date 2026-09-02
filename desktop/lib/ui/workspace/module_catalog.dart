@@ -307,6 +307,7 @@ abstract final class ModuleCatalog {
         // pricing owner who only agrees rates, each reach this module
         // through one tab of it and nothing else.
         'PRICE_LIST_VIEW',
+        'PROMOTION_VIEW',
         'COMMISSION_VIEW',
       ],
       requiresAnyPermission: true,
@@ -320,6 +321,11 @@ abstract final class ModuleCatalog {
           id: 'price-lists',
           label: 'Price Lists',
           requiredPermissions: ['PRICE_LIST_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'promotions',
+          label: 'Promotions',
+          requiredPermissions: ['PROMOTION_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'commission',

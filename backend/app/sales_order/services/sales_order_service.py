@@ -43,6 +43,12 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.promotions.schemas import (
+    PromotionEvaluationRequest,
+    PromotionEvaluationResponse,
+    PromotionLineRequest,
+)
+from app.promotions.services import PromotionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import (
@@ -78,6 +84,41 @@ from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService
 
 ZERO = Decimal("0")
+
+
+class PromotionBenefits:
+    """What the promotion engine gave, indexed the way the pricing loop asks.
+
+    A thin reading of the engine's answer rather than a second copy of it: the
+    arithmetic of stacking belongs in one place, and this only says which line
+    got what.
+    """
+
+    def __init__(self, outcome: PromotionEvaluationResponse) -> None:
+        """Index the engine's answer by line number."""
+        self._lines = {item.line_number: item for item in outcome.lines}
+        self._bill = outcome.bill_discount_amount
+
+    def line_discount(self, index: int) -> Decimal | None:
+        """Return what line `index` earned, or None if nothing touched it.
+
+        None rather than zero, because the shared rule reads them differently:
+        zero would be an instruction to discount nothing and would stop the
+        price list and the customer's standing rate from ever being reached.
+        """
+        item = self._lines.get(index + 1)
+        if item is None or item.discount_amount <= ZERO:
+            return None
+        return item.discount_amount
+
+    def free_quantity(self, index: int) -> Decimal:
+        """Return what line `index` was given free."""
+        item = self._lines.get(index + 1)
+        return item.free_quantity if item is not None else ZERO
+
+    def bill_discount(self) -> Decimal | None:
+        """Return what the whole document earned, or None if nothing did."""
+        return self._bill if self._bill > ZERO else None
 
 
 class SalesOrderService(TransactionalDocumentService):
@@ -958,6 +999,48 @@ class SalesOrderService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _promotions(
+        self,
+        row: SalesOrder,
+        *,
+        lines: list[SalesOrderLineWrite],
+        grosses: list[Decimal],
+        bill_priced: bool = False,
+    ) -> PromotionBenefits:
+        """Ask the firm's promotions what this document earns.
+
+        Evaluated once per document rather than per line, because a minimum
+        order value is a condition on the whole of it. Never commits: this runs
+        mid-write, exactly as the tax simulation does.
+        """
+        outcome = PromotionService(self._session).evaluate(
+            PromotionEvaluationRequest(
+                transaction_type="SALES_ORDER",
+                transaction_date=row.order_date,
+                customer_id=row.customer_id,
+                branch_id=row.branch_id,
+                territory_id=row.territory_id,
+                route_id=row.route_id,
+                salesman_id=row.salesman_id,
+                caller_priced_bill=bill_priced,
+                lines=[
+                    PromotionLineRequest(
+                        line_number=index + 1,
+                        product_id=item.product_id,
+                        quantity=self._q(item.quantity),
+                        gross=grosses[index],
+                        caller_priced=(
+                            item.discount_percent is not None
+                            or item.discount_amount is not None
+                        ),
+                    )
+                    for index, item in enumerate(lines)
+                ],
+            ),
+            firm_scope=row.firm_id,
+        )
+        return PromotionBenefits(outcome)
+
     def _bill_discount_shares(
         self,
         row: SalesOrder,
@@ -1033,7 +1116,6 @@ class SalesOrderService(TransactionalDocumentService):
         # deduction that never reaches a taxable value reduces no tax -- which
         # is what `header_discount_amount` does on a purchase order, and the
         # reason that shape is not copied here.
-        priced: list[LineDiscount] = []
         grosses: list[Decimal] = []
         for item in lines:
             product = self._session.scalar(
@@ -1043,21 +1125,40 @@ class SalesOrderService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for sales order line.")
-            gross = self._q(self._q(item.quantity) * self._q(item.unit_price))
-            grosses.append(gross)
-            priced.append(
-                resolve_line_discount(
-                    gross=gross,
-                    percent=item.discount_percent,
-                    amount=item.discount_amount,
-                    price_list_percent=prices.rate_for(item.product_id),
-                    customer_default=customer_discount,
-                )
+            grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
+
+        # Promotions are read once the grosses are known and before anything is
+        # discounted, because a minimum-order-value offer is a condition on the
+        # whole document. Whatever they earn is offered to the shared rule as
+        # one more tier: still below anything typed, still above the price list.
+        benefits = self._promotions(
+            row,
+            lines=lines,
+            grosses=grosses,
+            bill_priced=bill_amount is not None or bill_percent is not None,
+        )
+
+        priced: list[LineDiscount] = [
+            resolve_line_discount(
+                gross=grosses[index],
+                percent=item.discount_percent,
+                amount=item.discount_amount,
+                promotion_amount=benefits.line_discount(index),
+                price_list_percent=prices.rate_for(item.product_id),
+                customer_default=customer_discount,
             )
+            for index, item in enumerate(lines)
+        ]
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
-            amount=bill_amount,
+            # A bill discount the caller typed wins; a promotion's applies only
+            # where they said nothing, the same precedence every line follows.
+            amount=(
+                bill_amount
+                if bill_amount is not None or bill_percent is not None
+                else benefits.bill_discount()
+            ),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)
@@ -1070,7 +1171,12 @@ class SalesOrderService(TransactionalDocumentService):
             discount = line_discount.amount
             bill_share = shares[index]
             quantity = self._q(item.quantity)
-            free_quantity = self._q(item.free_quantity)
+            # A promotion's free goods apply only where the line asked for
+            # none. The write schema defaults this to zero rather than None, so
+            # "said nothing" and "said none" cannot be told apart here -- an
+            # explicit zero therefore loses to an offer, which is the one place
+            # this module cannot honour the None-is-not-zero rule.
+            free_quantity = self._q(item.free_quantity) or benefits.free_quantity(index)
             conversion = self._conversion(
                 quantity=self._q(quantity + free_quantity),
                 sales_uom_id=item.sales_uom_id,
