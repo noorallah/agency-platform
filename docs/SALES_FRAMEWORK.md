@@ -174,7 +174,7 @@ document is built, on the document's own date.
 | --- | --- | --- |
 | Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
 | Commission payouts | `commission_payouts`, per firm | Accrue → approve (posts) → pay (clears). `COMMISSION_PAY` to move the money, which `SALES_MANAGER` does not hold |
-| Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate or a ladder; paid on money collected or on invoiced value, with an optional per-period ceiling |
+| Commission | `commission_rules` + `commission_rule_slabs`, per firm | Flat rate, a ladder, or an amount per unit; scoped to a product, a category or everything; paid on money collected or on invoiced value, with an optional per-period ceiling |
 | Targets | `sales_targets`, per firm | Reported, not enforced — `GET /api/v1/sales-targets/achievement`, measured on each target's own period and basis. `SALES_TARGET_MANAGE` to set one |
 | Promotions | `promotions`, per firm | Yes — stacked in priority order while the document is priced, before tax. `GET`/`PUT /api/v1/promotions`, written with `PROMOTION_MANAGE` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
@@ -619,6 +619,45 @@ period rather than carrying the first window's volume into the second
 window's thresholds.
 
 Driven against WHOLE01, on its own schema, across all four shapes.
+
+## 9c. Commission on what was sold — landed 2026-09-03
+
+A rate was a statement about a whole document: 3% of everything, whoever sold
+whatever. Firms do not work that way. `product_id` and `product_category_id`
+make a rule a statement about **lines**, and `rate_type` PER_UNIT pays for
+units rather than for value.
+
+**Resolution is six rungs of specificity**, narrowest first: the person's own
+rule for this product, then for its category, then their unscoped rule, then
+the same three firm-wide. "3% on everything, 5% on the cold chain" is one
+arrangement, and it only works if the narrower rule wins for the lines it
+names while the broader one still covers the rest. Whose rule it is outranks
+what it is about — a rate agreed with one person is a deal, and a firm-wide
+rule that happens to name a product must not override it.
+
+**An unscoped rule still measures exactly the document.** The report
+apportions each invoice's own `grand_total` across its lines, using the same
+`apportion` a bill discount is split with, so the shares sum to the invoice
+and a rule matching every line measures precisely what it measured before
+scoping existed. Deriving the share from the line's own net amount instead
+would drift by whatever the header carries — tax, rounding, a bill-level
+charge — and quietly change what every existing arrangement pays.
+
+**On the collected basis a scoped rule takes its share of each receipt**, in
+the same proportion, because a payment clears a share of every line it
+settles. Half a bill collected against an invoice whose cold chain is 60% of
+it earns the cold-chain rule 60% of that half.
+
+Two refusals, both because the combination could not mean anything. A
+**per-unit rate on the collected basis** — money collected has no cases in it.
+And a **per-unit rate naming no goods** — it would add cases of biscuits to
+litres of oil. A rule naming both a product and a category is refused too:
+the product is the narrower of the two, so say that and drop the other.
+
+**Open decision, deliberately not taken here:** commission is measured on the
+document total, which includes tax. Whether a firm should pay commission on
+tax it collects for the government is a question for the owner, not something
+to change silently — changing it would move every existing payout.
 
 ## 9b. ~~Commission reports rather than pays~~ — closed 2026-09-03
 

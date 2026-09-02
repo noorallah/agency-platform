@@ -6,6 +6,7 @@ settlement is the only place that says the payment was later taken back.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.commission.models import (
     CommissionBasis,
+    CommissionRateType,
     CommissionRule,
     CommissionRuleSlab,
     CommissionRuleStatus,
@@ -22,6 +24,7 @@ from app.commission.models import (
 )
 from app.commission.schemas import (
     CommissionBasisEnum,
+    CommissionRateTypeEnum,
     CommissionReport,
     CommissionRuleCreate,
     CommissionRuleResponse,
@@ -38,8 +41,10 @@ from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
+from app.core.utils.pricing import apportion
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
-from app.sales_invoice.models import SalesInvoice
+from app.products.models import Product, ProductCategory
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.settlements.models import (
     Settlement,
     SettlementAllocation,
@@ -61,6 +66,38 @@ HUNDRED = Decimal("100")
 #: What the report calls a person whose arrangement changed mid-period.
 MIXED_BASIS_LABEL = "MIXED"
 
+#: Stands in for an absent id when reading a name out of a mapping, so an
+#: optional key does not need a branch at every call site.
+_NOBODY = UUID(int=0)
+
+
+def _whole_document(amount: Decimal) -> "_BilledLine":
+    """Stand in for an invoice whose lines cannot be read.
+
+    A rule about the whole document should still measure money that exists,
+    so an invoice with no readable lines contributes as a single unscoped
+    line. Only a rule naming a product fails to match it, which is right:
+    nothing here says what was sold.
+    """
+    return _BilledLine(
+        product_id=_NOBODY, category_id=None, quantity=ZERO, share=amount
+    )
+
+
+@dataclass(frozen=True)
+class _BilledLine:
+    """One line of an invoice, as commission needs to see it.
+
+    `share` is this line's part of the invoice's own total, not its net
+    amount: the shares of an invoice sum to the invoice exactly, which is what
+    keeps a scoped and an unscoped rule measuring the same money.
+    """
+
+    product_id: UUID
+    category_id: UUID | None
+    quantity: Decimal
+    share: Decimal
+
 
 class CommissionService:
     """Maintain commission rules and report what collections earned."""
@@ -69,6 +106,7 @@ class CommissionService:
         """Bind the service to the request unit of work."""
         self._session = session
         self._members = FirmMetadataReader(session)
+        self._names_cache: dict[UUID, str] | None = None
 
     # ------------------------------------------------------------------
     # Rules
@@ -171,9 +209,14 @@ class CommissionService:
             basis=data.basis.value,
             slab_mode=data.slab_mode.value,
             max_commission_amount=data.max_commission_amount,
+            product_id=data.product_id,
+            product_category_id=data.product_category_id,
+            rate_type=data.rate_type.value,
+            per_unit_amount=data.per_unit_amount,
             created_by=actor_id,
             updated_by=actor_id,
         )
+        self._assert_rate_shape(row)
         self._assert_window_is_free(row)
         self._session.add(row)
         self._session.flush()
@@ -238,10 +281,19 @@ class CommissionService:
             row.slab_mode = CommissionSlabModeEnum(values["slab_mode"]).value
         if "max_commission_amount" in values:
             row.max_commission_amount = values["max_commission_amount"]
+        if "product_id" in values:
+            row.product_id = values["product_id"]
+        if "product_category_id" in values:
+            row.product_category_id = values["product_category_id"]
+        if values.get("rate_type") is not None:
+            row.rate_type = CommissionRateTypeEnum(values["rate_type"]).value
+        if values.get("per_unit_amount") is not None:
+            row.per_unit_amount = values["per_unit_amount"]
         if data.slabs is not None:
             self._replace_slabs(row, data.slabs, actor_id=actor_id)
         if row.effective_to is not None and row.effective_to < row.effective_from:
             raise ValidationError("effective_to cannot be before effective_from.")
+        self._assert_rate_shape(row)
         self._assert_window_is_free(row)
         row.updated_by = actor_id
         self._session.flush()
@@ -286,6 +338,49 @@ class CommissionService:
             before_data=before,
         )
 
+    @staticmethod
+    def _assert_rate_shape(candidate: CommissionRule) -> None:
+        """Refuse a rule whose rate and basis cannot mean anything together.
+
+        A per-unit rate multiplies **quantity**, so it can only be paid on
+        what was invoiced: money collected has no cases in it, and inventing a
+        conversion would pay a number nobody agreed. A rule naming both a
+        product and a category is two answers to one question -- the product
+        is the narrower of the two, so say that and drop the other.
+
+        Args:
+            candidate: The rule about to be written.
+
+        Raises:
+            ValidationError: If the combination has no meaning.
+
+        """
+        if (
+            candidate.rate_type == CommissionRateType.PER_UNIT.value
+            and candidate.basis != CommissionBasis.INVOICED.value
+        ):
+            raise ValidationError(
+                "A per-unit rate can only be paid on invoiced value: money "
+                "collected has no units in it."
+            )
+        if (
+            candidate.rate_type == CommissionRateType.PER_UNIT.value
+            and candidate.product_id is None
+            and candidate.product_category_id is None
+        ):
+            raise ValidationError(
+                "Say which product or category a per-unit rate is for. A rate "
+                "per unit across everything a firm sells would add cases of "
+                "biscuits to litres of oil."
+            )
+        if candidate.product_id is not None and (
+            candidate.product_category_id is not None
+        ):
+            raise ValidationError(
+                "Name a product or a category, not both -- the product is the "
+                "narrower of the two."
+            )
+
     def _assert_window_is_free(self, candidate: CommissionRule) -> None:
         """Refuse a second live rule covering the same scope and dates.
 
@@ -315,13 +410,28 @@ class CommissionService:
                 if candidate.salesman_id is None
                 else CommissionRule.salesman_id == candidate.salesman_id
             ),
+            # Two rules over one person's days are fine when they are about
+            # different goods: "3% on everything, 5% on the cold chain" is an
+            # ordinary arrangement, and the resolution below prefers the
+            # narrower of the two per line.
+            (
+                CommissionRule.product_id.is_(None)
+                if candidate.product_id is None
+                else CommissionRule.product_id == candidate.product_id
+            ),
+            (
+                CommissionRule.product_category_id.is_(None)
+                if candidate.product_category_id is None
+                else CommissionRule.product_category_id == candidate.product_category_id
+            ),
         )
         if candidate.id is not None:
             statement = statement.where(CommissionRule.id != candidate.id)
         clash = self._session.scalar(statement)
         if clash is not None:
             raise ConflictError(
-                "Another active rule already covers part of that period "
+                "Another active rule already covers part of that period for "
+                "the same scope "
                 f"(from {clash.effective_from.isoformat()})."
             )
 
@@ -426,8 +536,16 @@ class CommissionService:
                     f"{lower.to_amount} does not continue at {higher.from_amount}."
                 )
 
-    def _earned(self, rule: CommissionRule, amount: Decimal) -> Decimal:
+    def _earned(
+        self, rule: CommissionRule, amount: Decimal, *, quantity: Decimal = ZERO
+    ) -> Decimal:
         """Return what one rule pays on one subtotal.
+
+        A PER_UNIT rule pays its rate for every unit sold and ignores the
+        money entirely -- that is what "two rupees a case" means, and it is
+        why the quantity is carried here rather than folded into the amount.
+        Slabs do not apply to it: a ladder of bands is a statement about
+        value, and a per-unit rate is deliberately not one.
 
         A rule with no ladder pays its flat percentage, which is every rule
         written before slabs existed. A rule *with* one ignores that column
@@ -445,11 +563,18 @@ class CommissionService:
         Args:
             rule: The arrangement.
             amount: What was collected or invoiced under it.
+            quantity: How many units were sold under it, which is what a
+                PER_UNIT rate multiplies and what a PERCENT rule ignores.
 
         Returns:
             The commission, before rounding to the ledger's two places.
 
         """
+        if rule.rate_type == CommissionRateType.PER_UNIT.value:
+            earned = quantity * Decimal(str(rule.per_unit_amount))
+            if rule.max_commission_amount is not None:
+                earned = min(earned, Decimal(str(rule.max_commission_amount)))
+            return earned
         slabs = self.slabs_of(rule)
         if not slabs:
             earned = amount * Decimal(str(rule.percentage)) / HUNDRED
@@ -498,6 +623,12 @@ class CommissionService:
             "status": row.status,
             "basis": row.basis,
             "slab_mode": row.slab_mode,
+            "product_id": str(row.product_id) if row.product_id else None,
+            "product_category_id": (
+                str(row.product_category_id) if row.product_category_id else None
+            ),
+            "rate_type": row.rate_type,
+            "per_unit_amount": str(row.per_unit_amount),
             "max_commission_amount": (
                 str(row.max_commission_amount)
                 if row.max_commission_amount is not None
@@ -563,6 +694,14 @@ class CommissionService:
             status=CommissionRuleStatusEnum(row.status),
             basis=CommissionBasisEnum(row.basis),
             slab_mode=CommissionSlabModeEnum(row.slab_mode),
+            product_id=row.product_id,
+            product_name=self._goods_names().get(row.product_id or _NOBODY, ""),
+            product_category_id=row.product_category_id,
+            product_category_name=self._goods_names().get(
+                row.product_category_id or _NOBODY, ""
+            ),
+            rate_type=CommissionRateTypeEnum(row.rate_type),
+            per_unit_amount=row.per_unit_amount,
             max_commission_amount=row.max_commission_amount,
             slabs=[
                 CommissionSlabResponse(
@@ -649,26 +788,54 @@ class CommissionService:
                 salesman_id=salesman_id,
             )
         ]
+        # What each invoice is made of, so a rule that names a product can be
+        # resolved against the lines rather than against the whole bill.
+        goods = self._lines_of({invoice_id for _, invoice_id, _, _, _ in measured})
+        # Quantities are accumulated separately from money: a per-unit rate
+        # multiplies cases, not rupees, and mixing the two into one subtotal
+        # would make the ladder unreadable.
+        under_rule_quantity: dict[tuple[UUID | None, UUID], Decimal] = {}
+
         for owner, invoice_id, when, amount, kind in measured:
             invoices.setdefault(owner, set()).add(invoice_id)
             if kind == CommissionBasis.COLLECTED.value:
                 collected[owner] = collected.get(owner, ZERO) + amount
             else:
                 invoiced[owner] = invoiced.get(owner, ZERO) + amount
-            rule = self._rule_for(owner, when, rules)
-            # A rule pays on one basis. Money measured the other way is
-            # reported and earns nothing, so a firm that moves from paying on
-            # collections to paying on invoiced value pays once, not twice.
-            if rule is None or rule.basis != kind:
-                continue
-            key = (owner, rule.id)
-            under_rule[key] = under_rule.get(key, ZERO) + amount
-            bases.setdefault(owner, set()).add(kind)
+            lines = goods.get(invoice_id) or [_whole_document(amount)]
+            billed = sum((line.share for line in lines), ZERO)
+            for line in lines:
+                rule = self._rule_for(owner, when, line, rules)
+                # A rule pays on one basis. Money measured the other way is
+                # reported and earns nothing, so a firm that moves from paying
+                # on collections to paying on invoiced value pays once, not
+                # twice.
+                if rule is None or rule.basis != kind:
+                    continue
+                key = (owner, rule.id)
+                # An unscoped rule matches every line and the shares sum to
+                # the invoice exactly, so it measures precisely what it
+                # measured before scoping existed. A scoped one takes only
+                # its lines' share -- of the bill on the invoiced basis, and
+                # of each receipt in the same proportion on the collected one,
+                # because a payment clears a share of every line it settles.
+                portion = (
+                    line.share
+                    if kind == CommissionBasis.INVOICED.value
+                    else (amount * line.share / billed if billed > ZERO else ZERO)
+                )
+                under_rule[key] = under_rule.get(key, ZERO) + portion
+                under_rule_quantity[key] = (
+                    under_rule_quantity.get(key, ZERO) + line.quantity
+                )
+                bases.setdefault(owner, set()).add(kind)
 
         earned: dict[UUID | None, Decimal] = {}
         for (owner, rule_id), subtotal in under_rule.items():
             earned[owner] = earned.get(owner, ZERO) + self._earned(
-                by_id[rule_id], subtotal
+                by_id[rule_id],
+                subtotal,
+                quantity=under_rule_quantity.get((owner, rule_id), ZERO),
             )
 
         names = self.names_for(firm_id)
@@ -786,9 +953,18 @@ class CommissionService:
 
     @staticmethod
     def _rule_for(
-        salesman_id: UUID | None, when: date, rules: Sequence[CommissionRule]
+        salesman_id: UUID | None,
+        when: date,
+        line: "_BilledLine",
+        rules: Sequence[CommissionRule],
     ) -> CommissionRule | None:
-        """Resolve the arrangement in force for one person on one day.
+        """Resolve the arrangement in force for one person, day and line.
+
+        Six rungs of specificity, narrowest first: the person's own rule for
+        this product, then for its category, then their unscoped rule, then
+        the same three firm-wide. "3% on everything, 5% on the cold chain" is
+        an ordinary arrangement, and it only works if the narrower rule wins
+        for the lines it names while the broader one still covers the rest.
 
         The person's own rule beats the firm-wide default, which beats nothing
         at all -- a firm that has declared no rate has not agreed to pay one,
@@ -807,17 +983,128 @@ class CommissionService:
         """
         if salesman_id is None:
             return None
-        default: CommissionRule | None = None
+        # Six buckets, indexed by how specific a match is. Collected in one
+        # pass and chosen at the end, because the rules are already ordered by
+        # date and re-sorting them per line would be the expensive way to ask
+        # a cheap question.
+        best: dict[int, CommissionRule] = {}
         for rule in rules:
             if rule.effective_from > when:
                 continue
             if rule.effective_to is not None and rule.effective_to < when:
                 continue
-            if rule.salesman_id == salesman_id:
-                return rule
-            if rule.salesman_id is None and default is None:
-                default = rule
-        return default
+            if rule.salesman_id is not None and rule.salesman_id != salesman_id:
+                continue
+            if rule.product_id is not None and rule.product_id != line.product_id:
+                continue
+            if (
+                rule.product_category_id is not None
+                and rule.product_category_id != line.category_id
+            ):
+                continue
+            mine = 0 if rule.salesman_id is not None else 3
+            goods = (
+                0
+                if rule.product_id is not None
+                else (1 if rule.product_category_id is not None else 2)
+            )
+            best.setdefault(mine + goods, rule)
+        for rank in range(6):
+            found = best.get(rank)
+            if found is not None:
+                return found
+        return None
+
+    def _lines_of(self, invoice_ids: set[UUID]) -> dict[UUID, list["_BilledLine"]]:
+        """Return what each invoice was made of, with each line's share of it.
+
+        The share is the invoice's own `grand_total` apportioned across its
+        lines in proportion to their net amounts, so **the shares of an
+        invoice sum to the invoice exactly**. That is what lets an unscoped
+        rule measure precisely what it measured before scoping existed: it
+        matches every line, and the parts add up to the whole. Deriving the
+        share from the line's net amount instead would drift from the total by
+        whatever the header carries -- rounding, a bill-level charge -- and a
+        commission report that does not reconcile against the invoices behind
+        it is one nobody can sign off.
+
+        `apportion` is the same helper a bill discount is split with, so the
+        rounding residual lands on the largest line rather than being dropped.
+        """
+        if not invoice_ids:
+            return {}
+        rows = self._session.execute(
+            select(
+                SalesInvoiceLine.sales_invoice_id,
+                SalesInvoiceLine.product_id,
+                SalesInvoiceLine.current_invoice_quantity,
+                SalesInvoiceLine.net_amount,
+                Product.category_id,
+            )
+            .join(Product, Product.id == SalesInvoiceLine.product_id, isouter=True)
+            .where(
+                SalesInvoiceLine.sales_invoice_id.in_(invoice_ids),
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+        ).all()
+        totals = {
+            invoice_id: Decimal(str(total))
+            for invoice_id, total in self._session.execute(
+                select(SalesInvoice.id, SalesInvoice.grand_total).where(
+                    SalesInvoice.id.in_(invoice_ids)
+                )
+            ).all()
+        }
+        grouped: dict[UUID, list[tuple[UUID, Decimal, Decimal, UUID | None]]] = {}
+        for invoice_id, product_id, quantity, net, category_id in rows:
+            grouped.setdefault(invoice_id, []).append(
+                (
+                    product_id,
+                    Decimal(str(quantity)),
+                    Decimal(str(net)),
+                    category_id,
+                )
+            )
+        answer: dict[UUID, list[_BilledLine]] = {}
+        for invoice_id, lines in grouped.items():
+            shares = apportion(
+                totals.get(invoice_id, ZERO), [net for _, _, net, _ in lines]
+            )
+            answer[invoice_id] = [
+                _BilledLine(
+                    product_id=product_id,
+                    category_id=category_id,
+                    quantity=quantity,
+                    share=share,
+                )
+                for (product_id, quantity, _, category_id), share in zip(
+                    lines, shares, strict=True
+                )
+            ]
+        return answer
+
+    def _goods_names(self) -> dict[UUID, str]:
+        """Name the products and categories any rule refers to.
+
+        Read once per service instance and cached, because a page of rules
+        would otherwise ask the same two questions twenty times.
+        """
+        if self._names_cache is None:
+            self._names_cache = {
+                row_id: name
+                for row_id, name in self._session.execute(
+                    select(Product.id, Product.name)
+                ).all()
+            }
+            self._names_cache.update(
+                {
+                    row_id: name
+                    for row_id, name in self._session.execute(
+                        select(ProductCategory.id, ProductCategory.name)
+                    ).all()
+                }
+            )
+        return self._names_cache
 
     def _invoiced(
         self,

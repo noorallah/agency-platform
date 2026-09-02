@@ -28,6 +28,13 @@ class CommissionBasisEnum(StrEnum):
     INVOICED = "INVOICED"
 
 
+class CommissionRateTypeEnum(StrEnum):
+    """Whether a rule pays a share of the money or a sum per unit sold."""
+
+    PERCENT = "PERCENT"
+    PER_UNIT = "PER_UNIT"
+
+
 class CommissionSlabModeEnum(StrEnum):
     """How a ladder of rates reads."""
 
@@ -88,6 +95,14 @@ class CommissionRuleCreate(CommissionSchema):
     status: CommissionRuleStatusEnum = CommissionRuleStatusEnum.ACTIVE
     basis: CommissionBasisEnum = CommissionBasisEnum.COLLECTED
     slab_mode: CommissionSlabModeEnum = CommissionSlabModeEnum.MARGINAL
+    #: Both omitted is a rule about the whole document. Naming one makes it a
+    #: rule about the lines that match.
+    product_id: UUID | None = None
+    product_category_id: UUID | None = None
+    rate_type: CommissionRateTypeEnum = CommissionRateTypeEnum.PERCENT
+    per_unit_amount: Decimal = Field(
+        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    )
     max_commission_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
@@ -130,6 +145,12 @@ class CommissionRuleUpdate(CommissionSchema):
     status: CommissionRuleStatusEnum | None = None
     basis: CommissionBasisEnum | None = None
     slab_mode: CommissionSlabModeEnum | None = None
+    product_id: UUID | None = None
+    product_category_id: UUID | None = None
+    rate_type: CommissionRateTypeEnum | None = None
+    per_unit_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     max_commission_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
@@ -153,6 +174,13 @@ class CommissionRuleResponse(CommissionSchema):
     status: CommissionRuleStatusEnum
     basis: CommissionBasisEnum
     slab_mode: CommissionSlabModeEnum
+    product_id: UUID | None
+    #: Empty when the rule names no product, which is most of them.
+    product_name: str
+    product_category_id: UUID | None
+    product_category_name: str
+    rate_type: CommissionRateTypeEnum
+    per_unit_amount: Decimal
     max_commission_amount: Decimal | None
     slabs: list[CommissionSlabResponse]
     version: int
@@ -193,6 +221,7 @@ class CommissionReport(CommissionSchema):
 
 __all__ = [
     "CommissionBasisEnum",
+    "CommissionRateTypeEnum",
     "CommissionReport",
     "CommissionRuleCreate",
     "CommissionRuleResponse",

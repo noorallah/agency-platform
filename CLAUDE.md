@@ -462,6 +462,28 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   `created_at=now` by hand on every insert.
   `tests/integration/test_multi_schema_tenancy.py::test_every_deployed_table_can_be_inserted_into`
   is the guard.
+- **A commission rule can be about goods, and the report resolves per line.**
+  `product_id`/`product_category_id` on `commission_rules` make a rule a
+  statement about lines rather than about the document, resolved in **six
+  rungs of specificity** -- the person's own product rule, their category
+  rule, their unscoped rule, then the same three firm-wide. Whose rule it is
+  outranks what it is about, or a firm-wide rule naming a product would
+  override a rate somebody negotiated. **An unscoped rule must keep measuring
+  exactly the document**: the report apportions each invoice's own
+  `grand_total` across its lines with `apportion` (the bill-discount helper),
+  so the shares sum to the invoice -- deriving a share from the line's own
+  `net_amount` instead drifts by whatever the header carries and silently
+  changes what every existing rule pays, which has a test. On the COLLECTED
+  basis a scoped rule takes its share of **each receipt** in the same
+  proportion, because a payment clears a share of every line it settles. An
+  invoice with no readable lines contributes as a single unscoped line, so
+  money that exists is still measured by a rule about the document.
+  `rate_type` PER_UNIT multiplies **quantity** and ignores value and slabs
+  entirely; it is refused on the COLLECTED basis (money has no cases) and
+  refused without a product or category (it would add cases of biscuits to
+  litres of oil). Commission is measured on the document total, which
+  **includes tax** -- whether that is right is an open question for the owner
+  and deliberately not changed, because changing it moves every payout.
 - **A commission payout is snapshotted, and it posts.** `commission_payouts`
   goes DRAFT → APPROVED → PAID, or CANCELLED. **The report is read once, at
   accrual, and never again** -- it walks live documents, so re-reading it would

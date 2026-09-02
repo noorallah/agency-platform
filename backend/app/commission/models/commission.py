@@ -62,6 +62,7 @@ class CommissionRule(BaseEntity):
             name="CK_commission_rules_effective_window",
         ),
         Index("IX_commission_rules_firm_salesman", "firm_id", "salesman_id"),
+        Index("IX_commission_rules_firm_product", "firm_id", "product_id"),
         Index("IX_commission_rules_firm_status", "firm_id", "status"),
     )
 
@@ -100,6 +101,27 @@ class CommissionRule(BaseEntity):
     #: limit on the arrangement, not on a band within it -- and it is applied
     #: after the ladder, so it caps what was earned rather than what was sold.
     max_commission_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    #: What this rule pays on. Both null is a rule about the whole document,
+    #: which is every rule written before scoping existed. Naming a product
+    #: makes it a rule about *those lines*, and a category is the same thing
+    #: one level up. Nullable keys rather than a type-and-id pair, the shape
+    #: `price_lists` uses: the specificity order falls out of which key is
+    #: filled.
+    product_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("products.id", ondelete="RESTRICT")
+    )
+    product_category_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
+    )
+    #: PERCENT or PER_UNIT. Defaults to what every existing rule is.
+    rate_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="PERCENT", server_default="PERCENT"
+    )
+    #: The sum paid for each unit sold, when `rate_type` is PER_UNIT. Four
+    #: decimal places because a rate per unit is often fractions of a rupee.
+    per_unit_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
 
 
 class CommissionBasis(StrEnum):
@@ -120,6 +142,22 @@ class CommissionBasis(StrEnum):
 
     COLLECTED = "COLLECTED"
     INVOICED = "INVOICED"
+
+
+class CommissionRateType(StrEnum):
+    """Whether a rule pays a share of the money or a sum per unit sold.
+
+    PERCENT is what commission usually is. PER_UNIT is what a firm means when
+    it says "two rupees a case": the rate multiplies **quantity**, not value,
+    which is how a distributor pays on volume rather than on price.
+
+    A per-unit rate only makes sense on the INVOICED basis. You cannot pay two
+    rupees a case on *money collected* -- money has no cases -- so the service
+    refuses the combination rather than inventing a conversion.
+    """
+
+    PERCENT = "PERCENT"
+    PER_UNIT = "PER_UNIT"
 
 
 class CommissionSlabMode(StrEnum):
