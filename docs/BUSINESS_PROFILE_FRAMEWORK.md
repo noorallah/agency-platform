@@ -450,15 +450,23 @@ engineering:
   needs a decision about what disabling it should actually do before a gate can
   mean anything.
 
-### Not implemented — 7 features
+### Not implemented — 6 features
 
-`COMMISSION`, `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`,
-`PROJECT_MANAGEMENT`, `RECIPE_MANAGEMENT` and `SERVICE_CONTRACTS` had no backing
-code in either application. They are kept as roadmap and carry
+`IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`,
+`RECIPE_MANAGEMENT` and `SERVICE_CONTRACTS` had no backing code in either
+application. They are kept as roadmap and carry
 `business_features.is_implemented = false` (`20260810_0059`), which the service
 refuses to enable. The same migration withdrew the 17 profile claims that
 advertised them, including PHARMACY's `PRESCRIPTION_REQUIRED` and RESTAURANT's
 `KITCHEN_MANAGEMENT`.
+
+**`COMMISSION` was the seventh and came off the list on 2026-09-03**
+(`20260903_0107`). `app/commission` shipped on 2026-08-23 — effective-dated
+rates, a collection-based report and a desktop screen — and the flag went on
+saying otherwise, so an administrator was refused a feature the platform had.
+A flag that records what the codebase does has to be revisited when the
+codebase does it. No profile claim was restored with it: which profiles sell on
+commission is a decision for the business-profile screen, not for a migration.
 
 `is_implemented` is a fact about the codebase and is deliberately **not**
 `is_active`, which is an administrator's choice. Conflating them would let an

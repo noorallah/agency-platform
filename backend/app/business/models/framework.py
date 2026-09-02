@@ -63,12 +63,17 @@ class BusinessFeature(BaseEntity):
     #: Whether anything in the codebase actually implements this feature.
     #:
     #: Distinct from ``is_active``, which is a choice an administrator makes.
-    #: This is a statement of fact: seven catalogue entries -- IMEI,
-    #: PRESCRIPTION_REQUIRED, RECIPE_MANAGEMENT, KITCHEN_MANAGEMENT,
-    #: COMMISSION, SERVICE_CONTRACTS and PROJECT_MANAGEMENT -- had no backing
-    #: code in either application, so enabling one promised a customer
-    #: something that could never happen. They stay in the catalogue as
-    #: roadmap, and this flag stops them being switched on.
+    #: This is a statement of fact: seven catalogue entries had no backing code
+    #: in either application, so enabling one promised a customer something
+    #: that could never happen. They stay in the catalogue as roadmap, and this
+    #: flag stops them being switched on.
+    #:
+    #: Six remain -- IMEI, PRESCRIPTION_REQUIRED, RECIPE_MANAGEMENT,
+    #: KITCHEN_MANAGEMENT, SERVICE_CONTRACTS and PROJECT_MANAGEMENT.
+    #: ``COMMISSION`` came off the list on 2026-09-03, because `app/commission`
+    #: shipped on 2026-08-23 and the flag outlived the fact. **A flag recording
+    #: what the codebase does has to be revisited when the codebase does it**,
+    #: or it goes on refusing a feature the platform has.
     is_implemented: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
