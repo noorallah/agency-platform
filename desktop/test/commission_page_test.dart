@@ -527,4 +527,157 @@ void main() {
     expect(find.text('You cannot see commission'), findsOneWidget);
     expect(api.requested, isEmpty);
   });
+
+  // --------------------------------------------------------------------
+  // The ladder
+  // --------------------------------------------------------------------
+
+  testWidgets('a ladder is typed rung by rung and sent whole', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '0');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    // A new rung starts where the previous one stopped, which is the only
+    // shape the server accepts: the rungs have to meet exactly.
+    expect(find.widgetWithText(TextField, 'From'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'To'), '100000');
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '2');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '3');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> slabs = api.created!['slabs'] as List<dynamic>;
+    expect(slabs.length, 2);
+    expect((slabs.first as Map)['from_amount'], '0');
+    expect((slabs.first as Map)['to_amount'], '100000');
+    expect((slabs.first as Map)['percentage'], '2');
+    // The top rung runs on, so it carries no ceiling at all.
+    expect((slabs.last as Map).containsKey('to_amount'), isFalse);
+    expect(api.created!['slab_mode'], 'MARGINAL');
+  });
+
+  testWidgets('a ladder with a gap is refused before sending', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '0');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'To'), '100');
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '2');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    // Break the join the form filled in for us: 100 does not continue at 200.
+    await tester.enterText(find.widgetWithText(TextField, 'From').last, '200');
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '3');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created, isNull, reason: 'a gap never reaches the server');
+    expect(find.textContaining('meet exactly'), findsOneWidget);
+  });
+
+  testWidgets('a ladder starting above zero is refused', (tester) async {
+    final _CommissionApi api = _CommissionApi();
+    await _pump(tester, api);
+    await _openAddDialog(tester);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Rate'), '0');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'In force from'), '2026-01-01');
+    await tester.tap(find.widgetWithText(TextButton, 'Add slab'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'From'), '1000');
+    await tester.enterText(find.widgetWithText(TextField, 'Rate').last, '2');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.created, isNull);
+    expect(find.textContaining('must start at 0'), findsOneWidget);
+  });
+
+  testWidgets('a rule paid on invoiced value says so on the list',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(rules: <Json>[
+      <String, dynamic>{
+        ..._salesmanRule(),
+        'basis': 'INVOICED',
+      },
+    ]);
+    await _pump(tester, api);
+
+    // Two firms can run the same percentage and mean different money by it,
+    // so a list that showed only the number would be unreadable.
+    expect(find.text('Invoiced value'), findsOneWidget);
+  });
+
+  testWidgets('a rule with slabs shows its shape, not the flat field it '
+      'overrides', (tester) async {
+    final _CommissionApi api = _CommissionApi(rules: <Json>[
+      <String, dynamic>{
+        ..._salesmanRule(),
+        'percentage': '4.0000',
+        'slab_mode': 'WHOLE_AMOUNT',
+        'slabs': <Json>[
+          <String, dynamic>{
+            'sequence': 1,
+            'from_amount': '0.00',
+            'to_amount': '100000.00',
+            'percentage': '2.0000',
+          },
+          <String, dynamic>{
+            'sequence': 2,
+            'from_amount': '100000.00',
+            'to_amount': null,
+            'percentage': '3.0000',
+          },
+        ],
+      },
+    ]);
+    await _pump(tester, api);
+
+    // 4% is on the record and is not what this rule pays; printing it would
+    // be printing the one number nobody should read as the arrangement.
+    expect(find.text('4%'), findsNothing);
+    expect(find.text('2 slabs (whole amount)'), findsOneWidget);
+  });
+
+  testWidgets('the report shows what was billed beside what was collected',
+      (tester) async {
+    final _CommissionApi api = _CommissionApi(report: <String, dynamic>{
+      'from_date': '2026-04-01',
+      'to_date': '2026-04-30',
+      'total_collected_amount': '12500.00',
+      'total_invoiced_amount': '40000.00',
+      'total_commission_amount': '1200.00',
+      'rows': <Json>[
+        <String, dynamic>{
+          'salesman_id': 'user-1',
+          'salesman_name': 'Priya Nair',
+          'collected_amount': '12500.00',
+          'invoiced_amount': '40000.00',
+          'basis': 'INVOICED',
+          'commission_amount': '1200.00',
+          'invoice_count': 4,
+        },
+      ],
+    });
+    await _pump(tester, api);
+    await _showCollected(tester);
+
+    // A payout of 1,200 against 12,500 collected reads as an error until the
+    // column says the rule is on invoiced value.
+    expect(find.text('40000.00'), findsWidgets);
+    expect(find.text('Invoiced value'), findsOneWidget);
+  });
 }

@@ -328,13 +328,18 @@ class _CommissionPageState extends State<CommissionPage> {
       columns: const [
         GridColumn(key: 'who', label: 'Applies to'),
         GridColumn(key: 'rate', label: 'Rate'),
+        GridColumn(key: 'basis', label: 'Paid on'),
         GridColumn(key: 'window', label: 'In force'),
         GridColumn(key: 'status', label: 'Status'),
       ],
       id: (row) => row.id,
       cells: (row) => [
         row.whoLabel,
-        '${trimDecimal(row.percentage)}%',
+        // A ladder has no single rate, so the column says what shape the
+        // arrangement is rather than printing the flat field the ladder
+        // overrides -- which would be the number somebody read as the deal.
+        row.slabs.isEmpty ? '${trimDecimal(row.percentage)}%' : row.rateLabel,
+        row.basis == 'INVOICED' ? 'Invoiced value' : 'Money collected',
         row.windowLabel,
         row.status,
       ],
@@ -445,6 +450,10 @@ class _CommissionPageState extends State<CommissionPage> {
             value: report.totalCollectedAmount,
           ),
           _TotalCard(
+            label: 'Invoiced in the same period',
+            value: report.totalInvoicedAmount,
+          ),
+          _TotalCard(
             label: 'Commission earned',
             value: report.totalCommissionAmount,
           ),
@@ -468,6 +477,8 @@ class _CommissionPageState extends State<CommissionPage> {
       columns: const [
         GridColumn(key: 'salesman', label: 'Salesman'),
         GridColumn(key: 'collected', label: 'Collected'),
+        GridColumn(key: 'invoiced', label: 'Invoiced'),
+        GridColumn(key: 'basis', label: 'Paid on'),
         GridColumn(key: 'commission', label: 'Commission'),
         GridColumn(key: 'invoices', label: 'Invoices'),
       ],
@@ -477,6 +488,10 @@ class _CommissionPageState extends State<CommissionPage> {
             ? 'Unassigned (no salesman on the invoice)'
             : row.salesmanName,
         row.collectedAmount,
+        row.invoicedAmount,
+        // Both figures are shown whatever the arrangement, so this column is
+        // what says which of the two the payout beside it was worked out on.
+        basisLabel(row.basis),
         row.commissionAmount,
         '${row.invoiceCount}',
       ],
@@ -521,9 +536,21 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
   late final TextEditingController _to =
       TextEditingController(text: widget.rule?.effectiveTo ?? '');
 
+  late final TextEditingController _cap = TextEditingController(
+      text: trimDecimal(widget.rule?.maxCommissionAmount ?? ''));
+
   /// The empty string is the firm-wide default, which belongs to nobody.
   late String _salesmanId = widget.rule?.salesmanId ?? '';
   late String _status = widget.rule?.status ?? 'ACTIVE';
+  late String _basis = widget.rule?.basis ?? 'COLLECTED';
+  late String _slabMode = widget.rule?.slabMode ?? 'MARGINAL';
+
+  /// The ladder being edited, as typed text so a half-finished rung does not
+  /// have to parse. Empty is a flat rate, which is what most rules are.
+  late final List<_SlabDraft> _slabs = [
+    for (final CommissionSlabRecord slab in widget.rule?.slabs ?? const [])
+      _SlabDraft.from(slab),
+  ];
 
   bool _saving = false;
   String? _error;
@@ -533,6 +560,10 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     _percentage.dispose();
     _from.dispose();
     _to.dispose();
+    _cap.dispose();
+    for (final _SlabDraft slab in _slabs) {
+      slab.dispose();
+    }
     super.dispose();
   }
 
@@ -544,6 +575,10 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
     }
     if (percentage < 0 || percentage > 100) {
       return 'A commission rate must be between 0 and 100 percent.';
+    }
+    final String? ladder = _validateLadder();
+    if (ladder != null) {
+      return ladder;
     }
     final DateTime? from = parseIsoDate(_from.text);
     if (from == null) {
@@ -559,6 +594,48 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
       if (until.isBefore(from)) {
         return 'The rate cannot end before it starts.';
       }
+    }
+    return null;
+  }
+
+  /// Restate the server's ladder rules while the numbers are still on screen.
+  ///
+  /// The server refuses the same three things and its sentence is what the
+  /// user sees when anything else is wrong; these are here because a ladder is
+  /// typed a rung at a time and a gap is easy to leave by accident.
+  String? _validateLadder() {
+    if (_slabs.isEmpty) return null;
+    final List<double> floors = [];
+    for (int index = 0; index < _slabs.length; index++) {
+      final _SlabDraft slab = _slabs[index];
+      final double? from = double.tryParse(slab.from.text.trim());
+      final double? rate = double.tryParse(slab.percentage.text.trim());
+      if (from == null) return 'Slab ${index + 1} needs an amount to start at.';
+      if (rate == null || rate < 0 || rate > 100) {
+        return 'Slab ${index + 1} needs a rate between 0 and 100 percent.';
+      }
+      floors.add(from);
+      final String upper = slab.to.text.trim();
+      final bool last = index == _slabs.length - 1;
+      if (upper.isEmpty) {
+        if (!last) return 'Only the highest slab may be left open-ended.';
+        continue;
+      }
+      final double? to = double.tryParse(upper);
+      if (to == null) return 'Slab ${index + 1} needs a number to end at.';
+      if (to <= from) return 'Slab ${index + 1} must end above where it starts.';
+      if (!last) {
+        final double? next = double.tryParse(_slabs[index + 1].from.text.trim());
+        if (next != null && next != to) {
+          return 'Slabs must meet exactly: slab ${index + 1} ends at '
+              '${trimDecimal(upper)} and the next starts at '
+              '${trimDecimal(_slabs[index + 1].from.text.trim())}.';
+        }
+      }
+    }
+    if (floors.first != 0) {
+      return 'The first slab must start at 0. Use a 0% slab if nothing is '
+          'earned below a threshold.';
     }
     return null;
   }
@@ -579,6 +656,14 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
         'effective_from': _from.text.trim(),
         'effective_to': _to.text.trim().isEmpty ? null : _to.text.trim(),
         'status': _status,
+        'basis': _basis,
+        'slab_mode': _slabMode,
+        'max_commission_amount':
+            _cap.text.trim().isEmpty ? null : _cap.text.trim(),
+        // Always sent, including as an empty list: this form shows the whole
+        // ladder, so what is on screen is the arrangement. Omitting it would
+        // mean *leave it alone* and a rung deleted here would stay in force.
+        'slabs': [for (final _SlabDraft slab in _slabs) slab.toJson()],
       };
 
   Future<void> _save() async {
@@ -690,10 +775,64 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                 ],
-                decoration: const InputDecoration(
-                  labelText: 'Rate',
-                  helperText: 'Percent of the money collected.',
+                decoration: InputDecoration(
+                  labelText: _slabs.isEmpty ? 'Rate' : 'Rate (unused)',
+                  helperText: _slabs.isEmpty
+                      ? 'Percent of ${basisLabel(_basis).toLowerCase()}.'
+                      : 'A ladder is below, and it is what this rule pays.',
                   suffixText: '%',
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _basis,
+                decoration: const InputDecoration(
+                  labelText: 'Paid on',
+                  helperText: 'What the rate is a percentage of.',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'COLLECTED',
+                    child: Text('Money collected'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'INVOICED',
+                    child: Text('Invoiced value'),
+                  ),
+                ],
+                onChanged: _saving
+                    ? null
+                    : (value) => setState(() => _basis = value ?? _basis),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              _LadderEditor(
+                slabs: _slabs,
+                mode: _slabMode,
+                enabled: !_saving,
+                onModeChanged: (value) => setState(() => _slabMode = value),
+                onAdd: () => setState(() => _slabs.add(_SlabDraft.empty(
+                      startingAt: _slabs.isEmpty
+                          ? '0'
+                          : _slabs.last.to.text.trim(),
+                    ))),
+                onRemove: (index) => setState(() {
+                  _slabs.removeAt(index).dispose();
+                }),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _cap,
+                enabled: !_saving,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'Most this pays per period',
+                  helperText: 'Leave empty for no ceiling. It caps what was '
+                      'earned, not what was sold.',
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -751,6 +890,184 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
           onPressed: _saving ? null : _save,
           child: Text(_saving ? 'Saving…' : 'Save'),
         ),
+      ],
+    );
+  }
+}
+
+/// Name the arrangement a figure was worked out on.
+String basisLabel(String basis) => switch (basis) {
+      'INVOICED' => 'Invoiced value',
+      'COLLECTED' => 'Money collected',
+      'MIXED' => 'Both (the rate changed)',
+      _ => '—',
+    };
+
+/// One rung being typed, held as text so a half-finished band need not parse.
+class _SlabDraft {
+  _SlabDraft({
+    required this.from,
+    required this.to,
+    required this.percentage,
+  });
+
+  factory _SlabDraft.from(CommissionSlabRecord slab) => _SlabDraft(
+        from: TextEditingController(text: trimDecimal(slab.fromAmount)),
+        to: TextEditingController(text: trimDecimal(slab.toAmount)),
+        percentage: TextEditingController(text: trimDecimal(slab.percentage)),
+      );
+
+  /// A new rung continues where the one above it stopped, because that is the
+  /// only thing the server will accept — the rungs have to meet exactly.
+  factory _SlabDraft.empty({String startingAt = ''}) => _SlabDraft(
+        from: TextEditingController(text: startingAt),
+        to: TextEditingController(),
+        percentage: TextEditingController(),
+      );
+
+  final TextEditingController from;
+  final TextEditingController to;
+  final TextEditingController percentage;
+
+  Json toJson() => <String, dynamic>{
+        'from_amount': from.text.trim(),
+        if (to.text.trim().isNotEmpty) 'to_amount': to.text.trim(),
+        'percentage': percentage.text.trim(),
+      };
+
+  void dispose() {
+    from.dispose();
+    to.dispose();
+    percentage.dispose();
+  }
+}
+
+/// The ladder: rungs of value, each with its own rate, and how they read.
+///
+/// The mode is the firm's to declare rather than something to infer, because
+/// the two pay very differently on the same numbers — 120,000 against 2% to
+/// 100,000 and 3% above pays 2,600 read one way and 3,600 read the other.
+class _LadderEditor extends StatelessWidget {
+  const _LadderEditor({
+    required this.slabs,
+    required this.mode,
+    required this.enabled,
+    required this.onModeChanged,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<_SlabDraft> slabs;
+  final String mode;
+  final bool enabled;
+  final ValueChanged<String> onModeChanged;
+  final VoidCallback onAdd;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('Slabs', style: theme.textTheme.titleSmall),
+            ),
+            TextButton.icon(
+              onPressed: enabled ? onAdd : null,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add slab'),
+            ),
+          ],
+        ),
+        if (slabs.isEmpty)
+          Text(
+            'No slabs, so the flat rate above is what this rule pays.',
+            style: theme.textTheme.bodySmall,
+          )
+        else ...[
+          DropdownButtonFormField<String>(
+            isExpanded: true,
+            initialValue: mode,
+            decoration: const InputDecoration(labelText: 'How the slabs read'),
+            items: const [
+              DropdownMenuItem(
+                value: 'MARGINAL',
+                child: Text('Each band at its own rate'),
+              ),
+              DropdownMenuItem(
+                value: 'WHOLE_AMOUNT',
+                child: Text('Everything at the band reached'),
+              ),
+            ],
+            onChanged:
+                enabled ? (value) => onModeChanged(value ?? mode) : null,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (int index = 0; index < slabs.length; index++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: slabs[index].from,
+                      enabled: enabled,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: const InputDecoration(labelText: 'From'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: TextField(
+                      controller: slabs[index].to,
+                      enabled: enabled,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'To',
+                        helperText: index == slabs.length - 1
+                            ? 'Empty runs on'
+                            : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  SizedBox(
+                    width: 96,
+                    child: TextField(
+                      controller: slabs[index].percentage,
+                      enabled: enabled,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Rate',
+                        suffixText: '%',
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove this slab',
+                    onPressed: enabled ? () => onRemove(index) : null,
+                    icon: const Icon(Icons.close, size: 18),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     );
   }
