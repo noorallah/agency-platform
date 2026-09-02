@@ -1372,7 +1372,11 @@ def test_a_bill_can_decline_to_pass_on_free_goods() -> None:
     assert response.total_free_quantity == Decimal("0")
 
 
-def _dispatched_note(setup: _Billing, quantity: Decimal = Decimal("4")) -> DeliveryNote:
+def _dispatched_note(
+    setup: _Billing,
+    quantity: Decimal = Decimal("4"),
+    free_quantity: Decimal = Decimal("0"),
+) -> DeliveryNote:
     """Dispatch the setup's order so there is something to bill."""
     session = setup.session
     InventoryService(session).create_adjustment(
@@ -1400,6 +1404,7 @@ def _dispatched_note(setup: _Billing, quantity: Decimal = Decimal("4")) -> Deliv
                     sales_order_line_id=setup.order_line.id,
                     line_number=1,
                     current_delivery_quantity=quantity,
+                    free_quantity=free_quantity,
                     unit_price=Decimal("100"),
                 )
             ],
@@ -1410,6 +1415,81 @@ def _dispatched_note(setup: _Billing, quantity: Decimal = Decimal("4")) -> Deliv
     notes.approve_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
     notes.dispatch_note(note.id, firm_scope=setup.firm.id, actor_id=uuid4())
     return note
+
+
+def _bill_note(
+    setup: _Billing, note: DeliveryNote, quantity: Decimal
+) -> SalesInvoiceResponse:
+    """Bill one dispatched note line."""
+    service = SalesInvoiceService(setup.session)
+    dn_line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert dn_line is not None
+    invoice = service.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            invoice_date=date(2026, 8, 5),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=dn_line.id,
+                    line_number=1,
+                    current_invoice_quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    return service.invoice_response(invoice)
+
+
+def test_a_bill_cannot_charge_for_goods_that_were_given_away() -> None:
+    """What may be billed is what was charged, not what left the warehouse.
+
+    `delivered_quantity` is `current_delivery_quantity + free_quantity`
+    converted into inventory units -- right for stock, because 4 really did
+    leave -- and the invoice read it as the billable quantity. So a note
+    charging for 3 and giving 1 capped billing at 4, and that fourth unit was
+    billable at full price. Driven against a seeded note before the fix: the
+    customer was charged 195.00 plus tax for a unit they had been given.
+
+    The units were wrong too. `invoice_quantity` is converted into the source
+    line's *sales* UOM, which is what `current_delivery_quantity` holds;
+    `delivered_quantity` is post-conversion inventory units, so for any
+    product whose two units differ the cap was inflated by the whole
+    conversion factor.
+    """
+    setup = _Billing(_session_factory()())
+    # Three charged and one free against an order line of four: the note's own
+    # guard caps charged-plus-free at what was ordered.
+    note = _dispatched_note(setup, quantity=Decimal("3"), free_quantity=Decimal("1"))
+
+    _bill_note(setup, note, Decimal("3"))
+
+    with pytest.raises(ValidationError):
+        _bill_note(setup, note, Decimal("1"))
+
+
+def test_billing_a_note_in_full_carries_the_whole_gift() -> None:
+    """A fraction of a free unit is not something anybody can hand over.
+
+    The pro-rata divided by charged-plus-free, so billing all 3 of the 3
+    charged units carried 3/4 of the free one and the printed bill read
+    "3 + 0.75 free".
+    """
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup, quantity=Decimal("3"), free_quantity=Decimal("1"))
+
+    response = _bill_note(setup, note, Decimal("3"))
+
+    assert response.lines[0].free_quantity == Decimal("1.0000")
+    # Free is still free: outside the gross and outside the tax base.
+    assert response.lines[0].gross_amount == Decimal("300.0000")
 
 
 def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:

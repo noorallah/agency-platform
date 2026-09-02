@@ -1790,11 +1790,31 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def _source_quantity(self, spec: dict[str, object], source_line: object) -> Decimal:
+        """How much of the source line an invoice may charge for.
+
+        `current_delivery_quantity`, **not** `delivered_quantity`. The latter
+        is what physically left the warehouse -- charged goods plus free ones,
+        converted into inventory units -- which is right for stock and wrong
+        twice over here.
+
+        It let an invoice **charge for goods that were given away**: a note
+        delivering 12 with 1 free capped billing at 13, and billing that
+        thirteenth unit at 195.00 plus tax was accepted against a seeded note.
+        And it pro-rated inherited free goods by the wrong denominator, so
+        billing all 12 carried 12/13 of a free unit and the printed bill read
+        "12 + 0.923 free" -- a fraction of a gift nobody can hand over.
+
+        The units were wrong as well. `invoice_quantity` is converted into the
+        source line's *sales* UOM, which is what `current_delivery_quantity`
+        is stored in; `delivered_quantity` is post-conversion inventory units,
+        so for any product whose two units differ the cap was inflated by the
+        whole conversion factor.
+        """
         if (
             self._source_type(spec["source_document_type"])
             == SalesInvoiceSourceType.DELIVERY_NOTE.value
         ):
-            return self._q(getattr(source_line, "delivered_quantity", ZERO))
+            return self._q(getattr(source_line, "current_delivery_quantity", ZERO))
         return self._q(getattr(source_line, "quantity", ZERO))
 
     def billable_documents(
