@@ -19,6 +19,7 @@ from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
+    LineDiscount,
     apportion,
     resolve_bill_discount,
     resolve_line_discount,
@@ -63,7 +64,6 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService
-from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -1001,6 +1001,50 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.commit()
         return rows
 
+    def _line_discount(
+        self, item: DeliveryNoteLineWrite, *, source: SalesOrderLine | None
+    ) -> LineDiscount:
+        """Return the discount one dispatched line ships under.
+
+        What the line itself says wins. Where it says nothing, the discount is
+        **inherited from the order line being shipped** rather than re-read
+        from the customer and the price lists -- the same rule the invoice
+        already follows, and for the same reason: a price agreed on an order in
+        March is not rewritten by an edit to the customer master in August.
+
+        This module did re-read it, and lost two things by it. A standing rate
+        changed after the order silently repriced goods already agreed. And
+        every promotion vanished: an offer is applied when the order is priced,
+        the note threw the result away, and the invoice then inherited the
+        note -- so a customer promised a promoted price was billed the
+        undiscounted one.
+
+        A percentage inherits cleanly across a part shipment, because a rate
+        does not care about quantity. An absolute amount is pro-rated by the
+        share leaving the warehouse, since a whole-line figure copied onto half
+        a line would discount more than was ever agreed.
+
+        The price list and the customer's standing rate are deliberately not
+        consulted here. The order already resolved both when it was priced, so
+        a line that came out at nothing came out at nothing on purpose.
+        """
+        gross = self._q(
+            self._q(item.current_delivery_quantity) * self._q(item.unit_price)
+        )
+        percent = item.discount_percent
+        amount = item.discount_amount
+        if percent is None and amount is None and source is not None:
+            ordered = self._q(source.quantity)
+            if source.discount_percent:
+                percent = source.discount_percent
+            elif source.discount_amount and ordered > ZERO:
+                amount = self._q(
+                    self._q(source.discount_amount)
+                    * self._q(item.current_delivery_quantity)
+                    / ordered
+                )
+        return resolve_line_discount(gross=gross, percent=percent, amount=amount)
+
     def _customer_discount(self, customer_id: UUID) -> Decimal | None:
         """Return the customer's standing discount, if they have one.
 
@@ -1077,17 +1121,6 @@ class DeliveryNoteService(TransactionalDocumentService):
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
-        # Built once for the document, not once per line: which lists apply
-        # depends on the customer, the territory and the date, none of which
-        # change between lines.
-        prices = PriceListResolver(
-            self._session,
-            firm_id=row.firm_id,
-            customer_id=row.customer_id,
-            territory_id=row.territory_id,
-            on=row.delivery_date,
-        )
-
         # Priced before the loop below writes anything, because a discount on
         # the whole document has to be split across the lines *before* tax is
         # asked for. Tax is charged per line, so a document-level deduction
@@ -1096,17 +1129,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         # that shape is not copied here. Nothing in this pass touches the
         # database, so every validation below still runs in its own order.
         priced = [
-            resolve_line_discount(
-                gross=self._q(
-                    self._q(item.current_delivery_quantity) * self._q(item.unit_price)
-                ),
-                percent=item.discount_percent,
-                amount=item.discount_amount,
-                price_list_percent=prices.rate_for(
-                    _source_product(source_lines, item.sales_order_line_id)
-                ),
-                customer_default=customer_discount,
-            )
+            self._line_discount(item, source=source_lines.get(item.sales_order_line_id))
             for item in lines
         ]
         shares = self._bill_discount_shares(

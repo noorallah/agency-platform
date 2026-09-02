@@ -283,6 +283,19 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   `TaxRuleService.simulate` never does. A line somebody priced by hand is
   skipped and the trace says so: a log that reports a benefit the line never
   received is a lie told to the person asking why the price is what it is.
+- **A delivery note ships the deal the order struck.** It re-read the customer's
+  *current* standing rate and the price lists instead of inheriting the order
+  line it ships, so a rate agreed in March was replaced by whatever the master
+  said in August -- the exact thing the invoice's own inheritance rule exists to
+  prevent, one document earlier. Worse once promotions existed: an offer is
+  applied when the order is priced, the note discarded the result, and the
+  invoice inherits the *note*, so a customer promised a promoted price was
+  billed the undiscounted one. Seeded data showed it plainly -- order lines at
+  1, 5, 5.95, 7.5 and 8.425 percent, and 43 of 58 note lines at zero. Fixed
+  2026-09-03: `_line_discount` inherits the source line, a rate as itself and an
+  amount pro-rated by the share shipped, and the price list and standing rate
+  are deliberately not consulted -- the order resolved both already, so a line
+  that came out at nothing came out at nothing on purpose.
 - **A discount on the whole document reaches the lines, and therefore the tax.**
   `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
   delivery note or sales invoice is resolved by `resolve_bill_discount` and

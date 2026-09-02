@@ -18,7 +18,7 @@ from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import AuthorizationError
 from app.customers.models import Customer
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import (
     DeliveryNoteCreate,
     DeliveryNoteLineWrite,
@@ -1097,3 +1097,199 @@ def test_an_undispatched_note_leaves_the_order_where_it_is() -> None:
 
     session.refresh(order)
     assert order.status == SalesOrderStatus.APPROVED.value
+
+
+def test_a_note_ships_the_deal_the_order_struck() -> None:
+    """The rate on the order is the rate the goods leave under.
+
+    A delivery note re-read the customer's *current* standing rate instead of
+    inheriting the order line it ships, and the invoice then inherits from the
+    note -- so a price agreed in March was quietly replaced by whatever the
+    customer master said in August, which is the exact thing the invoice's own
+    inheritance rule exists to prevent.
+
+    It also silently discarded every promotion: an offer is applied when the
+    order is priced, and the note threw the result away before the bill could
+    inherit it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    orders = SalesOrderService(session)
+    order = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                    discount_percent=Decimal("12"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+    order_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+    assert order_line.discount_percent == Decimal("12.0000")
+
+    # The customer's standing rate changes after the order is placed. It must
+    # not reach goods already agreed at another price.
+    customer.default_discount_percent = Decimal("25")
+    session.commit()
+
+    note = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("10"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+
+    line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    assert line.discount_percent == Decimal("12.0000"), (
+        "the note ships what the order agreed, not what the customer master "
+        "says today"
+    )
+    assert line.discount_amount == Decimal("120.0000")
+
+
+def test_an_inherited_amount_is_pro_rated_across_a_part_shipment() -> None:
+    """Half the order shipped carries half the discount it was given.
+
+    A rate needs no such handling and is inherited as itself; a whole-line
+    amount copied onto part of a line would discount more than was agreed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    orders = SalesOrderService(session)
+    order = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                    discount_amount=Decimal("200"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+    order_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+
+    note = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("5"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+
+    line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    assert line.discount_amount == Decimal("100.0000")
+
+
+def test_a_note_may_still_be_given_a_discount_of_its_own() -> None:
+    """What was asked for wins over what was inherited, as everywhere else."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    orders = SalesOrderService(session)
+    order = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                    discount_percent=Decimal("12"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+    order_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                    discount_percent=Decimal("20"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    assert line.discount_percent == Decimal("20.0000")
