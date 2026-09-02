@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerGroup
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.products.models import Product
@@ -1116,3 +1116,80 @@ def test_a_used_up_offer_stops_being_offered_at_all() -> None:
         "an exhausted offer is not quoted, so nobody is promised a price that "
         "the approval would then refuse"
     )
+
+
+def test_a_segment_rate_reaches_a_line_when_the_shop_has_none() -> None:
+    """A grouping of the firm's own choosing, not a KYC field.
+
+    `customer_type` is INDIVIDUAL or BUSINESS -- a legal classification, and
+    the wrong thing to hang a price on. This is what a firm means by
+    "wholesalers get five percent".
+    """
+    session = _session_factory()()
+    shop = _Shop(session, code="SEG01")
+    group = CustomerGroup(
+        firm_id=shop.firm.id,
+        code="WHOLESALE",
+        name="Wholesalers",
+        default_discount_percent=Decimal("5"),
+    )
+    session.add(group)
+    session.commit()
+    shop.customer.customer_group_id = group.id
+    session.commit()
+
+    line = shop.line_of(shop.order())
+
+    assert line.discount_amount == Decimal("50.0000")
+    assert line.discount_percent == Decimal("5.0000")
+
+
+def test_the_shop_s_own_rate_beats_the_segment_s() -> None:
+    """A rate agreed with one shop is more specific than one for a segment."""
+    session = _session_factory()()
+    shop = _Shop(session, code="SEG02")
+    group = CustomerGroup(
+        firm_id=shop.firm.id,
+        code="WHOLESALE",
+        name="Wholesalers",
+        default_discount_percent=Decimal("5"),
+    )
+    session.add(group)
+    session.commit()
+    shop.customer.customer_group_id = group.id
+    shop.customer.default_discount_percent = Decimal("12")
+    session.commit()
+
+    line = shop.line_of(shop.order())
+
+    assert line.discount_amount == Decimal("120.0000")
+
+
+def test_an_offer_can_be_aimed_at_a_whole_segment() -> None:
+    """Without naming every shop in it, which is the point of grouping them."""
+    session = _session_factory()()
+    shop = _Shop(session, code="SEG03")
+    group = CustomerGroup(firm_id=shop.firm.id, code="WHOLESALE", name="Wholesalers")
+    session.add(group)
+    session.commit()
+    shop.customer.customer_group_id = group.id
+    session.commit()
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TRADEONLY",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "15"})],
+        conditions=[
+            (
+                PromotionField.CUSTOMER_GROUP_ID,
+                PromotionConditionOperator.EQUALS,
+                {"value_text": str(group.id)},
+            )
+        ],
+    )
+
+    assert shop.line_of(shop.order()).discount_amount == Decimal("150.0000")
+
+    # A shop outside the segment gets nothing from it.
+    other = _Shop(session, code="SEG04")
+    assert other.line_of(other.order()).discount_amount == Decimal("0.0000")

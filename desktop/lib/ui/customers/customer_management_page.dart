@@ -10,6 +10,7 @@ import '../../models/geography.dart';
 import '../../models/sales_territory.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_settings_dialog.dart';
+import 'customer_group_dialog.dart';
 
 class CustomerController extends ChangeNotifier {
   CustomerController(this._api);
@@ -140,6 +141,19 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
   bool get _canDelete => widget.permissions.hasPermission('CUSTOMER_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('CUSTOMER_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('CUSTOMER_EXPORT');
+
+  /// The segments this firm sells to, and what each is normally given.
+  ///
+  /// Beside the credit policy rather than behind a menu: a group decides a
+  /// price, so somebody raising a document needs to reach it from the screen
+  /// they are already on.
+  Future<void> _openCustomerGroups() => showDialog<bool>(
+        context: context,
+        builder: (_) => CustomerGroupDialog(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
+      ).then((_) => _controller.load());
 
   /// Show the firm's credit policy, and let the right role change it.
   Future<void> _openCreditSettings() => showDialog<bool>(
@@ -382,6 +396,16 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ToolbarAction.refresh,
         ToolbarAction.export,
         ToolbarAction.settings,
+      ],
+      trailing: [
+        Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: OutlinedButton.icon(
+            onPressed: widget.hasActiveFirm ? _openCustomerGroups : null,
+            icon: const Icon(Icons.groups_outlined, size: 18),
+            label: const Text('Groups'),
+          ),
+        ),
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,

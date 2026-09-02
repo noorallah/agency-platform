@@ -24,6 +24,44 @@ from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
 
 
+class CustomerGroup(BaseEntity):
+    """A commercial segment a firm sells to: Retailer, Wholesaler, Institution.
+
+    Distinct from `customers.customer_type`, which is INDIVIDUAL or BUSINESS --
+    a legal classification, and the wrong thing to hang a price or an offer on.
+    A firm that wants to give wholesalers a different rate needs a grouping of
+    its own choosing, not a KYC field.
+
+    One flat list rather than a hierarchy. A tree is what `sales_territories`
+    already is, and a second one would leave two answers to "which group is
+    this customer in" -- the mistake this codebase records as costing it four
+    business-profile resolvers.
+    """
+
+    __tablename__ = "customer_groups"
+    __table_args__ = (
+        UniqueConstraint("firm_id", "code", name="UQ_customer_groups_firm_code"),
+        UniqueConstraint("firm_id", "name", name="UQ_customer_groups_firm_name"),
+        Index("IX_customer_groups_firm_status", "firm_id", "is_active"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    #: What everyone in this group is normally given off a line. Ranked below
+    #: the customer's own standing rate, because a rate agreed with one shop is
+    #: more specific than one agreed with a segment.
+    default_discount_percent: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
 class Customer(BaseEntity):
     """Represent one customer master owned by a firm."""
 
@@ -41,6 +79,12 @@ class Customer(BaseEntity):
     )
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    #: The commercial segment this shop belongs to, if the firm groups them.
+    #: Nullable because a firm that does not segment its customers should not
+    #: be made to invent a group to hold all of them.
+    customer_group_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("customer_groups.id", ondelete="RESTRICT"), index=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     gst_number: Mapped[str | None] = mapped_column(String(32))

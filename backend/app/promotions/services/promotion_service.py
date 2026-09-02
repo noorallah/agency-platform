@@ -397,6 +397,7 @@ class PromotionService:
         )
         return {
             PromotionField.CUSTOMER_ID.value: data.customer_id,
+            PromotionField.CUSTOMER_GROUP_ID.value: data.customer_group_id,
             PromotionField.BRANCH_ID.value: data.branch_id,
             PromotionField.TERRITORY_ID.value: data.territory_id,
             PromotionField.ROUTE_ID.value: data.route_id,

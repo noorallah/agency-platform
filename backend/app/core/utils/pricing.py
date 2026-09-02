@@ -13,7 +13,8 @@ Three rules live here, and nowhere else:
 **What was asked for wins over what was assumed.** An explicit amount beats an
 explicit percentage, which beats what the firm's promotions earned this line,
 which beats what the firm's price lists promise this customer on this product,
-which beats the customer's blanket standing rate. An explicit
+which beats the customer's blanket standing rate, which beats whatever their
+segment is normally given. An explicit
 zero is an instruction -- it is how somebody says "not this time" to a customer
 who normally gets ten percent -- so `None` and `0` are different answers and the
 schemas must keep them apart.
@@ -61,6 +62,7 @@ def resolve_line_discount(
     promotion_amount: Decimal | None = None,
     price_list_percent: Decimal | None = None,
     customer_default: Decimal | None = None,
+    customer_group_default: Decimal | None = None,
     subject: str = "the line amount",
 ) -> LineDiscount:
     """Return the discount for one line.
@@ -83,6 +85,9 @@ def resolve_line_discount(
             below anything typed because a person deciding beats a table.
         customer_default: The customer's standing discount, used only when
             nothing more specific applies.
+        customer_group_default: What the customer's segment is normally given.
+            Last of all, because a rate agreed with one shop is more specific
+            than one agreed with a whole segment of them.
         subject: What the refusal calls the thing the discount cannot exceed.
             The same rule serves a line and a whole document, and a message
             naming the wrong one sends the reader looking in the wrong place.
@@ -115,6 +120,13 @@ def resolve_line_discount(
     elif customer_default is not None and customer_default > ZERO:
         applied = quantize_money(gross * quantize_money(customer_default) / HUNDRED)
         source = "customer"
+    elif customer_group_default is not None and customer_group_default > ZERO:
+        # Zero means "no arrangement" here too, exactly as it does one line up:
+        # a segment with no agreed rate is not a segment agreeing on nothing.
+        applied = quantize_money(
+            gross * quantize_money(customer_group_default) / HUNDRED
+        )
+        source = "customer_group"
     else:
         return LineDiscount(amount=ZERO, percent=ZERO, source="none")
 
@@ -129,7 +141,13 @@ def resolve_line_discount(
     rate = (
         quantize_money(applied * HUNDRED / gross)
         if gross > ZERO
-        else quantize_money(percent or price_list_percent or customer_default or ZERO)
+        else quantize_money(
+            percent
+            or price_list_percent
+            or customer_default
+            or customer_group_default
+            or ZERO
+        )
     )
     return LineDiscount(amount=applied, percent=rate, source=source)
 

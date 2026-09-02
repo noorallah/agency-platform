@@ -135,6 +135,9 @@ class CustomerWrite(CustomerSchema):
 
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     customer_type: CustomerType
+    #: The commercial segment this shop is in, if the firm groups them. Not
+    #: the same question as `customer_type`, which is a legal classification.
+    customer_group_id: UUID | None = None
     name: str = Field(min_length=1, max_length=200)
     display_name: str | None = Field(default=None, max_length=200)
     gst_number: str | None = Field(default=None, max_length=32)
@@ -242,6 +245,7 @@ class CustomerResponse(CustomerSchema):
     firm_id: UUID
     code: str
     customer_type: CustomerType
+    customer_group_id: UUID | None
     name: str
     display_name: str
     gst_number: str | None
@@ -400,3 +404,29 @@ class CreditControlSettingsWrite(CustomerSchema):
                 "Warning threshold must not be above the blocking threshold."
             )
         return self
+
+
+class CustomerGroupWrite(CustomerSchema):
+    """Create or replace one customer segment."""
+
+    code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = None
+    #: What everyone in the segment is normally given. Zero means no
+    #: arrangement, matching how the customer's own standing rate reads.
+    default_discount_percent: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
+    is_active: bool = True
+
+
+class CustomerGroupResponse(CustomerSchema):
+    """Expose one stored customer segment."""
+
+    id: UUID
+    code: str
+    name: str
+    description: str | None
+    default_discount_percent: Decimal
+    is_active: bool
+    version: int
