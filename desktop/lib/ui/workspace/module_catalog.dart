@@ -309,6 +309,7 @@ abstract final class ModuleCatalog {
         'PRICE_LIST_VIEW',
         'PROMOTION_VIEW',
         'COMMISSION_VIEW',
+        'SALES_TARGET_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -331,6 +332,11 @@ abstract final class ModuleCatalog {
           id: 'commission',
           label: 'Commission',
           requiredPermissions: ['COMMISSION_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'targets',
+          label: 'Targets',
+          requiredPermissions: ['SALES_TARGET_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'route-types',
