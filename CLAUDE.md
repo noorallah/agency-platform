@@ -316,6 +316,42 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   reason this survived was that every test billed from a sales order, where
   the field is plain `quantity`, so the delivery-note path had no coverage at
   all. Found by reading a rendered bill rather than the code.
+- **A firm chooses which stages of a sale its people type**, per stage, in
+  `sales_workflow_settings` -- `quotation_stage`, `sales_order_stage`,
+  `delivery_note_stage`, the invoice always typed. A firm with no row types all
+  four, so nothing changed for any existing firm. `SalesChainService`
+  (`app/sales_invoice/services/sales_chain_service.py`) raises whatever is
+  switched off by driving the same services a person would, so **the documents
+  are real**: stock still leaves at dispatch and cost of goods sold still
+  belongs to the delivery note. Making the invoice move stock itself was
+  rejected deliberately -- it needs a second inventory path in a module that has
+  never touched stock, and strands `_already_invoiced_quantity` and
+  `sales_return`'s cap on `current_delivery_quantity`, both keyed off the chain.
+  A column per stage rather than a mode, because a firm grows: an enum needs a
+  new value for every combination on that path. The switch governs **new**
+  documents only, so turning a stage on never strands work in flight.
+- **A chain of committing services is not a transaction, and `begin_nested` does
+  not make it one.** In SQLAlchemy 2.0 `Session.commit()` commits the outermost
+  transaction and closes the savepoint, so wrapping does nothing -- verified
+  against this repo's own version rather than assumed. Every step of the sales
+  chain used to commit, so a failure at invoice approval left an approved order
+  and a **DISPATCHED** delivery note written: goods gone from the warehouse with
+  nothing owed for them. The seven methods are now split into `stage_*`
+  internals that flush and public wrappers that commit -- the shape
+  `CustomerService.import_customers` has always had. **Compose the `stage_*`
+  methods and commit once**; the public ones are for a caller that owns nothing
+  else. That split also made `import_orders`, `import_notes` and
+  `import_invoices` genuinely atomic: all three said "atomically" in their
+  docstrings while looping over a committing create.
+- **A flag the caller sets to permit itself is not a control.**
+  `allow_direct_sales_order` was a boolean on the invoice body that let a bill
+  be raised against a sales order with no delivery note -- and since the invoice
+  posts no stock and no cost, that reachable state produced revenue with no cost
+  of goods sold, stock that never left, and a reservation open for ever. It is
+  now the firm's `delivery_note_stage`, and the column records how a bill was
+  raised rather than authorising it. Of 147 invoices in the seeded stores, none
+  carried the flag and all were billed off delivery notes, so nothing needed
+  migrating.
 - **A sales order's status follows its deliveries as of 2026-08-23**, the way a
   purchase order has followed its receipts since 2026-08-18.
   `DeliveryNoteService._resync_order_status` writes `PARTIALLY_DELIVERED` and

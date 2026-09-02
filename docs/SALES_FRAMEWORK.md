@@ -96,10 +96,37 @@ Quotation ──convert──▶ Sales Order ──▶ Delivery Note ──▶ S
                                                      goods back, credit note
 ```
 
-Every step is optional except the one that commits what you need: a firm can
-raise an order without a quotation, and an invoice without a delivery note
-(`allow_direct_sales_order`). What cannot be skipped is approval — that is where
-credit is committed and where the journal is posted.
+**A firm chooses which of these stages its people type**, in
+`sales_workflow_settings` — one row per firm, a boolean per skippable stage.
+The documents always exist; the switch decides whether a person raises one or
+`SalesChainService` raises it as the bill is saved. A firm with no row types
+all four, which is how every firm behaved before the table existed.
+
+| Firm | Quotation | Sales order | Delivery note | Invoice |
+| --- | --- | --- | --- | --- |
+| One person, counter sales | auto | auto | auto | **typed** |
+| Hires a salesman | auto | **typed** | auto | **typed** |
+| Hires a warehouse hand | auto | **typed** | **typed** | **typed** |
+| Starts bidding for work | **typed** | **typed** | **typed** | **typed** |
+
+A column per stage rather than one mode, because a firm changes shape and each
+step should be a switch rather than a migration. **The invoice is always
+typed** — it is what the customer receives, so there is nothing beyond it to
+trigger it. What cannot be skipped is approval: that is where credit is
+committed and where the journal is posted.
+
+Two rules keep it honest. The switch governs **new** documents only, so
+turning a stage on never strands work already in flight. And a synthesised
+document is a real one — the same service call a person would have made — so
+stock, cost, audit and every report are unchanged.
+
+**Skipping a stage is not a way to bill goods that never moved.** Billing a
+sales order directly is refused unless the firm's configuration ships it, in
+which case the delivery note is raised and dispatched first.
+`allow_direct_sales_order` used to be a boolean on the invoice that the caller
+set to permit itself, which let a bill post revenue with no stock movement, no
+cost of goods sold and a reservation left open for ever. The column survives as
+a record of how a bill was raised; it is no longer an input.
 
 **Stock moves at dispatch; money moves at invoice approval.** They are separate
 events on purpose, which is why cost of goods sold belongs to the delivery note
@@ -145,6 +172,7 @@ document is built, on the document's own date.
 
 | Concern | Where | Enforced? |
 | --- | --- | --- |
+| Which stages are typed | `sales_workflow_settings`, per firm | Yes — a bare bill is refused unless the firm's configuration synthesises the documents behind it, and an order cannot be billed unless the bill ships it. `GET`/`PUT /api/v1/sales-orders/workflow-settings`, written with `SALES_MANAGE_SETTINGS` |
 | Credit limits | `credit_control_settings`, per firm | Yes — `OFF` / `WARN` / `BLOCK` at sales order and sales invoice approval. A firm with no row warns at 80% and never blocks |
 | Territory and route | `app/sales` | A route's effective window decides whether a document may be tagged with it, judged on the document's own date |
 | Tax | `app/tax` profiles and rules | Yes, per line |
