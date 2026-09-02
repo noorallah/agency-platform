@@ -20,6 +20,8 @@ from app.sales_order.schemas.sales_order import (
     SalesOrderStatus,
     SalesOrderSummary,
     SalesOrderUpdate,
+    SalesWorkflowSettingsResponse,
+    SalesWorkflowSettingsWrite,
 )
 
 __all__ = [
@@ -42,4 +44,6 @@ __all__ = [
     "SalesOrderStatus",
     "SalesOrderSummary",
     "SalesOrderUpdate",
+    "SalesWorkflowSettingsResponse",
+    "SalesWorkflowSettingsWrite",
 ]

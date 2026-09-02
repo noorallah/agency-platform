@@ -156,6 +156,10 @@ PERMISSION_GROUPS = {
         "SALES_UPDATE",
         "SALES_IMPORT",
         "SALES_EXPORT",
+        # Which of quotation, sales order and delivery note this firm raises by
+        # hand. Subtracted from `SALES_MANAGER` below, beside the credit block
+        # and for the same reason.
+        "SALES_MANAGE_SETTINGS",
     ),
     "batch_serial": (
         "BATCH_VIEW",
@@ -318,8 +322,11 @@ ROLE_PERMISSION_CODES = {
     "SALES_MANAGER": (
         _codes("customer", "sales", "report")
         # A sales manager must not be able to switch off the credit block that
-        # limits their own sales.
-        - frozenset({"CUSTOMER_MANAGE_SETTINGS"})
+        # limits their own sales, nor the delivery-note stage: turning that off
+        # means dispatch is confirmed by the sale itself rather than by whoever
+        # watches the goods leave. Both are controls over the role, so neither
+        # belongs to it.
+        - frozenset({"CUSTOMER_MANAGE_SETTINGS", "SALES_MANAGE_SETTINGS"})
     )
     | frozenset(
         {

@@ -40,8 +40,10 @@ from app.sales_order.schemas import (
     SalesOrderResponse,
     SalesOrderStatus,
     SalesOrderSummary,
+    SalesWorkflowSettingsResponse,
+    SalesWorkflowSettingsWrite,
 )
-from app.sales_order.services import SalesOrderService
+from app.sales_order.services import SalesOrderService, SalesWorkflowService
 
 router = APIRouter(
     prefix="/api/v1/sales-orders",
@@ -74,6 +76,11 @@ SalesOrderExportScope = Annotated[
 ]
 SalesOrderImportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_IMPORT")
+]
+#: Reading the configuration is not a privilege -- somebody whose screens the
+#: setting moves should be able to see the rule behind that. Changing it is.
+SalesWorkflowSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SALES_MANAGE_SETTINGS")
 ]
 
 
@@ -204,6 +211,37 @@ def export_sales_orders(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sales_orders.csv"},
     )
+
+
+# Both declared above `/{order_id}` for the same reason `/export` is: FastAPI
+# matches in declaration order, and below it "workflow-settings" is read as an
+# order id and answered 422. Nine routes across eight routers shipped that way.
+@router.get(
+    "/workflow-settings",
+    response_model=ApiResponse[SalesWorkflowSettingsResponse],
+)
+def get_sales_workflow_settings(
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesWorkflowSettingsResponse]:
+    """Report which sales stages this firm fills in by hand."""
+    return ApiResponse(data=SalesWorkflowService(db).settings_response(scope.firm_id))
+
+
+@router.put(
+    "/workflow-settings",
+    response_model=ApiResponse[SalesWorkflowSettingsResponse],
+)
+def update_sales_workflow_settings(
+    data: SalesWorkflowSettingsWrite,
+    scope: SalesWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesWorkflowSettingsResponse]:
+    """Replace which sales stages this firm fills in by hand."""
+    settings = SalesWorkflowService(db).update_settings(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=settings)
 
 
 @router.put("/{order_id}", response_model=ApiResponse[SalesOrderResponse])

@@ -57,6 +57,11 @@ class _InvoiceApi extends ApiClient {
 
   final List<Json> billable;
 
+  /// Which stages the firm types. The whole chain unless a test says
+  /// otherwise, which is what every firm gets by default.
+  bool salesOrderStage = true;
+  bool deliveryNoteStage = true;
+
   /// The draft an edit reads back, when one is being corrected.
   Json? existing;
 
@@ -75,8 +80,32 @@ class _InvoiceApi extends ApiClient {
     bool retrying = false,
     int? expectedVersion,
   }) async {
+    if (path.contains('workflow-settings')) {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'quotation_stage': true,
+          'sales_order_stage': salesOrderStage,
+          'delivery_note_stage': deliveryNoteStage,
+          'is_configured': true,
+        },
+      };
+    }
     if (path.contains('billable')) {
       return <String, dynamic>{'data': billable};
+    }
+    if (method == 'GET' && path.startsWith('/api/v1/customers')) {
+      return <String, dynamic>{
+        'data': <Json>[
+          <String, dynamic>{'id': 'cust-1', 'name': 'Walk-in Customer'},
+        ],
+      };
+    }
+    if (method == 'GET' && path.startsWith('/api/v1/products')) {
+      return <String, dynamic>{
+        'data': <Json>[
+          <String, dynamic>{'id': 'prod-1', 'name': 'Widget'},
+        ],
+      };
     }
     if (method == 'GET' && path.startsWith('/api/v1/sales-invoices/')) {
       return <String, dynamic>{'data': existing};
@@ -395,5 +424,51 @@ void main() {
       find.text('No open accounting period covers 2026-08-14.'),
       findsOneWidget,
     );
+  });
+
+  group('a firm that types only the bill', () {
+    testWidgets('names products instead of paperwork', (tester) async {
+      final _InvoiceApi api = _InvoiceApi()
+        ..salesOrderStage = false
+        ..deliveryNoteStage = false;
+      await _pump(tester, api);
+
+      // The picker is gone, and the empty billable list no longer blocks the
+      // save: there is nothing waiting to be billed because nothing is typed
+      // before the bill.
+      expect(find.textContaining('Nothing is waiting to be billed'), findsNothing);
+      expect(find.textContaining('raises the order and the delivery note'),
+          findsOneWidget);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Walk-in Customer').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Widget').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.widgetWithText(TextFormField, 'Qty'), '3');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Price'), '150');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
+      await tester.pumpAndSettle();
+
+      final Json sent = api.created!;
+      expect(sent['customer_id'], 'cust-1');
+      final Map<String, dynamic> line =
+          Map<String, dynamic>.from((sent['lines'] as List).single as Map);
+      expect(line['product_id'], 'prod-1');
+      expect(line['current_invoice_quantity'], '3');
+      expect(line['unit_price'], '150');
+      // Blank is not zero: saying nothing takes whatever arrangement the
+      // customer already has, and a zero would refuse every one of them.
+      expect(line.containsKey('discount_percent'), isFalse);
+      // The bill names no paperwork -- the server raises it.
+      expect(line.containsKey('source_document_id'), isFalse);
+    });
   });
 }

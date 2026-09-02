@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -254,3 +255,54 @@ class SalesOrderNote(BaseEntity):
         String(30), nullable=False, default="INTERNAL", server_default="INTERNAL"
     )
     note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class SalesWorkflowSettings(BaseEntity):
+    """Store which sales stages one firm fills in by hand.
+
+    The chain is quotation, sales order, delivery note, invoice, and a firm run
+    by one person has no use for the first three: they are four screens for one
+    counter sale. Turning a stage off does not remove the document -- stock
+    still leaves at dispatch and cost of goods sold still belongs to the
+    delivery note -- it means the service raises that document itself rather
+    than waiting for somebody to type it.
+
+    A stage per column rather than one ``mode``, because a firm changes shape:
+    somebody trading alone hires a salesman, then a warehouse hand, and each
+    step should be a switch rather than a migration. An enum would need a new
+    value for every combination on that path.
+
+    The invoice has no column. It is what the customer receives and what the
+    user actually wants, so there is nothing beyond it to trigger it.
+    """
+
+    __tablename__ = "sales_workflow_settings"
+    __table_args__ = (
+        UniqueConstraint("firm_id", name="UQ_sales_workflow_settings_firm"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("firms.id"), nullable=False, index=True
+    )
+    #: Every stage defaults to on, which is the chain as it has always worked.
+    #: A firm with no row here behaves exactly as it did before this table
+    #: existed, so switching it on is what changes a firm, never migrating.
+    quotation_stage: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    sales_order_stage: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    delivery_note_stage: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    #: Where a synthesised delivery note ships from. Dispatch refuses a line
+    #: with no warehouse, and a firm whose delivery-note stage is automatic
+    #: never sees a field to type one into. Null falls back to the firm's
+    #: default branch and warehouse, which is what most firms will use.
+    default_branch_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")
+    )
+    default_warehouse_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
+    )

@@ -105,3 +105,78 @@ class BillableLine {
             : stringValue(json['free_quantity']),
       );
 }
+
+/// Which stages of a sale this firm fills in by hand.
+///
+/// The chain is quotation, sales order, delivery note, invoice. A stage that
+/// is off is still raised -- by the server, as part of saving the bill -- so
+/// this decides which screens a firm sees, never whether the documents exist.
+class SalesWorkflowSettings {
+  const SalesWorkflowSettings({
+    required this.quotationStage,
+    required this.salesOrderStage,
+    required this.deliveryNoteStage,
+    required this.isConfigured,
+    this.defaultBranchId,
+    this.defaultWarehouseId,
+  });
+
+  final bool quotationStage;
+  final bool salesOrderStage;
+  final bool deliveryNoteStage;
+  final String? defaultBranchId;
+  final String? defaultWarehouseId;
+
+  /// False while the firm is still on the platform default: the whole chain.
+  final bool isConfigured;
+
+  /// What a firm gets before anybody configures anything, and what the client
+  /// falls back to when the settings cannot be read. Failing open matters: an
+  /// unreachable endpoint must not hide screens a firm depends on.
+  static const SalesWorkflowSettings wholeChain = SalesWorkflowSettings(
+    quotationStage: true,
+    salesOrderStage: true,
+    deliveryNoteStage: true,
+    isConfigured: false,
+  );
+
+  /// True when the bill is the only document its user types.
+  bool get billsDirectly => !salesOrderStage && !deliveryNoteStage;
+
+  factory SalesWorkflowSettings.fromJson(Json json) => SalesWorkflowSettings(
+        quotationStage: boolValue(json['quotation_stage']),
+        salesOrderStage: boolValue(json['sales_order_stage']),
+        deliveryNoteStage: boolValue(json['delivery_note_stage']),
+        defaultBranchId: _orNull(json['default_branch_id']),
+        defaultWarehouseId: _orNull(json['default_warehouse_id']),
+        isConfigured: boolValue(json['is_configured']),
+      );
+
+  Json toJson() => <String, dynamic>{
+        'quotation_stage': quotationStage,
+        'sales_order_stage': salesOrderStage,
+        'delivery_note_stage': deliveryNoteStage,
+        'default_branch_id': defaultBranchId,
+        'default_warehouse_id': defaultWarehouseId,
+      };
+
+  SalesWorkflowSettings copyWith({
+    bool? quotationStage,
+    bool? salesOrderStage,
+    bool? deliveryNoteStage,
+  }) =>
+      SalesWorkflowSettings(
+        quotationStage: quotationStage ?? this.quotationStage,
+        salesOrderStage: salesOrderStage ?? this.salesOrderStage,
+        deliveryNoteStage: deliveryNoteStage ?? this.deliveryNoteStage,
+        defaultBranchId: defaultBranchId,
+        defaultWarehouseId: defaultWarehouseId,
+        isConfigured: isConfigured,
+      );
+}
+
+/// An id the server may legitimately leave unset, rather than an empty string.
+String? _orNull(dynamic value) {
+  final String text = stringValue(value);
+  return text.isEmpty ? null : text;
+}

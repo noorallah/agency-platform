@@ -15,6 +15,7 @@ import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
+import 'sales_workflow_settings_dialog.dart';
 
 /// A named view over the one sales invoice list.
 ///
@@ -565,10 +566,29 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
             onPressed: () => unawaited(_openPrintSettings()),
             icon: const Icon(Icons.tune_outlined, size: 18),
           ),
+          // The stage configuration lives here rather than on the sales-order
+          // screen it belongs to by endpoint, because a firm that switches the
+          // order stage off can no longer see that screen -- and would have no
+          // way back to the setting that hid it. The invoice is never hidden.
+          IconButton(
+            tooltip: 'Sales stages',
+            onPressed: () => unawaited(_openWorkflowSettings()),
+            icon: const Icon(Icons.linear_scale_outlined, size: 18),
+          ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
+      );
+
+  /// Show which stages of a sale this firm types, and let the right role
+  /// change them.
+  Future<void> _openWorkflowSettings() => showDialog<bool>(
+        context: context,
+        builder: (_) => SalesWorkflowSettingsDialog(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       );
 
   /// A lifecycle button, disabled unless permission **and** the selected
