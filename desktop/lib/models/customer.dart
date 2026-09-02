@@ -463,3 +463,51 @@ class CreditControlSettings {
         'block_at_percent': blockAtPercent,
       };
 }
+
+
+/// A commercial segment a firm sells to: Retailer, Wholesaler, Institution.
+///
+/// Not the same question as `customerType`, which is INDIVIDUAL or BUSINESS --
+/// a legal classification, and the wrong thing to hang a price or an offer on.
+class CustomerGroup {
+  const CustomerGroup({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.description = '',
+    this.defaultDiscountPercent = '0',
+    this.isActive = true,
+    this.version = 0,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+  final String description;
+
+  /// What everyone in the segment is normally given. Ranked below the
+  /// customer's own standing rate, because a rate agreed with one shop is
+  /// more specific than one agreed with a segment.
+  final String defaultDiscountPercent;
+  final bool isActive;
+  final int version;
+
+  factory CustomerGroup.fromJson(Json json) => CustomerGroup(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        defaultDiscountPercent:
+            stringValue(json['default_discount_percent']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        version: (json['version'] as num?)?.toInt() ?? 0,
+      );
+
+  Json toJson() => <String, dynamic>{
+        'code': code,
+        'name': name,
+        if (description.isNotEmpty) 'description': description,
+        'default_discount_percent': defaultDiscountPercent,
+        'is_active': isActive,
+      };
+}

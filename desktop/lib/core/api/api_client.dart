@@ -909,6 +909,59 @@ class ApiClient {
         ),
       );
 
+  /// The segments this firm sells to.
+  ///
+  /// Readable with `CUSTOMER_VIEW` -- a segment decides a price, so anyone
+  /// raising a document should be able to see which one a shop is in -- and
+  /// writable with `CUSTOMER_MANAGE_SETTINGS`.
+  Future<PagedResult<CustomerGroup>> customerGroups({
+    int page = 1,
+    int pageSize = 100,
+    String search = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/customers/groups',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (search.trim().isNotEmpty) 'search': search.trim(),
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<CustomerGroup>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => CustomerGroup.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<CustomerGroup> createCustomerGroup(Json body) async =>
+      CustomerGroup.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/customers/groups', body: body)),
+      );
+
+  Future<CustomerGroup> updateCustomerGroup(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      CustomerGroup.fromJson(
+        _unwrapMap(await request(
+          'PUT',
+          '/api/v1/customers/groups/$id',
+          body: body,
+          expectedVersion: expectedVersion,
+        )),
+      );
+
+  Future<void> deleteCustomerGroup(String id) =>
+      request('DELETE', '/api/v1/customers/groups/$id');
+
   Future<CreditControlSettings> creditControlSettings() async =>
       CreditControlSettings.fromJson(
         _unwrapMap(await request('GET', '/api/v1/customers/credit-settings')),

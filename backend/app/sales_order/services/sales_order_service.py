@@ -24,7 +24,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerGroup
 from app.customers.services import CreditAssessment, CreditControlService
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -1028,6 +1028,25 @@ class SalesOrderService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _customer_group(self, customer_id: UUID) -> tuple[UUID | None, Decimal | None]:
+        """Return the customer's segment and what that segment is normally given.
+
+        Two answers from one read, because both are wanted at the same moment
+        and a second query for the second of them is a second chance to
+        disagree with the first.
+
+        None rather than zero for the rate, so the shared rule can tell
+        "no segment arrangement" from "a segment that agreed nothing".
+        """
+        customer = self._session.get(Customer, customer_id)
+        if customer is None or customer.customer_group_id is None:
+            return None, None
+        group = self._session.get(CustomerGroup, customer.customer_group_id)
+        if group is None or not group.is_active:
+            return None, None
+        rate = self._q(group.default_discount_percent)
+        return group.id, (rate if rate > ZERO else None)
+
     def _promotions(
         self,
         row: SalesOrder,
@@ -1035,6 +1054,7 @@ class SalesOrderService(TransactionalDocumentService):
         lines: list[SalesOrderLineWrite],
         grosses: list[Decimal],
         actor_id: UUID,
+        customer_group_id: UUID | None = None,
         bill_priced: bool = False,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this document earns.
@@ -1048,6 +1068,7 @@ class SalesOrderService(TransactionalDocumentService):
                 transaction_type="SALES_ORDER",
                 transaction_date=row.order_date,
                 customer_id=row.customer_id,
+                customer_group_id=customer_group_id,
                 branch_id=row.branch_id,
                 territory_id=row.territory_id,
                 route_id=row.route_id,
@@ -1140,6 +1161,7 @@ class SalesOrderService(TransactionalDocumentService):
         # says nothing about a discount gets this; one that says anything at
         # all, including zero, does not.
         customer_discount = self._customer_discount(row.customer_id)
+        group_id, group_discount = self._customer_group(row.customer_id)
         # Snapshot on the header: the lines below may each override it, so the
         # document keeps what the standing rate was on the day it was raised.
         row.customer_discount_percent = customer_discount or ZERO
@@ -1180,6 +1202,7 @@ class SalesOrderService(TransactionalDocumentService):
             lines=lines,
             grosses=grosses,
             actor_id=actor_id,
+            customer_group_id=group_id,
             bill_priced=bill_amount is not None or bill_percent is not None,
         )
 
@@ -1191,6 +1214,7 @@ class SalesOrderService(TransactionalDocumentService):
                 promotion_amount=benefits.line_discount(index),
                 price_list_percent=prices.rate_for(item.product_id),
                 customer_default=customer_discount,
+                customer_group_default=group_discount,
             )
             for index, item in enumerate(lines)
         ]

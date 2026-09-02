@@ -54,6 +54,7 @@ class PromotionField(StrEnum):
     """
 
     CUSTOMER_ID = "customer_id"
+    CUSTOMER_GROUP_ID = "customer_group_id"
     BRANCH_ID = "branch_id"
     TERRITORY_ID = "territory_id"
     ROUTE_ID = "route_id"
@@ -272,6 +273,9 @@ class PromotionEvaluationRequest(PromotionSchema):
     transaction_type: str = Field(min_length=1, max_length=40)
     transaction_date: date
     customer_id: UUID | None = None
+    #: The segment the customer belongs to, so an offer can be aimed at
+    #: wholesalers without naming every one of them.
+    customer_group_id: UUID | None = None
     branch_id: UUID | None = None
     territory_id: UUID | None = None
     route_id: UUID | None = None

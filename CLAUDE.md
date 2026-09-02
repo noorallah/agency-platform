@@ -314,6 +314,19 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   the order is what gets approved. An unrecognised code leaves the order
   saveable and simply gives nothing -- a typo in a field that gives money away
   must not refuse a sale.
+- **`customer_type` is a legal classification, not a commercial one.** It holds
+  INDIVIDUAL or BUSINESS, and hanging a price or an offer on it was never
+  possible. `customer_groups` is the firm's own segmentation -- Retailer,
+  Wholesaler, Institution -- added 2026-09-03 with `customers.customer_group_id`
+  nullable and unassigned, so no existing document changed price. A flat list
+  rather than a tree: `sales_territories` is already a hierarchy and a second
+  one leaves two answers to "which group is this customer in". The segment's
+  rate is the **last** tier of `resolve_line_discount`, below the customer's
+  own standing rate, because a rate agreed with one shop is more specific than
+  one agreed with a segment of them. Deleting a group somebody is in is refused
+  **in the service**: `ondelete="RESTRICT"` is not a guard on a soft-deleted
+  table, so a retired group would otherwise stay on every customer's record
+  while vanishing from every list -- the same trap the geography masters have.
 - **A discount on the whole document reaches the lines, and therefore the tax.**
   `bill_discount_percent`/`bill_discount_amount` on a quotation, sales order,
   delivery note or sales invoice is resolved by `resolve_bill_discount` and

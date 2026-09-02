@@ -26,6 +26,8 @@ from app.customers.schemas import (
     CustomerAddressResponse,
     CustomerContactResponse,
     CustomerCreate,
+    CustomerGroupResponse,
+    CustomerGroupWrite,
     CustomerImportRequest,
     CustomerReceivableSummary,
     CustomerReceivableTransactionCreate,
@@ -40,7 +42,11 @@ from app.customers.schemas.customer import (
     CustomerStatus,
     CustomerType,
 )
-from app.customers.services import CreditControlService, CustomerService
+from app.customers.services import (
+    CreditControlService,
+    CustomerGroupService,
+    CustomerService,
+)
 from app.finance.services.document_posting import DocumentPostingService
 
 router = APIRouter(
@@ -251,6 +257,95 @@ def import_customers(
     return ApiResponse(
         data=[CustomerResponse.model_validate(customer) for customer in customers]
     )
+
+
+# Declared with the other literals above `/{customer_id}`: FastAPI matches in
+# declaration order, and below it "groups" is read as a customer id and
+# answered 422 -- the trap that made nine routes across eight routers
+# unreachable from the day they were written.
+@router.get("/groups", response_model=PaginatedResponse[CustomerGroupResponse])
+def list_customer_groups(
+    scope: CustomerViewScope,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CustomerGroupResponse]:
+    """List the segments this firm sells to."""
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = CustomerGroupService(db).list_groups(
+        firm_id=scope.firm_id,
+        page=params.page,
+        page_size=params.page_size,
+        search=search,
+    )
+    return PaginatedResponse(
+        data=[CustomerGroupResponse.model_validate(item) for item in rows],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/groups",
+    response_model=ApiResponse[CustomerGroupResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_customer_group(
+    data: CustomerGroupWrite,
+    scope: CustomerSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerGroupResponse]:
+    """Record one segment."""
+    row = CustomerGroupService(db).create_group(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=CustomerGroupResponse.model_validate(row))
+
+
+@router.get("/groups/{group_id}", response_model=ApiResponse[CustomerGroupResponse])
+def get_customer_group(
+    group_id: UUID,
+    scope: CustomerViewScope,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerGroupResponse]:
+    """Return one segment."""
+    row = CustomerGroupService(db).get_group(group_id, firm_id=scope.firm_id)
+    set_etag(response, row)
+    return ApiResponse(data=CustomerGroupResponse.model_validate(row))
+
+
+@router.put("/groups/{group_id}", response_model=ApiResponse[CustomerGroupResponse])
+def update_customer_group(
+    group_id: UUID,
+    data: CustomerGroupWrite,
+    scope: CustomerSettingsScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerGroupResponse]:
+    """Replace one segment's details."""
+    service = CustomerGroupService(db)
+    current = service.get_group(group_id, firm_id=scope.firm_id)
+    assert_version(current.version, expected_version)
+    row = service.update_group(
+        group_id, data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    set_etag(response, row)
+    return ApiResponse(data=CustomerGroupResponse.model_validate(row))
+
+
+@router.delete("/groups/{group_id}", response_model=ApiResponse[dict[str, str]])
+def delete_customer_group(
+    group_id: UUID,
+    scope: CustomerSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[dict[str, str]]:
+    """Retire a segment nobody is in."""
+    CustomerGroupService(db).delete_group(
+        group_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data={"status": "deleted"})
 
 
 @router.get(
