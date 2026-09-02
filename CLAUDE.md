@@ -32,11 +32,11 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-08-10 `pytest` is **green (248 unit + 24 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-09-02 `pytest` is **green (817: 784 unit + 33 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
-**`app/` and `tests/` are clean under all four tools, and expected to stay that way.** `ruff check app`, `ruff check tests`, `black --check` and `mypy app` (320 files) all pass, so any finding in them is one you introduced. That was not true for most of this project's life -- this file claimed ~3,232 pre-existing findings and `mypy` failures outside `app/finance`, both of which stopped being true without the claim being updated, which is how a stale number talks people out of running the tools at all.
+**`app/` and `tests/` are clean under all four tools, and expected to stay that way.** `ruff check app`, `ruff check tests`, `black --check` and `mypy app` (370 files) all pass, so any finding in them is one you introduced. That was not true for most of this project's life -- this file claimed ~3,232 pre-existing findings and `mypy` failures outside `app/finance`, both of which stopped being true without the claim being updated, which is how a stale number talks people out of running the tools at all.
 
 **`ruff check .` and `black --check .` are clean across the whole tree** as of 2026-08-14 -- `app/`, `tests/`, `scripts/` and `alembic/`. The 181 findings this file used to call permanent debt were 81 long lines, 49 missing docstrings and 32 missing annotations. Nothing about behaviour moved, and that was checked rather than assumed: every string literal and f-string in the seed scripts was compared by AST before and after, and every SQL statement in the six re-wrapped migrations is byte-identical once whitespace is normalised. A finding anywhere is now one you introduced.
 
@@ -205,9 +205,9 @@ are completed.
 
 ## Testing
 
-Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` exists but is empty.
+Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 33 tests and is described above; this line said it was empty long after it stopped being true.
 
-Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests.
+Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (931)** and `flutter analyze` is clean as of 2026-09-02.
 
 ## Repository conventions and traps
 
