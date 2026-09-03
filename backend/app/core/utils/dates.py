@@ -8,6 +8,30 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def as_utc(value: datetime) -> datetime:
+    """Read a stored timestamp as UTC.
+
+    `UTCDateTime` is `DateTime(timezone=True)`, and **SQLite ignores the
+    timezone**: what PostgreSQL hands back aware, the unit suite hands back
+    naive. So anything that compares a stored timestamp to `utc_now()` raises
+    "can't subtract offset-naive and offset-aware datetimes" in the tests and
+    works in production, or the reverse -- neither of which anybody wants to
+    discover from a stack trace.
+
+    Everything this repo stores is UTC, so a naive value is a UTC value that
+    lost its label on the way out of the database. Say so once, here, rather
+    than at every call site.
+
+    Args:
+        value: A timestamp read from the database.
+
+    Returns:
+        The same instant, timezone-aware.
+
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 def parse_iso_date(value: str) -> date:
     """Parse a strict ISO-8601 calendar date."""
     return date.fromisoformat(value)

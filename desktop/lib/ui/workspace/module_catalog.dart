@@ -344,6 +344,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CREDIT_NOTE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'einvoice',
+          label: 'E-Invoice',
+          requiredPermissions: ['EINVOICE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'route-types',
           label: 'Route Types',
           requiredPermissions: ['TERRITORY_VIEW'],

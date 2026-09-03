@@ -36,6 +36,7 @@ import 'sales/sales_invoice_management_page.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
+import 'sales/einvoice_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
@@ -1923,6 +1924,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'einvoice' => EInvoicePage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1976,6 +1982,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Targets',
           'What the firm expects to sell, and how it went. Each target is '
               'measured over its own period, not the window above it.',
+        ),
+      'einvoice' => (
+          'E-Invoice',
+          'What the tax authority knows about this firm’s invoices and their '
+              'movement. A reference marked sandbox filed nothing.',
         ),
       'credit-notes' => (
           'Credit Notes',

@@ -161,6 +161,13 @@ PERMISSION_GROUPS = {
         # and for the same reason.
         "SALES_MANAGE_SETTINGS",
     ),
+    "einvoice": (
+        "EINVOICE_VIEW",
+        # Registering files a document with the tax authority. Even in sandbox
+        # it is the action that will file one the day a firm switches to LIVE,
+        # so it is its own code rather than riding on a sales permission.
+        "EINVOICE_MANAGE",
+    ),
     "credit_note": (
         "CREDIT_NOTE_VIEW",
         "CREDIT_NOTE_MANAGE",
@@ -378,6 +385,10 @@ ROLE_PERMISSION_CODES = {
             # declared tax and is not theirs, the same split as commission.
             "CREDIT_NOTE_VIEW",
             "CREDIT_NOTE_MANAGE",
+            # Reading what was registered is part of running a sales desk;
+            # filing with the authority is not, the same split as approving a
+            # credit note.
+            "EINVOICE_VIEW",
         }
     ),
     "SALES_EXECUTIVE": frozenset(

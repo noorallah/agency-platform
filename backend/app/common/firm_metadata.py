@@ -65,6 +65,12 @@ class FirmMetadata:
 
     code: str | None
     financial_year_start: date | None
+    #: What the firm is called and its GST number. Both are platform facts a
+    #: firm-owned service cannot read for itself, and both are needed the
+    #: moment a document has to be presented to somebody outside the firm --
+    #: an e-invoice payload names the seller.
+    name: str | None = None
+    gst_number: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,9 +117,9 @@ class FirmMetadataReader:
         a failed statement aborts a PostgreSQL transaction, so a
         try-and-fall-back would poison the caller's unit of work.
         """
-        statement = select(Firm.code, Firm.financial_year_start).where(
-            Firm.id == firm_id
-        )
+        statement = select(
+            Firm.code, Firm.financial_year_start, Firm.name, Firm.gst_number
+        ).where(Firm.id == firm_id)
         bind = self._session.get_bind()
         if bind.dialect.name != "postgresql":
             return self._materialise(self._session.execute(statement).first())
@@ -121,11 +127,18 @@ class FirmMetadataReader:
             return self._materialise(reader.execute(statement).first())
 
     @staticmethod
-    def _materialise(row: Row[tuple[str, date]] | None) -> FirmMetadata:
+    def _materialise(
+        row: Row[tuple[str, date, str, str | None]] | None,
+    ) -> FirmMetadata:
         """Turn a result row into metadata, tolerating an unknown firm."""
         if row is None:
             return FirmMetadata(code=None, financial_year_start=None)
-        return FirmMetadata(code=row[0], financial_year_start=row[1])
+        return FirmMetadata(
+            code=row[0],
+            financial_year_start=row[1],
+            name=row[2],
+            gst_number=row[3],
+        )
 
     def exists(self, firm_id: UUID) -> bool:
         """Return whether the firm is present and not soft-deleted."""
