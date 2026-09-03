@@ -69,6 +69,27 @@ const Map<String, String> _accepted = <String, String>{
   'importPurchaseOrdersJson':
       'the JSON twin of importPurchaseOrdersFile, which the import dialog uses '
           '-- a screen posting rows it parsed itself would be a second parser',
+  'searchTerritories':
+      'the territory workspace searches through `territories(search:)`, the '
+          'list endpoint every other master screen uses -- /search is a second '
+          'way to ask one question',
+  'resetUserPreferences':
+      'every preference it resets is already settable from the control that '
+          'owns it -- the appearance chooser and the firm switcher -- so it is '
+          'a convenience over reachable settings rather than a capability '
+          'nobody has',
+  'bulkDeleteBranches':
+      'deleting a branch is reachable one row at a time, and the bulk endpoint '
+          'runs the same `_assert_branch_removable` guard and audits each row. '
+          'Multi-select across three masters screens that are edited rarely is '
+          'a second path to a capability that already has one -- recorded as a '
+          'judgement, and worth building if somebody actually retires branches '
+          'in batches',
+  'bulkRestoreBranches': 'as bulkDeleteBranches',
+  'bulkDeleteWarehouses': 'as bulkDeleteBranches',
+  'bulkRestoreWarehouses': 'as bulkDeleteBranches',
+  'bulkDeleteVendors': 'as bulkDeleteBranches',
+  'bulkRestoreVendors': 'as bulkDeleteBranches',
   'createTaxSystem':
       'superseded by POST /tax-framework/setup, which the tax setup page uses: '
           'a system is created with its components and profiles in one atomic '
@@ -83,16 +104,14 @@ const Map<String, String> _accepted = <String, String>{
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
 const Map<String, String> _knownGaps = <String, String>{
-  'updateGoodsReceipt': 'a receipt cannot be corrected before completion',
-  'beatPlanCallList': "the plan's own call list, which is the point of a plan",
-  'searchTerritories': 'the territory search endpoint',
-  'resetUserPreferences': 'preferences cannot be put back to their defaults',
-  'bulkDeleteBranches': 'no screen offers it',
-  'bulkRestoreBranches': 'no screen offers it',
-  'bulkDeleteWarehouses': 'no screen offers it',
-  'bulkRestoreWarehouses': 'no screen offers it',
-  'bulkDeleteVendors': 'no screen offers it',
-  'bulkRestoreVendors': 'no screen offers it',
+  'updateGoodsReceipt':
+      'the only capability still unreachable. A receipt can be created, '
+          'completed, cancelled and closed, but a draft cannot be corrected, '
+          'so a wrong quantity or warehouse means cancelling and re-keying '
+          'every line -- and the service takes the edit precisely so it need '
+          'not. Left because the editor is built around picking a purchase '
+          'order and has to be reshaped to open an existing receipt, which is '
+          'a bigger piece than the rest of this list rather than a smaller one',
 };
 
 /// Every method name referenced from anywhere in `lib/` but the client itself.
@@ -151,9 +170,8 @@ Set<String> _genericallyReachable(Map<String, String> paths) {
   for (final FileSystemEntity entity
       in Directory('lib').listSync(recursive: true)) {
     if (entity is! File || !entity.path.endsWith('.dart')) continue;
-    for (final RegExpMatch match
-        in RegExp(r"(?:optionsR|r)esource: '([^']+)'")
-            .allMatches(entity.readAsStringSync())) {
+    for (final RegExpMatch match in RegExp(r"(?:optionsR|r)esource: '([^']+)'")
+        .allMatches(entity.readAsStringSync())) {
       resources.add(match.group(1)!);
     }
   }
