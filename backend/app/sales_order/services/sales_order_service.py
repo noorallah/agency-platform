@@ -19,6 +19,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
@@ -60,6 +61,8 @@ from app.sales_order.models import (
     SalesOrderNote,
 )
 from app.sales_order.schemas import (
+    SalesOrderAdvance,
+    SalesOrderAdvanceSummary,
     SalesOrderAttachmentResponse,
     SalesOrderAttachmentWrite,
     SalesOrderBackOrderRecord,
@@ -79,6 +82,7 @@ from app.sales_order.schemas import (
     SalesOrderStatus,
     SalesOrderSummary,
 )
+from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -825,6 +829,64 @@ class SalesOrderService(TransactionalDocumentService):
         if row is None:
             raise ResourceNotFoundError("Sales order not found.")
         return row
+
+    def advances(self, order_id: UUID, *, firm_scope: UUID) -> SalesOrderAdvanceSummary:
+        """Report what a customer has paid against one order.
+
+        Reversed receipts are excluded from both totals but **kept in the
+        list**: a reversed receipt is money the firm does not have, and a
+        deposit that vanished from the screen leaves nobody able to answer
+        why the figure changed.
+
+        Args:
+            order_id: The order to report.
+            firm_scope: The owning firm.
+
+        Returns:
+            The receipts against it, and what is left of them.
+
+        Raises:
+            ResourceNotFoundError: If the order is not this firm's.
+
+        """
+        order = self.get_order(order_id, firm_scope=firm_scope)
+        rows = list(
+            self._session.scalars(
+                select(Settlement)
+                .where(
+                    Settlement.firm_id == firm_scope,
+                    Settlement.sales_order_id == order.id,
+                    Settlement.is_deleted.is_(False),
+                )
+                .order_by(Settlement.settlement_date.asc())
+            ).all()
+        )
+        live = [row for row in rows if row.status != "REVERSED"]
+        return SalesOrderAdvanceSummary(
+            sales_order_id=order.id,
+            order_number=order.order_number,
+            total_received=quantize_ledger(
+                sum((Decimal(str(row.amount)) for row in live), Decimal("0"))
+            ),
+            total_unapplied=quantize_ledger(
+                sum(
+                    (Decimal(str(row.unallocated_amount)) for row in live),
+                    Decimal("0"),
+                )
+            ),
+            receipts=[
+                SalesOrderAdvance(
+                    settlement_id=row.id,
+                    settlement_number=row.settlement_number,
+                    settlement_date=row.settlement_date,
+                    amount=row.amount,
+                    unallocated_amount=row.unallocated_amount,
+                    status=row.status,
+                    narration=row.narration,
+                )
+                for row in rows
+            ],
+        )
 
     def order_response(self, row: SalesOrder) -> SalesOrderResponse:
         """Render one sales order row as its API contract."""

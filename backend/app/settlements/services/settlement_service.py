@@ -44,6 +44,7 @@ from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
+from app.sales_order.models import SalesOrder
 from app.settlements.models import (
     Settlement,
     SettlementAllocation,
@@ -246,6 +247,7 @@ class SettlementService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         party = self._require_party(firm_id=firm_id, party_id=data.party_id)
+        order = self._advance_order(data, firm_id=firm_id)
         amount = quantize_ledger(data.amount)
         allocated = self._validate_allocations(
             data, firm_id=firm_id, party_id=data.party_id, amount=amount
@@ -307,6 +309,7 @@ class SettlementService(TransactionalDocumentService):
             amount=amount,
             allocated_amount=allocated,
             unallocated_amount=amount - allocated,
+            sales_order_id=None if order is None else order.id,
             method=data.method.value,
             ledger_account_id=money_account_id,
             instrument_reference=(
@@ -400,6 +403,244 @@ class SettlementService(TransactionalDocumentService):
             },
         )
         self._session.flush()
+        return row
+
+    def order_number_of(self, row: Settlement) -> str | None:
+        """Return the order a receipt came in against, by number."""
+        if row.sales_order_id is None:
+            return None
+        order = self._session.get(SalesOrder, row.sales_order_id)
+        return None if order is None else order.order_number
+
+    def _advance_order(
+        self, data: SettlementCreate, *, firm_id: UUID
+    ) -> SalesOrder | None:
+        """Return the order this money came in against, if one was named.
+
+        Refused where it is not this firm's, or not this customer's: an advance
+        filed against somebody else's order answers "what has this customer
+        paid us for order X" with another customer's money.
+
+        A payment to a vendor has no sales order behind it, so naming one is
+        refused rather than quietly ignored -- a field that is accepted and
+        discarded is worse than one that is not accepted at all.
+
+        Args:
+            data: The settlement being recorded.
+            firm_id: The owning firm.
+
+        Returns:
+            The order, or None where none was named.
+
+        Raises:
+            ValidationError: If the order is not the customer's, or this is not
+                a receipt.
+            ResourceNotFoundError: If the order is not this firm's.
+
+        """
+        if data.sales_order_id is None:
+            return None
+        if self.DIRECTION != SettlementDirection.RECEIPT:
+            raise ValidationError(
+                "Only a receipt can be recorded against a sales order."
+            )
+        order = self._session.scalar(
+            select(SalesOrder).where(
+                SalesOrder.id == data.sales_order_id,
+                SalesOrder.firm_id == firm_id,
+                SalesOrder.is_deleted.is_(False),
+            )
+        )
+        if order is None:
+            raise ResourceNotFoundError("Sales order not found.")
+        if order.customer_id != data.party_id:
+            raise ValidationError("That sales order belongs to a different customer.")
+        return order
+
+    def _advance_part_of(self, row: Settlement, *, allocating: Decimal) -> Decimal:
+        """Return how much of this allocation comes out of the advance.
+
+        A receipt splits when it is recorded: `min(amount, outstanding)` comes
+        straight off what the customer owes, and only the excess becomes an
+        advance. The receivable row it wrote remembers the split, and it is
+        the only thing that does.
+
+        So allocating to an invoice has two halves. The part covered by what
+        already came off the balance needs **no** receivable transaction --
+        the balance moved when the money arrived, and moving it again would
+        take the same rupees off twice. Only the part drawn from the advance
+        posts `ADVANCE_APPLY`, which is what that type is for.
+
+        In the ordinary case -- a deposit taken while the customer already
+        owed something -- the answer is zero, and the allocation is purely a
+        statement about which invoice the money cleared.
+
+        Args:
+            row: The receipt being allocated.
+            allocating: How much of it is being set against an invoice now.
+
+        Returns:
+            The part that must come out of the advance, never negative.
+
+        """
+        original = self._session.scalar(
+            select(CustomerReceivableTransaction).where(
+                CustomerReceivableTransaction.reference_type == "settlement",
+                CustomerReceivableTransaction.reference_id == row.id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+        )
+        if original is None:
+            # Nothing recorded the split, so nothing can be claimed about it.
+            # Treating it as advance would risk the double count this method
+            # exists to avoid.
+            return ZERO
+        off_the_balance = quantize_ledger(-Decimal(str(original.outstanding_delta)))
+        if off_the_balance <= ZERO:
+            # The whole receipt became an advance.
+            return quantize_ledger(allocating)
+        already = quantize_ledger(row.allocated_amount)
+        remaining = off_the_balance - already
+        if remaining >= allocating:
+            return ZERO
+        return quantize_ledger(allocating - max(remaining, ZERO))
+
+    def allocate(
+        self,
+        settlement_id: UUID,
+        *,
+        invoice_id: UUID,
+        amount: Decimal,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> Settlement:
+        """Set money already received against an invoice raised since.
+
+        The missing half of an advance. `ADVANCE_APPLY` has been a declared
+        receivable transaction type since the module shipped and **nothing
+        could reach it**: a deposit taken before the bill existed sat on the
+        customer's account with no way to say which bill it settled.
+
+        **Nothing is posted to the general ledger, and that is correct.** The
+        receipt already debited cash and credited receivables; the invoice
+        already debited receivables and credited revenue and tax. Applying the
+        advance changes no account -- it decides which invoice the receivable
+        credit belongs to, which is the subsidiary ledger's business. A journal
+        here would count the money twice.
+
+        Args:
+            settlement_id: The receipt holding the money.
+            invoice_id: The invoice to set it against.
+            amount: How much of it.
+            firm_id: The owning firm.
+            actor_id: The user applying it.
+
+        Returns:
+            The settlement, with its allocated and unallocated figures moved.
+
+        Raises:
+            ValidationError: If the receipt is reversed, holds less than was
+                asked for, or the invoice is not this customer's or owes less.
+
+        """
+        row = self.get(settlement_id, firm_id=firm_id)
+        if row.status == SettlementStatus.REVERSED.value:
+            raise ValidationError(
+                f"{row.settlement_number} has been reversed and holds nothing."
+            )
+        if row.direction != SettlementDirection.RECEIPT.value:
+            raise ValidationError("Only a receipt can be applied to an invoice.")
+        asked = quantize_ledger(amount)
+        if asked <= ZERO:
+            raise ValidationError("An allocation must be for more than nothing.")
+        if asked > quantize_ledger(row.unallocated_amount):
+            raise ValidationError(
+                f"{row.settlement_number} has only "
+                f"{quantize_ledger(row.unallocated_amount)} left unapplied."
+            )
+        if row.customer_id is None:  # pragma: no cover - direction guarantees it
+            raise ValidationError("Only a receipt can be applied to an invoice.")
+        outstanding = {
+            record.invoice_id: record
+            for record in self.outstanding_invoices(
+                firm_id=firm_id, party_id=row.customer_id
+            )
+        }
+        record = outstanding.get(invoice_id)
+        if record is None:
+            raise ValidationError(
+                "That invoice does not belong to this customer, is not "
+                "approved, or is already settled in full."
+            )
+        if asked > record.outstanding_amount:
+            raise ValidationError(
+                f"{record.invoice_number} owes only {record.outstanding_amount}."
+            )
+        existing = self._session.scalar(
+            select(SettlementAllocation).where(
+                SettlementAllocation.settlement_id == row.id,
+                SettlementAllocation.sales_invoice_id == invoice_id,
+                SettlementAllocation.is_deleted.is_(False),
+            )
+        )
+        if existing is not None:
+            # The unique key refuses it anyway; saying so in the language of
+            # the request beats a constraint violation.
+            raise ValidationError(
+                f"{row.settlement_number} is already applied to "
+                f"{record.invoice_number}."
+            )
+        self._session.add(
+            SettlementAllocation(
+                firm_id=firm_id,
+                settlement_id=row.id,
+                sales_invoice_id=invoice_id,
+                amount=asked,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
+        from_advance = self._advance_part_of(row, allocating=asked)
+        row.allocated_amount = quantize_ledger(row.allocated_amount + asked)
+        row.unallocated_amount = quantize_ledger(row.unallocated_amount - asked)
+        row.updated_by = actor_id
+        if from_advance > ZERO:
+            # Only the part that actually became an advance. The rest of the
+            # receipt already reduced what the customer owes -- posting
+            # ADVANCE_APPLY for it would take the same money off the balance
+            # twice. Found by driving it: a deposit taken while the customer
+            # owed money creates no advance at all, and the whole allocation
+            # was refused with "exceeds unapplied advance".
+            self._customers.post_receivable_transaction(
+                row.customer_id,
+                CustomerReceivableTransactionCreate(
+                    transaction_type=CustomerReceivableTransactionType.ADVANCE_APPLY,
+                    amount=from_advance,
+                    transaction_date=record.invoice_date,
+                    reference_type="settlement",
+                    reference_id=row.id,
+                    reference_number=row.settlement_number,
+                    remarks=f"Applied to {record.invoice_number}.",
+                ),
+                firm_scope=firm_id,
+                actor_id=actor_id,
+                commit=False,
+            )
+        record_audit(
+            self._session,
+            action="settlement.receipt.allocated",
+            entity_type="settlement",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "settlement_number": row.settlement_number,
+                "invoice_number": record.invoice_number,
+                "amount": str(asked),
+                "unallocated_amount": str(row.unallocated_amount),
+            },
+        )
+        self._session.commit()
         return row
 
     def reverse(

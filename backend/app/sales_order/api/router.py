@@ -28,6 +28,7 @@ from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_order.schemas import (
+    SalesOrderAdvanceSummary,
     SalesOrderBackOrderRecord,
     SalesOrderByCustomerRecord,
     SalesOrderBySalesmanRecord,
@@ -295,6 +296,25 @@ def cancel_sales_order(
         reason=data.reason,
     )
     return ApiResponse(data=service.order_response(row))
+
+
+@router.get(
+    "/{order_id}/advances", response_model=ApiResponse[SalesOrderAdvanceSummary]
+)
+def sales_order_advances(
+    order_id: UUID,
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesOrderAdvanceSummary]:
+    """Report what the customer has paid against this order.
+
+    Reversed receipts are excluded from the totals but kept in the list: a
+    deposit that vanished from the screen leaves nobody able to say why the
+    figure changed.
+    """
+    return ApiResponse(
+        data=SalesOrderService(db).advances(order_id, firm_scope=scope.firm_id)
+    )
 
 
 @router.post("/{order_id}/hold", response_model=ApiResponse[SalesOrderResponse])

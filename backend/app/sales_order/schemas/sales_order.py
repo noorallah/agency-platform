@@ -213,6 +213,34 @@ class SalesOrderLineResponse(SalesOrderSchema):
     updated_at: datetime
 
 
+class SalesOrderAdvance(SalesOrderSchema):
+    """One receipt taken against an order, and what is left of it."""
+
+    settlement_id: UUID
+    settlement_number: str
+    settlement_date: date
+    amount: Decimal
+    #: What of this receipt has not been set against any invoice yet. The
+    #: figure somebody actually wants: "how much of that deposit is still
+    #: sitting there".
+    unallocated_amount: Decimal
+    status: str
+    narration: str | None = None
+
+
+class SalesOrderAdvanceSummary(SalesOrderSchema):
+    """What a customer has paid against one order."""
+
+    sales_order_id: UUID
+    order_number: str
+    #: Everything received against the order, reversed receipts excluded --
+    #: a reversed receipt is money the firm does not have.
+    total_received: Decimal
+    #: The part of it not yet set against any invoice.
+    total_unapplied: Decimal
+    receipts: list[SalesOrderAdvance]
+
+
 class SalesOrderResponse(SalesOrderSchema):
     """Return one sales order."""
 

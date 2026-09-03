@@ -4255,6 +4255,34 @@ class ApiClient {
         ),
       );
 
+  /// Set money already received against an invoice raised since.
+  ///
+  /// The missing half of an advance: a deposit taken before the bill existed
+  /// could sit on the customer's account with no way to say which bill it
+  /// settled. Nothing is posted to the ledger — the money moved when the
+  /// receipt was recorded, and this decides which invoice it clears.
+  Future<Settlement> allocateReceipt({
+    required String id,
+    required String invoiceId,
+    required String amount,
+  }) async =>
+      Settlement.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/receipts/$id/allocate',
+            body: <String, dynamic>{'invoice_id': invoiceId, 'amount': amount},
+          ),
+        ),
+      );
+
+  /// What a customer has paid against one sales order.
+  Future<Json> salesOrderAdvances(String orderId) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/sales-orders/$orderId/advances',
+      ));
+
   /// Take a settlement back. The original stays and a mirror journal cancels
   /// it, so nothing is edited or deleted.
   Future<Settlement> reverseSettlement({

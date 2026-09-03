@@ -36,6 +36,7 @@ class _SettlementApi extends ApiClient {
   Json? recorded;
   String? reversedId;
   String? reversedReason;
+  Json? allocated;
 
   @override
   Future<PagedResult<Settlement>> settlements({
@@ -73,6 +74,20 @@ class _SettlementApi extends ApiClient {
     recorded = data;
     return rows.first;
   }
+
+  @override
+  Future<Settlement> allocateReceipt({
+    required String id,
+    required String invoiceId,
+    required String amount,
+  }) async {
+    allocated = <String, dynamic>{
+      'id': id,
+      'invoice_id': invoiceId,
+      'amount': amount,
+    };
+    return rows.first;
+  }
 }
 
 OutstandingInvoice _invoice(String id, String number, String outstanding) =>
@@ -90,6 +105,7 @@ Settlement _settlement({
   String amount = '8429.63',
   String unallocated = '0.00',
   String status = 'POSTED',
+  String salesOrderNumber = '',
   List<Json> allocations = const [],
 }) =>
     Settlement.fromJson({
@@ -100,6 +116,7 @@ Settlement _settlement({
       'party_name': 'Third Customer',
       'settlement_number': number,
       'settlement_date': '2027-03-15',
+      'sales_order_number': salesOrderNumber,
       'amount': amount,
       'allocated_amount': '8429.63',
       'unallocated_amount': unallocated,
@@ -427,5 +444,83 @@ void main() {
       expect(find.textContaining('No payments yet'), findsOneWidget);
       expect(find.textContaining('owes the vendor'), findsOneWidget);
     });
+  });
+
+  testWidgets('a deposit says which order it came in against', (tester) async {
+    await _pump(
+      tester,
+      _SettlementApi(
+        rows: [_settlement(salesOrderNumber: 'SO-2026-2027-000004')],
+      ),
+    );
+
+    // Without it a deposit is indistinguishable from a payment somebody made
+    // for no stated reason.
+    expect(find.textContaining('against SO-2026-2027-000004'), findsOneWidget);
+  });
+
+  testWidgets('money on account can be applied to an invoice', (tester) async {
+    final _SettlementApi api = _SettlementApi(
+      rows: [_settlement(amount: '5000.00', unallocated: '5000.00')],
+      outstanding: [_invoice('inv-1', 'SI-2026-2027-000009', '3000.00')],
+    );
+    await _pump(tester, api);
+
+    await tester.tap(find.byTooltip('Apply to an invoice'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, '3000.00');
+    await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+    await tester.pumpAndSettle();
+
+    // The half that was missing entirely: `ADVANCE_APPLY` was a declared
+    // transaction type nothing could reach.
+    expect(api.allocated?['invoice_id'], 'inv-1');
+    expect(api.allocated?['amount'], '3000.00');
+  });
+
+  testWidgets('the dialog says that nothing moves in the ledger',
+      (tester) async {
+    final _SettlementApi api = _SettlementApi(
+      rows: [_settlement(amount: '5000.00', unallocated: '5000.00')],
+      outstanding: [_invoice('inv-1', 'SI-9', '3000.00')],
+    );
+    await _pump(tester, api);
+
+    await tester.tap(find.byTooltip('Apply to an invoice'));
+    await tester.pumpAndSettle();
+
+    // "Applying" money sounds like moving it, and it does not: the money
+    // arrived when the receipt was recorded.
+    expect(find.textContaining('Nothing moves in the ledger'), findsOneWidget);
+  });
+
+  testWidgets('a fully applied receipt offers no Apply button',
+      (tester) async {
+    await _pump(tester, _SettlementApi(rows: [_settlement()]));
+
+    expect(find.byTooltip('Apply to an invoice'), findsNothing);
+  });
+
+  testWidgets('a reversed receipt offers no Apply button', (tester) async {
+    await _pump(
+      tester,
+      _SettlementApi(
+        rows: [_settlement(unallocated: '5000.00', status: 'REVERSED')],
+      ),
+    );
+
+    // It holds nothing: the money went back.
+    expect(find.byTooltip('Apply to an invoice'), findsNothing);
+  });
+
+  testWidgets('somebody who cannot record receipts cannot apply one',
+      (tester) async {
+    await _pump(
+      tester,
+      _SettlementApi(rows: [_settlement(unallocated: '5000.00')]),
+      perms: const <String>['RECEIPT_VIEW'],
+    );
+
+    expect(find.byTooltip('Apply to an invoice'), findsNothing);
   });
 }

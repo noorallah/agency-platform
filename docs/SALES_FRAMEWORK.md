@@ -1136,6 +1136,46 @@ hold is for everything else. `SALES_APPROVE` covers both actions — deciding
 whether an order goes out is the same authority as approving it in the first
 place.
 
+## A deposit against an order, and setting it against the bill — landed 2026-09-03
+
+Two halves, and the second was missing entirely.
+
+**The link.** `settlements.sales_order_id` records *why* the money arrived. It
+is a note, not a ring-fence: the cash is the customer's balance either way, and
+cancelling the order does not make the deposit vanish. It is refused where the
+order is not that customer's — an advance filed against somebody else's order
+answers "what has this customer paid us for order X" with another customer's
+money — and refused on a payment to a vendor rather than quietly ignored, since
+a field accepted and discarded is worse than one not accepted.
+`GET /api/v1/sales-orders/{id}/advances` is what it buys.
+
+**The allocation.** `ADVANCE_APPLY` had been a declared receivable transaction
+type since the settlements module shipped and **nothing could reach it**: a
+deposit taken before the bill existed sat on the account with no way to say
+which bill it settled. `POST /api/v1/receipts/{id}/allocate` is that action.
+
+**Nothing is posted to the general ledger, and that is correct.** The receipt
+already debited cash and credited receivables; the invoice already debited
+receivables and credited revenue and tax. Applying the advance changes no
+account — it decides which invoice the receivable credit belongs to, which is
+the subsidiary ledger's business. A journal here would count the money twice.
+
+**Only the part that actually became an advance moves the customer's balance,
+and finding that out took driving it.** A receipt splits when it is recorded:
+`min(amount, outstanding)` comes straight off what the customer owes, and only
+the excess becomes an advance. The first version posted `ADVANCE_APPLY` for the
+whole allocation, so a deposit taken while the customer already owed something
+— the ordinary case — was refused outright with *"Advance apply amount exceeds
+unapplied advance"*, and had it been accepted it would have taken the same
+rupees off the balance twice. The receivable row the receipt wrote is the only
+thing that remembers the split; `_advance_part_of` reads it, and subtracts what
+earlier allocations of the same receipt already used, or the last of an advance
+would be stranded for ever.
+
+The demo takes a deposit on one order in six, a third of its value, and applies
+it when the bill is raised — before the ordinary collection, since a deposit is
+the first money against a bill.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
