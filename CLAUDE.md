@@ -873,6 +873,22 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   litres of oil). Commission is measured on the document total, which
   **includes tax** -- whether that is right is an open question for the owner
   and deliberately not changed, because changing it moves every payout.
+- **One live payout per person per period is held by the database, not by a
+  read.** `_assert_period_is_free` selects and `accrue` inserts with nothing
+  between them, so two requests that both check before either commits both
+  pass -- driven on WHOLE01 during the 2026-09-03 review, leaving one salesman
+  holding two live payouts for one month, which pays the same collections
+  twice. `UQ_commission_payouts_period_active` is the guard, partial so a
+  CANCELLED accrual holds no claim; the service check stays for the message it
+  gives and for *overlapping* periods, which no unique key can express, and the
+  `IntegrityError` is translated so the loser is refused by name rather than
+  answered with a 500. Two traps came with it. **A partial index declared with
+  `postgresql_where` alone is not partial on SQLite** -- the clause is ignored
+  and `create_all` builds an unconditional unique index, which is stricter than
+  intended and broke the documented "a cancelled payout frees the period";
+  declare `sqlite_where` beside it. And **two pending inserts of one key do not
+  race in PostgreSQL**, the second waits on the first, so a probe that inserts
+  both before committing either hangs rather than conflicting.
 - **A commission payout is snapshotted, and it posts.** `commission_payouts`
   goes DRAFT → APPROVED → PAID, or CANCELLED. **The report is read once, at
   accrual, and never again** -- it walks live documents, so re-reading it would

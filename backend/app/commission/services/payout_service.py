@@ -17,6 +17,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.commission.models import CommissionPayout, CommissionPayoutStatus
@@ -204,7 +205,19 @@ class CommissionPayoutService:
                 updated_by=actor_id,
             )
             self._session.add(payout)
-            self._session.flush()
+            try:
+                self._session.flush()
+            except IntegrityError as exc:
+                # The partial unique index caught what the read above could
+                # not: another request accrued this person's period between
+                # the check and the write. Translated here so the loser is
+                # refused by name rather than answered with a 500.
+                self._session.rollback()
+                raise ConflictError(
+                    "A commission payout for that period was created while "
+                    "this one was being worked out. Reload and check before "
+                    "accruing again."
+                ) from exc
             record_audit(
                 self._session,
                 action="commission.payout.accrued",

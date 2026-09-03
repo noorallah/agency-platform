@@ -36,6 +36,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -73,6 +74,33 @@ class CommissionPayout(BaseEntity):
         Index("IX_commission_payouts_firm_salesman", "firm_id", "salesman_id"),
         Index("IX_commission_payouts_firm_period", "firm_id", "period_start"),
         Index("IX_commission_payouts_firm_status", "firm_id", "status"),
+        # One live payout per person per period, held by the database rather
+        # than by the service's read alone. `_assert_period_is_free` reads and
+        # then `accrue` writes, so two requests that both check before either
+        # commits both pass -- driven on WHOLE01, and it left one salesman
+        # holding two live payouts for one month, which pays the same
+        # collections twice.
+        #
+        # Partial, so a CANCELLED accrual holds no claim and a period accrued
+        # at the wrong rate stays correctable. PostgreSQL only, as with
+        # `UQ_firms_code_active` and the rest -- the service check remains
+        # authoritative, and it is also what covers *overlapping* periods,
+        # which no unique key can express.
+        Index(
+            "UQ_commission_payouts_period_active",
+            "firm_id",
+            "salesman_id",
+            "period_start",
+            "period_end",
+            unique=True,
+            # Both dialects, and that matters: with only the PostgreSQL
+            # clause, SQLite ignored it and `create_all` built an
+            # *unconditional* unique index -- stricter than intended, and it
+            # broke the documented behaviour that a CANCELLED payout frees
+            # the period. The unit suite caught it.
+            postgresql_where=text("NOT is_deleted AND status <> 'CANCELLED'"),
+            sqlite_where=text("NOT is_deleted AND status <> 'CANCELLED'"),
+        ),
     )
 
     #: No foreign key: `firms` lives only in the platform schema and this table
