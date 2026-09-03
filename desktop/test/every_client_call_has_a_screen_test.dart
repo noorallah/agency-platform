@@ -58,6 +58,12 @@ const Map<String, String> _accepted = <String, String>{
   'importPurchaseOrdersJson':
       'the JSON twin of importPurchaseOrdersFile, which the import dialog uses '
           '-- a screen posting rows it parsed itself would be a second parser',
+  'createTaxSystem':
+      'superseded by POST /tax-framework/setup, which the tax setup page uses: '
+          'a system is created with its components and profiles in one atomic '
+          'call, and creating the bare system leaves a setup half made',
+  'updateTaxSystem': 'superseded by PUT /tax-framework/setup/{id}, as '
+      'createTaxSystem',
 };
 
 /// Real holes: a feature the backend serves and no screen can reach.
@@ -66,12 +72,6 @@ const Map<String, String> _accepted = <String, String>{
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
 const Map<String, String> _knownGaps = <String, String>{
-  'createTaxSystem': 'a tax system can be deleted from the desktop and not '
-      'created, which is worse than neither',
-  'updateTaxSystem': 'as createTaxSystem',
-  'restoreTaxSystem': 'a soft-deleted tax system cannot be brought back',
-  'restoreTaxProfile': 'a soft-deleted tax profile cannot be brought back',
-  'restoreTaxComponent': 'a soft-deleted tax component cannot be brought back',
   'createLedgerAccount': 'the chart of accounts is read-only, so a firm cannot '
       'add an account',
   'updateLedgerAccount': 'as createLedgerAccount',
