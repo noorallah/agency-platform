@@ -86,6 +86,7 @@ class Settlement(BaseEntity):
         Index("IX_settlements_firm_date", "firm_id", "settlement_date"),
         Index("IX_settlements_firm_customer", "firm_id", "customer_id"),
         Index("IX_settlements_firm_vendor", "firm_id", "vendor_id"),
+        Index("IX_settlements_firm_order", "firm_id", "sales_order_id"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -118,6 +119,16 @@ class Settlement(BaseEntity):
         UUIDType(),
         ForeignKey("ledger_accounts.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    #: The order this money came in against, where it came in against one.
+    #:
+    #: A note about *why* the money arrived, not a ring-fence around it. The
+    #: cash is the customer's balance either way: if the order is cancelled the
+    #: deposit does not vanish, it stays on account. Recording the order is
+    #: what makes "what has this customer paid us for order X" answerable, and
+    #: what lets the bill for that order find the deposit when it is raised.
+    sales_order_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("sales_orders.id", ondelete="RESTRICT")
     )
     instrument_reference: Mapped[str | None] = mapped_column(String(120))
     narration: Mapped[str | None] = mapped_column(Text())

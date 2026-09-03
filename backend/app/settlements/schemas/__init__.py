@@ -36,6 +36,13 @@ class SettlementAllocationWrite(SettlementSchema):
     amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
 
 
+class SettlementAllocateRequest(SettlementSchema):
+    """Set money already received against an invoice raised since."""
+
+    invoice_id: UUID
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
 class SettlementReverseRequest(SettlementSchema):
     """Carry why a settlement was taken back."""
 
@@ -52,6 +59,11 @@ class SettlementCreate(SettlementSchema):
     instrument_reference: str | None = Field(default=None, max_length=120)
     narration: str | None = Field(default=None, max_length=2000)
     settlement_number: str | None = Field(default=None, max_length=60)
+    #: The sales order this money came in against, where it came in against
+    #: one. A note about why the money arrived, not a ring-fence around it --
+    #: if the order is cancelled the deposit stays on the customer's account.
+    #: Receipts only; a payment to a vendor has no sales order behind it.
+    sales_order_id: UUID | None = None
     allocations: list[SettlementAllocationWrite] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -93,6 +105,8 @@ class SettlementResponse(SettlementSchema):
     amount: Decimal
     allocated_amount: Decimal
     unallocated_amount: Decimal
+    sales_order_id: UUID | None = None
+    sales_order_number: str | None = None
     method: SettlementMethodEnum
     ledger_account_id: UUID
     ledger_account_name: str
@@ -125,6 +139,7 @@ class OutstandingInvoiceRecord(SettlementSchema):
 
 
 __all__ = [
+    "SettlementAllocateRequest",
     "OutstandingInvoiceRecord",
     "SettlementAllocationResponse",
     "SettlementAllocationWrite",

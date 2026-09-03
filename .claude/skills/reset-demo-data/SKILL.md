@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -133,6 +133,12 @@ zero, which looks exactly like a firm nobody has ever asked for one. Every
 fourth order gets one, issued rather than left in draft, because a proforma is
 what a buyer asks for when they need a figure before the goods move -- not
 something every sale produces.
+
+**`ADV` should read 9.** A deposit is taken against one order in six, a third
+of its value, and applied to the bill when it is raised. Before this every
+`settlements.sales_order_id` was NULL and
+`POST /api/v1/receipts/{id}/allocate` was reachable by nothing -- which is how
+`ADVANCE_APPLY` sat unreachable from the day the settlements module shipped.
 
 **`TCS` is the one count that legitimately differs between the firms**, and
 reads 27 to 30. Tax collected at source is charged when a buyer's payments

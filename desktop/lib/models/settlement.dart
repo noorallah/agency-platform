@@ -49,6 +49,7 @@ class Settlement {
     required this.journalEntryId,
     required this.reversalReason,
     required this.allocations,
+    this.salesOrderNumber = '',
   });
 
   final String id;
@@ -77,6 +78,11 @@ class Settlement {
   final String reversalReason;
   final List<SettlementAllocation> allocations;
 
+  /// The order this money came in against, where it came in against one. A
+  /// note about why it arrived, not a ring-fence: cancelling the order does
+  /// not make the deposit vanish.
+  final String salesOrderNumber;
+
   /// Taken back. The original stays and a mirror journal cancels it, so a
   /// reversed settlement is still a record of money that arrived and was then
   /// unrecorded -- not an absence.
@@ -97,6 +103,7 @@ class Settlement {
       partyName: stringValue(d['party_name']),
       settlementNumber: stringValue(d['settlement_number']),
       settlementDate: stringValue(d['settlement_date']),
+      salesOrderNumber: stringValue(d['sales_order_number']),
       amount: stringValue(d['amount']),
       allocatedAmount: stringValue(d['allocated_amount']),
       unallocatedAmount: stringValue(d['unallocated_amount']),

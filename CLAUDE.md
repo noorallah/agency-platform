@@ -422,6 +422,24 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **Applying money already received posts no journal, and only part of it
+  moves the balance.** `settlements.sales_order_id` records which order a
+  deposit came in against -- a note, not a ring-fence: cancelling the order
+  does not make the deposit vanish. `POST /api/v1/receipts/{id}/allocate` is
+  the other half, and it was missing entirely: `ADVANCE_APPLY` had been a
+  declared receivable type since the settlements module shipped with
+  **nothing able to reach it**. Two rules. **No journal** -- the receipt
+  debited cash and credited receivables, the invoice debited receivables; the
+  allocation only decides which invoice the credit belongs to, and a journal
+  would count the money twice. And **only the part that became an advance
+  moves the customer's balance**: a receipt splits when it is recorded,
+  `min(amount, outstanding)` off the balance and the excess into advance, so
+  posting `ADVANCE_APPLY` for the whole allocation double-counts. The first
+  version did, and a deposit taken while the customer already owed something
+  -- the ordinary case -- was refused outright with "exceeds unapplied
+  advance". `_advance_part_of` reads the split off the receipt's own
+  receivable row and subtracts what earlier allocations used, or the last of
+  an advance is stranded for ever.
 - **A hold on a sales order is a flag, not a status.** An order that is
   PARTIALLY_DELIVERED can be held, and releasing it has to put it back to
   PARTIALLY_DELIVERED -- writing HOLD into `status` would destroy the only

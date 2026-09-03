@@ -151,6 +151,7 @@ from app.sales_targets.schemas import (
     SalesTargetWrite,
 )
 from app.sales_targets.services import SalesTargetService
+from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
     SettlementCreate,
@@ -405,6 +406,7 @@ class Tally:
     sales_returns: int = 0
     credit_notes: int = 0
     proformas: int = 0
+    advances: int = 0
     receipts: int = 0
     tcs_collections: int = 0
     targets: int = 0
@@ -424,6 +426,7 @@ class Tally:
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
             f"CN {self.credit_notes} | PF {self.proformas} | "
+            f"ADV {self.advances} | "
             f"TCS {self.tcs_collections} | "
             f"TGT {self.targets} | PAY {self.payouts}"
         )
@@ -527,6 +530,7 @@ class HistoryBuilder:
         self._return_cycle = 0
         self._credit_cycle = 0
         self._proforma_cycle = 0
+        self._advance_cycle = 0
         #: Which receipts send part of the goods back to the supplier.
         self._vendor_return_cycle = 0
         self._today = utc_now().date()
@@ -852,6 +856,97 @@ class HistoryBuilder:
             return
         self._tally.proformas += 1
         self._session.commit()
+
+    # -- deposits against an order -------------------------------------
+
+    def _take_a_deposit(
+        self,
+        *,
+        order: SalesOrder,
+        customer: Customer,
+        on: date,
+        firm_id: UUID,
+    ) -> Settlement | None:
+        """Take money against the order, before there is a bill for it.
+
+        `settlements.sales_order_id` would otherwise be NULL on every row in
+        every store, and `POST /receipts/{id}/allocate` would be reachable by
+        nothing -- which is how `ADVANCE_APPLY` sat unreachable from the day
+        the settlements module shipped.
+
+        One order in six, and a third of its value: a deposit is what a
+        distributor asks for on a large or a new order, not on every sale.
+
+        Args:
+            order: The order the money comes in against.
+            customer: Who is paying.
+            on: The day the order was raised.
+            firm_id: The owning firm.
+
+        Returns:
+            The receipt, or None where none was taken.
+
+        """
+        self._advance_cycle += 1
+        if self._advance_cycle % 6 != 0:
+            return None
+        amount = (Decimal(str(order.grand_total)) / 3).quantize(Decimal("0.01"))
+        if amount <= 0:
+            return None
+        try:
+            row = ReceiptService(self._session).create(
+                SettlementCreate(
+                    party_id=customer.id,
+                    settlement_date=on,
+                    amount=amount,
+                    method=SettlementMethodEnum.BANK,
+                    narration=f"Deposit against {order.order_number}",
+                    allocations=[],
+                    sales_order_id=order.id,
+                ),
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{on} deposit: {error}")
+            self._session.rollback()
+            return None
+        self._tally.advances += 1
+        self._session.commit()
+        return row
+
+    def _apply_the_deposit(
+        self,
+        *,
+        advance: Settlement | None,
+        invoice: SalesInvoiceResponse,
+        firm_id: UUID,
+    ) -> None:
+        """Set a deposit against the bill it was taken for.
+
+        Capped at whichever is smaller -- what is left of the deposit, or what
+        the bill still owes. A deposit of a third of the order can exceed the
+        first invoice raised against it when the order ships in parts.
+        """
+        if advance is None:
+            return
+        self._session.refresh(advance)
+        available = Decimal(str(advance.unallocated_amount))
+        owed = Decimal(str(invoice.grand_total))
+        amount = min(available, owed).quantize(Decimal("0.01"))
+        if amount <= 0:
+            return
+        try:
+            ReceiptService(self._session).allocate(
+                advance.id,
+                invoice_id=invoice.id,
+                amount=amount,
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"deposit applied: {error}")
+            self._session.rollback()
 
     # -- tax collected at source ---------------------------------------
 
@@ -1465,6 +1560,9 @@ class HistoryBuilder:
             orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
         self._tally.sales_orders += 1
         self._state_in_advance(order=order, on=on, firm_id=firm_id)
+        advance = self._take_a_deposit(
+            order=order, customer=customer, on=on, firm_id=firm_id
+        )
 
         so_line = self._session.scalar(
             select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
@@ -1538,6 +1636,10 @@ class HistoryBuilder:
         )
         self._tally.sales_invoices += 1
         self._session.commit()
+        # Before the collection: a deposit already taken is the first money
+        # against the bill, and applying it afterwards would leave the
+        # ordinary receipt clearing an invoice the deposit had already paid.
+        self._apply_the_deposit(advance=advance, invoice=approved, firm_id=firm_id)
         self._collect(invoice=approved, customer=customer, on=on, firm_id=firm_id)
         # After the collection, so a return credits an invoice that has
         # already been partly settled -- which is the case that proves the

@@ -1,6 +1,8 @@
 """Sales order schema exports."""
 
 from app.sales_order.schemas.sales_order import (
+    SalesOrderAdvance,
+    SalesOrderAdvanceSummary,
     SalesOrderAttachmentResponse,
     SalesOrderAttachmentWrite,
     SalesOrderBackOrderRecord,
@@ -25,6 +27,8 @@ from app.sales_order.schemas.sales_order import (
 )
 
 __all__ = [
+    "SalesOrderAdvance",
+    "SalesOrderAdvanceSummary",
     "SalesOrderAttachmentResponse",
     "SalesOrderAttachmentWrite",
     "SalesOrderBackOrderRecord",

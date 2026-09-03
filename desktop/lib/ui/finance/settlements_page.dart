@@ -320,6 +320,54 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
   }
 
+  /// Set money already received against an invoice raised since.
+  ///
+  /// Nothing is posted to the ledger: the money moved when the receipt was
+  /// recorded, and this decides which invoice it clears. The screen says so,
+  /// because "applying" money sounds like moving it.
+  Future<void> _apply(Settlement row) async {
+    final List<OutstandingInvoice> invoices =
+        await widget.api.outstandingInvoices(
+      direction: SettlementDirection.receipt,
+      partyId: row.partyId,
+    );
+    if (!mounted) return;
+    if (invoices.isEmpty) {
+      NotificationService.show(
+        context,
+        '${row.partyName} has no unpaid invoices to apply this to.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final _Application? chosen = await showDialog<_Application>(
+      context: context,
+      builder: (context) => _ApplyDialog(
+        settlement: row,
+        invoices: invoices,
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    try {
+      await widget.api.allocateReceipt(
+        id: row.id,
+        invoiceId: chosen.invoiceId,
+        amount: chosen.amount,
+      );
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${row.settlementNumber} applied to ${chosen.invoiceNumber}.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
   Widget _tile(BuildContext context, Settlement row) {
     // A reversed settlement still names what it had cleared: that is the
     // first thing anybody asks when a correction is queried.
@@ -334,20 +382,30 @@ class _SettlementsPageState extends State<SettlementsPage> {
       ),
       subtitle: Text(
         '$cleared  ·  ${row.method} into ${row.ledgerAccountName}'
+        // The order the money came in against, where it came in against one.
+        // Without it a deposit is indistinguishable from a payment somebody
+        // made for no stated reason.
+        '${row.salesOrderNumber.isEmpty ? '' : ' · against ${row.salesOrderNumber}'}'
         '${row.instrumentReference.isEmpty ? '' : ' · ${row.instrumentReference}'}',
       ),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Text(row.amount, style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(width: AppSpacing.md),
+        // On-account money can now be applied. It used to say "somebody has
+        // to apply it eventually" and there was no way to: `ADVANCE_APPLY`
+        // was a declared transaction type nothing could reach.
+        if (_canCreate && row.isOnAccount && row.direction == 'RECEIPT')
+          IconButton(
+            tooltip: 'Apply to an invoice',
+            icon: const Icon(Icons.playlist_add_check),
+            onPressed: () => unawaited(_apply(row)),
+          ),
         if (_canCreate && !row.isReversed)
           IconButton(
             tooltip: 'Reverse',
             icon: const Icon(Icons.undo),
             onPressed: () => unawaited(_reverse(row)),
           ),
-        // On-account money is worth flagging: it reached the ledger and
-        // reduced the balance, but no document says what it was for, and
-        // somebody has to apply it eventually.
         if (row.isReversed)
           const StatusBadge(label: 'Reversed')
         else if (row.isOnAccount)
@@ -357,4 +415,109 @@ class _SettlementsPageState extends State<SettlementsPage> {
       ]),
     );
   }
+}
+
+
+/// What somebody chose to apply, and to which bill.
+class _Application {
+  const _Application({
+    required this.invoiceId,
+    required this.invoiceNumber,
+    required this.amount,
+  });
+
+  final String invoiceId;
+  final String invoiceNumber;
+  final String amount;
+}
+
+/// Pick an invoice and an amount for money already on account.
+class _ApplyDialog extends StatefulWidget {
+  const _ApplyDialog({required this.settlement, required this.invoices});
+
+  final Settlement settlement;
+  final List<OutstandingInvoice> invoices;
+
+  @override
+  State<_ApplyDialog> createState() => _ApplyDialogState();
+}
+
+class _ApplyDialogState extends State<_ApplyDialog> {
+  late final TextEditingController _amount =
+      TextEditingController(text: widget.settlement.unallocatedAmount);
+  late String _invoiceId = widget.invoices.first.invoiceId;
+
+  @override
+  void dispose() {
+    // Owned by the dialog, not the caller: disposing it after `showDialog`
+    // returns disposes it mid-animation, with the field still rebuilding.
+    _amount.dispose();
+    super.dispose();
+  }
+
+  OutstandingInvoice get _chosen => widget.invoices
+      .firstWhere((invoice) => invoice.invoiceId == _invoiceId);
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text('Apply ${widget.settlement.settlementNumber}'),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Nothing moves in the ledger. The money arrived when the '
+                'receipt was recorded; this says which invoice it clears.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              DropdownButtonFormField<String>(
+                initialValue: _invoiceId,
+                decoration: const InputDecoration(labelText: 'Invoice'),
+                items: [
+                  for (final OutstandingInvoice invoice in widget.invoices)
+                    DropdownMenuItem<String>(
+                      value: invoice.invoiceId,
+                      child: Text(
+                        '${invoice.invoiceNumber} — owes '
+                        '${invoice.outstandingAmount}',
+                      ),
+                    ),
+                ],
+                onChanged: (value) =>
+                    setState(() => _invoiceId = value ?? _invoiceId),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _amount,
+                decoration: InputDecoration(
+                  labelText: 'Amount',
+                  helperText: '${widget.settlement.unallocatedAmount} on '
+                      'account, ${_chosen.outstandingAmount} still owed',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final String amount = _amount.text.trim();
+              if (amount.isEmpty) return;
+              Navigator.of(context).pop(_Application(
+                invoiceId: _invoiceId,
+                invoiceNumber: _chosen.invoiceNumber,
+                amount: amount,
+              ));
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      );
 }

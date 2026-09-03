@@ -18,6 +18,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
     OutstandingInvoiceRecord,
+    SettlementAllocateRequest,
     SettlementAllocationResponse,
     SettlementCreate,
     SettlementResponse,
@@ -95,6 +96,8 @@ def _to_response(service: SettlementService, row: Settlement) -> SettlementRespo
         amount=row.amount,
         allocated_amount=row.allocated_amount,
         unallocated_amount=row.unallocated_amount,
+        sales_order_id=row.sales_order_id,
+        sales_order_number=service.order_number_of(row),
         method=row.method,
         ledger_account_id=row.ledger_account_id,
         ledger_account_name=service.ledger_account_name(row.ledger_account_id),
@@ -221,6 +224,38 @@ def reverse_receipt(
     db.commit()
     db.refresh(row)
     return ApiResponse(data=_to_response(service, row), message="Receipt reversed.")
+
+
+@receipts_router.post(
+    "/{receipt_id}/allocate", response_model=ApiResponse[SettlementResponse]
+)
+def allocate_receipt(
+    receipt_id: UUID,
+    payload: SettlementAllocateRequest,
+    scope: ReceiptCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Set money already received against an invoice raised since.
+
+    The missing half of an advance: a deposit taken before the bill existed
+    could sit on the customer's account with no way to say which bill it
+    settled. Nothing is posted to the general ledger -- the money already
+    moved when the receipt was recorded, and this decides which invoice the
+    receivable credit belongs to.
+    """
+    service = ReceiptService(db)
+    row = service.allocate(
+        receipt_id,
+        invoice_id=payload.invoice_id,
+        amount=payload.amount,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.refresh(row)
+    return ApiResponse(
+        data=_to_response(service, row),
+        message=f"{row.settlement_number} applied.",
+    )
 
 
 @refunds_router.get("", response_model=PaginatedResponse[SettlementResponse])
