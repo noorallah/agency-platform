@@ -141,6 +141,49 @@ class _Books:
         self.session.commit()
         return entry
 
+    def batch(
+        self,
+        points: str,
+        *,
+        earned_on: date,
+        expires_on: date | None,
+    ) -> LoyaltyEntry:
+        """Credit a batch of points directly, on dates a test chooses.
+
+        `earn` derives its dates from the bill, and expiry arithmetic is about
+        which batch a spend consumed -- so the dates have to be settable.
+        """
+        row = LoyaltyEntry(
+            firm_id=self.firm.id,
+            customer_id=self.customer.id,
+            kind=LoyaltyEntryKind.EARNED.value,
+            points=Decimal(points),
+            amount=Decimal(points),
+            earned_on=earned_on,
+            expires_on=expires_on,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(row)
+        self.session.commit()
+        return row
+
+    def spend(self, points: str, *, on: date) -> LoyaltyEntry:
+        """Take points off the ledger, the way a redemption does."""
+        row = LoyaltyEntry(
+            firm_id=self.firm.id,
+            customer_id=self.customer.id,
+            kind=LoyaltyEntryKind.REDEEMED.value,
+            points=-Decimal(points),
+            amount=Decimal(points),
+            earned_on=on,
+            created_by=self.actor_id,
+            updated_by=self.actor_id,
+        )
+        self.session.add(row)
+        self.session.commit()
+        return row
+
     def points(self) -> Decimal:
         """Return what the customer holds."""
         return (
@@ -341,7 +384,7 @@ def test_points_lapse_when_their_time_runs_out() -> None:
     books.earn(books.invoice("SI-1", total="1000"))
 
     lapsed = LoyaltyService(books.session).expire(
-        firm_scope=books.firm.id, as_of=date(2027, 1, 1)
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2027, 1, 1)
     )
 
     assert lapsed == 1
@@ -358,9 +401,14 @@ def test_the_sweep_cannot_take_the_same_points_twice() -> None:
     books.enable(expiry_months=6)
     books.earn(books.invoice("SI-1", total="1000"))
     service = LoyaltyService(books.session)
-    service.expire(firm_scope=books.firm.id, as_of=date(2027, 1, 1))
+    service.expire(firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2027, 1, 1))
 
-    assert service.expire(firm_scope=books.firm.id, as_of=date(2027, 1, 1)) == 0
+    assert (
+        service.expire(
+            firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2027, 1, 1)
+        )
+        == 0
+    )
     assert books.points() == Decimal("0.0000")
 
 
@@ -370,7 +418,7 @@ def test_points_with_no_expiry_never_lapse() -> None:
     books.earn(books.invoice("SI-1", total="1000"))
 
     LoyaltyService(books.session).expire(
-        firm_scope=books.firm.id, as_of=date(2099, 1, 1)
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2099, 1, 1)
     )
 
     assert books.points() == Decimal("20.0000")
@@ -454,3 +502,125 @@ def test_redeeming_moves_the_customer_s_balance_too() -> None:
     books.session.refresh(books.customer)
 
     assert books.customer.current_outstanding == Decimal("480.0000")
+
+
+# ---------------------------------------------------------------------------
+# Expiry, and the points that had already been spent
+# ---------------------------------------------------------------------------
+#
+# Found by the 2026-09-03 module review. `expire` wrote back the whole earned
+# entry -- `points=-entry.points` -- without asking how much of that batch was
+# still there, so a batch the customer had already spent lapsed a second time.
+
+
+def test_expiry_does_not_take_points_that_were_already_spent() -> None:
+    """A batch that has been spent has nothing left to lapse.
+
+    Earn 100, spend 100, let the batch lapse: the sweep wrote -100 against a
+    balance of nothing, leaving the customer **-100 points** for credit they
+    had legitimately used. `balance` sums the ledger with no floor, and
+    redeeming is refused above the balance, so expiry was the only way to go
+    negative -- and it did so silently, on a customer who had done nothing
+    wrong.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    books.spend("100", on=date(2026, 6, 15))
+    assert books.points() == Decimal("0.0000")
+
+    LoyaltyService(books.session).expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+
+    assert books.points() == Decimal("0.0000"), (
+        "spending a batch before it lapses must not leave the customer owing " "points"
+    )
+
+
+def test_expiry_takes_only_the_unspent_part_of_a_batch() -> None:
+    """Sixty spent of a hundred leaves forty to lapse, and no more."""
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    books.spend("60", on=date(2026, 6, 15))
+    assert books.points() == Decimal("40.0000")
+
+    LoyaltyService(books.session).expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+
+    assert books.points() == Decimal("0.0000")
+
+
+def test_a_spend_consumes_the_batch_closest_to_lapsing() -> None:
+    """FIFO, and it is why the sweep cannot just cap at the balance.
+
+    Two batches -- one expiring, one with a year left -- and the customer
+    spends exactly the older one's worth. The spend consumed the expiring
+    batch, so nothing lapses and the newer batch survives in full. Capping
+    the sweep at the customer's balance instead would have taken the batch
+    that had a year on it.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    books.batch("50", earned_on=date(2026, 6, 20), expires_on=date(2027, 3, 1))
+    books.spend("100", on=date(2026, 6, 25))
+
+    LoyaltyService(books.session).expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+
+    assert books.points() == Decimal("50.0000"), (
+        "the spend consumed the batch about to lapse, so the newer one is " "untouched"
+    )
+
+
+def test_the_sweep_still_runs_twice_without_taking_the_same_points() -> None:
+    """The idempotence the method already had has to survive the fix."""
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    service = LoyaltyService(books.session)
+
+    first = service.expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+    second = service.expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+
+    assert (first, second) == (1, 0)
+    assert books.points() == Decimal("0.0000")
+
+
+def test_lapsed_points_release_the_liability_they_raised() -> None:
+    """Points cost the firm when earned, so points that lapse give it back.
+
+    Earning posts `Dr Loyalty Expense / Cr Loyalty Payable`. Nothing released
+    that when the credit ran out of time, so `Loyalty Payable` kept a
+    liability for credit no customer could ever claim -- growing with every
+    sweep and reconciling to nothing.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+
+    LoyaltyService(books.session).expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1)
+    )
+
+    lapsed = books.session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.firm_id == books.firm.id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.EXPIRED.value,
+        )
+    )
+    assert lapsed is not None
+    assert (
+        lapsed.journal_entry_id is not None
+    ), "a liability for credit that can never be claimed has to be released"
+    legs = books.session.scalars(
+        select(JournalLine).where(
+            JournalLine.journal_entry_id == lapsed.journal_entry_id
+        )
+    ).all()
+    # The mirror of the accrual: the payable comes down, the cost comes back.
+    payable = next(leg for leg in legs if Decimal(str(leg.debit_amount)) > Decimal("0"))
+    assert Decimal(str(payable.debit_amount)) == Decimal("100.00")

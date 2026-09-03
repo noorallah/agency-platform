@@ -506,13 +506,35 @@ class LoyaltyService:
         self._session.commit()
         return entry
 
-    def expire(self, *, firm_scope: UUID, as_of: date | None = None) -> int:
-        """Write off points that have run out of time.
+    def expire(
+        self,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        as_of: date | None = None,
+    ) -> int:
+        """Write off points that have run out of time, and release their cost.
 
         A sweep rather than a rule applied at read time, so the balance is
         answerable without knowing today's date and a customer can be shown
         what lapsed and when. Each expiry names the entry it takes, so running
         the sweep twice cannot take the same points twice.
+
+        **Only the part of a batch nobody spent.** It used to write back the
+        whole earned entry, so a batch the customer had already spent lapsed a
+        second time and left them holding *negative* points -- the balance is
+        a sum over the ledger with no floor, and redeeming is refused above
+        it, so this sweep was the only way to go below zero. Spending is
+        allocated oldest batch first, which is both the ordinary treatment and
+        the reason the fix cannot simply cap at the balance: a customer with
+        one lapsing batch and one fresh one, who spent the older one's worth,
+        should keep the fresh one in full.
+
+        **And the liability comes back.** Earning posts
+        `Dr Loyalty Expense / Cr Loyalty Payable`; nothing released that when
+        the credit ran out of time, so `Loyalty Payable` kept a debt no
+        customer could ever claim. A lapse posts the accrual in reverse, for
+        the share of the batch that lapsed.
 
         `as_of` defaults to today **in UTC**, because everything stored here is
         UTC and the server's local date is already tomorrow, or still
@@ -520,53 +542,151 @@ class LoyaltyService:
 
         Args:
             firm_scope: The owning firm.
+            actor_id: Whoever ran the sweep. Required rather than synthetic:
+                the release posts a journal, and a journal with no author is
+                one nobody can ask about.
             as_of: The day to expire against.
 
         Returns:
-            How many entries lapsed.
+            How many batches lapsed.
 
         """
         today = as_of or utc_now().date()
-        already = {
-            row_id
-            for row_id in self._session.scalars(
-                select(LoyaltyEntry.reverses_id).where(
-                    LoyaltyEntry.firm_id == firm_scope,
-                    LoyaltyEntry.kind == LoyaltyEntryKind.EXPIRED.value,
-                    LoyaltyEntry.reverses_id.is_not(None),
-                )
-            ).all()
-        }
         lapsed = 0
-        for entry in self._session.scalars(
-            select(LoyaltyEntry).where(
-                LoyaltyEntry.firm_id == firm_scope,
-                LoyaltyEntry.is_deleted.is_(False),
-                LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
-                LoyaltyEntry.expires_on.is_not(None),
-                LoyaltyEntry.expires_on < today,
+        for customer_id in self._customers_with_lapsing_points(
+            firm_scope=firm_scope, today=today
+        ):
+            lapsed += self._expire_for(
+                customer_id, firm_scope=firm_scope, today=today, actor_id=actor_id
             )
-        ).all():
-            if entry.id in already:
-                continue
-            self._session.add(
-                LoyaltyEntry(
-                    firm_id=firm_scope,
-                    customer_id=entry.customer_id,
-                    kind=LoyaltyEntryKind.EXPIRED.value,
-                    points=-entry.points,
-                    amount=ZERO,
-                    earned_on=today,
-                    reverses_id=entry.id,
-                    remarks=f"Earned {entry.earned_on}, lapsed {entry.expires_on}.",
-                    created_by=None,
-                    updated_by=None,
-                )
-            )
-            lapsed += 1
         if lapsed:
             self._session.commit()
         return lapsed
+
+    def _customers_with_lapsing_points(
+        self, *, firm_scope: UUID, today: date
+    ) -> list[UUID]:
+        """Whose batches are past their date. One pass, not one per customer."""
+        return list(
+            self._session.scalars(
+                select(LoyaltyEntry.customer_id)
+                .where(
+                    LoyaltyEntry.firm_id == firm_scope,
+                    LoyaltyEntry.is_deleted.is_(False),
+                    LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+                    LoyaltyEntry.expires_on.is_not(None),
+                    LoyaltyEntry.expires_on < today,
+                )
+                .group_by(LoyaltyEntry.customer_id)
+            ).all()
+        )
+
+    def _expire_for(
+        self, customer_id: UUID, *, firm_scope: UUID, today: date, actor_id: UUID
+    ) -> int:
+        """Lapse one customer's unspent, out-of-date batches."""
+        entries = list(
+            self._session.scalars(
+                select(LoyaltyEntry)
+                .where(
+                    LoyaltyEntry.firm_id == firm_scope,
+                    LoyaltyEntry.customer_id == customer_id,
+                    LoyaltyEntry.is_deleted.is_(False),
+                )
+                .order_by(LoyaltyEntry.earned_on.asc(), LoyaltyEntry.id.asc())
+            ).all()
+        )
+        batches = [row for row in entries if row.kind == LoyaltyEntryKind.EARNED.value]
+        # What each batch has already had taken off it by a previous sweep.
+        # Those name their batch, so they are attributed rather than pooled.
+        taken: dict[UUID, Decimal] = {}
+        for row in entries:
+            if row.kind == LoyaltyEntryKind.EXPIRED.value and row.reverses_id:
+                taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) + abs(
+                    Decimal(str(row.points))
+                )
+        # Everything else that took points off: redemptions, and adjustments
+        # that reduced the balance. Allocated oldest batch first.
+        pool = sum(
+            (
+                abs(Decimal(str(row.points)))
+                for row in entries
+                if row.kind != LoyaltyEntryKind.EXPIRED.value
+                and Decimal(str(row.points)) < ZERO
+            ),
+            ZERO,
+        )
+        lapsed = 0
+        for batch in batches:
+            held = Decimal(str(batch.points)) - taken.get(batch.id, ZERO)
+            spent_here = min(pool, max(held, ZERO))
+            pool -= spent_here
+            remaining = held - spent_here
+            if remaining <= ZERO:
+                continue
+            if batch.expires_on is None or batch.expires_on >= today:
+                continue
+            self._lapse(
+                batch,
+                remaining,
+                firm_scope=firm_scope,
+                today=today,
+                actor_id=actor_id,
+            )
+            lapsed += 1
+        return lapsed
+
+    def _lapse(
+        self,
+        batch: LoyaltyEntry,
+        points: Decimal,
+        *,
+        firm_scope: UUID,
+        today: date,
+        actor_id: UUID,
+    ) -> None:
+        """Write one lapse, and hand back the cost it raised."""
+        points = quantize_money(points)
+        earned = Decimal(str(batch.points))
+        # Pro-rata, because only part of the batch may be lapsing.
+        worth = quantize_ledger(
+            Decimal(str(batch.amount)) * points / earned if earned else ZERO
+        )
+        entry = LoyaltyEntry(
+            firm_id=firm_scope,
+            customer_id=batch.customer_id,
+            kind=LoyaltyEntryKind.EXPIRED.value,
+            points=-points,
+            amount=worth,
+            earned_on=today,
+            reverses_id=batch.id,
+            remarks=f"Earned {batch.earned_on}, lapsed {batch.expires_on}.",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(entry)
+        self._session.flush()
+        posted = self._posting.post_loyalty(
+            firm_id=firm_scope,
+            entry_id=entry.id,
+            reference=f"LOY-EXP-{entry.id}",
+            on=today,
+            amount=worth,
+            earning=False,
+            expiring=True,
+            actor_id=actor_id,
+        )
+        entry.journal_entry_id = None if posted is None else posted.id
+        record_audit(
+            self._session,
+            action="loyalty.expired",
+            entity_type="loyalty_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data=self._entry_snapshot(entry),
+        )
+        self._session.flush()
 
     # ---- internals -----------------------------------------------------
 

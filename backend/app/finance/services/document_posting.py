@@ -147,6 +147,11 @@ LOYALTY_REDEEM_PURPOSES = (
     ControlAccountPurpose.LOYALTY_PAYABLE,
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
 )
+#: Points that ran out of time. The mirror of the accrual rather than of a
+#: redemption: nothing was settled, so the liability is released and the cost
+#: it raised comes back. Without it `Loyalty Payable` keeps a debt no customer
+#: can ever claim, growing with every sweep.
+LOYALTY_EXPIRY_PURPOSES = LOYALTY_EARN_PURPOSES
 
 #: Tax collected at source. The buyer owes it on top of the bill, so it raises
 #: a receivable rather than reducing one -- collecting it is not the same event
@@ -1866,8 +1871,9 @@ class DocumentPostingService:
         amount: Decimal,
         earning: bool,
         actor_id: UUID,
+        expiring: bool = False,
     ) -> JournalEntry | None:
-        """Post points being earned or spent.
+        """Post points being earned, spent, or run out of time.
 
         Earning is `Dr Loyalty Expense / Cr Loyalty Payable`: a scheme costs
         the firm money the moment it promises the credit, not whenever the
@@ -1890,6 +1896,10 @@ class DocumentPostingService:
             amount: What the points are worth.
             earning: True for points earned, False for points spent.
             actor_id: The user recording it.
+            expiring: True for points that lapsed. Reverses the accrual --
+                `Dr Loyalty Payable / Cr Loyalty Expense` -- because nothing
+                was settled and the credit can never be claimed. Not the
+                mirror of a redemption, which takes a receivable down.
 
         Returns:
             The posted entry, or None where there is nothing to post.
@@ -1901,10 +1911,20 @@ class DocumentPostingService:
         total = quantize_ledger(quantize_money(amount))
         if total == ZERO:
             return None
-        purposes = LOYALTY_EARN_PURPOSES if earning else LOYALTY_REDEEM_PURPOSES
+        if expiring:
+            purposes = LOYALTY_EXPIRY_PURPOSES
+        elif earning:
+            purposes = LOYALTY_EARN_PURPOSES
+        else:
+            purposes = LOYALTY_REDEEM_PURPOSES
         accounts = self._require_mapping(firm_id, purposes)
         context = self.context_for(firm_id, on)
-        if earning:
+        if expiring:
+            # The accrual, run backwards: the debt goes and the cost with it.
+            debit = accounts[ControlAccountPurpose.LOYALTY_PAYABLE]
+            credit = accounts[ControlAccountPurpose.LOYALTY_EXPENSE]
+            what = "Loyalty lapsed"
+        elif earning:
             debit = accounts[ControlAccountPurpose.LOYALTY_EXPENSE]
             credit = accounts[ControlAccountPurpose.LOYALTY_PAYABLE]
             what = "Loyalty earned"

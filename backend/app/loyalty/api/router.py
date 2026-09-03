@@ -142,7 +142,9 @@ def expire(
     Safe to run twice: each expiry names the entry it takes, so a second sweep
     cannot take the same points again.
     """
-    lapsed = LoyaltyService(db).expire(firm_scope=scope.firm_id)
+    lapsed = LoyaltyService(db).expire(
+        firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
     return ApiResponse(data={"expired": lapsed}, message=f"{lapsed} entries lapsed.")
 
 

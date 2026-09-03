@@ -662,6 +662,7 @@ which nothing did until the endpoint published an ETag.
 | 34–35 | **the cancel paths** (`goods_receipt`, `purchase_return`, `sales_return`, `delivery_note`) | 2026-08-22 | a cancelled receipt credited inventory with a number no movement removed, putting a seeded store 2,287.42 out in one request; two siblings carried the same shape | yes |
 | 37 | **every ledger posting**, against one rule | 2026-08-22 | a leg facing stock is valued from the movement; all three reversals broke it | yes |
 | 38 | `promotions` | 2026-09-03 | **three findings, one root cause: a promotion's identity is its `version_group_id`, and three checks used the row id.** Editing a published coupon-gated offer silently orphaned every code in circulation (109.00 → 10.00 on a driven line); its redemption caps reset to zero on the same edit, so an exhausted campaign became fully available again; and retiring an offer left its codes ACTIVE in the list, naming a retired offer and giving nothing | yes |
+| 39 | `loyalty` | 2026-09-03 | **two findings in the expiry sweep.** It wrote back the whole earned batch without asking how much of it was still there, so a batch the customer had already spent lapsed a second time and left them holding **negative points** -- the balance is a sum with no floor and redeeming is refused above it, so the sweep was the only way below zero. And nothing released the liability the points raised, so `Loyalty Payable` kept a debt no customer could ever claim: measured at **936.31** across nine lapsed batches in WHOLE01, against 49 earnings that had all posted | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -1051,3 +1052,61 @@ still live on another row, and that distinction was driven both ways.
 too, so its equivalent checks are the first thing to read in that module's next
 pass. Finding 3 generalises further: **every soft delete in the nine new
 modules should be asked what points at the row afterwards.**
+
+
+### 39 `loyalty` — the sweep, and what it forgot to give back
+
+Reviewed 2026-09-03, second of the nine. Chosen because it is a ledger with a
+payable account behind it, and because #194 had already found its two books
+drifting once -- the redemption that moved the control account while the
+customer's own balance stayed put.
+
+Baseline: 9 files, 1,174 lines, 7 endpoints, two tables, 19 tests, clean under
+ruff and mypy.
+
+**What was already right**, checked rather than assumed: all three permission
+codes seeded; nothing reads a platform table on the tenant session; nothing
+calls `date.today()` -- `expire` documents its own use of `utc_now()` and the
+reason; no update dumps its whole write model; the balance is derived and
+there is no column to disagree with it; `expiry_months` NULL really does mean
+never rather than today; and the sweep was already idempotent, naming the
+entry it takes through `reverses_id`.
+
+**Finding 1: expiry took points that had already been spent.** `expire` wrote
+`points=-entry.points` -- the whole batch -- without asking how much of it was
+left. Earn 100, spend 100, let the batch lapse, and the customer holds **-100
+points** for credit they had legitimately used. `balance` sums the ledger with
+no floor, and `redeem` refuses anything above the balance, so this sweep was
+the only route below zero, and it took it silently.
+
+The fix allocates spending **oldest batch first**, which is both the ordinary
+treatment and the reason it cannot simply cap at the customer's balance: a
+customer holding one lapsing batch and one fresh one, who spent the older
+one's worth, should keep the fresh one in full. Capping at the balance would
+have taken the batch with a year left on it. That case is a test of its own.
+
+**Finding 2: nothing released the liability.** Earning posts
+`Dr Loyalty Expense / Cr Loyalty Payable`, deliberately, so a scheme's cost
+lands in the month it was incurred. Nothing reversed that when the credit ran
+out of time, so the payable kept a debt no customer could ever claim.
+`post_loyalty` had exactly two modes and expiry was neither. Measured in
+WHOLE01: nine lapsed batches worth **936.31** when earned, **none** carrying a
+journal, against 49 earnings that had all posted one. A lapse now posts the
+accrual in reverse, pro-rated for the share of the batch that lapsed.
+
+**Two process notes, both mistakes made here.**
+
+The API response for a loyalty entry carries no `journal_entry_id`, so an
+early reading of "nine expiries, none with a journal" was drawn from a field
+that does not exist in the payload -- every row would have looked that way.
+The claim was only worth anything once it came from the database. **Ask
+whether the absence you are reading is in the data or in the shape of the
+response.**
+
+And `expire` commits internally, so the probe script's `session.rollback()`
+could not undo it: two runs left an artificial batch, spend and lapse in
+WHOLE01, and its journals with them. Removed by hand -- the rows were
+identifiable because a seeded earning or redemption always names an invoice
+and a hand-written one does not -- and `verify_sample_data.py` green
+afterwards, with the store back to its 49 / 7 / 9. **A driver that calls a
+committing service is not a dry run**, whatever the last line of it says.
