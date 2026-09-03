@@ -663,6 +663,7 @@ which nothing did until the endpoint published an ETag.
 | 37 | **every ledger posting**, against one rule | 2026-08-22 | a leg facing stock is valued from the movement; all three reversals broke it | yes |
 | 38 | `promotions` | 2026-09-03 | **three findings, one root cause: a promotion's identity is its `version_group_id`, and three checks used the row id.** Editing a published coupon-gated offer silently orphaned every code in circulation (109.00 → 10.00 on a driven line); its redemption caps reset to zero on the same edit, so an exhausted campaign became fully available again; and retiring an offer left its codes ACTIVE in the list, naming a retired offer and giving nothing | yes |
 | 39 | `loyalty` | 2026-09-03 | **two findings in the expiry sweep.** It wrote back the whole earned batch without asking how much of it was still there, so a batch the customer had already spent lapsed a second time and left them holding **negative points** -- the balance is a sum with no floor and redeeming is refused above it, so the sweep was the only way below zero. And nothing released the liability the points raised, so `Loyalty Payable` kept a debt no customer could ever claim: measured at **936.31** across nine lapsed batches in WHOLE01, against 49 earnings that had all posted | yes |
+| 40 | `commission` | 2026-09-03 | **one finding, and it is a race.** `_assert_period_is_free` reads and `accrue` writes with nothing between them and no constraint behind them, so two requests that both check before either commits both pass -- driven on WHOLE01, leaving one salesman holding two live payouts for one month, which pays the same collections twice. Everything else the module claims was checked and holds | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -1110,3 +1111,69 @@ identifiable because a seeded earning or redemption always names an invoice
 and a hand-written one does not -- and `verify_sample_data.py` green
 afterwards, with the store back to its 49 / 7 / 9. **A driver that calls a
 committing service is not a dry run**, whatever the last line of it says.
+
+
+### 40 `commission` — the arithmetic holds; the month-end button does not
+
+Reviewed 2026-09-03, third of the nine. Chosen because it pays people, and
+because slabs, margins, caps and six rungs of precedence are a lot of places
+for money to go wrong.
+
+Baseline: 11 files, 3,146 lines, 13 endpoints, three tables, 35 tests, clean
+under ruff and mypy.
+
+**Almost all of it was right, and each rule was read against the code rather
+than taken on trust.** `minimum_amount` returns nothing below the threshold
+and pays on the whole subtotal above it, which is the deal a zero-percent
+bottom slab would *not* express. The bonus is added before the cap, so a
+firm's ceiling still holds. The cap is applied after the ladder, so it limits
+what was earned rather than what was sold. MARGINAL charges each portion at
+its own rate and WHOLE_AMOUNT the whole subtotal at the rung reached.
+`slabs_of` orders by `from_amount` rather than `sequence` -- and says why, in
+so many words, because the `break` in the marginal loop depends on it. The
+ladder validator refuses a gap, an overlap, and a bottom rung that does not
+start at zero. PER_UNIT is refused on the COLLECTED basis and refused without
+a product or category, both with the reason in the message. Targets are summed
+against targets, and a person with nobody's number to hit is absent from the
+answer rather than False. A MARGIN rule skips a line whose cost is unknown
+rather than treating it as free, and a negative margin is floored rather than
+clawed back. Every permission code is seeded, nothing reads a platform table
+on a tenant session, nothing calls `date.today()`, no update dumps its whole
+write model.
+
+**The finding is one the code could not have shown by reading.**
+`_assert_period_is_free` runs a SELECT, `accrue` then INSERTs, and nothing sits
+between them -- no lock, and only plain indexes on the table. Two sessions on
+WHOLE01, interleaved by hand so both checked before either committed, both
+wrote: one salesman, two live payouts, one month.
+
+`app/promotions` takes `with_for_update` on the promotion for exactly this
+class of problem and `settlements` was proven against it in row 23, so the
+house standard was already there; commission was the exception. There is no
+per-salesman row to lock here, so the guard is a **partial unique index** --
+the shape `UQ_firms_code_active` and `UQ_branches_default_active` already
+take -- on `(firm_id, salesman_id, period_start, period_end)` where the row is
+live and not CANCELLED. The service check stays: it gives the message somebody
+can act on, and it covers *overlapping* periods, which no unique key can
+express. The `IntegrityError` is translated where the flush happens, so the
+loser of the race is refused by name instead of answered with a 500.
+
+**Three things this pass paid for, all worth repeating.**
+
+A partial index declared with `postgresql_where` alone is **not** partial on
+SQLite -- the clause is ignored and `create_all` builds an unconditional
+unique index, which is *stricter* than intended. It broke the documented
+behaviour that a CANCELLED payout frees the period, and the unit suite caught
+it. `sqlite_where` beside it fixes the shape on both dialects.
+
+Two pending inserts of the same key do not race in PostgreSQL: the second
+**waits** on the first transaction rather than failing. A test that inserted
+both before committing either simply hung. The interleaving to write is the
+one that happens: the second session does its *read*, the first commits, and
+only then does the second write.
+
+And an integration test that holds two connections must not share the pool
+with the fixtures. `SET search_path` rides on a pooled connection into
+whichever test gets it next, and a sibling that sets one and expects it back
+began failing as soon as this file shuffled the pool. These sessions take a
+`NullPool` engine of their own, and every statement names its schema.
