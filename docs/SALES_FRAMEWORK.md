@@ -737,6 +737,31 @@ says `target_met: null` rather than false: nobody set them a number, so there
 is nothing they missed, and paying the bonus there would hand it to everybody
 the firm never measured.
 
+## A line that is only a gift — fixed 2026-09-03
+
+Nothing charged for, goods supplied free: `quantity` zero and `free_quantity`
+two. It is the shape a "buy ten of this, get two of *that*" offer needs, and
+it can be raised by hand today — the sales order and the delivery note both
+accept it, and the note dispatches the goods.
+
+The **invoice** did not. A remaining quantity of zero read as *fully billed*
+in three places: the note-level filter hid the whole note, the per-line filter
+dropped the line, and the free-goods inheritance pro-rated the gift by a
+charged share of zero. Stock left the warehouse and the document the customer
+reads said nothing about it — the same fault the ordinary case had until
+2026-08-23, in the one shape nobody had tried.
+
+Two rules now. Such a line is **owed until an invoice line references it**,
+counted in rows rather than in quantity, because zero minus zero is zero
+however many times the gift has been stated. And where the source line charged
+for nothing, the invoice inherits the **whole** gift rather than a share of it:
+there is no share to pro-rate by.
+
+This is what "Buy X Get Y across different products" needs underneath it. The
+promotion engine's `FREE_QUANTITY` action still only gives more of the *same*
+product; giving a different one means the engine emitting a line rather than
+setting a field, and that is the next piece of work rather than a done one.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

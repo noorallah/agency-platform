@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
@@ -1898,9 +1898,23 @@ class SalesInvoiceService(TransactionalDocumentService):
             .outerjoin(invoiced, invoiced.c.line_id == DeliveryNoteLine.id)
             .where(
                 DeliveryNoteLine.is_deleted.is_(False),
-                DeliveryNoteLine.current_delivery_quantity
-                - func.coalesce(invoiced.c.taken, ZERO)
-                > ZERO,
+                or_(
+                    DeliveryNoteLine.current_delivery_quantity
+                    - func.coalesce(invoiced.c.taken, ZERO)
+                    > ZERO,
+                    # A note whose only content is a gift has no charged
+                    # quantity left from the moment it is dispatched, so the
+                    # test above hid the whole note and the goods that had
+                    # left the warehouse were never billable at all. Such a
+                    # line is owed until an invoice line references it --
+                    # counted in rows, because its quantity is zero either
+                    # way.
+                    and_(
+                        DeliveryNoteLine.current_delivery_quantity <= ZERO,
+                        DeliveryNoteLine.free_quantity > ZERO,
+                        invoiced.c.line_id.is_(None),
+                    ),
+                ),
             )
         )
 
@@ -2116,13 +2130,29 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_amount: Decimal,
         free_quantity: Decimal,
     ) -> BillableLine | None:
-        """Return one line's remaining quantity, or None if it is fully billed."""
+        """Return one line's remaining quantity, or None if it is fully billed.
+
+        A line whose whole content is a gift -- nothing charged for, goods
+        supplied free -- has a remaining quantity of zero from the moment it
+        is written, and reading that as "fully billed" excluded it from every
+        list of what a document still owes. The goods had already left the
+        warehouse, so the bill the customer reads was silent about stock that
+        was physically gone.
+
+        It is offered exactly once, counted by **invoice lines** rather than
+        by quantity: zero minus zero is zero however many times the gift has
+        already been stated, so the quantity test can never say it is done.
+        """
         already = self._already_invoiced_quantity(
             firm_id=firm_id, source_document_line_id=line_id
         )
         remaining = self._q(source_quantity - already)
         if remaining <= ZERO:
-            return None
+            gift_only = source_quantity <= ZERO < free_quantity
+            if not gift_only or self._already_invoiced(
+                firm_id=firm_id, source_document_line_id=line_id
+            ):
+                return None
         return BillableLine(
             source_document_line_id=line_id,
             line_number=line_number,
@@ -2161,6 +2191,29 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         )
         return self._q(total or ZERO)
+
+    def _already_invoiced(
+        self, *, firm_id: UUID, source_document_line_id: UUID
+    ) -> bool:
+        """Say whether any live invoice line already bills this source line.
+
+        Counted in rows, not in quantity. A line whose whole content is a gift
+        bills a quantity of zero, so summing quantities can never tell the
+        first statement of it from the second.
+        """
+        found = self._session.scalar(
+            select(SalesInvoiceLine.id)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoiceLine.source_document_line_id == source_document_line_id,
+            )
+            .limit(1)
+        )
+        return found is not None
 
     def _conversion_factor(self, spec: dict[str, object]) -> Decimal:
         return self._q(Decimal(str(spec.get("conversion_factor", Decimal("1")))))
@@ -2229,8 +2282,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         asked = spec.get("free_quantity")
         if asked is None:
-            if offered <= ZERO or source_quantity <= ZERO:
+            if offered <= ZERO:
                 return ZERO
+            if source_quantity <= ZERO:
+                # The source line charged for nothing, so there is no share to
+                # pro-rate by: what it supplied free is the whole of what it
+                # supplied. Returning zero here dropped the gift off the bill
+                # entirely while the goods had already been dispatched.
+                return offered
             return self._q(offered * invoice_quantity / source_quantity)
         claimed = self._q(Decimal(str(asked)))
         if claimed > offered:
