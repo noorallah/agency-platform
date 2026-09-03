@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -67,6 +69,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   List<TaxHistoryRecord> _history = const [];
   TaxSettingsRecord? _settings;
   TaxRuleSimulationResultRecord? _simulationResult;
+  /// Whether retired rows are listed. Off by default, because a list of
+  /// live tax systems is what somebody configuring tax wants to see.
+  bool _showRetired = false;
   TaxSystemRecord? _selectedSystem;
   TaxComponentRecord? _selectedComponent;
   TaxProfileRecord? _selectedProfile;
@@ -77,6 +82,11 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   bool get _canCreate =>
       widget.hasActiveFirm && widget.permissions.hasPermission('TAX_CREATE');
   bool get _canDelete => widget.permissions.hasPermission('TAX_DELETE');
+
+  /// Bringing a retired record back is its own authority server-side, so the
+  /// screen asks the same question: offering an action that would answer 403
+  /// wastes the user's time twice.
+  bool get _canRestore => widget.permissions.hasPermission('TAX_RESTORE');
   bool get _canSettings =>
       widget.permissions.hasPermission('TAX_MANAGE_SETTINGS');
   bool get _canRuleCreate =>
@@ -142,6 +152,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       switch (widget.section) {
         case TaxManagementSection.systems:
           final data = await widget.api.taxSystems(
+            includeDeleted: _showRetired,
             page: _page,
             search: _search.text.trim(),
           );
@@ -153,6 +164,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
             _systems = (await widget.api.taxSystems(page: 1)).items;
           }
           final data = await widget.api.taxComponents(
+            includeDeleted: _showRetired,
             page: _page,
             search: _search.text.trim(),
           );
@@ -164,6 +176,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
             _systems = (await widget.api.taxSystems(page: 1)).items;
           }
           final data = await widget.api.taxProfiles(
+            includeDeleted: _showRetired,
             page: _page,
             search: _search.text.trim(),
           );
@@ -338,6 +351,19 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
               ToolbarAction.refresh => true,
               _ => false,
             },
+        trailing: [
+          if (_supportsRetired)
+            FilterChip(
+              label: const Text('Show retired'),
+              selected: _showRetired,
+              onSelected: _loading
+                  ? null
+                  : (value) {
+                      setState(() => _showRetired = value);
+                      _load(requestedPage: 1);
+                    },
+            ),
+        ],
         onAction: (action) {
           switch (action) {
             case ToolbarAction.newItem:
@@ -421,6 +447,15 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
         TaxManagementSection.history => 'Track tax framework changes.',
       };
 
+  /// Restore, offered only on a row that is actually retired.
+  ///
+  /// `contextActionsFor` rather than `contextActions`, so a live row does not
+  /// carry an action that would do nothing to it.
+  List<WorkspaceContextAction> _rowActions(bool isDeleted) =>
+      isDeleted && _canRestore
+          ? const [WorkspaceContextAction.restore]
+          : const [];
+
   Widget _systemsGrid() {
     if (_systems.isEmpty) {
       return const StandardEmptyState(type: EmptyStateType.noRecords);
@@ -446,6 +481,12 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       selectedId: _selectedSystem?.id,
       onSelect: (item) => setState(() => _selectedSystem = item),
       onOpen: _openSystemEdit,
+      contextActionsFor: (item) => _rowActions(item.isDeleted),
+      onContextAction: (action, item) {
+        if (action == WorkspaceContextAction.restore) {
+          unawaited(_restore(item.id));
+        }
+      },
       onPageChanged: (offset) =>
           _load(requestedPage: offset ~/ _rowsPerPage + 1),
     );
@@ -476,6 +517,12 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       selectedId: _selectedComponent?.id,
       onSelect: (item) => setState(() => _selectedComponent = item),
       onOpen: _openComponentEdit,
+      contextActionsFor: (item) => _rowActions(item.isDeleted),
+      onContextAction: (action, item) {
+        if (action == WorkspaceContextAction.restore) {
+          unawaited(_restore(item.id));
+        }
+      },
       onPageChanged: (offset) =>
           _load(requestedPage: offset ~/ _rowsPerPage + 1),
     );
@@ -506,6 +553,12 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       selectedId: _selectedProfile?.id,
       onSelect: (item) => setState(() => _selectedProfile = item),
       onOpen: _openProfileEdit,
+      contextActionsFor: (item) => _rowActions(item.isDeleted),
+      onContextAction: (action, item) {
+        if (action == WorkspaceContextAction.restore) {
+          unawaited(_restore(item.id));
+        }
+      },
       onPageChanged: (offset) =>
           _load(requestedPage: offset ~/ _rowsPerPage + 1),
     );
@@ -974,6 +1027,54 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
         ),
       ),
     );
+  }
+
+  /// The sections whose rows are soft-deleted and can be brought back.
+  ///
+  /// A retired tax system, component or profile vanished from every list and
+  /// nothing could restore it -- the endpoints existed and no screen reached
+  /// them, so from the desktop a soft delete behaved like a permanent one.
+  bool get _supportsRetired => const {
+        TaxManagementSection.systems,
+        TaxManagementSection.components,
+        TaxManagementSection.profiles,
+      }.contains(widget.section);
+
+  /// Bring a retired row back.
+  ///
+  /// Offered on the row rather than the toolbar: it applies to one retired
+  /// record, and `ToolbarAction` is a framework enum shared by every
+  /// workspace in the shell.
+  Future<void> _restore(String id) async {
+    try {
+      switch (widget.section) {
+        case TaxManagementSection.systems:
+          await widget.api.restoreTaxSystem(id);
+          break;
+        case TaxManagementSection.components:
+          await widget.api.restoreTaxComponent(id);
+          break;
+        case TaxManagementSection.profiles:
+          await widget.api.restoreTaxProfile(id);
+          break;
+        default:
+          return;
+      }
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Brought back.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
+    }
   }
 
   Future<void> _openCreate() async {

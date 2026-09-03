@@ -519,6 +519,7 @@ class _PurchaseApi extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? taxSystemId,
+    bool includeDeleted = false,
   }) async =>
       const PagedResult(
         items: [

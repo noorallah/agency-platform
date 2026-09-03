@@ -388,6 +388,9 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? status,
+    /// Retired rows are hidden by default, which is right for a picker.
+    /// A screen offering to bring one back has to be able to show it.
+    bool includeDeleted = false,
   }) =>
       _list(
         '/api/v1/tax-framework/systems',
@@ -397,7 +400,10 @@ class ApiClient {
         pageSize: pageSize,
         sortBy: sortBy,
         descending: descending,
-        additionalQuery: {if (status != null) 'status': status},
+        additionalQuery: {
+          if (status != null) 'status': status,
+          if (includeDeleted) 'include_deleted': 'true',
+        },
       );
 
   Future<TaxSystemRecord> createTaxSystem(Json data) async =>
@@ -439,6 +445,9 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? taxSystemId,
+    /// Retired rows are hidden by default, which is right for a picker.
+    /// A screen offering to bring one back has to be able to show it.
+    bool includeDeleted = false,
   }) =>
       _list(
         '/api/v1/tax-framework/components',
@@ -451,6 +460,7 @@ class ApiClient {
         additionalQuery: {
           if (taxSystemId != null && taxSystemId.isNotEmpty)
             'tax_system_id': taxSystemId,
+          if (includeDeleted) 'include_deleted': 'true',
         },
       );
 
@@ -493,6 +503,9 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? taxSystemId,
+    /// Retired rows are hidden by default, which is right for a picker.
+    /// A screen offering to bring one back has to be able to show it.
+    bool includeDeleted = false,
   }) =>
       _list(
         '/api/v1/tax-framework/profiles',
@@ -505,6 +518,7 @@ class ApiClient {
         additionalQuery: {
           if (taxSystemId != null && taxSystemId.isNotEmpty)
             'tax_system_id': taxSystemId,
+          if (includeDeleted) 'include_deleted': 'true',
         },
       );
 
