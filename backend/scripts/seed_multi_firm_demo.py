@@ -683,6 +683,15 @@ def _ensure_firm(
         select(Firm).where(Firm.code == blueprint.code, Firm.is_deleted.is_(False))
     )
     if existing is not None:
+        # Backfilled where it is missing, never overwritten. A firm seeded
+        # before this field carried a GSTIN has none, and **no invoice of
+        # theirs can be registered with the tax authority at all** -- the
+        # payload builder refuses it by name, which is right and is also a
+        # demo that cannot show the feature working.
+        if not (existing.gst_number or "").strip():
+            existing.gst_number = _gstin(blueprint.code, 1)
+            existing.updated_by = actor_id
+            session.commit()
         return existing
     return firm_service.create(
         FirmCreate(
@@ -697,6 +706,14 @@ def _ensure_firm(
             contact_email=f"hello@{blueprint.code.lower()}.agency.local",
             contact_phone=_phone(blueprint.branch_phone_seed),
             currency_code="INR",
+            # The firm's own GSTIN, in the same state (29) the seeded
+            # customers carry. Without it no invoice could be registered with
+            # the tax authority at all -- and the state has to match, because
+            # every seeded sale is taxed CGST + SGST, which is an intra-state
+            # supply. A firm in one state selling to a customer in another
+            # with that tax on it is a document the portal refuses, and the
+            # payload builder refuses it first, by name.
+            gst_number=_gstin(blueprint.code, 1),
             financial_year_start=date(2026, 4, 1),
             deployment_mode=blueprint.deployment_mode,
             database_name=blueprint.database_name,
@@ -1242,13 +1259,23 @@ def _seed_customers(
 ) -> None:
     service = CustomerService(session)
     for index, customer_name in enumerate(blueprint.customer_names, start=1):
-        if session.scalar(
-            select(Customer.id).where(
+        existing = session.scalar(
+            select(Customer).where(
                 Customer.firm_id == firm.id,
                 Customer.code == f"{firm.code}C{index:02d}",
                 Customer.is_deleted.is_(False),
             )
-        ):
+        )
+        if existing is not None:
+            # Backfilled where missing, never overwritten -- the third place
+            # this run needed it. A customer seeded before the field carried a
+            # GSTIN has none, and **no invoice to them can be registered with
+            # the tax authority**, which is a demo that cannot show the
+            # feature working rather than a defect in the feature.
+            if not (existing.gst_number or "").strip():
+                existing.gst_number = _gstin(f"{firm.code}C", index)
+                existing.updated_by = actor_id
+                session.commit()
             continue
         service.create(
             CustomerCreate(
@@ -1936,6 +1963,13 @@ def _seed_products(
             # exception: they are what decides whether history creates any
             # batches at all, so a store seeded before they existed would take
             # the new setting and produce nothing, silently.
+            #
+            # The HSN code is the second exception, and for the same shape of
+            # reason: a product seeded before this field carried one keeps a
+            # NULL, and an invoice naming it **cannot be registered with the
+            # tax authority at all**. Backfilled only where it is missing, so
+            # a code somebody corrected by hand is never overwritten.
+            changed = False
             if (
                 existing.track_batch != product.requires_batch
                 or existing.require_batch_on_receipt != product.requires_batch
@@ -1944,6 +1978,11 @@ def _seed_products(
                 existing.track_batch = product.requires_batch
                 existing.require_batch_on_receipt = product.requires_batch
                 existing.require_batch_on_issue = product.requires_batch
+                changed = True
+            if not (existing.hsn_sac or "").strip() and product.hsn_sac:
+                existing.hsn_sac = product.hsn_sac
+                changed = True
+            if changed:
                 existing.updated_by = actor_id
                 session.commit()
             continue

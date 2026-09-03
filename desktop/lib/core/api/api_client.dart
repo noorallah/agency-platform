@@ -20,6 +20,7 @@ import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
+import '../../models/einvoice.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
@@ -3444,6 +3445,81 @@ class ApiClient {
 
   Future<void> deleteSalesTarget(String id) =>
       request('DELETE', '/api/v1/sales-targets/$id');
+
+  // ---- e-invoice and e-way bill ---------------------------------------
+
+  Future<PagedResult<EInvoiceRegistrationRecord>> einvoiceRegistrations({
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/einvoice/registrations',
+      query: {'page': '$page', 'page_size': '$pageSize'},
+    );
+    final dynamic data = response['data'];
+    return PagedResult<EInvoiceRegistrationRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => EInvoiceRegistrationRecord.fromJson(
+                  Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// What the portal knows about one invoice, or null where it knows nothing.
+  Future<EInvoiceRegistrationRecord?> einvoiceRegistration(String invoiceId) async {
+    final Json response =
+        await request('GET', '/api/v1/einvoice/invoices/$invoiceId');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EInvoiceRegistrationRecord.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
+  Future<EInvoiceRegistrationRecord> registerEInvoice(String invoiceId) async =>
+      EInvoiceRegistrationRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/einvoice/invoices/$invoiceId/register'),
+      ));
+
+  Future<EInvoiceRegistrationRecord> cancelEInvoice(
+    String invoiceId, {
+    required String reason,
+  }) async =>
+      EInvoiceRegistrationRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/invoices/$invoiceId/cancel',
+        body: <String, dynamic>{'reason': reason},
+      )));
+
+  Future<EWayBillRecord?> ewayBill(String invoiceId) async {
+    final Json response =
+        await request('GET', '/api/v1/einvoice/invoices/$invoiceId/eway-bill');
+    final dynamic data = response['data'];
+    return data is Map
+        ? EWayBillRecord.fromJson(Map<String, dynamic>.from(data))
+        : null;
+  }
+
+  Future<EWayBillRecord> generateEwayBill(String invoiceId, Json body) async =>
+      EWayBillRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/invoices/$invoiceId/eway-bill',
+        body: body,
+      )));
+
+  Future<EWayBillRecord> cancelEwayBill(
+    String invoiceId, {
+    required String reason,
+  }) async =>
+      EWayBillRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/einvoice/invoices/$invoiceId/eway-bill/cancel',
+        body: <String, dynamic>{'reason': reason},
+      )));
 
   // ---- credit notes ---------------------------------------------------
 

@@ -422,6 +422,42 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A sandbox registration must never read as a filing.** `app/einvoice`
+  registers invoices and raises e-way bills, and `mode` is NOT NULL on both
+  tables with **no server default** -- a default is one migration away from
+  silently being LIVE. The sandbox marks every reference it mints (`SBX...`)
+  so a number carried away from its row still says what it is, and the desktop
+  shows the mode beside it everywhere. `portal_for("LIVE")` raises rather than
+  falling back: a firm that believes it is filing must never be rehearsing.
+  The payload is refused **locally, naming the field** (no GSTIN, no HSN)
+  rather than sent to return a numeric code, and the CGST/SGST-versus-IGST
+  split is read off the two GSTINs' **state codes**, so the document and its
+  tax cannot disagree. One registration and one bill per invoice by unique
+  key; a refusal lands on the row and a retry counts the attempt; withdrawal
+  is inside 24 hours judged in UTC, and afterwards a credit note is the way.
+  Live filing needs only GSP credentials and one implementation of
+  `InvoiceRegistrationPortal`.
+- **`as_utc()` in `app/core/utils/dates.py` reads a stored timestamp.**
+  `UTCDateTime` is `DateTime(timezone=True)` and **SQLite ignores the
+  timezone**, so what PostgreSQL returns aware the unit suite returns naive.
+  Anything comparing a stored timestamp to `utc_now()` raises "can't subtract
+  offset-naive and offset-aware datetimes" in the tests and works in
+  production, or the reverse. Everything stored here is UTC, so a naive value
+  is one that lost its label leaving the database -- say so once, there.
+- **`FirmMetadataReader` carries the firm's name and GST number** as well as
+  its code and financial year. `firms` is platform-only, so a firm-owned
+  service reading it on the request session raises `relation
+  "<firm schema>.firms" does not exist` -- the eighth occurrence, caught by
+  `test_no_service_resolves_firms_on_a_tenant_session` rather than in
+  production. Any new platform fact a firm-owned service needs goes on that
+  reader, never on a fresh `select(Firm)`.
+- **A master field added later never reaches a store already seeded.**
+  `seed_multi_firm_demo.py` skips firms, customers and products that exist, so
+  the firm's GSTIN, the customers' GSTINs and one product's HSN were all
+  absent -- and **no invoice could be registered with the tax authority at
+  all** until each was backfilled. All three are now backfilled *only where
+  missing* and never overwritten, beside the batch flags which had the same
+  problem first. Expect this every time a master gains a field the demo needs.
 - **A credit note that states its lines reverses tax; the bare receivable
   adjustment does not.** `post_credit_note` posts two legs -- receivable and
   sales returns -- because a `customer_receivable_transactions` row carries one

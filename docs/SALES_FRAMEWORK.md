@@ -856,6 +856,46 @@ gave an 18.00% rate, 100 credited reversed exactly 18.00, over-crediting was
 refused naming both figures, and approving moved the customer from 11,904.64
 to 11,786.64 before cancelling put it back.
 
+## E-invoicing and e-way bills — landed 2026-09-03, in sandbox
+
+`app/einvoice` registers an approved sales invoice with the Invoice
+Registration Portal and raises the e-way bill for the goods it covers. Both
+live in one module because they share one portal, one set of credentials and
+one failure story.
+
+**Sandbox is the mode today, and nothing can mistake it for a filing.** `mode`
+is NOT NULL on both tables with **no server default** — a default is one
+migration away from silently being LIVE — and the sandbox marks every
+reference it mints (`SBX…`), so a number carried away from its row still says
+what it is. The desktop shows the mode beside the reference everywhere. Live
+filing raises rather than falling back: a firm that believes it is filing must
+never be rehearsing instead.
+
+**The payload is the part that had to be right**, and it needs no portal to
+check. It is refused **locally, naming the field** — no GSTIN on the firm or
+the customer, no HSN on a product — rather than sent to come back as a numeric
+code somebody has to look up. The CGST/SGST versus IGST split is read off the
+**two GSTINs' state codes**, so the document and the tax charged on it can
+never disagree about the same supply; an inter-state supply taxed as local is
+refused before anything is sent.
+
+Three smaller rules. **One registration per invoice** and one bill per
+invoice, by unique key: two references for one supply leave nothing to say
+which the customer holds. **A refusal lands on the row**, not only in a log,
+because the person who has to correct the invoice is looking at the invoice —
+and a retry writes over the same row and counts the attempt. And **a
+registration is withdrawn inside 24 hours**, judged in UTC; afterwards a
+credit note is how a supply is corrected.
+
+`EINVOICE_MANAGE` is not granted to `SALES_MANAGER`: reading what was
+registered is part of running a sales desk, filing with the authority is not.
+
+### What live filing still needs
+
+The GSP credentials, and a decision about which provider. `portal_for` is the
+one place to extend and `InvoiceRegistrationPortal` is the four methods a
+provider has to answer. Nothing else in the module changes.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
