@@ -896,6 +896,62 @@ The GSP credentials, and a decision about which provider. `portal_for` is the
 one place to extend and `InvoiceRegistrationPortal` is the four methods a
 provider has to answer. Nothing else in the module changes.
 
+## GST returns — landed 2026-09-03
+
+`app/gst_returns` answers what a firm declares for a period, and **stores
+nothing**. A return is a view of the documents: the moment it were stored it
+could disagree with them, so it is derived on every read from the invoices and
+credit notes as they stand. A cancelled invoice simply drops out; a credit note
+raised late appears in the month it was issued, not the month of the invoice it
+credits.
+
+`GET /api/v1/gst-returns/gstr1` fills the sections this system's data can
+honestly fill — B2B, B2CL, B2CS, CDNR, HSN and DOCS — and
+`GET /api/v1/gst-returns/gstr3b` gives the outward half of the summary. Both
+are gated on `SALES_VIEW`: reading a return means reading every sale of the
+period, which is the sales register's authority, not a new code nobody would
+think to grant.
+
+**A supply is placed by the tax it was charged, never by an address.** CGST
+with SGST is only chargeable within one state and IGST only between two, so
+the document settles the question — and for an unregistered buyer it is the
+only thing that can, there being no GSTIN to read a state code from. The first
+version read a `state_code` field the customer record does not carry, so every
+B2CS row filed with a **blank** place of supply, which the portal rejects.
+Where the tax says a border was crossed and the buyer is unregistered, the
+invoice is named in `unplaced_invoices` rather than filed with a blank cell:
+a rejection at upload with nothing to say which document caused it is the
+worst of both.
+
+**A credit note to an unregistered buyer is netted off its B2CS row**, not
+filed in CDNR and not dropped. There is nobody to reverse a claim against it.
+Dropped — which it was, on the belief that this system could not produce one
+— 3B went on deducting a credit GSTR-1 never declared, and the two returns
+could not be reconciled against each other.
+
+**3B is aggregated from the documents, not parsed out of GSTR-1's answer.**
+Parsing a report back out of its own JSON is how a summary drifts from the
+detail it summarises; both read the invoices.
+
+**Every figure that leaves the module is in rupees and paise.** Documents here
+are priced to four decimals, no portal accepts that, and the rounding happens
+once on the way out so the running totals behind it keep the scale they were
+priced at. Rounding as they accumulate would let the HSN summary and the
+invoice detail drift apart a paisa at a time.
+
+Driven against a running backend across all four demo firms and all three
+tenancy modes: each files at its own rate, and GSTR-1 net of credit notes
+equals 3B's section 3.1(a) exactly for three of them and to a paisa for the
+fourth, which is the residue of rounding each row independently.
+
+### What the module deliberately does not answer
+
+The inward half of 3B — inward supplies and input tax credit — is the
+purchase side. It is reported as *"Not derived: the purchase side files this"*
+rather than as a zero, because a zero reads as "no input credit claimed",
+which is a different declaration. Nothing here files anything with the
+authority either: this is what a firm files *from*.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

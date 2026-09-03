@@ -414,3 +414,59 @@ def test_one_firm_s_credit_notes_are_invisible_to_another() -> None:
 
     assert total == 0
     assert rows == []
+
+
+def test_a_credit_running_to_a_fraction_of_a_paisa_still_posts() -> None:
+    """The receivable ledger carries two decimals; a document carries four.
+
+    `sales_invoice` hit this and fixed it privately, `sales_return` carried
+    the identical defect untouched, and this was the third copy -- an approved
+    credit note whose total ran past two decimals raised a pydantic error
+    rather than posting, so the whole approval failed. Invisible until a
+    seeded credit note reached it, which is what the demo history is for.
+    """
+    books = _Books(_session_factory()())
+    books.customer.current_outstanding = Decimal("1180.00")
+    books.session.commit()
+    # 231.66 plus 18% is 273.3588 -- four decimals, which the receivable
+    # ledger's schema refuses outright.
+    note = books.note("231.66")
+
+    CreditNoteService(books.session).approve_note(
+        note.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+    books.session.refresh(books.customer)
+
+    # And rounded the way the journal rounded it, so the two books agree.
+    assert books.customer.current_outstanding == Decimal("906.6400")
+
+
+def test_the_receivable_and_the_journal_credit_the_same_amount() -> None:
+    """Rounding a sum is not always rounding the parts.
+
+    The journal rounds the taxable value and the tax separately and adds
+    them; a receivable rounding the document total instead can land a paisa
+    away, and nothing then says which of the two books is right.
+    """
+    books = _Books(_session_factory()())
+    books.customer.current_outstanding = Decimal("10000.00")
+    books.session.commit()
+    note = books.note("231.665")
+
+    CreditNoteService(books.session).approve_note(
+        note.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+    books.session.refresh(books.customer)
+    row = books.session.get(CreditNote, note.id)
+    assert row is not None
+    receivable_credit = Decimal("10000.00") - books.customer.current_outstanding
+    posted = books.session.scalars(
+        select(JournalLine).where(JournalLine.journal_entry_id == row.journal_entry_id)
+    ).all()
+    ledger_credit = sum(
+        (Decimal(str(leg.credit_amount)) for leg in posted), Decimal("0")
+    )
+
+    assert receivable_credit == ledger_credit

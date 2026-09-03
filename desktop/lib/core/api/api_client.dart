@@ -3521,6 +3521,33 @@ class ApiClient {
         body: <String, dynamic>{'reason': reason},
       )));
 
+  // ---- GST returns ----------------------------------------------------
+
+  /// Outward supplies for a period, section by section.
+  ///
+  /// Nothing is stored, so there is no id to hold on to: the answer is built
+  /// from the invoices and credit notes on every read.
+  Future<Json> gstr1({
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/gstr1',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  /// The outward half of the summary return for the same period.
+  Future<Json> gstr3b({
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/gstr3b',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
   // ---- credit notes ---------------------------------------------------
 
   Future<PagedResult<CreditNoteRecord>> creditNotes({

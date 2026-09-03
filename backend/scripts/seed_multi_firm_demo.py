@@ -1982,6 +1982,15 @@ def _seed_products(
             if not (existing.hsn_sac or "").strip() and product.hsn_sac:
                 existing.hsn_sac = product.hsn_sac
                 changed = True
+            # And the third of the same shape. A product seeded before the
+            # firm had a tax profile keeps a NULL group code, `TaxRuleService`
+            # then matches no rule for it, and **every sale of it is billed
+            # with no GST at all** -- WHOLE01's toothpaste went two financial
+            # years that way, 37,105 of supplies, and nothing said so until a
+            # GST return reported a nil-rated row nobody had asked for.
+            if not (existing.tax_profile_group_code or "").strip():
+                existing.tax_profile_group_code = tax_profile.group_code
+                changed = True
             if changed:
                 existing.updated_by = actor_id
                 session.commit()

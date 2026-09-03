@@ -82,6 +82,12 @@ from app.core.tenancy import (
     TenantContext,
 )
 from app.core.utils.dates import utc_now
+from app.credit_note.schemas import (
+    CreditNoteCreate,
+    CreditNoteLineWrite,
+    CreditNoteReasonEnum,
+)
+from app.credit_note.services import CreditNoteService
 from app.customers.models import Customer
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
@@ -195,6 +201,8 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_quotation_notes",
     "sales_quotation_lines",
     "sales_quotations",
+    "credit_note_lines",
+    "credit_notes",
     "sales_return_attachments",
     "sales_return_notes",
     "sales_return_lines",
@@ -381,6 +389,7 @@ class Tally:
     promotions: int = 0
     sales_invoices: int = 0
     sales_returns: int = 0
+    credit_notes: int = 0
     receipts: int = 0
     targets: int = 0
     payouts: int = 0
@@ -398,6 +407,7 @@ class Tally:
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
+            f"CN {self.credit_notes} | "
             f"TGT {self.targets} | PAY {self.payouts}"
         )
 
@@ -498,6 +508,7 @@ class HistoryBuilder:
         self._quotation_cycle = 0
         #: Which invoices see part of the goods come back.
         self._return_cycle = 0
+        self._credit_cycle = 0
         #: Which receipts send part of the goods back to the supplier.
         self._vendor_return_cycle = 0
         self._today = utc_now().date()
@@ -1444,6 +1455,11 @@ class HistoryBuilder:
             on=on + timedelta(days=7),
             firm_id=firm_id,
         )
+        self._credit_something(
+            invoice=approved,
+            on=on + timedelta(days=11),
+            firm_id=firm_id,
+        )
 
     def _quote_and_convert(
         self,
@@ -1619,6 +1635,78 @@ class HistoryBuilder:
             self._session.rollback()
             return
         self._tally.sales_returns += 1
+        self._session.commit()
+
+    def _credit_something(
+        self,
+        *,
+        invoice: SalesInvoiceResponse,
+        on: date,
+        firm_id: UUID,
+    ) -> None:
+        """Credit a little value back without any goods moving.
+
+        `credit_notes` held zero rows in every store the day the module
+        shipped, and the GSTR-1 CDNR section reads that table -- so a whole
+        return section was answering empty everywhere, which looks identical
+        to a firm that issued no credit notes. Every defect this repo has
+        found in a sales module was found because a seeded document reached
+        it.
+
+        Deliberately **not** a sales return. A return moves stock; this is a
+        rate agreed after the bill went out, so value and its tax come off and
+        the warehouse never hears about it. Seeding both is what makes the
+        difference visible in the data rather than only in the docs.
+
+        One invoice in five, and a small slice of one line, because a credit
+        for the whole line is the case that hides whether the tax is reversed
+        in proportion to what is being credited.
+        """
+        self._credit_cycle += 1
+        if self._credit_cycle % 5 != 0:
+            return
+        line = self._session.scalar(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == invoice.id
+            )
+        )
+        if line is None:
+            return
+        charged = (
+            Decimal(str(line.gross_amount or "0"))
+            - Decimal(str(line.discount_amount or "0"))
+            - Decimal(str(line.bill_discount_amount or "0"))
+        )
+        # A tenth of the line, to the paisa, and never nothing.
+        credited = (charged / 10).quantize(Decimal("0.01"))
+        if credited <= 0:
+            return
+        notes = CreditNoteService(self._session)
+        try:
+            row = notes.create_note(
+                CreditNoteCreate(
+                    sales_invoice_id=invoice.id,
+                    credit_note_date=on,
+                    reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+                    remarks="Rate revised after the bill was raised.",
+                    lines=[
+                        CreditNoteLineWrite(
+                            sales_invoice_line_id=line.id,
+                            line_number=1,
+                            quantity=Decimal("0"),
+                            taxable_amount=credited,
+                        )
+                    ],
+                ),
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            notes.approve_note(row.id, firm_scope=firm_id, actor_id=ACTOR)
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{on} credit note: {error}")
+            self._session.rollback()
+            return
+        self._tally.credit_notes += 1
         self._session.commit()
 
     def _collect(

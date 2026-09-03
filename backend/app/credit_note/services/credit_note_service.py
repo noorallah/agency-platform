@@ -18,7 +18,7 @@ from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.core.utils.money import ZERO, quantize_money
+from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.credit_note.schemas import (
     CreditNoteCreate,
@@ -352,7 +352,19 @@ class CreditNoteService(TransactionalDocumentService):
             CustomerReceivableTransactionCreate(
                 transaction_type="CREDIT_NOTE",
                 transaction_date=row.credit_note_date,
-                amount=Decimal(str(row.total_amount)),
+                # The receivable ledger carries two decimals and a document
+                # carries four. `sales_invoice` and `sales_return` each hit
+                # this and each fixed it privately; this is the third copy,
+                # and it was invisible until a seeded credit note reached it.
+                #
+                # Rounded the way the journal rounded it -- each part, then
+                # summed -- rather than by rounding the document total. The
+                # two books are recording one credit, and rounding a sum is
+                # not always rounding the parts, so doing it differently
+                # leaves the receivable and the ledger a paisa apart with
+                # nothing to say which is right.
+                amount=quantize_ledger(row.taxable_amount)
+                + quantize_ledger(row.tax_amount),
                 reference_number=row.credit_note_number,
                 remarks=row.remarks,
             ),

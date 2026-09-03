@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -127,6 +127,16 @@ SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
   SELECT coalesce(sum(l.bill_discount_amount), 0) FROM sales_invoice_lines l
   WHERE l.sales_invoice_id = i.id);   -- must be 0
 ```
+
+**`CN` should read 9.** Credit notes arrived on 2026-09-03 and every store
+held zero of them, so the GSTR-1 CDNR section answered empty everywhere --
+which looks exactly like a firm that has issued none. One invoice in five is
+credited a tenth of a line, as a rate agreed after the bill went out:
+deliberately not a sales return, because a return moves stock and this does
+not, and seeding both is what makes the difference visible in the data rather
+than only in the docs. The first run of it found the third copy of the
+four-decimals-into-a-two-decimal-receivable defect, which had made every
+approval of such a note fail outright.
 
 **`TGT` and `PAY` should read 2 and 2.** Targets and commission payouts
 arrived on 2026-09-03, and before that every store held zero of both: no firm
@@ -235,6 +245,10 @@ answers for whichever schema the connection is pointed at.
   sales that no longer exist. A payout references the journal entries the
   reset clears, so one that outlived them would be a debt the books cannot
   explain.
+- **`credit_notes` and `credit_note_lines` are in the reset order**, before
+  the sales returns, because a credit note points at an invoice and at a
+  journal entry the reset clears. That is the fourth table set to arrive with
+  a feature; assume the fifth will too.
 - **`promotion_redemptions` and `promotion_coupons` were missing from the
   reset order** until 2026-09-03, so `--reset` failed outright on any firm
   whose documents had claimed an offer -- a foreign key violation, not a quiet
