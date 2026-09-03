@@ -59,7 +59,9 @@ def _session_factory() -> sessionmaker[Session]:
 class _Books:
     """A firm with a chart, a customer and one approved invoice."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, *, freight: str = "0", charges: str = "0"
+    ) -> None:
         """Seed everything a credit note needs to have something to credit."""
         self.session = session
         self.actor_id = uuid4()
@@ -105,10 +107,17 @@ class _Books:
         )
         session.add_all([self.branch, self.customer, self.product])
         session.commit()
-        self.invoice, self.line = self._invoice()
+        self.invoice, self.line = self._invoice(freight=freight, charges=charges)
 
-    def _invoice(self) -> tuple[SalesInvoice, SalesInvoiceLine]:
-        """Bill 10 at 100 with 18% tax, and approve it."""
+    def _invoice(
+        self, *, freight: str = "0", charges: str = "0"
+    ) -> tuple[SalesInvoice, SalesInvoiceLine]:
+        """Bill 10 at 100 with 18% tax, and approve it.
+
+        `freight` and `charges` are part of what the line was taxed on --
+        `SalesInvoiceService._line_net_amount` adds both to the base -- so a
+        test about what may be credited has to be able to put them there.
+        """
         invoice = SalesInvoice(
             firm_id=self.firm.id,
             customer_id=self.customer.id,
@@ -134,7 +143,15 @@ class _Books:
             current_invoice_quantity=Decimal("10"),
             unit_price=Decimal("100"),
             gross_amount=Decimal("1000"),
-            tax_amount=Decimal("180"),
+            freight_amount=Decimal(freight),
+            charges_amount=Decimal(charges),
+            # 18% of everything the invoice taxes: gross less discounts, plus
+            # the delivery charge and the line charges.
+            tax_amount=(
+                (Decimal("1000") + Decimal(freight) + Decimal(charges))
+                * Decimal("18")
+                / Decimal("100")
+            ),
             net_amount=Decimal("1180"),
         )
         self.session.add(line)
@@ -470,3 +487,106 @@ def test_the_receivable_and_the_journal_credit_the_same_amount() -> None:
     )
 
     assert receivable_credit == ledger_credit
+
+
+# ---------------------------------------------------------------------------
+# What a line was charged, when the charge included delivery
+# ---------------------------------------------------------------------------
+#
+# Found by the 2026-09-03 module review. `_charged_taxable` returned
+# `gross - discount - bill_discount`, which was the whole taxable value until
+# #191 put freight inside it. `SalesInvoiceService` taxes
+# `gross - discounts + charges_amount + freight_amount`, so the credit note
+# was working from a smaller base than the tax it is reversing was computed
+# on.
+
+
+def _freighted() -> "_Books":
+    """Build a firm whose invoice line carries 50 of delivery, taxed with it."""
+    return _Books(_session_factory()(), freight="50")
+
+
+def test_a_line_may_be_credited_for_the_delivery_it_was_charged() -> None:
+    """The cap is what the customer was charged, delivery included.
+
+    A line of 1,000 with 50 of delivery was taxed on 1,050, so 1,050 is what
+    a full credit has to be able to take back. The cap stopped at 1,000 and
+    refused the rest -- a customer who returns the lot could not be credited
+    what they paid.
+    """
+    books = _freighted()
+
+    note = CreditNoteService(books.session).create_note(
+        CreditNoteCreate(
+            sales_invoice_id=books.invoice.id,
+            credit_note_date=WHEN,
+            reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+            lines=[
+                CreditNoteLineWrite(
+                    sales_invoice_line_id=books.line.id,
+                    line_number=1,
+                    quantity=Decimal("10"),
+                    taxable_amount=Decimal("1050"),
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    assert note is not None
+
+
+def test_the_rate_is_read_off_the_base_the_tax_was_charged_on() -> None:
+    """Delivery in the denominator, or the reversal is too big.
+
+    Tax of 189 was charged on 1,050. Dividing it by 1,000 gives 18.9%, so
+    crediting 1,000 reversed 189 of output tax where 180 was charged on that
+    part of the supply -- more tax handed back than was ever collected on it.
+    """
+    books = _freighted()
+
+    note = CreditNoteService(books.session).create_note(
+        CreditNoteCreate(
+            sales_invoice_id=books.invoice.id,
+            credit_note_date=WHEN,
+            reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+            lines=[
+                CreditNoteLineWrite(
+                    sales_invoice_line_id=books.line.id,
+                    line_number=1,
+                    quantity=Decimal("10"),
+                    taxable_amount=Decimal("1000"),
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    assert Decimal(str(note.tax_amount)) == Decimal("180.0000")
+
+
+def test_line_charges_count_the_same_way() -> None:
+    """`charges_amount` is inside the base too, and was left out with it."""
+    books = _Books(_session_factory()(), charges="100")
+
+    note = CreditNoteService(books.session).create_note(
+        CreditNoteCreate(
+            sales_invoice_id=books.invoice.id,
+            credit_note_date=WHEN,
+            reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+            lines=[
+                CreditNoteLineWrite(
+                    sales_invoice_line_id=books.line.id,
+                    line_number=1,
+                    quantity=Decimal("10"),
+                    taxable_amount=Decimal("1100"),
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    assert Decimal(str(note.tax_amount)) == Decimal("198.0000")

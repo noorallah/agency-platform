@@ -557,15 +557,26 @@ class CreditNoteService(TransactionalDocumentService):
     def _charged_taxable(source: SalesInvoiceLine) -> Decimal:
         """Return what an invoice line was charged for, before tax.
 
-        Gross less both discounts, which is the figure the tax was computed
-        on. Reading `net_amount` instead would include the tax and let a
-        credit note credit the tax twice -- once inside the taxable value and
-        once as the reversal beside it.
+        Exactly the base `SalesInvoiceService._line_net_amount` hands the tax
+        engine: gross, less both discounts, **plus the line's charges and its
+        share of the delivery charge**. Reading `net_amount` instead would
+        include the tax and let a credit note credit it twice -- once inside
+        the taxable value and once as the reversal beside it.
+
+        The two charges were missing until the 2026-09-03 review. Freight
+        moved inside the taxable value in #191 and this was not moved with it,
+        which cost twice over: the cap stopped short of what the customer was
+        actually charged, so a full credit was refused; and `_tax_rate`
+        divided the line's tax by a base that excluded them, inflating the
+        rate and reversing more output tax than had been collected on the
+        part being credited.
         """
         return quantize_money(
             Decimal(str(source.gross_amount))
             - Decimal(str(source.discount_amount))
             - Decimal(str(source.bill_discount_amount))
+            + Decimal(str(source.charges_amount))
+            + Decimal(str(source.freight_amount))
         )
 
     @staticmethod

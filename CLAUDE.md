@@ -709,6 +709,20 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   all** until each was backfilled. All three are now backfilled *only where
   missing* and never overwritten, beside the batch flags which had the same
   problem first. Expect this every time a master gains a field the demo needs.
+- **A credit note reverses tax on the base the invoice taxed, charges and
+  freight included.** `_charged_taxable` returned `gross - discount -
+  bill_discount`, which was the whole taxable value until #191 moved
+  `freight_amount` inside it; `charges_amount` had never been there. Since
+  `SalesInvoiceService._line_net_amount` hands the tax engine
+  `gross - discounts + charges + freight`, the credit note was working from a
+  smaller base than the tax it reverses was charged on, and it cost twice: the
+  cap refused a full credit of what the customer actually paid, and `_tax_rate`
+  -- tax over that base -- came out inflated, so crediting 1,000 of a 1,050
+  base reversed 189 of output tax where 180 was collected. Found by the
+  2026-09-03 review. **Nothing was wrong when it was written**; another
+  module's arithmetic moved underneath it, which is the thing to check
+  whenever a taxable base changes -- grep the fields rather than trusting that
+  a helper still means what its name says.
 - **A credit note that states its lines reverses tax; the bare receivable
   adjustment does not.** `post_credit_note` posts two legs -- receivable and
   sales returns -- because a `customer_receivable_transactions` row carries one

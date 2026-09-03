@@ -664,6 +664,7 @@ which nothing did until the endpoint published an ETag.
 | 38 | `promotions` | 2026-09-03 | **three findings, one root cause: a promotion's identity is its `version_group_id`, and three checks used the row id.** Editing a published coupon-gated offer silently orphaned every code in circulation (109.00 → 10.00 on a driven line); its redemption caps reset to zero on the same edit, so an exhausted campaign became fully available again; and retiring an offer left its codes ACTIVE in the list, naming a retired offer and giving nothing | yes |
 | 39 | `loyalty` | 2026-09-03 | **two findings in the expiry sweep.** It wrote back the whole earned batch without asking how much of it was still there, so a batch the customer had already spent lapsed a second time and left them holding **negative points** -- the balance is a sum with no floor and redeeming is refused above it, so the sweep was the only way below zero. And nothing released the liability the points raised, so `Loyalty Payable` kept a debt no customer could ever claim: measured at **936.31** across nine lapsed batches in WHOLE01, against 49 earnings that had all posted | yes |
 | 40 | `commission` | 2026-09-03 | **one finding, and it is a race.** `_assert_period_is_free` reads and `accrue` writes with nothing between them and no constraint behind them, so two requests that both check before either commits both pass -- driven on WHOLE01, leaving one salesman holding two live payouts for one month, which pays the same collections twice. Everything else the module claims was checked and holds | yes |
+| 41 | `credit_note` | 2026-09-03 | **one finding: the module reversed tax on a smaller base than the tax was charged on.** `_charged_taxable` returned gross less discounts, which was the whole taxable value until #191 moved freight inside it and nothing moved this with it; `charges_amount` had never been there. It cost twice -- the cap refused a full credit of what the customer was actually charged, and the derived rate was inflated, so crediting 1,000 of a 1,050 base reversed 189 of output tax where 180 was collected | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -1177,3 +1178,67 @@ with the fixtures. `SET search_path` rides on a pooled connection into
 whichever test gets it next, and a sibling that sets one and expects it back
 began failing as soon as this file shuffled the pool. These sessions take a
 `NullPool` engine of their own, and every statement names its schema.
+
+
+### 41 `credit_note` — reversing tax on a base the tax was never charged on
+
+Reviewed 2026-09-03, fourth of the nine. Chosen because it is the one module
+whose whole purpose is to reverse a tax that has already been declared, which
+makes an arithmetic slip in it a filing error rather than an internal one.
+
+Baseline: 9 files, 1,259 lines, 6 endpoints, two tables, 15 tests, clean under
+ruff and mypy.
+
+**Most of it was right, and each claim was read against the code.** It moves
+no stock at all, and says so in three places -- that is a sales return, and
+conflating them would put a movement behind a document the warehouse never
+saw. Approval posts the journal, writes the receivable and sets the status in
+one transaction, flushing rather than committing so the router owns it. The
+receivable amount is `quantize_ledger(taxable) + quantize_ledger(tax)` --
+rounding the parts, not the sum, which is the third copy of that defect and
+the only one that was fixed before it shipped. The journal carries three legs,
+the middle one only when there is tax to reverse. Cancelling mirrors the
+entry, which is right here precisely because no stock is involved, and puts
+the balance back from the stored deltas. The cap counts DRAFTs, so a draft
+holds its claim, and excludes the note being edited. `CREDIT_NOTE_APPROVE` is
+seeded and deliberately withheld from `SALES_MANAGER`. And `_tax_rate` is
+derived from what the line was actually charged rather than read from a
+profile that may since have been edited -- exactly the right instinct.
+
+**Which is what makes the finding sharp.** `_tax_rate` divides the line's tax
+by `_charged_taxable`, and `_charged_taxable` returned
+
+    gross - discount_amount - bill_discount_amount
+
+That was the entire taxable value when the module was written. It is not any
+more: `SalesInvoiceService._line_net_amount` hands the tax engine
+`gross - discounts + charges_amount + freight_amount`, freight having moved
+inside the taxable value in #191 -- and `charges_amount` had never been
+accounted for at all. So the credit note was reversing tax on a smaller base
+than the tax it was reversing had been charged on, and it cost twice over:
+
+- **The cap stopped short of what the customer paid.** A line of 1,000 with 50
+  of delivery was taxed on 1,050, and a credit note could take back only
+  1,000. A customer returning the lot could not be credited what they were
+  charged.
+- **The derived rate was inflated.** 189 of tax over a base of 1,000 reads as
+  18.9%, so crediting 1,000 reversed 189 of output tax where 180 had been
+  collected on that part of the supply -- more tax handed back than was ever
+  taken.
+
+The fix is one line: the base the credit note works from is the base the
+invoice taxed. Worth noticing *how* it happened -- nothing was wrong when it
+was written, and #191 changed the meaning of "taxable" underneath it. **A
+figure derived from another module's arithmetic has to be re-read whenever
+that arithmetic moves**, and grep for the fields rather than trusting that a
+helper called `_charged_taxable` still means what its name says.
+
+**One exposure left open deliberately.** The cap is a read-then-write with no
+lock: two credit notes drafted concurrently against one invoice line both see
+the room and both take it. That is the third instance of the shape rows 39 and
+40 found (`loyalty.redeem`, `commission.accrue`), and unlike commission's it
+cannot be closed with a unique index -- the cap is a *sum* across notes, which
+no key expresses, so it needs a lock on the invoice line. Left for a
+cross-cutting pass rather than a third ad-hoc fix at the end of a long day; the
+exposure is also the smallest of the three, because credit notes are drafted
+deliberately one at a time rather than by a button two people press at once.
