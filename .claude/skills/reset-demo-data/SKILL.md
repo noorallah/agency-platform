@@ -73,6 +73,17 @@ One firm on its own, which is much faster:
 
 `--firm` is repeatable. Without `--reset` it appends to whatever is there.
 
+**`--reset` on its own leaves the firm with no opening stock, and it will not
+match its siblings.** Opening stock is history, so the reset clears it, and
+only `seed_multi_firm_demo.py` lays it back down -- only that script holds the
+blueprint saying which products sit on the day-one shelf and how many. A firm
+regenerated alone therefore trades from goods receipts only and quietly loses
+the dispatches those receipts cannot cover: WHOLE01 comes out at **DN 57**
+against **SO 58** where the full seed gives 58 for all four. The script says so
+now, in a note above the shortfall it causes, and names the script to run
+instead. Reach for the standalone path to regenerate quickly while iterating;
+reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
+
 ## What a good run looks like
 
 ```
