@@ -1015,6 +1015,47 @@ report slightly different counts because a buyer crosses the threshold on their
 own trading, which differs by tax rate and unit factor — the one number in the
 tally that legitimately varies between them.
 
+## Customer statements and receivables ageing — landed 2026-09-03
+
+Two questions with different shapes, so two answers rather than one report
+trying to be both. A **statement** is a movement — what the account stood at,
+everything that happened to it in date order, what it stands at now
+(`GET /api/v1/customers/{id}/statement`). An **ageing** is a position — which
+bills are still unpaid and for how long (`GET /api/v1/customers/ageing`,
+declared above `/{customer_id}` or FastAPI reads "ageing" as a customer id).
+
+**The running balance is recomputed in date order, never read off
+`outstanding_after`.** That column is a snapshot taken when the row was
+written, in the order things were *recorded*; a statement is read in the order
+things were *dated*. Money arriving against a bill raised last month is
+recorded after it and dated before it, so believing the snapshot shows a
+balance that never existed on any day. The opening balance is summed from the
+deltas before the period — the same arithmetic that produced the current
+balance, so the two cannot drift.
+
+**What a bill still owes comes off the allocations**, because this repo
+deliberately stores it nowhere, and a **reversed settlement cleared nothing**:
+counting it would report a bill as paid that the firm has no money for. Age
+runs from the invoice's own due date where it has one and from its date
+otherwise — a bill with no terms is due when it is raised — and `as_of`
+defaults to today in **UTC**.
+
+**The ageing row reconciles against the account, and says how.** They are not
+the same number: a credit note or a sales return reduces the account and sits
+on no invoice, and tax collected at source raises it without being billed at
+all. Driven against the demo, one customer's bills came to 27,150.98 while
+their account stood at 21,230.48 — two reports about one customer disagreeing
+by 5,920.50 with nothing to explain it. The row now carries
+`account_balance`, `unapplied_credits` and `charges_not_billed`, and
+`total_outstanding - unapplied_credits + charges_not_billed` is the account
+balance exactly. The buckets always sum to `total_outstanding`; the last one is
+open-ended, because a debt older than the final boundary still has to appear
+somewhere.
+
+An unapplied advance is reported **beside** the closing balance rather than
+folded into it: netting them hides money the customer is entitled to have
+applied.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
