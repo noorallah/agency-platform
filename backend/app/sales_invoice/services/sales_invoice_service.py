@@ -50,6 +50,7 @@ from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
+from app.loyalty.services import LoyaltyService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
@@ -653,6 +654,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         """Approve one sales invoice and commit it."""
         row = self.stage_approval(invoice_id, firm_scope=firm_scope, actor_id=actor_id)
         self._session.commit()
+        # Credit the customer for the sale. Staged, so an approved bill and
+        # a credit that did not happen cannot both be true -- and it posts,
+        # because a scheme costs the firm money the moment it promises the
+        # points rather than whenever they are spent.
+        LoyaltyService(self._session).stage_earning(
+            row, firm_id=firm_scope, actor_id=actor_id
+        )
         return row
 
     def stage_approval(

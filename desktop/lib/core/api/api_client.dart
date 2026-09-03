@@ -3607,6 +3607,48 @@ class ApiClient {
         body: <String, dynamic>{'reason': reason},
       )));
 
+  // ---- loyalty ---------------------------------------------------------
+
+  /// What one customer holds, and whether they can spend it.
+  ///
+  /// `redeemable` is answered by the server, so this screen never offers a
+  /// redemption the service would refuse.
+  Future<Json> loyaltyBalance(String customerId) async =>
+      _unwrapMap(await request('GET', '/api/v1/loyalty/$customerId'));
+
+  Future<Json> loyaltySettings() async =>
+      _unwrapMap(await request('GET', '/api/v1/loyalty/settings'));
+
+  Future<List<Json>> loyaltyEntries({String? customerId}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/loyalty/entries',
+      query: <String, String>{
+        'page': '1',
+        'page_size': '100',
+        if (customerId != null) 'customer_id': customerId,
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
+  /// Spend a customer's credit against one of their bills.
+  Future<Json> redeemLoyalty({
+    required String invoiceId,
+    required String points,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/loyalty/redeem',
+        body: <String, dynamic>{
+          'sales_invoice_id': invoiceId,
+          'points': points,
+        },
+      ));
+
   // ---- customer statement and ageing -----------------------------------
 
   /// One customer's account movement over a period.

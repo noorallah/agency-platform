@@ -135,6 +135,19 @@ CREDIT_NOTE_DOCUMENT_PURPOSES = (
 
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
+#: A loyalty scheme. Earning costs the firm money there and then, which is
+#: what makes the cost land in the month it was incurred rather than whenever
+#: customers happen to collect; redeeming settles a receivable with credit the
+#: firm already owed.
+LOYALTY_EARN_PURPOSES = (
+    ControlAccountPurpose.LOYALTY_EXPENSE,
+    ControlAccountPurpose.LOYALTY_PAYABLE,
+)
+LOYALTY_REDEEM_PURPOSES = (
+    ControlAccountPurpose.LOYALTY_PAYABLE,
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+)
+
 #: Tax collected at source. The buyer owes it on top of the bill, so it raises
 #: a receivable rather than reducing one -- collecting it is not the same event
 #: as being paid it.
@@ -1839,6 +1852,88 @@ class DocumentPostingService:
             ],
             source_module="tcs",
             source_id=collection_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_loyalty(
+        self,
+        *,
+        firm_id: UUID,
+        entry_id: UUID,
+        reference: str,
+        on: date,
+        amount: Decimal,
+        earning: bool,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post points being earned or spent.
+
+        Earning is `Dr Loyalty Expense / Cr Loyalty Payable`: a scheme costs
+        the firm money the moment it promises the credit, not whenever the
+        customer gets round to spending it, so the cost lands in the month it
+        was incurred.
+
+        Redeeming is `Dr Loyalty Payable / Cr Accounts Receivable`: the
+        customer settles part of a bill with credit the firm already owed
+        them. **No tax moves either way** -- the supply is worth what it is
+        worth and the full tax was charged on it. Treating a redemption as a
+        discount instead would reduce the taxable value and so the GST the
+        firm collects, which is a decision about tax rather than about
+        loyalty.
+
+        Args:
+            firm_id: The owning firm.
+            entry_id: The ledger entry this posts for.
+            reference: The journal reference, unique per entry.
+            on: The date it happened.
+            amount: What the points are worth.
+            earning: True for points earned, False for points spent.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total == ZERO:
+            return None
+        purposes = LOYALTY_EARN_PURPOSES if earning else LOYALTY_REDEEM_PURPOSES
+        accounts = self._require_mapping(firm_id, purposes)
+        context = self.context_for(firm_id, on)
+        if earning:
+            debit = accounts[ControlAccountPurpose.LOYALTY_EXPENSE]
+            credit = accounts[ControlAccountPurpose.LOYALTY_PAYABLE]
+            what = "Loyalty earned"
+        else:
+            debit = accounts[ControlAccountPurpose.LOYALTY_PAYABLE]
+            credit = accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE]
+            what = "Loyalty redeemed"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=on,
+            reference_number=reference,
+            description=f"{what} {reference}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=debit,
+                    debit_amount=total,
+                    description=f"{what} {reference}",
+                ),
+                JournalLineData(
+                    ledger_account_id=credit,
+                    credit_amount=total,
+                    description=f"{what} {reference}",
+                ),
+            ],
+            source_module="loyalty",
+            source_id=entry_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

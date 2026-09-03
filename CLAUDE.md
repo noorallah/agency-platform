@@ -434,6 +434,25 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   rather than claiming to. Waived whole or not at all, so two offers cannot
   waive it twice -- and the waived amount counts towards `benefit_amount`,
   since a campaign that gave away shipping cost the firm exactly that.
+- **Loyalty and cashback are one ledger, and redeeming settles a bill rather
+  than discounting it.** `app/loyalty` holds a firm's scheme and every movement
+  of credit under it; what a firm calls the scheme is a matter of the
+  conversion rate. The design turns on the tax: a redemption **settles** the
+  bill, so the supply is worth what it is worth and the full GST is charged --
+  treating it as a discount would reduce the taxable value and so the tax
+  collected, which is a decision about tax and not one this module makes
+  quietly. **Points cost the firm money when earned, not when spent**
+  (`Dr Loyalty Expense 5700 / Cr Loyalty Payable 2600`), so a scheme's cost
+  lands in the month it was incurred; redeeming is `Dr Loyalty Payable /
+  Cr Accounts Receivable` **and** a `LOYALTY` receivable transaction, because
+  the journal alone moves the control account while the customer's own balance
+  stays put -- the two books then drift by every redemption, which
+  `verify_sample_data.py` caught within minutes of the seed running. The
+  balance is the sum of the ledger and never a column; a redemption is refused
+  rather than trimmed; an adjustment posts nothing because it corrects a count
+  rather than a transaction; and expiry is a sweep that names the entry it
+  takes, so it can be run twice. `expiry_months` NULL means points never
+  expire -- zero would mean they expire the day they are earned.
 - **A margin rule needs a cost the invoice remembers, and NULL is not zero.**
   `commission_rules.measure` is VALUE or MARGIN; MARGIN pays on the money less
   what the goods cost, which is a different arrangement rather than a

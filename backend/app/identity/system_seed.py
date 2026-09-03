@@ -238,6 +238,18 @@ PERMISSION_GROUPS = {
         # sells does not set it.
         "PROMOTION_MANAGE",
     ),
+    "loyalty": (
+        "LOYALTY_VIEW",
+        # Spending a customer's credit settles a bill with money the firm owes
+        # them, so it is its own authority rather than part of reading a
+        # balance.
+        "LOYALTY_MANAGE",
+        # The conversion rate decides what every customer's credit is worth.
+        # Deliberately not granted to `SALES_MANAGER`, on the same reasoning
+        # as the credit policy: whoever the scheme constrains must not be able
+        # to rewrite what a point is worth.
+        "LOYALTY_MANAGE_SETTINGS",
+    ),
     "tcs": (
         "TCS_VIEW",
         # The policy decides what every buyer is charged on every receipt, so
@@ -412,6 +424,10 @@ ROLE_PERMISSION_CODES = {
             # for the money -- it is part of quoting a collection. Setting the
             # rate is the firm's, like the credit policy above.
             "TCS_VIEW",
+            # Reading a customer's credit and spending it are both part of
+            # running a sales desk; deciding what a point is worth is not.
+            "LOYALTY_VIEW",
+            "LOYALTY_MANAGE",
         }
     ),
     "SALES_EXECUTIVE": frozenset(

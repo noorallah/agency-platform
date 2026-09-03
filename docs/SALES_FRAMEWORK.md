@@ -1266,6 +1266,55 @@ their 4% flat rate on everything else — which drops their effective rate from
 only told apart by looking if the numbers differ enough that nobody mistakes it
 for rounding.
 
+## Loyalty and cashback — landed 2026-09-03
+
+One ledger, not two. Points and cashback are the same subsystem seen twice — a
+balance the customer holds and can spend — and what a firm calls it is a matter
+of the conversion rate: a point worth one rupee is cashback, and a point worth
+less is a points scheme.
+
+**Redeeming settles the bill; it does not discount it.** The supply is worth what
+it is worth and the full tax is charged on it; the customer pays part of it with
+credit the firm already owes them, exactly as a gift voucher works. The
+alternative — treating a redemption as a discount — reduces the taxable value
+and so reduces the GST the firm collects, which is a decision about *tax* rather
+than about loyalty and is not one this module makes quietly.
+
+That choice is what makes the accounting honest too. **Points cost the firm
+money when they are earned, not when they are spent**: earning posts
+`Dr Loyalty Expense (5700) / Cr Loyalty Payable (2600)` and redeeming posts
+`Dr Loyalty Payable / Cr Accounts Receivable`, so a scheme's cost lands in the
+month it was incurred rather than whenever customers happen to collect.
+
+**A redemption moves both books.** The journal reduces the receivable *control
+account*; a `LOYALTY` receivable transaction reduces the customer's own balance.
+Without the second the two drift apart by every redemption —
+`verify_sample_data.py` caught exactly that within minutes of the seed running,
+reported from the other side as *"a balance moved without a journal"*.
+
+Four smaller rules:
+
+- **The balance is the sum of the ledger, never a column** — the way an
+  invoice's outstanding is the sum of its allocations.
+- **A redemption is refused rather than trimmed** when the balance or the bill
+  cannot take it. A customer told their points cleared a bill and finding
+  otherwise is worse than being told no.
+- **An adjustment posts nothing.** It corrects a count, not a transaction: the
+  money side was either already booked when the points were earned or was never
+  right to book, and booking it again would double what the scheme appears to
+  have cost.
+- **Expiry is a sweep that names what it takes**, so running it twice cannot
+  take the same points twice, and a customer can be shown what lapsed and when.
+  `expiry_months` of NULL means points never expire, which is a real choice —
+  zero would mean they expire the day they are earned.
+
+`LOYALTY_MANAGE_SETTINGS` is not granted to `SALES_MANAGER`: deciding what a
+point is worth is the firm's, on the same reasoning as the credit policy.
+
+The demo runs a scheme in every store — two points per hundred, worth a rupee
+each, a floor of fifty and a two-year life — and spends some of it on one bill
+in seven.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

@@ -103,6 +103,8 @@ from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import InventoryTransaction
+from app.loyalty.schemas import LoyaltySettingsWrite
+from app.loyalty.services import LoyaltyService
 from app.products.models import Product
 from app.proforma.schemas import ProformaCreate
 from app.proforma.services import ProformaService
@@ -219,6 +221,14 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_return_lines",
     "sales_return_sources",
     "sales_returns",
+    # Loyalty entries reference the invoices that earned and spent the
+    # points, so they go before them. The **settings** are not cleared: a
+    # scheme is an arrangement about the firm, like a commission rule, and
+    # rebuilding the trading does not change what a point is worth. This is
+    # the sixth table set to arrive with a feature and need adding here, and
+    # it was found the way the others were -- by a --reset failing outright on
+    # a foreign key the second time it ran.
+    "loyalty_entries",
     # Tax collected at source before the settlements it hangs off. The
     # settings row is *not* cleared: it is an arrangement about the firm, like
     # a commission rule, and rebuilding the trading does not change whether
@@ -408,6 +418,7 @@ class Tally:
     credit_notes: int = 0
     proformas: int = 0
     advances: int = 0
+    loyalty: int = 0
     receipts: int = 0
     tcs_collections: int = 0
     targets: int = 0
@@ -427,7 +438,7 @@ class Tally:
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
             f"CN {self.credit_notes} | PF {self.proformas} | "
-            f"ADV {self.advances} | "
+            f"ADV {self.advances} | LOY {self.loyalty} | "
             f"TCS {self.tcs_collections} | "
             f"TGT {self.targets} | PAY {self.payouts}"
         )
@@ -532,6 +543,7 @@ class HistoryBuilder:
         self._credit_cycle = 0
         self._proforma_cycle = 0
         self._advance_cycle = 0
+        self._loyalty_cycle = 0
         #: Which receipts send part of the goods back to the supplier.
         self._vendor_return_cycle = 0
         self._today = utc_now().date()
@@ -857,6 +869,73 @@ class HistoryBuilder:
             return
         self._tally.proformas += 1
         self._session.commit()
+
+    # -- loyalty --------------------------------------------------------
+
+    def run_a_loyalty_scheme(self) -> None:
+        """Put a scheme on the firm, before any bill is raised.
+
+        `loyalty_entries` would otherwise hold zero rows in every store, which
+        looks exactly like a firm that runs no scheme -- and every defect this
+        repo has found in a sales module was found because a seeded document
+        reached the code.
+
+        Two points per hundred, worth a rupee each, expiring after two years.
+        A rate that gives round numbers on the seeded totals, so a reader can
+        check the arithmetic in their head rather than trusting it.
+
+        Written on every run rather than only when missing: these are the
+        seeder's own firms and it owns their demo configuration, and a stale
+        row is what made one store's TCS fire while its identical siblings
+        collected nothing.
+        """
+        LoyaltyService(self._session).write_settings(
+            self._target.firm_id,
+            LoyaltySettingsWrite(
+                is_enabled=True,
+                points_per_amount=Decimal("2"),
+                amount_per_point=Decimal("1"),
+                minimum_redemption_points=50,
+                expiry_months=24,
+            ),
+            actor_id=ACTOR,
+        )
+
+    def _spend_some_points(
+        self, *, invoice: SalesInvoiceResponse, customer: Customer, firm_id: UUID
+    ) -> None:
+        """Let a customer settle part of a bill with what they have earned.
+
+        One bill in seven, and only what the balance and the bill can both
+        take -- the service refuses rather than trimming, so the seeder has to
+        ask for a figure that fits rather than discovering the refusal.
+        """
+        self._loyalty_cycle += 1
+        if self._loyalty_cycle % 7 != 0:
+            return
+        service = LoyaltyService(self._session)
+        held = service.balance(customer.id, firm_scope=firm_id)
+        if not held.redeemable:
+            return
+        # Half the balance, and never more than the bill is worth.
+        spendable = min(
+            (held.points / 2).quantize(Decimal("1")),
+            Decimal(str(invoice.grand_total)).quantize(Decimal("1")),
+        )
+        if spendable <= 0:
+            return
+        try:
+            service.redeem(
+                firm_scope=firm_id,
+                invoice_id=invoice.id,
+                points=spendable,
+                actor_id=ACTOR,
+            )
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"loyalty: {error}")
+            self._session.rollback()
+            return
+        self._tally.loyalty += 1
 
     # -- deposits against an order -------------------------------------
 
@@ -1656,6 +1735,7 @@ class HistoryBuilder:
         # against the bill, and applying it afterwards would leave the
         # ordinary receipt clearing an invoice the deposit had already paid.
         self._apply_the_deposit(advance=advance, invoice=approved, firm_id=firm_id)
+        self._spend_some_points(invoice=approved, customer=customer, firm_id=firm_id)
         self._collect(invoice=approved, customer=customer, on=on, firm_id=firm_id)
         # After the collection, so a return credits an invoice that has
         # already been partly settled -- which is the case that proves the
@@ -2016,6 +2096,9 @@ def build_for_firm(
     # And before a single rupee arrives, because tax collected at source is
     # charged on the receipt rather than on the bill.
     builder.collect_at_source()
+    # And before a single bill, because points are earned when one is
+    # approved.
+    builder.run_a_loyalty_scheme()
 
     cycle = 0
     for year_start in years_in_scope:
