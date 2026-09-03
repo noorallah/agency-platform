@@ -281,6 +281,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   An invoice **inherits from the line it bills** rather than re-reading the
   customer, so an edit to the master in August cannot rewrite a price agreed in
   March; a rate inherits as itself, an amount is pro-rated by the share billed.
+- **A promotion's identity is its `version_group_id`; the row is only the
+  version that is current.** An ACTIVE promotion is superseded rather than
+  edited, so anything that identifies an offer by row id breaks the moment
+  somebody changes it -- and changing it is the routine act, because there is
+  no other way. Three checks did, and the 2026-09-03 review found all three:
+  a coupon was orphaned by any edit to its offer (a driven line went from
+  109.00 to 10.00 while the code stayed listed ACTIVE), the offer's
+  `max_redemptions` and `max_redemptions_per_customer` **reset to zero** on the
+  same edit so an exhausted campaign came back to life, and retiring an offer
+  left its codes live and pointing at nothing. `_claimed` counts across the
+  version group, `_coupon_reaches` matches on it, and retiring the **last live
+  version** retires the codes that reach it -- only the last, since a
+  superseded predecessor's codes still have a live offer to reach. `app/tax`
+  supersedes the same way and carries the same column, so ask its equivalent
+  checks the same question.
 - **Promotions stack; tax does not.** `app/promotions` copies `app/tax`'s shape
   -- rule, typed condition rows, action rows, execution log -- but where the tax
   engine breaks at the first match, the promotion engine applies every matching

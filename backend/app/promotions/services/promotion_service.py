@@ -171,7 +171,10 @@ class PromotionService:
                     code=promotion.code,
                     coupon_id=(
                         coupon.id
-                        if coupon is not None and coupon.promotion_id == promotion.id
+                        if coupon is not None
+                        and self._coupon_reaches(
+                            coupon, promotion, firm_scope=firm_scope
+                        )
                         else None
                     ),
                     # What this offer alone took off, line and bill together --
@@ -320,7 +323,8 @@ class PromotionService:
         times and never approved.
         """
         if promotion.requires_coupon and (
-            coupon is None or coupon.promotion_id != promotion.id
+            coupon is None
+            or not self._coupon_reaches(coupon, promotion, firm_scope=firm_scope)
         ):
             return "This offer is claimed with a coupon, and none was presented."
         claimed = self._claimed(promotion, firm_scope=firm_scope)
@@ -335,7 +339,9 @@ class PromotionService:
             )
             if by_customer >= promotion.max_redemptions_per_customer:
                 return "This customer has claimed this offer as often as they may."
-        if coupon is not None and coupon.promotion_id == promotion.id:
+        if coupon is not None and self._coupon_reaches(
+            coupon, promotion, firm_scope=firm_scope
+        ):
             coupon_claimed = self._claimed(
                 promotion, firm_scope=firm_scope, coupon_id=coupon.id
             )
@@ -355,6 +361,32 @@ class PromotionService:
                     return "This customer has used this coupon as often as they may."
         return None
 
+    def _coupon_reaches(
+        self,
+        coupon: PromotionCoupon,
+        promotion: Promotion,
+        *,
+        firm_scope: UUID,
+    ) -> bool:
+        """Whether this code is one that claims this offer.
+
+        A coupon names a promotion **row**, and a published promotion is
+        superseded rather than edited -- so comparing row ids meant every
+        edit to a coupon-gated offer silently orphaned every code in
+        circulation, while the coupon list went on showing them ACTIVE. The
+        offer's identity is its version group, so that is what a code has to
+        match.
+        """
+        if coupon.promotion_id == promotion.id:
+            return True
+        group = self._session.scalar(
+            select(Promotion.version_group_id).where(
+                Promotion.id == coupon.promotion_id,
+                Promotion.firm_id == firm_scope,
+            )
+        )
+        return group is not None and group == promotion.version_group_id
+
     def _claimed(
         self,
         promotion: Promotion,
@@ -363,13 +395,25 @@ class PromotionService:
         customer_id: UUID | None = None,
         coupon_id: UUID | None = None,
     ) -> int:
-        """Count live claims on one offer. A reversal does not count."""
+        """Count live claims on one offer. A reversal does not count.
+
+        Counted across the offer's whole **version group**, not against the
+        row that happens to be live. A published promotion is superseded
+        rather than edited, so counting by row id gave the successor a claim
+        count of zero -- an exhausted campaign became fully available again
+        on a one-character edit, which is money given away.
+        """
         statement = (
             select(func.count())
             .select_from(PromotionRedemption)
             .where(
                 PromotionRedemption.firm_id == firm_scope,
-                PromotionRedemption.promotion_id == promotion.id,
+                PromotionRedemption.promotion_id.in_(
+                    select(Promotion.id).where(
+                        Promotion.firm_id == firm_scope,
+                        Promotion.version_group_id == promotion.version_group_id,
+                    )
+                ),
                 PromotionRedemption.is_deleted.is_(False),
                 PromotionRedemption.status == "CLAIMED",
             )
