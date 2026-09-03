@@ -422,6 +422,23 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A credit note that states its lines reverses tax; the bare receivable
+  adjustment does not.** `post_credit_note` posts two legs -- receivable and
+  sales returns -- because a `customer_receivable_transactions` row carries one
+  figure and no lines, so it has nothing to say what rate to take off. A firm
+  correcting a rate after invoicing therefore kept declaring output tax on a
+  price nobody paid. `app/credit_note` is the document that closes it:
+  `post_credit_note_document` posts the third leg. It is **not** a sales
+  return -- a return moves stock and this moves none -- and it always names
+  the invoice **and the line**, because the rate is derived from what that
+  line was actually charged rather than read off a tax profile that may since
+  have been edited. The cap is the line's charged value less what other live
+  credit notes took; **sales returns are deliberately not netted off**, since
+  a return may have sourced from a delivery note that cannot be mapped back to
+  an invoice line. Approving posts *and* moves the customer balance, or
+  neither. `CREDIT_NOTE_APPROVE` is separate from `CREDIT_NOTE_MANAGE` and not
+  granted to `SALES_MANAGER`: drafting is bookkeeping, approving reverses a
+  declared tax.
 - **A line whose whole content is a gift is not a line that has been billed.**
   Nothing charged, goods supplied free -- the shape a "buy ten of this, get
   two of that" offer needs. Such a line has a remaining quantity of zero from

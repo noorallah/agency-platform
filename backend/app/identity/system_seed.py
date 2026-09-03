@@ -161,6 +161,15 @@ PERMISSION_GROUPS = {
         # and for the same reason.
         "SALES_MANAGE_SETTINGS",
     ),
+    "credit_note": (
+        "CREDIT_NOTE_VIEW",
+        "CREDIT_NOTE_MANAGE",
+        # Approving reduces what a customer owes **and reverses tax the firm
+        # has declared to the authority**. Drafting one is bookkeeping;
+        # approving it changes a return. Separate for the same reason
+        # `COMMISSION_PAY` is separate from `COMMISSION_MANAGE`.
+        "CREDIT_NOTE_APPROVE",
+    ),
     "batch_serial": (
         "BATCH_VIEW",
         "BATCH_CREATE",
@@ -365,6 +374,10 @@ ROLE_PERMISSION_CODES = {
             # they are paid on is not theirs, the way the credit policy that
             # limits their own sales is not theirs to switch off.
             "COMMISSION_VIEW",
+            # A sales manager may draft a credit note; approving one reverses
+            # declared tax and is not theirs, the same split as commission.
+            "CREDIT_NOTE_VIEW",
+            "CREDIT_NOTE_MANAGE",
         }
     ),
     "SALES_EXECUTIVE": frozenset(
