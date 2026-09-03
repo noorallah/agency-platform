@@ -422,6 +422,47 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A return is a view of the documents, and a supply is placed by the tax it
+  was charged.** `app/gst_returns` stores nothing: GSTR-1 and the outward half
+  of 3B are derived on every read, so a cancelled invoice drops out and a
+  credit note lands in the month it was *issued*. Three rules, each of them a
+  defect found by driving it. **The place of supply is read off the tax** --
+  CGST with SGST is chargeable only within one state, IGST only between two,
+  so the document settles it, and for an unregistered buyer nothing else can;
+  the first version read a `state_code` field `customers` does not carry, so
+  every B2CS row filed a **blank** place, which the portal rejects. Where the
+  tax says a border was crossed and the buyer is unregistered, the invoice is
+  named in `unplaced_invoices` rather than filed blank. **A credit note to an
+  unregistered buyer is netted off its B2CS row**, not filed in CDNR and not
+  dropped -- dropped, on the belief this system could not produce one, 3B
+  deducted a credit GSTR-1 never declared and the two returns could not be
+  reconciled. And **3B is aggregated from the documents, never parsed out of
+  GSTR-1's own JSON**. `quantize_ledger` is the filing scale: documents carry
+  four decimals, no portal takes them, and the rounding happens once on the
+  way out or the HSN summary and the invoice detail drift apart a paisa at a
+  time. `split_components` in `app/tax/services/gst_buckets.py` is the one
+  place a component code becomes a bucket, shared with `app/einvoice`, so what
+  is filed and what was registered cannot disagree.
+- **A credit note's receivable is rounded the way its journal rounded it.**
+  Third occurrence of the four-decimals-into-a-two-decimal-receivable defect
+  -- `sales_invoice` hit it and fixed it privately, `sales_return` carried the
+  identical bug untouched, and `app/credit_note` was the third: approving a
+  note whose total ran past two decimals raised a pydantic error rather than
+  posting, so the whole approval failed. Rounding the *sum* is not rounding
+  the *parts*, so the receivable takes `quantize_ledger(taxable) +
+  quantize_ledger(tax)` -- what the journal actually credited -- or the two
+  books sit a paisa apart with nothing to say which is right. Invisible until
+  a seeded credit note reached it, which is what the demo history is for.
+- **A master field added later never reaches a store already seeded --
+  third instance, and this one billed no tax for two years.** The batch flags
+  were the first, the HSN code the second, and `tax_profile_group_code` the
+  third: WHOLE01's toothpaste was seeded before its firm had a tax profile,
+  kept a NULL, matched no tax rule, and **every sale of it was billed with no
+  GST at all** -- 37,105 of supplies across two financial years, and nothing
+  said so until a GST return reported a nil-rated row nobody had asked for.
+  `seed_multi_firm_demo.py` now backfills it beside the other two, only where
+  missing. Expect a fourth; the demo's masters are skipped on a re-run by
+  design, so every new field on one needs a backfill written with it.
 - **A sandbox registration must never read as a filing.** `app/einvoice`
   registers invoices and raises e-way bills, and `mode` is NOT NULL on both
   tables with **no server default** -- a default is one migration away from

@@ -37,6 +37,7 @@ import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
+import 'sales/gst_return_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
@@ -1929,6 +1930,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-returns' => GstReturnPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1987,6 +1993,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'E-Invoice',
           'What the tax authority knows about this firm’s invoices and their '
               'movement. A reference marked sandbox filed nothing.',
+        ),
+      'gst-returns' => (
+          'GST Returns',
+          'What this firm declares for a period, read off what it actually '
+              'sold. Nothing is stored: a cancelled invoice simply drops out.',
         ),
       'credit-notes' => (
           'Credit Notes',

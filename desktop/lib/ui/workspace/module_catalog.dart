@@ -349,6 +349,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['EINVOICE_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'gst-returns',
+          label: 'GST Returns',
+          requiredPermissions: ['SALES_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'route-types',
           label: 'Route Types',
           requiredPermissions: ['TERRITORY_VIEW'],

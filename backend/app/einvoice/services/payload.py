@@ -27,6 +27,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
+from app.tax.services.gst_buckets import TaxComponent, split_components
 
 #: The components the portal wants separated. A firm's tax framework may name
 #: them anything; these are the codes the return is filed under, matched on the
@@ -141,7 +142,16 @@ class EInvoicePayloadBuilder:
                 - Decimal(str(line.discount_amount))
                 - Decimal(str(line.bill_discount_amount))
             )
-            split = self._split(taxes.get(line.id, []))
+            split = split_components(
+                [
+                    TaxComponent(
+                        code=component.component_code,
+                        percentage=Decimal(str(component.percentage)),
+                        amount=Decimal(str(component.amount)),
+                    )
+                    for component in taxes.get(line.id, [])
+                ]
+            )
             item_list.append(
                 {
                     "SlNo": str(line.line_number),
@@ -164,25 +174,19 @@ class EInvoicePayloadBuilder:
                         )
                     ),
                     "AssAmt": float(taxable),
-                    "GstRt": float(split["rate"]),
-                    "CgstAmt": float(split[_CGST]),
-                    "SgstAmt": float(split[_SGST]),
-                    "IgstAmt": float(split[_IGST]),
-                    "CesAmt": float(split[_CESS]),
-                    "TotItemVal": float(
-                        quantize_money(
-                            taxable
-                            + split[_CGST]
-                            + split[_SGST]
-                            + split[_IGST]
-                            + split[_CESS]
-                        )
-                    ),
+                    "GstRt": float(split.rate),
+                    "CgstAmt": float(split.cgst),
+                    "SgstAmt": float(split.sgst),
+                    "IgstAmt": float(split.igst),
+                    "CesAmt": float(split.cess),
+                    "TotItemVal": float(quantize_money(taxable + split.total)),
                 }
             )
             totals["taxable"] += taxable
-            for key in (_CGST, _SGST, _IGST, _CESS):
-                totals[key] += split[key]
+            totals[_CGST] += split.cgst
+            totals[_SGST] += split.sgst
+            totals[_IGST] += split.igst
+            totals[_CESS] += split.cess
 
         if problems:
             raise ValidationError(
@@ -256,34 +260,3 @@ class EInvoicePayloadBuilder:
         ).all():
             grouped.setdefault(row.sales_invoice_line_id, []).append(row)
         return grouped
-
-    @staticmethod
-    def _split(components: list[SalesInvoiceLineTax]) -> dict[str, Decimal]:
-        """Split one line's tax into the buckets the return is filed under.
-
-        Matched on the component code the invoice actually carried, not on the
-        profile it was resolved from: a firm may rename a component, and the
-        supply was still taxed as whatever it said at the time.
-
-        The rate is the sum of the components that make up the GST rate, which
-        is what the portal expects on the item -- 9 + 9, not two rows of 9.
-        Cess is excluded from it, because the portal takes cess separately.
-        """
-        buckets: dict[str, Decimal] = {
-            _CGST: ZERO,
-            _SGST: ZERO,
-            _IGST: ZERO,
-            _CESS: ZERO,
-            "rate": ZERO,
-        }
-        for component in components:
-            code = (component.component_code or "").strip().upper()
-            bucket = next(
-                (key for key in (_CGST, _SGST, _IGST, _CESS) if key in code), None
-            )
-            if bucket is None:
-                continue
-            buckets[bucket] += quantize_money(Decimal(str(component.amount)))
-            if bucket != _CESS:
-                buckets["rate"] += Decimal(str(component.percentage))
-        return buckets
