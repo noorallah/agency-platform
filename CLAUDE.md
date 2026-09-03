@@ -422,6 +422,29 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **Tax collected at source is charged on the money, not on the bill.**
+  `app/tcs` implements 206C(1H), and the statute says "at the time of receipt
+  of such amount" -- so the event that raises it is a **receipt**, never an
+  invoice being approved, and `SettlementService.create` stages it. Putting it
+  on the invoice collects on money that may never arrive and misses money that
+  arrives against an older bill. Five rules follow. **Only the excess counts**
+  -- the first fifty lakh a buyer pays in the year attracts nothing, so a
+  receipt straddling the line pays on the part above it; charging the whole
+  receipt over-collects by the entire remaining headroom. **The running total
+  is summed from the receipts**, never a counter, net of refunds and excluding
+  the receipt being charged -- counting that one would make the first receipt
+  over the threshold pay on itself. **The financial year is the firm's own**,
+  read off `financial_year_start`, because the threshold resets with it.
+  **A seller below the turnover threshold collects nothing**, and that
+  turnover is *stated* rather than derived: the preceding year may predate
+  this system. And **the tax raises what the buyer owes** (`Dr Accounts
+  Receivable / Cr TCS Payable`, account **2500** -- not 2200, which is Output
+  Tax; TCS is filed on a different return on a different cycle). `is_enabled`
+  defaults false so shipping it charged nobody, and `TCS_MANAGE` is not
+  granted to `SALES_MANAGER` for the reason the credit policy is not.
+  The direction check is `SettlementDirection.RECEIPT`, not `"IN"` -- the
+  first version compared against a string the column never holds, so it
+  collected nothing anywhere and only the tests said so.
 - **A return is a view of the documents, and a supply is placed by the tax it
   was charged.** `app/gst_returns` stores nothing: GSTR-1 and the outward half
   of 3B are derived on every read, so a cancelled invoice drops out and a

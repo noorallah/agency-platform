@@ -354,6 +354,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'tcs',
+          label: 'TCS',
+          requiredPermissions: ['TCS_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'route-types',
           label: 'Route Types',
           requiredPermissions: ['TERRITORY_VIEW'],

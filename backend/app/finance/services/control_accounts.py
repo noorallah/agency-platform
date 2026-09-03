@@ -45,6 +45,11 @@ class ControlAccountPurpose(StrEnum):
     DISCOUNT_ALLOWED = "DISCOUNT_ALLOWED"
     COMMISSION_EXPENSE = "COMMISSION_EXPENSE"
     COMMISSION_PAYABLE = "COMMISSION_PAYABLE"
+    #: What was collected from a buyer and is owed to the government. A
+    #: liability of its own rather than Output Tax: it is not GST, it is
+    #: filed on a different return, and netting the two would put a
+    #: quarterly TCS payment inside a monthly GST one.
+    TCS_PAYABLE = "TCS_PAYABLE"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
     ROUNDING = "ROUNDING"
     CASH = "CASH"
@@ -87,6 +92,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     # firm owes nobody the moment it recognises the cost.
     ControlAccountPurpose.COMMISSION_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.COMMISSION_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.TCS_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),
