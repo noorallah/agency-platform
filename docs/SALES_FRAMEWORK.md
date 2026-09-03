@@ -1176,6 +1176,55 @@ The demo takes a deposit on one order in six, a third of its value, and applies
 it when the bill is raised — before the ordinary collection, since a deposit is
 the first money against a bill.
 
+## A delivery charge, taxed with the goods — landed 2026-09-03
+
+A distributor could not bill delivery. `additional_charges` looks like the field
+for it and is added **after** tax on every sales document, so a firm using it
+would charge no GST on the delivery — and a charge the seller makes for getting
+the goods to the buyer is part of the value of the supply. No sales document in
+any seeded store carried one, so nothing had gone out wrong; the field was
+simply unusable for this.
+
+**`freight_amount` is the mirror image of `bill_discount_amount`.** One reduces
+each line's taxable value and the other raises it; both are split across the
+lines by the same `apportion`, on the same weights — what each line is worth
+after its own discount — and both give the rounding residual to the largest line
+so the shares sum exactly to the header figure. Being *on the line* is what
+makes the tax right: a document-level figure that never touches a taxable value
+taxes nothing, which is the mistake `header_discount_amount` makes on a purchase
+order and is deliberately not copied here.
+
+Three consequences worth knowing:
+
+- **A line discounted to nothing carries no freight.** It is worth nothing to
+  deliver, and the weights say so.
+- **Freight and a bill discount do not net against each other.** Both survive on
+  the line, which is what lets a bill show what was charged and what was taken
+  off even when the two happen to cancel in the total.
+- **It carries down the chain the way the deal does** — as the header figure,
+  re-split by each document across whatever lines it ends up with. Copying each
+  line's share instead agrees only while both documents hold the same lines.
+  Like the bill discount, the caller supplies it at each step rather than the
+  downstream document reading it off its source; that is the existing
+  convention and freight follows it rather than inventing a second one.
+
+`GET /api/v1/gst-returns/*` and the e-invoice payload both include it in the
+taxable value, because leaving it out would declare less than the invoice
+charged tax on — the one way a return can be wrong that nobody notices until an
+assessment.
+
+**`additional_charges` is left exactly as it is, outside the tax.** It is for
+additions that really are outside it, and silently re-taxing it would change the
+meaning of every document that ever carries one.
+
+The demo charges 120 of delivery one month in five, on a different cycle from
+the bill discount so the two are seen apart as well as together.
+
+### What this still does not do
+
+Free shipping as a promotion. The engine can now target a charge that exists,
+which it could not before, but `PromotionActionType` has no action for it yet.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

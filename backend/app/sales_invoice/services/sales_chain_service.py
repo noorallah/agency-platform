@@ -111,6 +111,7 @@ class SalesChainService:
                 round_off=data.round_off,
                 bill_discount_percent=data.bill_discount_percent,
                 bill_discount_amount=data.bill_discount_amount,
+                freight_amount=data.freight_amount,
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -221,6 +222,7 @@ class SalesChainService:
                 round_off=data.round_off,
                 bill_discount_percent=data.bill_discount_percent,
                 bill_discount_amount=data.bill_discount_amount,
+                freight_amount=data.freight_amount,
                 lines=[
                     self._note_line(line, quantities)
                     for line in order_lines

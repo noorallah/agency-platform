@@ -137,10 +137,15 @@ class EInvoicePayloadBuilder:
             if not hsn:
                 name = getattr(product, "name", "a product")
                 problems.append(f"{name} has no HSN or SAC code")
+            # Freight is inside the taxable value: delivery charged by the
+            # seller is ancillary to the supply and is taxed with the goods,
+            # so a payload that left it out would register less than the
+            # invoice charged tax on.
             taxable = quantize_money(
                 Decimal(str(line.gross_amount))
                 - Decimal(str(line.discount_amount))
                 - Decimal(str(line.bill_discount_amount))
+                + Decimal(str(line.freight_amount))
             )
             split = split_components(
                 [
@@ -173,6 +178,9 @@ class EInvoicePayloadBuilder:
                             + Decimal(str(line.bill_discount_amount))
                         )
                     ),
+                    # The portal has a field for it, and it is part of the
+                    # assessable value above rather than an addition to it.
+                    "OthChrg": float(quantize_money(Decimal(str(line.freight_amount)))),
                     "AssAmt": float(taxable),
                     "GstRt": float(split.rate),
                     "CgstAmt": float(split.cgst),

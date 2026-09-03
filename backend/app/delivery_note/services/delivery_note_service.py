@@ -357,6 +357,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             lines=data.lines,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
+            freight_amount=data.freight_amount,
             actor_id=actor_id,
         )
         row.total_ordered_quantity = totals["total_ordered_quantity"]
@@ -448,6 +449,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             lines=data.lines,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
+            freight_amount=data.freight_amount,
             actor_id=actor_id,
         )
         row.total_ordered_quantity = totals["total_ordered_quantity"]
@@ -770,6 +772,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
+            freight_amount=row.freight_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
@@ -1093,6 +1096,43 @@ class DeliveryNoteService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _freight_shares(
+        self,
+        row: object,
+        *,
+        freight: Decimal | None,
+        taxables: list[Decimal],
+    ) -> list[Decimal]:
+        """Split what the customer is charged for delivery across the lines.
+
+        Delivery charged by the seller is ancillary to the supply of the goods,
+        so it is taxed at the goods' own rate -- which is what apportioning it
+        achieves. The mirror image of the bill discount, on the same weights
+        and through the same `apportion`, so both sets of shares sum exactly to
+        the header figures they split.
+
+        Split on what the lines are worth **after their own discounts**, the
+        same weights the bill discount uses. A line discounted to nothing
+        carries no freight, which is right: it is worth nothing to deliver.
+
+        Args:
+            row: The document, whose header figure is written back.
+            freight: What was asked for, or None for nothing.
+            taxables: What each line is worth after its own discount.
+
+        Returns:
+            One share per line, summing exactly to the freight charged.
+
+        Raises:
+            ValidationError: If the freight is negative.
+
+        """
+        amount = self._q(freight or ZERO)
+        if amount < ZERO:
+            raise ValidationError("Freight cannot be negative.")
+        row.freight_amount = amount  # type: ignore[attr-defined]
+        return apportion(amount, taxables)
+
     def _bill_discount_shares(
         self,
         row: DeliveryNote,
@@ -1126,6 +1166,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         lines: list[DeliveryNoteLineWrite],
         bill_percent: Decimal | None,
         bill_amount: Decimal | None,
+        freight_amount: Decimal | None = None,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         # Lines are matched on their line number and updated in place;
@@ -1188,9 +1229,18 @@ class DeliveryNoteService(TransactionalDocumentService):
                 for item, price, line in zip(lines, prices, priced, strict=True)
             ],
         )
+        freight = self._freight_shares(
+            row,
+            freight=freight_amount,
+            taxables=[
+                self._q(self._q(item.current_delivery_quantity) * price - line.amount)
+                for item, price, line in zip(lines, prices, priced, strict=True)
+            ],
+        )
 
         for index, item in enumerate(lines):
             bill_share = shares[index]
+            freight_share = freight[index]
             source_line = source_lines.get(item.sales_order_line_id)
             if source_line is None:
                 raise ValidationError(
@@ -1246,7 +1296,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             gross = self._q(current_qty * prices[index])
             line_discount = priced[index]
             discount = line_discount.amount
-            taxable = self._q(gross - discount - bill_share)
+            # Freight raises the taxable value; the bill discount
+            # lowers it. Both reach the line so the tax is charged on
+            # what the customer is actually being asked to pay.
+            taxable = self._q(gross - discount - bill_share + freight_share)
             tax = self._tax_amount(
                 delivery_date=row.delivery_date,
                 firm_id=row.firm_id,
@@ -1286,6 +1339,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 discount_percent=line_discount.percent,
                 discount_amount=discount,
                 bill_discount_amount=bill_share,
+                freight_amount=freight_share,
                 gross_amount=gross,
                 tax_profile_id=item.tax_profile_id,
                 tax_amount=tax,

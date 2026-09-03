@@ -643,14 +643,22 @@ class GstReturnService:
     def _taxable(line: SalesInvoiceLine) -> Decimal:
         """Return what a line was charged before tax.
 
-        Gross less both discounts, which is the figure the tax was computed
-        on. `net_amount` includes the tax, and declaring that as the taxable
-        value would over-state every supply by its own tax.
+        Gross less both discounts **plus its share of the freight**, which is
+        the figure the tax was computed on. `net_amount` includes the tax, and
+        declaring that as the taxable value would over-state every supply by
+        its own tax.
+
+        Freight belongs in here because delivery charged by the seller is
+        ancillary to the supply of the goods and is taxed with them. Leaving
+        it out would declare less than the invoice charged tax on, which is
+        the one way a return can be wrong that nobody notices until an
+        assessment.
         """
         return quantize_money(
             Decimal(str(line.gross_amount))
             - Decimal(str(line.discount_amount))
             - Decimal(str(line.bill_discount_amount))
+            + Decimal(str(line.freight_amount))
         )
 
     def _seller_state(self, firm_id: UUID) -> str:

@@ -133,6 +133,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// discounted to and splits it back across them, so the tax falls with it.
   final TextEditingController _billDiscountPercent = TextEditingController();
   final TextEditingController _billDiscountAmount = TextEditingController();
+  final TextEditingController _freightAmount = TextEditingController();
 
   final List<_LineDraft> _lines = <_LineDraft>[];
 
@@ -200,6 +201,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _remarks.dispose();
     _billDiscountPercent.dispose();
     _billDiscountAmount.dispose();
+    _freightAmount.dispose();
     super.dispose();
   }
 
@@ -298,6 +300,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     // and the payload omits it.
     _billDiscountPercent.text = _positiveOrBlank(order['bill_discount_percent']);
     _billDiscountAmount.text = _positiveOrBlank(order['bill_discount_amount']);
+    _freightAmount.text = _positiveOrBlank(order['freight_amount']);
 
     final List<dynamic> lines =
         order['lines'] is List ? order['lines'] as List : const [];
@@ -484,6 +487,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         'bill_discount_percent': _billDiscountPercent.text.trim(),
       if (_billDiscountAmount.text.trim().isNotEmpty)
         'bill_discount_amount': _billDiscountAmount.text.trim(),
+      if (_freightAmount.text.trim().isNotEmpty)
+        'freight_amount': _freightAmount.text.trim(),
       'lines': <Json>[
         for (int index = 0; index < _lines.length; index += 1)
           <String, dynamic>{
@@ -1045,6 +1050,24 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                       ),
                       'the order',
                     ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: TextFormField(
+                    controller: _freightAmount,
+                    enabled: !_locked,
+                    decoration: const InputDecoration(
+                      labelText: 'Delivery charge',
+                      // Said plainly, because it is the opposite of what the
+                      // field beside it does and the difference decides the
+                      // tax.
+                      helperText: 'Split across the lines and taxed with '
+                          'them.',
+                      helperMaxLines: 2,
+                    ),
+                    keyboardType: TextInputType.number,
                     onChanged: (_) => setState(() {}),
                   ),
                 ),
