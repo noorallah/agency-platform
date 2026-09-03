@@ -136,18 +136,26 @@ def resolve_line_discount(
         raise ValidationError(f"Discount cannot exceed {subject}.")
 
     # Derived rather than echoed, so the two figures on the line always agree.
-    # A zero-value line has no rate to speak of; recording the asked-for
-    # percentage there would divide by nothing.
+    # A zero-value line has nothing to derive from, so the rate that decided it
+    # stands -- and it is read from the branch that was actually taken rather
+    # than from a chain of `or`s.
+    #
+    # `percent or price_list_percent or customer_default or ...` is falsy for
+    # an explicit **zero**, so a line that had *refused* every arrangement fell
+    # through and recorded the customer's standing rate beside an amount of
+    # nothing. A gift line is the shape that makes it visible: a bill for
+    # nothing printing "7.5% discount". Zero is an answer here exactly as it is
+    # everywhere else in this function.
+    asked = {
+        "percent": percent,
+        "price_list": price_list_percent,
+        "customer": customer_default,
+        "customer_group": customer_group_default,
+    }.get(source)
     rate = (
         quantize_money(applied * HUNDRED / gross)
         if gross > ZERO
-        else quantize_money(
-            percent
-            or price_list_percent
-            or customer_default
-            or customer_group_default
-            or ZERO
-        )
+        else quantize_money(asked if asked is not None else ZERO)
     )
     return LineDiscount(amount=applied, percent=rate, source=source)
 

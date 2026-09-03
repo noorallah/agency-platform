@@ -283,6 +283,16 @@ class PromotionCrudService:
             PromotionActionType.BILL_DISCOUNT_AMOUNT,
         }:
             return {"amount": str(getattr(action, "amount", None))}
+        if kind is PromotionActionType.FREE_PRODUCT:
+            gift = getattr(action, "free_product_id", None)
+            return {
+                # A threshold is optional here: "spend ten thousand, get one"
+                # puts the condition on the document and asks nothing of the
+                # action, so a missing buy quantity means give it once.
+                "buy_quantity": str(getattr(action, "buy_quantity", None)),
+                "free_quantity": str(getattr(action, "free_quantity", None)),
+                "free_product_id": None if gift is None else str(gift),
+            }
         return {
             "buy_quantity": str(getattr(action, "buy_quantity", None)),
             "free_quantity": str(getattr(action, "free_quantity", None)),

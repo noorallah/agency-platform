@@ -182,3 +182,22 @@ def test_a_bill_discount_comes_off_what_the_lines_already_discounted_to() -> Non
     """
     result = resolve_bill_discount(taxable=Decimal("900"), percent=Decimal("10"))
     assert result.amount == Decimal("90.00")
+
+
+def test_a_zero_value_line_records_an_explicit_refusal_as_zero() -> None:
+    """Zero is an answer here exactly as it is everywhere else.
+
+    The rate for a zero-value line used to be read off a chain of `or`s, which
+    is falsy for an explicit zero -- so a line that had *refused* every
+    arrangement recorded the customer's standing rate beside an amount of
+    nothing. A promotion's gift line is the shape that makes it visible: a
+    bill for nothing printing "7.5% discount".
+    """
+    result = resolve_line_discount(
+        gross=Decimal("0"),
+        percent=Decimal("0"),
+        customer_default=Decimal("7.5"),
+    )
+    assert result.amount == Decimal("0.00")
+    assert result.percent == Decimal("0.00")
+    assert result.source == "percent"
