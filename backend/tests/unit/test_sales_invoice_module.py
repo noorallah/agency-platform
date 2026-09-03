@@ -1977,3 +1977,101 @@ def test_an_order_billed_in_full_drops_off_the_list() -> None:
     )
 
     assert service.billable_documents(firm_scope=setup.firm.id) == []
+
+
+def test_a_line_that_is_only_a_gift_still_reaches_the_bill() -> None:
+    """Nothing charged, goods dispatched: the bill has to say so.
+
+    A "buy ten of this, get two of that" line carries a charged quantity of
+    zero and a free quantity of two. Two units leave the warehouse, so a bill
+    that shows nothing for them is one the customer cannot reconcile against
+    what arrived -- the same fault as billing ten when eleven were delivered,
+    which this module already fixed once for the ordinary case.
+
+    Two separate things went wrong. `_invoice_free_quantity` pro-rates the
+    gift by the share being billed, and a share of zero charged units read as
+    "bill none of it" rather than "there was nothing to charge for". And the
+    line never even reached a list of what the note still owed, because a
+    remaining quantity of zero reads as fully billed from the moment such a
+    line is written.
+    """
+    setup = _Billing(_session_factory()())
+    setup.order_line.quantity = Decimal("0")
+    setup.order_line.free_quantity = Decimal("2")
+    setup.session.commit()
+
+    response = setup.bill(
+        dispatch_quantity=Decimal("0"),
+        dispatch_free=Decimal("2"),
+        quantity=Decimal("0"),
+    )
+
+    assert response.lines[0].free_quantity == Decimal("2.0000")
+    assert response.total_free_quantity == Decimal("2.0000")
+    # A gift is outside the gross and outside the tax base, so the bill is
+    # for nothing at all -- and still has to exist, because stock moved.
+    assert response.lines[0].gross_amount == Decimal("0.0000")
+    assert response.grand_total == Decimal("0.0000")
+
+
+def test_a_gift_line_is_offered_to_be_billed_exactly_once() -> None:
+    """Zero minus zero is zero however many times the gift was stated.
+
+    So the quantity test that stops an ordinary line being billed twice can
+    never stop this one, and the guard has to count invoice lines instead.
+    Without it a gift could be restated on every invoice raised against the
+    note, and a warehouse reconciling the bills would find goods it never
+    dispatched.
+    """
+    setup = _Billing(_session_factory()())
+    setup.order_line.quantity = Decimal("0")
+    setup.order_line.free_quantity = Decimal("2")
+    setup.session.commit()
+    note, note_line = setup.dispatch(Decimal("0"), Decimal("2"))
+
+    service = SalesInvoiceService(setup.session)
+    first = service.billable_documents(firm_scope=setup.firm.id)
+    offered = [
+        line
+        for document in first
+        for line in document.lines
+        if line.source_document_line_id == note_line.id
+    ]
+    assert offered, "a line that is only a gift is something the note still owes"
+
+    setup.bill(
+        dispatch_quantity=Decimal("0"),
+        dispatch_free=Decimal("2"),
+        quantity=Decimal("0"),
+    )
+
+    again = service.billable_documents(firm_scope=setup.firm.id)
+    assert not [
+        line
+        for document in again
+        for line in document.lines
+        if line.source_document_line_id == note_line.id
+    ], "and it is owed exactly once"
+
+    # Two guards stop it being stated twice and they have to agree. The one
+    # above keeps a note whose *only* content is a gift off the list at all;
+    # this is the per-line rule, which is what stops a mixed note -- a charged
+    # line still owing, beside a gift already billed -- from offering the gift
+    # again. Asserted directly because this fixture builds single-line notes,
+    # so there is no public path that reaches the second guard once the first
+    # has done its work.
+    assert (
+        service._billable_line(
+            firm_id=setup.firm.id,
+            line_id=note_line.id,
+            line_number=note_line.line_number,
+            product_id=note_line.product_id,
+            description=None,
+            source_quantity=Decimal("0"),
+            unit_price=Decimal("0"),
+            discount_percent=Decimal("0"),
+            discount_amount=Decimal("0"),
+            free_quantity=Decimal("2"),
+        )
+        is None
+    )

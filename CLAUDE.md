@@ -390,6 +390,22 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   reason this survived was that every test billed from a sales order, where
   the field is plain `quantity`, so the delivery-note path had no coverage at
   all. Found by reading a rendered bill rather than the code.
+- **A line whose whole content is a gift is not a line that has been billed.**
+  Nothing charged, goods supplied free -- the shape a "buy ten of this, get
+  two of that" offer needs. Such a line has a remaining quantity of zero from
+  the moment it is written, and three separate places read that as *fully
+  billed*: the note-level filter in `billable_documents` hid the whole note,
+  `_billable_line` dropped the line, and `_invoice_free_quantity` pro-rated
+  the gift by a charged share of zero and returned nothing. So the goods left
+  the warehouse and the document the customer reads was silent about them --
+  the same fault the ordinary case had until 2026-08-23, in the one shape
+  nobody had tried. Fixed 2026-09-03. **A gift line is owed until an invoice
+  line references it, counted in rows and never in quantity**: zero minus zero
+  is zero however many times it has been stated, so the quantity test that
+  stops an ordinary line being billed twice can never stop this one. Found by
+  driving a nil-charge line through the chain by hand, which is also the only
+  way to see it -- every fixture in the suite billed a line that charged for
+  something.
 - **A firm chooses which stages of a sale its people type**, per stage, in
   `sales_workflow_settings` -- `quotation_stage`, `sales_order_stage`,
   `delivery_note_stage`, the invoice always typed. A firm with no row types all
