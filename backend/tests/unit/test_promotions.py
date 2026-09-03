@@ -47,8 +47,13 @@ from app.promotions.schemas import (
     PromotionField,
     PromotionLineRequest,
     PromotionStatus,
+    PromotionWrite,
 )
-from app.promotions.services import CouponService, PromotionService
+from app.promotions.services import (
+    CouponService,
+    PromotionCrudService,
+    PromotionService,
+)
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -1688,3 +1693,151 @@ def test_a_coupons_cap_can_still_be_cleared_on_purpose() -> None:
     session.refresh(coupon)
     assert coupon.max_redemptions is None
     assert coupon.max_redemptions_per_customer == 5
+
+
+# ---------------------------------------------------------------------------
+# A promotion's identity is its version group, not the row it happens to be
+# ---------------------------------------------------------------------------
+#
+# `CLAUDE.md` says an ACTIVE promotion is never edited: it is superseded by a
+# new row, so a document priced in March is still explicable in September.
+# Three checks compared a *row id* instead of the version group, and each one
+# broke across that supersede. Found by the 2026-09-03 module review, and each
+# driven against a running backend before it was written here.
+
+
+def test_editing_a_published_offer_does_not_orphan_its_coupons() -> None:
+    """A coupon names the offer, not the row the offer is currently on.
+
+    Driven on WHOLE01 first: a coupon-gated promotion at 10% gave 109.00 on a
+    1,000.00 line; editing it to 12% -- which supersedes -- dropped the same
+    line to 10.00, because the coupon still pointed at the predecessor and
+    `requires_coupon` therefore saw no coupon at all.
+
+    Worse than it sounds: editing is the routine act, so every change to a
+    published coupon-gated offer silently broke every code in circulation
+    while the coupon list went on showing them ACTIVE.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+    _coupon(session, firm_id=shop.firm.id, promotion=promotion, code="SAVE10")
+
+    before = shop.line_of(shop.order(coupon_code="SAVE10"))
+    assert before.discount_amount == Decimal("100.0000")
+
+    PromotionCrudService(session).update_promotion(
+        promotion.id,
+        PromotionWrite(
+            code="WELCOME",
+            name="Welcome",
+            status=PromotionStatus.ACTIVE,
+            requires_coupon=True,
+            conditions=[],
+            actions=[
+                PromotionActionWrite(
+                    sequence=1,
+                    action_type=PromotionActionType.LINE_DISCOUNT_PERCENT,
+                    percent=Decimal("12"),
+                )
+            ],
+        ),
+        firm_scope=shop.firm.id,
+        actor_id=uuid4(),
+    )
+
+    after = shop.line_of(shop.order(coupon_code="SAVE10"))
+    assert after.discount_amount == Decimal("120.0000"), (
+        "the coupon must reach the offer's live version, not the row it was "
+        "minted against"
+    )
+
+
+def test_editing_a_published_offer_does_not_reset_its_limit() -> None:
+    """A cap counts claims against the offer, not against one of its rows.
+
+    `Promotion.max_redemptions` was counted with
+    `PromotionRedemption.promotion_id == promotion.id`, so superseding gave
+    the successor a claim count of zero -- an exhausted campaign became fully
+    available again on a one-character edit, which is money given away.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="ONLYONE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions = 1
+    session.commit()
+
+    first = shop.order()
+    SalesOrderService(session).approve_order(
+        first.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+    # Exhausted: the next order is not quoted the offer at all.
+    assert shop.line_of(shop.order()).discount_amount == Decimal("0.0000")
+
+    PromotionCrudService(session).update_promotion(
+        promotion.id,
+        PromotionWrite(
+            code="ONLYONE",
+            name="Only one",
+            status=PromotionStatus.ACTIVE,
+            max_redemptions=1,
+            conditions=[],
+            actions=[
+                PromotionActionWrite(
+                    sequence=1,
+                    action_type=PromotionActionType.LINE_DISCOUNT_PERCENT,
+                    percent=Decimal("12"),
+                )
+            ],
+        ),
+        firm_scope=shop.firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert shop.line_of(shop.order()).discount_amount == Decimal("0.0000"), (
+        "the claim already made counts against the offer, so editing it must "
+        "not hand the last one out twice"
+    )
+
+
+def test_retiring_an_offer_retires_the_codes_that_reach_it() -> None:
+    """A coupon with no live offer behind it is a code that lies.
+
+    Driven on WHOLE01: retiring the promotion took the discount from 109.00 to
+    10.00 while `GET /promotions/coupons` went on listing the code as ACTIVE
+    against the retired offer's own code. `ondelete="RESTRICT"` is no guard on
+    a soft-deleted table, so the refusal -- or in this case the cascade -- has
+    to live in the service.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+    coupon = _coupon(session, firm_id=shop.firm.id, promotion=promotion, code="SAVE10")
+
+    PromotionCrudService(session).delete_promotion(
+        promotion.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+
+    session.refresh(coupon)
+    assert coupon.is_deleted, (
+        "a code whose offer has been retired must not stay in the list " "looking live"
+    )

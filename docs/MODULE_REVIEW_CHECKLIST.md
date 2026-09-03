@@ -657,6 +657,11 @@ which nothing did until the endpoint published an ETag.
 | 27 | **optimistic concurrency** (`uom`, `tax`, `batch_serial`, `inventory`, `sales`, `business`) | 2026-08-22 | six modules were still last-one-wins. `uom` was blocked by a name: a conversion rule's published revision was exposed as `version`, which the counter needs. Renaming it to `version_number` unblocked the wiring and surfaced `InventoryService`'s private copy of the rule resolver matching a line's revision against the counter — and ordering by `product_id DESC`, the NULL-ordering defect fixed in `uom` and never carried across | yes — #115, #116; 31 updates across the six (uom 6, tax 6, sales 9, business 5, batch_serial 3, inventory 2), taking the platform to 42 endpoints accepting the header, and `publish_version` covers the services that return response models rather than rows |
 | 28 | **partial updates** (`business`, `document_framework`) | 2026-08-21 | the last eight full-dump updates. `update_profile` was the worst: it read `is_default` off the model, so renaming the default profile demoted it and left the store with no default — and a store with no default enforces nothing, so one rename would have switched off business-profile gating for every unassigned firm | yes — #114 |
 | 29 | **`vendors` editor** | 2026-08-21 | four of the six tabs described a capability in prose and offered no field: contacts, banking, tax and notes round-tripped through the API and could only be filled by import. The model dropped three of the four collections on the way in | yes — #113 |
+| 30–32 | `sales_return`, `quotation`, `diagnostics` | 2026-08-22 | see the prose section below — all three driven rather than read, and two of the three findings could only have been found that way | yes |
+| 33 | **second pass** over the nine modules reviewed 2026-08-09 | 2026-08-22 | one finding, in the data rather than the code | yes |
+| 34–35 | **the cancel paths** (`goods_receipt`, `purchase_return`, `sales_return`, `delivery_note`) | 2026-08-22 | a cancelled receipt credited inventory with a number no movement removed, putting a seeded store 2,287.42 out in one request; two siblings carried the same shape | yes |
+| 37 | **every ledger posting**, against one rule | 2026-08-22 | a leg facing stock is valued from the movement; all three reversals broke it | yes |
+| 38 | `promotions` | 2026-09-03 | **three findings, one root cause: a promotion's identity is its `version_group_id`, and three checks used the row id.** Editing a published coupon-gated offer silently orphaned every code in circulation (109.00 → 10.00 on a driven line); its redemption caps reset to zero on the same edit, so an exhausted campaign became fully available again; and retiring an offer left its codes ACTIVE in the list, naming a retired offer and giving nothing | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -982,3 +987,67 @@ server started before an edit serves the code it loaded. The first "verification
 of this fix ran against a stale process and reported the drift growing; the fix
 was fine. Restart, or check something the change added, before believing a
 result.
+
+
+### 38 `promotions` — three findings and one sentence behind them
+
+Reviewed 2026-09-03, first of the nine modules built since 2026-08-22 that the
+table had never covered (`promotions`, `pricing`, `loyalty`, `tcs`,
+`gst_returns`, `einvoice`, `credit_note`, `proforma`, `commission`). Chosen
+because it gives money away and because #198 had already turned up a real
+defect in it by accident, which is usually a sign there are more.
+
+Baseline first, per the rule at the top of this file: 12 files, 2,477 lines, 11
+endpoints, 43 tests passing, clean under ruff and mypy, six tables.
+
+**What was already right**, and checked rather than assumed: both permission
+codes are seeded; nothing reads a platform table on the tenant session;
+nothing calls `date.today()`; no update dumps its whole write model any more
+(#198 fixed the one that did); and a coupon's own status, effective window and
+two limits are all enforced, with the window judged on the **document's** date
+rather than today's. `PromotionRedemption` extends `BaseEntity`, so `claim`
+and `reverse` carry their own actor and timestamp -- they write no separate
+audit row, and that is a judgement rather than a gap, for the reason the
+loyalty ledger gives: a second copy of a fact is one that can disagree with it.
+
+**All three findings were the same sentence, unstated:**
+
+> **A promotion's identity is its `version_group_id`. The row is only the
+> version that happens to be current.**
+
+`CLAUDE.md` already says an ACTIVE promotion is superseded by a new row rather
+than edited, so that a document priced in March is still explicable in
+September. Three checks compared a row id instead, and each broke across that
+supersede:
+
+1. **A coupon was orphaned by any edit to its offer.** `requires_coupon`
+   compared `coupon.promotion_id` against the live promotion's id, so editing a
+   published coupon-gated offer left every code in circulation pointing at the
+   predecessor. Driven on WHOLE01: a 10% offer gave 109.00 on a 1,000.00 line;
+   changing it to 12% dropped the same line to 10.00, with the coupon still
+   listed ACTIVE. **This is the worst of the three because editing is the
+   routine act** -- there is no way to change a published offer that does not
+   go through supersede.
+2. **The redemption caps reset on the same edit.** `Promotion.max_redemptions`
+   and `max_redemptions_per_customer` were counted with
+   `PromotionRedemption.promotion_id == promotion.id`, so the successor started
+   at zero claims. An exhausted campaign became fully available again on a
+   one-character edit.
+3. **Retiring an offer left its codes live.** `delete_promotion` soft-deleted
+   the row and nothing else, so the coupon stayed in the list as ACTIVE,
+   naming a retired offer, giving nothing, with nothing on screen to say why --
+   `ondelete="RESTRICT"` is no guard on a soft-deleted table, which this file
+   already records for the geography masters and customer groups.
+
+The fix is the sentence: `_claimed` counts across the version group,
+`_coupon_reaches` matches on it, and retiring the **last live version** of an
+offer retires the codes that reach it. Only the last one -- retiring a
+superseded predecessor leaves the codes alone, because the offer they reach is
+still live on another row, and that distinction was driven both ways.
+
+**What this pass says about the other eight.** Finding 1 and 2 are both
+"identity is not the row", which only exists in a module that supersedes.
+`app/tax` supersedes the same way and its rules carry a `version_group_id`
+too, so its equivalent checks are the first thing to read in that module's next
+pass. Finding 3 generalises further: **every soft delete in the nine new
+modules should be asked what points at the row afterwards.**

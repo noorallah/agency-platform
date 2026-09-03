@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError
-from app.promotions.models import Promotion, PromotionAction, PromotionCondition
+from app.promotions.models import (
+    Promotion,
+    PromotionAction,
+    PromotionCondition,
+    PromotionCoupon,
+)
 from app.promotions.schemas import (
     PromotionActionResponse,
     PromotionActionType,
@@ -202,10 +207,24 @@ class PromotionCrudService:
     def delete_promotion(
         self, promotion_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
-        """Retire a promotion without removing what it already priced."""
+        """Retire a promotion without removing what it already priced.
+
+        Retiring the **last live version** of an offer retires the codes that
+        reach it. A coupon is a way of reaching an offer rather than an offer
+        in itself, so one whose offer has gone is a code that looks live in
+        the list, names a retired offer, and gives nothing -- and nothing on
+        screen says why. `ondelete="RESTRICT"` is no guard on a soft-deleted
+        table, so this has to live here.
+
+        Only the last one: retiring a superseded predecessor leaves the codes
+        alone, because the offer they reach is still live on another row.
+        """
         row = self.get_promotion(promotion_id, firm_scope=firm_scope)
         row.is_deleted = True
         row.updated_by = actor_id
+        self._session.flush()
+        if not self._has_live_version(row, firm_scope=firm_scope):
+            self._retire_codes_for(row, firm_scope=firm_scope, actor_id=actor_id)
         record_audit(
             self._session,
             action="promotion.deleted",
@@ -216,6 +235,58 @@ class PromotionCrudService:
             before_data={"code": row.code, "status": row.status},
         )
         self._session.commit()
+
+    def _has_live_version(self, row: Promotion, *, firm_scope: UUID) -> bool:
+        """Whether any version of this offer is still live."""
+        return (
+            self._session.scalar(
+                select(func.count())
+                .select_from(Promotion)
+                .where(
+                    Promotion.firm_id == firm_scope,
+                    Promotion.version_group_id == row.version_group_id,
+                    Promotion.is_deleted.is_(False),
+                )
+            )
+            or 0
+        ) > 0
+
+    def _retire_codes_for(
+        self, row: Promotion, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Retire every code that reached this offer, and say so in the trail.
+
+        Named one by one rather than in a summary row: the `sales` territory
+        review found a bulk action recording that N things changed without
+        naming any of them, and a coupon somebody is holding is exactly the
+        thing a reader will come looking for.
+        """
+        codes = self._session.scalars(
+            select(PromotionCoupon).where(
+                PromotionCoupon.firm_id == firm_scope,
+                PromotionCoupon.is_deleted.is_(False),
+                PromotionCoupon.promotion_id.in_(
+                    select(Promotion.id).where(
+                        Promotion.firm_id == firm_scope,
+                        Promotion.version_group_id == row.version_group_id,
+                    )
+                ),
+            )
+        ).all()
+        for coupon in codes:
+            coupon.is_deleted = True
+            coupon.updated_by = actor_id
+            record_audit(
+                self._session,
+                action="promotion.coupon.retired_with_offer",
+                entity_type="promotion_coupon",
+                entity_id=coupon.id,
+                actor_id=actor_id,
+                firm_id=firm_scope,
+                before_data={"code": coupon.code, "status": coupon.status},
+                after_data={"offer": row.code},
+            )
+        self._session.flush()
 
     def _assert_code_is_free(self, code: str, *, firm_id: UUID) -> None:
         """Refuse a second promotion carrying an existing code."""
