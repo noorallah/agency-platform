@@ -681,6 +681,54 @@ deliberately readable by everyone in the firm and writable by nobody in it.
 - **Timeline events are append-only** and cannot be edited away, like the audit
   trail they sit beside.
 
+### Two settings that do not do what they say
+
+Both surfaced from the obvious question — *what can we configure this to
+ignore?* The answer is: most of it, and then two things that look configurable
+and are not.
+
+**`auto_reset` is written and never read.** Its only reference outside the
+model and schemas is the bootstrap setting it to `True`. The yearly reset is
+not driven by that flag at all — it is driven by the scope signature, which is
+built as `financial_year | branch | company` and **always** includes the year
+label, whatever `include_financial_year` says:
+
+```python
+financial_year_label or str(document_date.year)
+```
+
+So setting `auto_reset = false` changes nothing, and a firm that wants one
+continuous run — `SI-000001` through `SI-004312` across five years — cannot
+have it.
+
+**And the two settings interact badly.** Switch `include_financial_year` off
+while the counter still resets per year, and the second year reissues the
+first year's numbers: `SI-000001` in 2025-26 and `SI-000001` again in 2026-27.
+**No document number column carries a unique constraint anywhere** — not
+`invoice_number`, not `order_number`, not any sibling — so nothing rejects the
+duplicate. Two invoices, same firm, same number, no error.
+
+That combination is a defect rather than a gap: the configuration is offered,
+it is reachable from **Settings › Numbering Series**, and taking it silently
+corrupts the series.
+
+**`manual_allowed` is unreachable.** The plumbing is complete — `reserve_number`
+accepts a `manual_number` and correctly returns it without consuming the
+sequence — but **no document module passes one**. The flag can be set and has no
+path to a caller. The only client-supplied number anywhere is
+`settlements.settlement_number`, which has its own handling and bypasses the
+numbering rule. That matters for the case people want it for: entering
+historical documents that already carry numbers on paper.
+
+### What *can* be configured away, and does work
+
+`include_financial_year`, `include_branch_code`, `include_company_code`,
+`prefix`, `suffix` (all nullable), `separator` (any string, including empty),
+`sequence_padding` (`1` gives `SI-1`), and `format_pattern`, which bypasses
+composition entirely with `{prefix}`, `{sequence}`, `{financial_year}`,
+`{branch_code}`, `{company_code}` and `{document_date}`. `INV/1`,
+`2026-2027-000001` and a bare `000001` are all reachable today.
+
 ### Three tables nothing writes
 
 `document_headers`, `document_lines` and `document_totals` are declared, exported
