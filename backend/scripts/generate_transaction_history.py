@@ -95,6 +95,7 @@ from app.firms.models import Firm, FirmStorageMapping
 from app.goods_receipt.models import GoodsReceiptLine
 from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services import GoodsReceiptService
+from app.inventory.models import InventoryTransaction
 from app.products.models import Product
 from app.promotions.models import (
     Promotion,
@@ -751,6 +752,39 @@ class HistoryBuilder:
         self._session.commit()
 
     # -- cycles --------------------------------------------------------
+
+    def warn_if_the_shelf_is_empty(self) -> None:
+        """Say so when the firm starts trading with no day-one stock.
+
+        **Opening stock is history, and `--reset` deletes it.** Only
+        `seed_multi_firm_demo.py` lays it back down, because only it holds the
+        blueprint that says which products sit on the shelf and how many. So a
+        firm regenerated on its own starts from an empty warehouse, trades from
+        goods receipts alone, and quietly loses the dispatches those receipts
+        cannot cover -- WHOLE01 came out at 57 delivery notes against 58 sales
+        orders while its three siblings, seeded the other way, all read 58.
+
+        Nothing here can fix that without the blueprint, so it is reported
+        rather than papered over: a count that differs between firms is the
+        signal this seeder exists to raise, and the reader deserves to know it
+        is the tool and not the application.
+        """
+        movements = self._session.scalar(
+            select(func.count())
+            .select_from(InventoryTransaction)
+            .where(
+                InventoryTransaction.firm_id == self._target.firm_id,
+                InventoryTransaction.transaction_type == "OPENING_STOCK",
+            )
+        )
+        if movements:
+            return
+        self._tally.skipped.append(
+            "no opening stock: --reset clears the day-one shelf and only "
+            "seed_multi_firm_demo.py lays it down again, so this firm trades "
+            "from goods receipts alone and may lose dispatches its siblings "
+            "make. Run scripts/seed_multi_firm_demo.py to restore it."
+        )
 
     # -- incentives ----------------------------------------------------
 
@@ -1656,6 +1690,7 @@ def build_for_firm(
     """Populate one firm across the requested financial years."""
     builder = HistoryBuilder(session, target)
     branch, warehouse, vendor, customers, products = builder.masters()
+    builder.warn_if_the_shelf_is_empty()
 
     years_in_scope = _financial_years(years, today)
     # Before a single document is priced: an offer agreed after the order it
