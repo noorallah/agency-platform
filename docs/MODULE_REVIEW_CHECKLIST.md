@@ -665,6 +665,7 @@ which nothing did until the endpoint published an ETag.
 | 39 | `loyalty` | 2026-09-03 | **two findings in the expiry sweep.** It wrote back the whole earned batch without asking how much of it was still there, so a batch the customer had already spent lapsed a second time and left them holding **negative points** -- the balance is a sum with no floor and redeeming is refused above it, so the sweep was the only way below zero. And nothing released the liability the points raised, so `Loyalty Payable` kept a debt no customer could ever claim: measured at **936.31** across nine lapsed batches in WHOLE01, against 49 earnings that had all posted | yes |
 | 40 | `commission` | 2026-09-03 | **one finding, and it is a race.** `_assert_period_is_free` reads and `accrue` writes with nothing between them and no constraint behind them, so two requests that both check before either commits both pass -- driven on WHOLE01, leaving one salesman holding two live payouts for one month, which pays the same collections twice. Everything else the module claims was checked and holds | yes |
 | 41 | `credit_note` | 2026-09-03 | **one finding: the module reversed tax on a smaller base than the tax was charged on.** `_charged_taxable` returned gross less discounts, which was the whole taxable value until #191 moved freight inside it and nothing moved this with it; `charges_amount` had never been there. It cost twice -- the cap refused a full credit of what the customer was actually charged, and the derived rate was inflated, so crediting 1,000 of a 1,050 base reversed 189 of output tax where 180 was collected | yes |
+| 42 | **concurrency**, every guard that reads to decide a write | 2026-09-03 | the rule the three findings of rows 39-41 were all breaking: **optimistic concurrency protects a decision about a row, and nothing about a decision about a set of rows.** `inventory` looked like the worst site and is the safe one, because dispatch *updates* a row and `version_id_col` catches the stale write. `loyalty.redeem` and `credit_note`'s cap **insert** against a sum, so no version can conflict; both now hold the thing being consumed | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -1242,3 +1243,49 @@ no key expresses, so it needs a lock on the invoice line. Left for a
 cross-cutting pass rather than a third ad-hoc fix at the end of a long day; the
 exposure is also the smallest of the three, because credit notes are drafted
 deliberately one at a time rather than by a button two people press at once.
+
+
+### 42 concurrency — the rule the three findings were all breaking
+
+Rows 39, 40 and 41 each turned up a guard that read to decide whether a write
+was allowed, with nothing holding what it read. Three in a row is a pattern
+rather than three accidents, so the fourth was found the way row 37's was --
+by stating the rule and asking it of every site, instead of waiting for the
+next one to surface.
+
+> **Optimistic concurrency protects a decision made about a row. It protects
+> nothing about a decision made about a set of rows.**
+
+`BaseEntity` sets `version_id_col`, so every ORM *update* carries
+`WHERE version = :read` and a stale write raises `StaleDataError`. That is a
+real guard and it covers more than it looks.
+
+**Which is why `inventory` is safe, and it is the site that looks worst.**
+`_stage_movement` reads an inventory row's quantities, works the new ones out
+in Python and assigns them; there is no lock anywhere in the module, no CHECK
+constraint on `available_quantity`, and the seeder's own invariant is that a
+negative available must never appear. Every instinct says it oversells. It
+does not: dispatch *updates* the inventory row, so the second transaction's
+UPDATE carries the version it read, matches nothing, and raises. Verified
+rather than reasoned -- two ORM sessions, both loading the same shelf, the
+second refused. That test is now the boundary marker: if the version column
+ever came off those rows, stock would begin overselling silently and it is
+what would say so.
+
+**And why the other two were not.** A customer's loyalty balance is a sum over
+`loyalty_entries`; a credit note's cap is a sum over other notes' lines.
+Neither guard updates a row -- both **insert** -- so there is no version to
+conflict, and two transactions that both read before either commits both pass.
+`commission.accrue` was the same shape and was closed in row 40 with a partial
+unique index, which worked there because the thing being guarded was a *key*.
+It does not generalise: a cap that is a **sum** cannot be a unique index, so
+these two take a lock on what is being consumed -- the customer, and the
+invoice line. Per customer and per line rather than per firm, so two tills
+serving different people do not queue behind each other, which has a test.
+
+**Three sites, three different mechanisms, and the difference is what is being
+guarded**: a row (version), a key (unique index), a sum (lock). Reaching for
+one of them everywhere would have been wrong in two cases out of three.
+
+Everything else that aggregates before writing was checked and is either a
+report -- which decides nothing -- or an update to the row it read.
