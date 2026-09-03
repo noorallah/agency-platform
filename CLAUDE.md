@@ -422,6 +422,29 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A hold on a sales order is a flag, not a status.** An order that is
+  PARTIALLY_DELIVERED can be held, and releasing it has to put it back to
+  PARTIALLY_DELIVERED -- writing HOLD into `status` would destroy the only
+  record of how far the order had got and the release would have to guess.
+  Nothing is overwritten, so nothing has to be restored; it is the same
+  reasoning `update_order` was repaired on. **The stock stays reserved** --
+  holding says "not yet", not "never", and releasing the goods would let
+  another order take them while this one waits; cancelling is what gives stock
+  back. The refusal lives in `DeliveryNoteService.stage_note` rather than
+  `create_note`, so `SalesChainService` is covered by the same line, and it
+  **names the reason** because whoever hits it is the one who has to get the
+  hold lifted. A hold is an operational stop, **not a credit control** -- that
+  is `credit_control_settings`, which acts at approval.
+- **A dialog owns its own `TextEditingController`.** A caller that creates
+  one, awaits `showDialog` and then disposes it, disposes it *mid-animation*,
+  and the field rebuilding during the exit throws "A TextEditingController was
+  used after being disposed". An `AlertDialog` also gives its content
+  unbounded height, so a stretched `Column` with no width overflows by tens of
+  thousands of pixels instead of laying out. Both were written twice in one
+  afternoon before `askForReason` in
+  `desktop/lib/ui/workspace/reason_prompt.dart` existed; use it rather than a
+  third copy. It returns null for a dismissal **and** for an empty box, so a
+  caller has one answer to check.
 - **A proforma posts nothing, and the absence of anywhere to record that it
   did is the design.** `app/proforma` states what an approved sales order will
   be charged, for a buyer who needs the figure before the goods move -- a

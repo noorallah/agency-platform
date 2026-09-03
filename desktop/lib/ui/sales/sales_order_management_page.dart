@@ -11,6 +11,7 @@ import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../core/notifications/notification_service.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
 import 'sales_order_editor_dialog.dart';
 
@@ -380,10 +381,87 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
               ),
             ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _holdButton(),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
       );
+
+  /// One button that holds or releases, depending on where the order is.
+  ///
+  /// Two buttons, one of them always disabled, would take the space and give
+  /// nothing: an order is either held or it is not, and the label says which.
+  Widget _holdButton() {
+    final Map<String, dynamic>? selected = _selected;
+    final bool held = selected?['is_on_hold'] == true;
+    final String status = '${selected?['status'] ?? ''}';
+    final bool finished = status == 'CANCELLED' || status == 'CLOSED';
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: OutlinedButton.icon(
+        onPressed: selected == null ||
+                _loading ||
+                // The same authority the server asks for: holding and
+                // releasing an order is deciding whether it goes out.
+                !_mayApprove() ||
+                (!held && finished)
+            ? null
+            : () => unawaited(held ? _release(selected) : _hold(selected)),
+        icon: Icon(
+          held ? Icons.play_arrow_outlined : Icons.pause_outlined,
+          size: 18,
+        ),
+        label: Text(held ? 'Release' : 'Hold'),
+      ),
+    );
+  }
+
+  /// Ask why, then hold. The reason is required, not optional: whoever hits
+  /// the refusal downstream is the one who has to get the hold lifted.
+  Future<void> _hold(Map<String, dynamic> order) async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Hold ${order['order_number'] ?? ''}',
+      explanation: 'Nothing is unwound. The order keeps its status and its '
+          'stock stays reserved — a hold says "not yet", not "never". It '
+          'cannot be dispatched until it is released.',
+      confirmLabel: 'Hold',
+    );
+    // Null covers both a dismissal and an empty box: whoever hits the refusal
+    // downstream has to know why, and a blank reason tells them nothing.
+    if (reason == null || !mounted) return;
+    try {
+      await widget.api.holdSalesOrder('${order['id']}', reason: reason);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${order['order_number']} is on hold.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  Future<void> _release(Map<String, dynamic> order) async {
+    try {
+      await widget.api.releaseSalesOrder('${order['id']}');
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${order['order_number']} released.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
 
   /// Raise an order with nothing behind it -- the phone-order case.
   Future<void> _newOrder() async {
@@ -471,7 +549,13 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           '${item['order_number'] ?? '-'}',
           '${item['order_date'] ?? '-'}',
           '${item['reference_number'] ?? ''}',
-          '${item['status'] ?? ''}',
+          // The hold rides on the status cell rather than taking a column of
+          // its own: a held order that looked identical to a live one in the
+          // list is the whole failure this feature exists to avoid, and the
+          // grid is already at its width at 1366px.
+          item['is_on_hold'] == true
+              ? '${item['status'] ?? ''} (on hold)'
+              : '${item['status'] ?? ''}',
           '${item['grand_total'] ?? '0'}',
         ],
         onSelect: _selectOrder,

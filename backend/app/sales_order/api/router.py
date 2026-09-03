@@ -297,6 +297,54 @@ def cancel_sales_order(
     return ApiResponse(data=service.order_response(row))
 
 
+@router.post("/{order_id}/hold", response_model=ApiResponse[SalesOrderResponse])
+def hold_sales_order(
+    order_id: UUID,
+    data: ActionReasonRequest,
+    scope: SalesOrderApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesOrderResponse]:
+    """Stop an order progressing, without unwinding anything.
+
+    The status is untouched, so releasing puts the order back exactly where it
+    was rather than guessing. The stock stays reserved: holding says "not yet",
+    not "never", and releasing the goods would let another order take them
+    while this one waits.
+    """
+    service = SalesOrderService(db)
+    row = service.hold_order(
+        order_id,
+        reason=data.reason or "",
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(
+        data=service.order_response(row),
+        message=f"{row.order_number} is on hold.",
+    )
+
+
+@router.post("/{order_id}/release", response_model=ApiResponse[SalesOrderResponse])
+def release_sales_order(
+    order_id: UUID,
+    data: ActionReasonRequest,
+    scope: SalesOrderApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesOrderResponse]:
+    """Lift a hold, leaving the order exactly where it was."""
+    service = SalesOrderService(db)
+    row = service.release_order(
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        remarks=data.reason,
+    )
+    return ApiResponse(
+        data=service.order_response(row),
+        message=f"{row.order_number} released.",
+    )
+
+
 @router.post("/{order_id}/close", response_model=ApiResponse[SalesOrderResponse])
 def close_sales_order(
     order_id: UUID,

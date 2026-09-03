@@ -290,6 +290,18 @@ class DeliveryNoteService(TransactionalDocumentService):
             raise ValidationError(
                 "Delivery notes can be created only from approved sales orders."
             )
+        if order.is_on_hold:
+            # The point of a hold. A flag the engine records that changed no
+            # outcome would be a switch somebody turns on believing the goods
+            # have stopped moving, while they carry on out of the warehouse.
+            # The reason is quoted rather than run into the sentence: it is
+            # somebody's own words and usually ends with a full stop of its
+            # own, which read as "the LC.." when the sentence added another.
+            reason = (order.hold_reason or "").strip() or "no reason recorded"
+            raise ValidationError(
+                f"{order.order_number} is on hold and cannot be dispatched "
+                f'("{reason}"). Release it first.'
+            )
         self._validate_scope_references(
             firm_id=firm_id,
             customer_id=order.customer_id,

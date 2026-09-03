@@ -607,6 +607,167 @@ class SalesOrderService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def hold_order(
+        self,
+        order_id: UUID,
+        *,
+        reason: str,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> SalesOrder:
+        """Stop an order progressing, without unwinding anything.
+
+        A hold is a **flag, not a status**. An order that is
+        PARTIALLY_DELIVERED can be held, and releasing it has to put it back to
+        PARTIALLY_DELIVERED -- not to APPROVED. Writing a HOLD status would
+        destroy the only record of how far the order had got, and the release
+        would then have to guess. Nothing is overwritten, so nothing has to be
+        restored.
+
+        **The reservation stays.** Holding says "not yet", not "never": the
+        goods are still promised, and releasing the stock would let another
+        order take it while this one waits. Cancelling is the action that
+        gives stock back.
+
+        This is an operational stop, not a credit control. The credit control
+        is `credit_control_settings`, which refuses at approval; a hold is for
+        everything else -- a dispute, a document the customer has not sent, a
+        delivery the customer asked to defer.
+
+        Args:
+            order_id: The order to hold.
+            reason: Why, kept on the record and shown wherever the hold is.
+            firm_scope: The owning firm.
+            actor_id: The user placing it.
+
+        Returns:
+            The held order.
+
+        Raises:
+            ValidationError: If the order is finished, or already held.
+
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if row.status in {
+            SalesOrderStatus.CANCELLED.value,
+            SalesOrderStatus.CLOSED.value,
+        }:
+            raise ValidationError(
+                "A cancelled or closed order has nothing left to hold."
+            )
+        if row.is_on_hold:
+            raise ValidationError(f"{row.order_number} is already on hold.")
+        row.is_on_hold = True
+        row.hold_reason = reason.strip()
+        row.held_at = utc_now()
+        row.held_by = actor_id
+        # Cleared, so the record does not read as released while it is held.
+        row.released_at = None
+        row.released_by = None
+        row.updated_by = actor_id
+        # `_ensure_document_setup` rather than `_document_type`: it creates
+        # the type if it is missing, so holding an order can never fail on a
+        # configuration row the order itself did not need. A hold is the last
+        # thing that should be refused for a reason nobody can act on.
+        document_type, _ = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=document_type,
+            document=row,
+            action="HELD",
+            # The status is untouched on both sides, which is the point: the
+            # timeline says a hold happened without claiming the order moved.
+            from_state=row.status,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=row.hold_reason,
+        )
+        record_audit(
+            self._session,
+            action="sales_order.held",
+            entity_type="sales_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "order_number": row.order_number,
+                "status": row.status,
+                "is_on_hold": True,
+                "hold_reason": row.hold_reason,
+            },
+        )
+        self._session.commit()
+        return row
+
+    def release_order(
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        remarks: str | None = None,
+    ) -> SalesOrder:
+        """Lift a hold, leaving the order exactly where it was.
+
+        The reason the hold was placed for is **kept**, not cleared: the
+        question later is "why was this held", and an order whose hold reason
+        vanished on release cannot answer it.
+
+        Args:
+            order_id: The order to release.
+            firm_scope: The owning firm.
+            actor_id: The user releasing it.
+            remarks: Anything worth saying about the release.
+
+        Returns:
+            The released order.
+
+        Raises:
+            ValidationError: If it is not on hold.
+
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if not row.is_on_hold:
+            raise ValidationError(f"{row.order_number} is not on hold.")
+        row.is_on_hold = False
+        row.released_at = utc_now()
+        row.released_by = actor_id
+        row.updated_by = actor_id
+        document_type, _ = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=document_type,
+            document=row,
+            action="RELEASED",
+            from_state=row.status,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=remarks,
+        )
+        record_audit(
+            self._session,
+            action="sales_order.released",
+            entity_type="sales_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={"is_on_hold": True, "hold_reason": row.hold_reason},
+            after_data={
+                "order_number": row.order_number,
+                "status": row.status,
+                "is_on_hold": False,
+                # Kept rather than cleared: "why was this held" is the
+                # question asked afterwards.
+                "hold_reason": row.hold_reason,
+            },
+        )
+        self._session.commit()
+        return row
+
     def close_order(
         self,
         order_id: UUID,
@@ -721,6 +882,10 @@ class SalesOrderService(TransactionalDocumentService):
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
             close_reason=row.close_reason,
+            is_on_hold=row.is_on_hold,
+            hold_reason=row.hold_reason,
+            held_at=row.held_at,
+            released_at=row.released_at,
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,

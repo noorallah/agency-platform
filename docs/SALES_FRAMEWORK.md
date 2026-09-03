@@ -1099,6 +1099,43 @@ The demo issues one against every fourth order, because a proforma is what a
 buyer asks for when they need a figure in advance, not something every sale
 produces.
 
+## Holding a sales order — landed 2026-09-03
+
+A firm needs to say "not yet" to an order — a dispute, a document the customer
+has not sent, a delivery they asked to defer — without unwinding it. The only
+ways to stop one were to cancel it, which gives the stock back and ends the
+deal, or to remember not to dispatch it.
+
+**A hold is a flag, not a status, and that is the whole design.** An order that
+is PARTIALLY_DELIVERED can be held, and releasing it has to put it back to
+PARTIALLY_DELIVERED — not to APPROVED. Writing HOLD into `status` would destroy
+the only record of how far the order had got, and the release would then have
+to guess. Nothing is overwritten, so nothing has to be restored. That is the
+same reasoning `update_order` was repaired on in 2026-08-18, where a status
+written from a request body silently reset an approved order.
+
+**The stock stays reserved.** Holding says "not yet", not "never": the goods are
+still promised, and releasing them would let another order take them while this
+one waits. Cancelling is the action that gives stock back.
+
+**The hold stops something**, or it is a switch somebody flicks believing the
+goods have stopped moving while they carry on out of the warehouse.
+`DeliveryNoteService.stage_note` refuses a held order and **names the reason**,
+because the person who hits the refusal is the one who has to get the hold
+lifted. It is in `stage_note` rather than `create_note` so `SalesChainService`,
+which raises notes itself when a firm has the delivery-note stage switched off,
+is covered by the same line.
+
+**The reason survives the release**, because "why was this held" is the question
+asked afterwards, and an earlier release stamp is cleared when a new hold is
+placed so the record never reads as released while it is held.
+
+This is an operational stop, **not a credit control**. The credit control is
+`credit_control_settings`, which warns and optionally refuses at approval; a
+hold is for everything else. `SALES_APPROVE` covers both actions — deciding
+whether an order goes out is the same authority as approving it in the first
+place.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
