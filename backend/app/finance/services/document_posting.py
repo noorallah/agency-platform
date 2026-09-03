@@ -124,6 +124,15 @@ CREDIT_NOTE_PURPOSES = (
     ControlAccountPurpose.SALES_RETURNS,
 )
 
+#: A credit note raised as a document, which states its tax. The bare
+#: receivable adjustment above cannot: it carries one figure and no lines, so
+#: it has nothing to say what rate to reverse.
+CREDIT_NOTE_DOCUMENT_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.SALES_RETURNS,
+    ControlAccountPurpose.OUTPUT_TAX,
+)
+
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
 GOODS_RECEIPT_PURPOSES = (
@@ -1267,6 +1276,90 @@ class DocumentPostingService:
             lines=lines,
             source_module="sales_return",
             source_id=return_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_credit_note_document(
+        self,
+        *,
+        firm_id: UUID,
+        credit_note_id: UUID,
+        credit_note_number: str,
+        note_date: date,
+        taxable_amount: Decimal,
+        tax_amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post a credit note that states the tax it reverses.
+
+        Three legs, and the third is the whole point. `post_credit_note` above
+        posts two -- the receivable and sales returns -- because a bare
+        receivable adjustment carries one figure and no lines, so it has
+        nothing to say what rate of tax to take off. A firm agreeing a rate
+        difference after invoicing therefore credited the customer the gross
+        amount and went on declaring output tax on a price nobody paid.
+
+        The tax comes off at the rate the **invoice** charged, which the
+        caller resolves from the line being credited rather than from today's
+        profile: an edit to a tax profile in September must not change what
+        was charged in March, exactly as it must not change a discount.
+
+        Args:
+            firm_id: The owning firm.
+            credit_note_id: The source document.
+            credit_note_number: Its number, used as the journal reference.
+            note_date: The date the credit is booked on.
+            taxable_amount: What is credited before tax.
+            tax_amount: The tax reversed with it.
+            actor_id: The user approving it.
+
+        Returns:
+            The posted journal entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        ledger_taxable = quantize_ledger(quantize_money(taxable_amount))
+        ledger_tax = quantize_ledger(quantize_money(tax_amount))
+        ledger_total = ledger_taxable + ledger_tax
+        if ledger_total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, CREDIT_NOTE_DOCUMENT_PURPOSES)
+        context = self.context_for(firm_id, note_date)
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.SALES_RETURNS],
+                debit_amount=ledger_taxable,
+                description=f"Credit note {credit_note_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE],
+                credit_amount=ledger_total,
+                description=f"Credit note {credit_note_number}",
+            ),
+        ]
+        if ledger_tax != ZERO:
+            lines.insert(
+                1,
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
+                    debit_amount=ledger_tax,
+                    description=f"Output tax reversed on {credit_note_number}",
+                ),
+            )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=note_date,
+            reference_number=credit_note_number,
+            description=f"Credit note {credit_note_number}",
+            lines=lines,
+            source_module="credit_note",
+            source_id=credit_note_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

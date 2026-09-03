@@ -19,6 +19,7 @@ import '../../models/product.dart';
 import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
+import '../../models/credit_note.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
@@ -3443,6 +3444,60 @@ class ApiClient {
 
   Future<void> deleteSalesTarget(String id) =>
       request('DELETE', '/api/v1/sales-targets/$id');
+
+  // ---- credit notes ---------------------------------------------------
+
+  Future<PagedResult<CreditNoteRecord>> creditNotes({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/credit-notes',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<CreditNoteRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  CreditNoteRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<CreditNoteRecord> createCreditNote(Json body) async =>
+      CreditNoteRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/credit-notes', body: body)),
+      );
+
+  Future<CreditNoteRecord> approveCreditNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CreditNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/credit-notes/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<CreditNoteRecord> cancelCreditNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      CreditNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/credit-notes/$id/cancel',
+        expectedVersion: expectedVersion,
+      )));
 
   // ---- commission payouts ---------------------------------------------
 

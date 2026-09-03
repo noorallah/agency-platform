@@ -339,6 +339,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_TARGET_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'credit-notes',
+          label: 'Credit Notes',
+          requiredPermissions: ['CREDIT_NOTE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'route-types',
           label: 'Route Types',
           requiredPermissions: ['TERRITORY_VIEW'],

@@ -814,6 +814,48 @@ test proved the number it had just supplied. It was found by driving the chain
 with minimal payloads, and the fixtures now say nothing about the price where
 the inheritance is what is under test.
 
+## A credit note that reverses tax — landed 2026-09-03
+
+A credit note already existed, as a row in `customer_receivable_transactions`
+raised from the customers record. It reduced what the customer owed, booked
+the whole figure to sales returns, and reversed **no output tax at all** — so
+a firm agreeing a rate difference after invoicing credited the customer the
+gross amount and went on declaring tax on a price nobody paid.
+
+`app/credit_note` is the document that closes it, and it is deliberately
+**not** a sales return. A return is goods coming back: stock moves, and cost
+of goods sold is reversed at what the movement was worth. A credit note here
+moves no stock at all.
+
+**It always names the invoice and the lines it credits**, because only the
+original line knows the rate the tax was charged at — and the rate is derived
+from what that line was actually charged rather than read from a tax profile
+that may since have been edited. An edit in September must not change what
+comes off a March supply, which is the invoice's own inheritance rule one
+document later.
+
+Approving posts three legs — sales returns, output tax, receivable — **and**
+moves the customer's balance. Both, or neither: a note that posted and left
+the balance alone would drive the subsidiary ledger and the general one apart
+by its value. Cancelling mirrors the journal and puts the balance back by the
+deltas the original transaction stored.
+
+**The cap counts credit notes only.** A line cannot be credited beyond what it
+was charged, less what other live notes have already taken. A sales return
+also credits the customer and is deliberately not netted off: a return may
+have sourced from a delivery note, which cannot be mapped back to an invoice
+line, and a cap that silently under-counts is worse than one that says what it
+covers.
+
+`CREDIT_NOTE_APPROVE` is separate from `CREDIT_NOTE_MANAGE` and not granted to
+`SALES_MANAGER`. Drafting one is bookkeeping; approving it reverses tax the
+firm has declared to the authority.
+
+Driven against a seeded invoice: a line charged 3,946.88 with 710.44 of tax
+gave an 18.00% rate, 100 credited reversed exactly 18.00, over-crediting was
+refused naming both figures, and approving moved the customer from 11,904.64
+to 11,786.64 before cancelling put it back.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
