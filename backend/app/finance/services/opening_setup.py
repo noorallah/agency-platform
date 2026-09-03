@@ -205,6 +205,16 @@ CHART: tuple[SeedAccount, ...] = (
         "CL",
         ControlAccountPurpose.COMMISSION_PAYABLE,
     ),
+    SeedAccount(
+        # Not 2200, which is Output Tax. TCS is not GST, it is filed on a
+        # different return on a different cycle, and netting the two would put
+        # a quarterly payment inside a monthly one.
+        "2500",
+        "TCS Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.TCS_PAYABLE,
+    ),
 )
 
 

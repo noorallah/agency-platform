@@ -35,6 +35,11 @@ class CustomerReceivableTransactionType(StrEnum):
     ADVANCE_APPLY = "ADVANCE_APPLY"
     CREDIT_NOTE = "CREDIT_NOTE"
     REFUND = "REFUND"
+    #: Tax collected at source on a receipt. It raises what the buyer owes,
+    #: the same shape as an invoice, because the buyer owes it **on top of**
+    #: the money they have just paid -- taking it out of that money would
+    #: leave the firm short by the tax on every collection.
+    TCS = "TCS"
     #: Undoes an earlier transaction by its exact deltas. It is not a category
     #: of business event -- it is the record of one being taken back -- so it
     #: carries no rule of its own and cannot be posted directly.

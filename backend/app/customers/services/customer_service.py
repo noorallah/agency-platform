@@ -391,7 +391,12 @@ class CustomerService:
                 "A reversal is posted against the transaction it undoes, "
                 "not on its own."
             )
-        if tx_type == CustomerReceivableTransactionType.INVOICE:
+        if tx_type in {
+            CustomerReceivableTransactionType.INVOICE,
+            # Tax collected at source is owed on top of what was just paid,
+            # so it increases the balance exactly as a bill does.
+            CustomerReceivableTransactionType.TCS,
+        }:
             outstanding_delta = amount
         elif tx_type in {
             CustomerReceivableTransactionType.RECEIPT,

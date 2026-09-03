@@ -231,6 +231,14 @@ PERMISSION_GROUPS = {
         # sells does not set it.
         "PROMOTION_MANAGE",
     ),
+    "tcs": (
+        "TCS_VIEW",
+        # The policy decides what every buyer is charged on every receipt, so
+        # writing it is separate from reading it -- and deliberately not
+        # granted to `SALES_MANAGER`, on the same reasoning as the credit
+        # policy: the role a rule constrains must not be able to switch it off.
+        "TCS_MANAGE",
+    ),
     "commission": (
         "COMMISSION_VIEW",
         "COMMISSION_MANAGE",
@@ -389,6 +397,10 @@ ROLE_PERMISSION_CODES = {
             # filing with the authority is not, the same split as approving a
             # credit note.
             "EINVOICE_VIEW",
+            # A sales manager sees what a buyer will be charged before asking
+            # for the money -- it is part of quoting a collection. Setting the
+            # rate is the firm's, like the credit policy above.
+            "TCS_VIEW",
         }
     ),
     "SALES_EXECUTIVE": frozenset(

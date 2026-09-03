@@ -21,6 +21,7 @@ import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
 import '../../models/einvoice.dart';
+import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_return.dart';
@@ -3520,6 +3521,40 @@ class ApiClient {
         '/api/v1/einvoice/invoices/$invoiceId/eway-bill/cancel',
         body: <String, dynamic>{'reason': reason},
       )));
+
+  // ---- tax collected at source ----------------------------------------
+
+  Future<TcsSettings> tcsSettings() async =>
+      TcsSettings.fromJson(_unwrapMap(await request('GET', '/api/v1/tcs/settings')));
+
+  /// Save the policy. An omitted field is left alone server-side, so only
+  /// what the form actually edits is sent.
+  Future<TcsSettings> saveTcsSettings(Json body) async =>
+      TcsSettings.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/tcs/settings', body: body),
+      ));
+
+  Future<PagedResult<TcsCollectionRecord>> tcsCollections({
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/tcs/collections',
+      query: {'page': '$page', 'page_size': '$pageSize'},
+    );
+    final dynamic data = response['data'];
+    return PagedResult<TcsCollectionRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  TcsCollectionRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
 
   // ---- GST returns ----------------------------------------------------
 

@@ -952,6 +952,69 @@ rather than as a zero, because a zero reads as "no input credit claimed",
 which is a different declaration. Nothing here files anything with the
 authority either: this is what a firm files *from*.
 
+## Tax collected at source — landed 2026-09-03
+
+`app/tcs` implements section 206C(1H), and the one thing to understand before
+changing any of it is that **the tax is charged on consideration received, not
+on what was invoiced.** The statute says "at the time of receipt of such
+amount", so the event that raises a liability is a receipt clearing, never an
+invoice being approved. Putting it on the invoice — which is what makes it look
+like just another tax line — collects it on money that may never arrive and
+misses money that arrives against an older bill.
+
+Everything else follows from that:
+
+- **Only the excess counts.** The first ₹50 lakh a buyer pays in a financial
+  year attracts nothing, so a receipt straddling that line is charged on the
+  part above it. Charging the whole receipt is the obvious mistake and it
+  over-collects by the entire remaining headroom.
+- **The threshold is per buyer, per financial year**, judged on the *firm's*
+  own year rather than an assumed April, and the running total is **summed from
+  the receipts** rather than kept as a counter — a counter and a reversal are
+  two chances to disagree, and disagreeing here means charging a buyer on money
+  they got back. Refunds are netted off for the same reason.
+- **A seller below the turnover threshold collects nothing at all**, and
+  whether a firm is above it is a fact the firm *states*: its preceding year
+  may predate its books here entirely, and a figure computed off a partial
+  history would put a firm in or out of scope on data nobody migrated.
+- **A buyer with no PAN on record is charged the higher rate.** That is section
+  206CC rather than 1H, but it is the same collection and lives on the same
+  settings row.
+- **The tax raises what the buyer owes.** `Dr Accounts Receivable / Cr TCS
+  Payable`, and a `TCS` receivable transaction beside it. Taking it out of the
+  money received would leave the firm short by the tax on every collection and
+  would say the buyer had settled something they were never billed for.
+- **A reversed receipt reverses its collection**, mirrored rather than deleted:
+  a quarterly return may already have reported it, and a row that vanished
+  would leave that filing with nothing behind it.
+
+`TCS Payable` is account **2500**, deliberately not 2200 — TCS is not GST, it
+is filed on a different return on a different cycle, and netting the two would
+put a quarterly payment inside a monthly one.
+
+**Nothing is collected from anybody until a firm asks.** `is_enabled` defaults
+false and `preceding_year_turnover` to zero, so the migration changes no
+existing firm's behaviour. `TCS_MANAGE` is not granted to `SALES_MANAGER`, on
+the same reasoning as the credit policy: the role a rule constrains must not be
+able to switch it off.
+
+`GET /api/v1/tcs/preview` answers what a receipt of a given size would attract
+**before** it is taken, because the figure is needed when the money is asked
+for rather than discovered afterwards — and it says *why* nothing is due, since
+a bare zero cannot tell a buyer under the threshold from a firm that does not
+collect at all.
+
+### What the demo does with it
+
+`generate_transaction_history.py` puts every firm in scope with the buyer
+threshold scaled to **₹5,000**. A demo customer pays a few thousand rupees a
+year, so at the statutory fifty lakh the mechanism could never fire and seeding
+it would prove nothing. Only the two demo figures are scaled; the rate, the
+excess-only rule and the per-buyer financial year are untouched. The four firms
+report slightly different counts because a buyer crosses the threshold on their
+own trading, which differs by tax rate and unit factor — the one number in the
+tally that legitimately varies between them.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

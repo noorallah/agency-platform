@@ -135,6 +135,14 @@ CREDIT_NOTE_DOCUMENT_PURPOSES = (
 
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
+#: Tax collected at source. The buyer owes it on top of the bill, so it raises
+#: a receivable rather than reducing one -- collecting it is not the same event
+#: as being paid it.
+TCS_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+    ControlAccountPurpose.TCS_PAYABLE,
+)
+
 GOODS_RECEIPT_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
@@ -1765,6 +1773,72 @@ class DocumentPostingService:
             lines=lines,
             source_module="purchase_invoice",
             source_id=invoice_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_tcs_collection(
+        self,
+        *,
+        firm_id: UUID,
+        collection_id: UUID,
+        reference: str,
+        collected_on: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post tax collected at source on a receipt.
+
+        `Dr Accounts Receivable / Cr TCS Payable`. The buyer owes this **on
+        top of** what they have just paid, so it raises a receivable rather
+        than reducing one -- charging it against the money received would make
+        the firm short by the tax on every collection, and would say the buyer
+        had settled something they have not been billed for yet.
+
+        Args:
+            firm_id: The owning firm.
+            collection_id: The TCS collection row this posts for.
+            reference: The journal reference, unique per entry.
+            collected_on: The date the receipt was recorded.
+            amount: The tax collected.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, TCS_PURPOSES)
+        context = self.context_for(firm_id, collected_on)
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=collected_on,
+            reference_number=reference,
+            description=f"Tax collected at source {reference}",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+                    ],
+                    debit_amount=total,
+                    description=f"TCS receivable {reference}",
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.TCS_PAYABLE],
+                    credit_amount=total,
+                    description=f"TCS payable {reference}",
+                ),
+            ],
+            source_module="tcs",
+            source_id=collection_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

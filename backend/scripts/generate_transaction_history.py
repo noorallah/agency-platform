@@ -155,6 +155,9 @@ from app.settlements.schemas import (
     SettlementMethodEnum,
 )
 from app.settlements.services import ReceiptService
+from app.tcs.models import TcsCollection
+from app.tcs.schemas import TcsSettingsWrite
+from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
 ACTOR = UUID("00000000-0000-0000-0000-0000000000aa")
@@ -208,6 +211,11 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_return_lines",
     "sales_return_sources",
     "sales_returns",
+    # Tax collected at source before the settlements it hangs off. The
+    # settings row is *not* cleared: it is an arrangement about the firm, like
+    # a commission rule, and rebuilding the trading does not change whether
+    # the firm is in scope for the section.
+    "tcs_collections",
     # Settlements next: their allocations reference the invoices below, so
     # clearing history without them fails on a foreign key. They arrived with
     # the receipts and payments module and this list did not know about them.
@@ -391,6 +399,7 @@ class Tally:
     sales_returns: int = 0
     credit_notes: int = 0
     receipts: int = 0
+    tcs_collections: int = 0
     targets: int = 0
     payouts: int = 0
     skipped: list[str] = field(default_factory=list)
@@ -407,7 +416,7 @@ class Tally:
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
-            f"CN {self.credit_notes} | "
+            f"CN {self.credit_notes} | TCS {self.tcs_collections} | "
             f"TGT {self.targets} | PAY {self.payouts}"
         )
 
@@ -795,6 +804,45 @@ class HistoryBuilder:
             "seed_multi_firm_demo.py lays it down again, so this firm trades "
             "from goods receipts alone and may lose dispatches its siblings "
             "make. Run scripts/seed_multi_firm_demo.py to restore it."
+        )
+
+    # -- tax collected at source ---------------------------------------
+
+    def collect_at_source(self) -> None:
+        """Put this firm in scope for 206C(1H), before any money arrives.
+
+        `tcs_collections` would otherwise hold zero rows in every store, which
+        looks exactly like a firm that collects nothing -- and this repo has
+        found three separate defects that survived months of green suites
+        precisely because no seeded document reached the code.
+
+        **The buyer threshold is deliberately not the statutory fifty lakh.**
+        A demo customer pays a few thousand rupees a year here, so at the real
+        figure the mechanism could never fire and seeding it would prove
+        nothing -- which is the state this method exists to get out of. Five
+        *thousand* is this data's scale, and it was chosen by reading what a
+        seeded buyer actually pays rather than guessed: at fifty thousand,
+        every store still reported zero. The preceding-year turnover is stated
+        above the seller threshold, which is the one number a firm states
+        about itself anyway. Both are a demo deciding what to show, and
+        neither changes what the section says -- the rate, the excess-only
+        rule and the per-buyer financial year are untouched.
+
+        Written on every run rather than only when missing. These are the
+        seeder's own firms and it owns their demo configuration, the way it
+        owns their promotions; leaving a stale row in place is what made one
+        store collect twenty-seven times while its three identical siblings
+        collected nothing, and four firms that differ is the signal this demo
+        relies on.
+        """
+        TcsService(self._session).write_settings(
+            self._target.firm_id,
+            TcsSettingsWrite(
+                is_enabled=True,
+                preceding_year_turnover=Decimal("150000000"),
+                threshold_amount=Decimal("5000"),
+            ),
+            actor_id=ACTOR,
         )
 
     # -- incentives ----------------------------------------------------
@@ -1750,7 +1798,7 @@ class HistoryBuilder:
         if received_on < on:
             received_on = on
         try:
-            ReceiptService(self._session).create(
+            settlement = ReceiptService(self._session).create(
                 SettlementCreate(
                     party_id=customer.id,
                     settlement_date=received_on,
@@ -1769,6 +1817,19 @@ class HistoryBuilder:
             self._session.rollback()
             return
         self._tally.receipts += 1
+        # Counted off the row the receipt raised, not incremented on a guess:
+        # a collection only happens once the buyer is past the threshold, and
+        # a tally that assumed one per receipt would report a mechanism that
+        # had never fired.
+        if (
+            self._session.scalar(
+                select(func.count())
+                .select_from(TcsCollection)
+                .where(TcsCollection.settlement_id == settlement.id)
+            )
+            or 0
+        ) > 0:
+            self._tally.tcs_collections += 1
         self._session.commit()
 
 
@@ -1784,6 +1845,9 @@ def build_for_firm(
     # Before a single document is priced: an offer agreed after the order it
     # was meant to discount is an offer that discounts nothing.
     builder.promotions(years_in_scope[0])
+    # And before a single rupee arrives, because tax collected at source is
+    # charged on the receipt rather than on the bill.
+    builder.collect_at_source()
 
     cycle = 0
     for year_start in years_in_scope:

@@ -55,6 +55,7 @@ from app.settlements.schemas import (
     OutstandingInvoiceRecord,
     SettlementCreate,
 )
+from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
 #: Which control account the money moved through, by method.
@@ -373,6 +374,16 @@ class SettlementService(TransactionalDocumentService):
                 actor_id=actor_id,
                 commit=False,
             )
+            # Tax collected at source is charged **here**, on the money, not
+            # when the invoice was raised: section 206C(1H) says "at the time
+            # of receipt of such amount". Staged rather than committed, so a
+            # receipt that posts and a collection that does not cannot both
+            # happen -- that would leave the buyer under-charged with nothing
+            # on the record to say why. Nothing is charged unless the firm has
+            # switched the section on and this buyer is past the threshold.
+            TcsService(self._session).stage_collection(
+                row, firm_id=firm_id, actor_id=actor_id
+            )
 
         record_audit(
             self._session,
@@ -461,6 +472,13 @@ class SettlementService(TransactionalDocumentService):
                     remarks=reason,
                     commit=False,
                 )
+        if self.DIRECTION == SettlementDirection.RECEIPT:
+            # The money is going back, so the tax collected on it goes back
+            # too. Mirrored rather than deleted: a quarterly return may
+            # already have reported it.
+            TcsService(self._session).stage_reversal(
+                row, firm_id=firm_id, actor_id=actor_id
+            )
         row.status = SettlementStatus.REVERSED.value
         row.reversal_journal_entry_id = mirror.id
         row.reversed_at = utc_now()

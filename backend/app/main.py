@@ -55,6 +55,7 @@ from app.sales_targets.api import router as sales_targets_router
 from app.search.api import router as global_search_router
 from app.settlements.api import payments_router, receipts_router, refunds_router
 from app.tax.api import router as tax_framework_router
+from app.tcs.api import router as tcs_router
 from app.uom.api import router as uom_framework_router
 from app.vendors.api import router as vendors_router
 
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sales_territories_router)
     application.include_router(global_search_router)
     application.include_router(tax_framework_router)
+    application.include_router(tcs_router)
     application.include_router(business_framework_router)
     application.include_router(inventory_router)
     application.include_router(batch_serial_router)

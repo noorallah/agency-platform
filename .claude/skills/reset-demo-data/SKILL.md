@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -127,6 +127,20 @@ SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
   SELECT coalesce(sum(l.bill_discount_amount), 0) FROM sales_invoice_lines l
   WHERE l.sales_invoice_id = i.id);   -- must be 0
 ```
+
+**`TCS` is the one count that legitimately differs between the firms**, and
+reads 27 to 30. Tax collected at source is charged when a buyer's payments
+pass a threshold, and each firm's buyers get there on their own trading, which
+differs by tax rate and unit factor. Every other count should still match line
+for line.
+
+The demo scales the buyer threshold to **five thousand rupees**. The statutory
+figure is fifty lakh and a demo customer pays a few thousand a year, so at the
+real number the mechanism could never fire -- which is the state seeding it
+exists to get out of. Fifty thousand was tried first and every store still
+reported zero. Only that figure and the stated preceding-year turnover are
+scaled; the rate, the excess-only rule and the per-buyer financial year are
+the section's own.
 
 **`CN` should read 9.** Credit notes arrived on 2026-09-03 and every store
 held zero of them, so the GSTR-1 CDNR section answered empty everywhere --
@@ -245,6 +259,13 @@ answers for whichever schema the connection is pointed at.
   sales that no longer exist. A payout references the journal entries the
   reset clears, so one that outlived them would be a debt the books cannot
   explain.
+- **`tcs_collections` is in the reset order and `tcs_settings` is not.** The
+  collections hang off the settlements the reset clears; the settings are an
+  arrangement about the firm, like a commission rule, and rebuilding the
+  trading does not change whether a firm is in scope for the section. The
+  seeder does rewrite them on every run, though -- leaving a stale row in
+  place is what made one store collect twenty-seven times while its three
+  identical siblings collected nothing.
 - **`credit_notes` and `credit_note_lines` are in the reset order**, before
   the sales returns, because a credit note points at an invoice and at a
   journal entry the reset clears. That is the fourth table set to arrive with

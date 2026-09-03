@@ -38,6 +38,7 @@ import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/tcs_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
@@ -1935,6 +1936,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'tcs' => TcsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1998,6 +2004,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'GST Returns',
           'What this firm declares for a period, read off what it actually '
               'sold. Nothing is stored: a cancelled invoice simply drops out.',
+        ),
+      'tcs' => (
+          'Tax Collected at Source',
+          'Charged on the money a buyer pays, not on what they were billed, '
+              'and only on the part above the year’s threshold.',
         ),
       'credit-notes' => (
           'Credit Notes',
