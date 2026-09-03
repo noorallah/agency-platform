@@ -34,6 +34,7 @@ from app.einvoice.models import (
     RegistrationStatus,
 )
 from app.einvoice.services import EInvoiceService, SandboxPortal, portal_for
+from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.firms.models import Firm
 from app.products.models import Product
 from app.sales_invoice.models import (
@@ -72,6 +73,7 @@ class _Books:
         seller_gstin: str | None = SELLER,
         hsn: str | None = "34011190",
         interstate: bool = False,
+        charges: str = "0",
     ) -> None:
         """Seed everything a registration needs."""
         self.session = session
@@ -115,9 +117,11 @@ class _Books:
         )
         session.add_all([self.branch, self.customer, self.product])
         session.commit()
-        self.invoice, self.line = self._invoice(interstate=interstate)
+        self.invoice, self.line = self._invoice(interstate=interstate, charges=charges)
 
-    def _invoice(self, *, interstate: bool) -> tuple[SalesInvoice, SalesInvoiceLine]:
+    def _invoice(
+        self, *, interstate: bool, charges: str = "0"
+    ) -> tuple[SalesInvoice, SalesInvoiceLine]:
         """Bill 10 at 100 with 18% tax, split the way the supply requires."""
         invoice = SalesInvoice(
             firm_id=self.firm.id,
@@ -144,7 +148,9 @@ class _Books:
             current_invoice_quantity=Decimal("10"),
             unit_price=Decimal("100"),
             gross_amount=Decimal("1000"),
-            tax_amount=Decimal("180"),
+            charges_amount=Decimal(charges),
+            tax_amount=Decimal("180")
+            + Decimal(charges) * Decimal("18") / Decimal("100"),
             net_amount=Decimal("1180"),
         )
         self.session.add(line)
@@ -465,3 +471,23 @@ def test_one_firm_s_registrations_are_invisible_to_another() -> None:
 
     assert total == 0
     assert rows == []
+
+
+def test_a_line_charge_is_registered_inside_the_assessable_value() -> None:
+    """`charges_amount` is taxed with the goods, so the portal is told so.
+
+    The payload had freight -- added when #191 moved it inside the taxable
+    value -- and never had the line's own charges. `AssAmt` was therefore
+    understated against the tax beside it, and `OthChrg` named only half of
+    what the portal calls other charges. The third module carrying this
+    staleness after `credit_note` in #207 and `gst_returns` beside it.
+    """
+    books = _Books(_session_factory()(), charges="100")
+
+    payload = EInvoicePayloadBuilder(books.session).build(
+        books.invoice, firm_id=books.firm.id
+    )
+
+    item = payload["ItemList"][0]
+    assert item["AssAmt"] == 1100.0
+    assert item["OthChrg"] == 100.0
