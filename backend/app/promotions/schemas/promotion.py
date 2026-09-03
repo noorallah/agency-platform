@@ -72,7 +72,7 @@ class PromotionField(StrEnum):
 class PromotionActionType(StrEnum):
     """The benefits a promotion may give.
 
-    Six, and each one changes a value the sales documents already store and
+    Seven, and each one changes a value the sales documents already store and
     already tax correctly. Nothing here is declared and unread -- the tax review
     recorded two flags that were stored, returned and acted on by nobody, which
     silently produced wrong money.
@@ -92,6 +92,13 @@ class PromotionActionType(StrEnum):
     BILL_DISCOUNT_AMOUNT = "BILL_DISCOUNT_AMOUNT"
     FREE_QUANTITY = "FREE_QUANTITY"
     FREE_PRODUCT = "FREE_PRODUCT"
+    #: Waives the delivery charge outright. Not a discount on it: free
+    #: shipping means nothing is charged for delivery, so there is nothing to
+    #: tax either -- and a document showing a delivery charge beside a
+    #: discount cancelling it says something different from one showing no
+    #: charge at all. A firm wanting to take only part of it off has
+    #: `BILL_DISCOUNT_AMOUNT` already, which is why this takes no parameter.
+    FREE_SHIPPING = "FREE_SHIPPING"
 
 
 class PromotionConditionWrite(PromotionSchema):
@@ -304,6 +311,11 @@ class PromotionEvaluationRequest(PromotionSchema):
     #: True when somebody typed a discount on the whole bill, for the same
     #: reason `PromotionLineRequest.caller_priced` exists.
     caller_priced_bill: bool = False
+    #: What the document is charging for delivery, so an offer can waive it.
+    #: The engine cannot waive a charge it has not been told about, and a
+    #: `FREE_SHIPPING` promotion on a document with no delivery charge gives
+    #: nothing rather than claiming to.
+    freight_amount: Decimal = Decimal("0")
     lines: list[PromotionLineRequest] = Field(default_factory=list, max_length=1000)
 
 
@@ -357,6 +369,9 @@ class PromotionEvaluationResponse(PromotionSchema):
 
     lines: list[PromotionLineOutcome]
     bill_discount_amount: Decimal
+    #: How much of the delivery charge an offer took off. Zero unless a
+    #: `FREE_SHIPPING` promotion applied, and never more than was charged.
+    freight_waived: Decimal = Decimal("0")
     applied_promotion_codes: list[str]
     applied: list[PromotionApplication] = Field(default_factory=list)
     #: Goods to add to the document. Empty for every offer that only changes

@@ -422,6 +422,18 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **Free shipping waives the charge; it does not discount it.**
+  `PromotionActionType.FREE_SHIPPING` sets the document's `freight_amount` to
+  nothing, so nothing is charged for delivery and nothing is taxed on it -- a
+  document showing a delivery charge beside a discount cancelling it says
+  something different from one showing no charge. The action takes **no
+  parameter**: a partial waiver is `BILL_DISCOUNT_AMOUNT`, which already
+  exists. The engine is told the charge (`freight_amount` on the request) and
+  answers `freight_waived`, because it cannot waive what it has not been told
+  about, and an offer on a document with no delivery charge gives nothing
+  rather than claiming to. Waived whole or not at all, so two offers cannot
+  waive it twice -- and the waived amount counts towards `benefit_amount`,
+  since a campaign that gave away shipping cost the firm exactly that.
 - **Freight is the bill discount's mirror image, and it has to reach the
   line.** `freight_amount` on the four sales documents is what the customer is
   charged for delivery, and it is **part of the taxable value**: a charge the
