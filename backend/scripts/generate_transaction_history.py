@@ -59,6 +59,7 @@ from app.branches.models import Branch, Warehouse
 from app.business.gating import resolve_capabilities
 from app.commission.schemas import (
     CommissionBasisEnum,
+    CommissionMeasureEnum,
     CommissionRuleCreate,
     CommissionSlabWrite,
 )
@@ -1002,9 +1003,11 @@ class HistoryBuilder:
 
         - the firm-wide default and one person's own flat rate, both already
           seeded as masters;
-        - a **product** rule for that same person, which takes the lines it
-          names while their flat rate still covers the rest -- the "3% on
-          everything, 5% on the cold chain" shape;
+        - a **product** rule for that same person, paid on the **margin**
+          rather than on the value, which takes the lines it names while their
+          flat rate still covers the rest -- and pays a visibly different
+          number on the same goods, which is the only way a margin rule and a
+          value rule are told apart by looking;
         - a **ladder with a floor and a target bonus** for the second person,
           so slabs, `minimum_amount` and `bonus_percentage` all appear in a
           store rather than only in a test.
@@ -1096,7 +1099,12 @@ class HistoryBuilder:
             service.create_rule(
                 CommissionRuleCreate(
                     salesman_id=with_rate,
-                    percentage=Decimal("6"),
+                    # A higher rate on a smaller number: a margin rule pays on
+                    # what the sale made rather than on what it was worth, and
+                    # the two are only distinguishable in a demo if the rate
+                    # differs enough that nobody mistakes one for rounding.
+                    percentage=Decimal("15"),
+                    measure=CommissionMeasureEnum.MARGIN,
                     effective_from=date(2024, 4, 1),
                     product_id=product.id,
                 ),

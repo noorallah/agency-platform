@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.commission.models import (
     CommissionBasis,
+    CommissionMeasure,
     CommissionRateType,
     CommissionRule,
     CommissionRuleSlab,
@@ -98,6 +99,16 @@ class _BilledLine:
     category_id: UUID | None
     quantity: Decimal
     share: Decimal
+    #: What the goods cost, or None where nothing recorded it. None is not
+    #: zero: an invoice with no dispatch behind it costed nothing because
+    #: nothing moved, and zero would say the goods were free -- which on a
+    #: margin rule pays commission on the whole sale price.
+    cost: Decimal | None = None
+    #: What the line was billed at, before the invoice's total was
+    #: apportioned onto it. The margin is measured against this rather than
+    #: against `share`, which carries the header's rounding and charges and
+    #: would make a margin drift by whatever those come to.
+    net: Decimal = ZERO
 
 
 class CommissionService:
@@ -881,6 +892,15 @@ class CommissionService:
                     if kind == CommissionBasis.INVOICED.value
                     else (amount * line.share / billed if billed > ZERO else ZERO)
                 )
+                if rule.measure == CommissionMeasure.MARGIN.value:
+                    margin = self._margin_of(line, portion)
+                    if margin is None:
+                        # Nothing recorded what these goods cost, so the
+                        # margin cannot be measured. Skipped rather than
+                        # treated as costing nothing, which would pay on the
+                        # whole sale price as though the goods were free.
+                        continue
+                    portion = margin
                 under_rule[key] = under_rule.get(key, ZERO) + portion
                 under_rule_quantity[key] = (
                     under_rule_quantity.get(key, ZERO) + line.quantity
@@ -1126,6 +1146,37 @@ class CommissionService:
             for owner, total in targeted.items()
         }
 
+    @staticmethod
+    def _margin_of(line: "_BilledLine", portion: Decimal) -> Decimal | None:
+        """Return the margin in this portion of the line, or None if unknown.
+
+        The cost belongs to the whole line, and `portion` may be only part of
+        it -- a receipt clears a share of every line it settles. So the cost
+        is scaled by the same share of the line's own value, which keeps the
+        margin proportional to whatever is being measured.
+
+        Args:
+            line: The billed line, with what it cost and what it billed at.
+            portion: The part of it this rule is measuring.
+
+        Returns:
+            The margin, never below zero, or None where the cost is unknown.
+
+        Note:
+            A negative margin is floored at zero rather than clawed back. A
+            sale below cost earns no commission, which is what a firm means by
+            paying on margin; taking money off other sales to cover it is a
+            different arrangement and not one anybody asked for.
+
+        """
+        if line.cost is None:
+            return None
+        if line.net <= ZERO:
+            return ZERO
+        share = portion / line.net
+        margin = portion - (line.cost * share)
+        return margin if margin > ZERO else ZERO
+
     def _lines_of(self, invoice_ids: set[UUID]) -> dict[UUID, list["_BilledLine"]]:
         """Return what each invoice was made of, with each line's share of it.
 
@@ -1151,6 +1202,7 @@ class CommissionService:
                 SalesInvoiceLine.current_invoice_quantity,
                 SalesInvoiceLine.net_amount,
                 Product.category_id,
+                SalesInvoiceLine.cost_amount,
             )
             .join(Product, Product.id == SalesInvoiceLine.product_id, isouter=True)
             .where(
@@ -1166,20 +1218,23 @@ class CommissionService:
                 )
             ).all()
         }
-        grouped: dict[UUID, list[tuple[UUID, Decimal, Decimal, UUID | None]]] = {}
-        for invoice_id, product_id, quantity, net, category_id in rows:
+        grouped: dict[
+            UUID, list[tuple[UUID, Decimal, Decimal, UUID | None, Decimal | None]]
+        ] = {}
+        for invoice_id, product_id, quantity, net, category_id, cost in rows:
             grouped.setdefault(invoice_id, []).append(
                 (
                     product_id,
                     Decimal(str(quantity)),
                     Decimal(str(net)),
                     category_id,
+                    None if cost is None else Decimal(str(cost)),
                 )
             )
         answer: dict[UUID, list[_BilledLine]] = {}
         for invoice_id, lines in grouped.items():
             shares = apportion(
-                totals.get(invoice_id, ZERO), [net for _, _, net, _ in lines]
+                totals.get(invoice_id, ZERO), [net for _, _, net, _, _ in lines]
             )
             answer[invoice_id] = [
                 _BilledLine(
@@ -1187,8 +1242,10 @@ class CommissionService:
                     category_id=category_id,
                     quantity=quantity,
                     share=share,
+                    cost=cost,
+                    net=net,
                 )
-                for (product_id, quantity, _, category_id), share in zip(
+                for (product_id, quantity, net, category_id, cost), share in zip(
                     lines, shares, strict=True
                 )
             ]

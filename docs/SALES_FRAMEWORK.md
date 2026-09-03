@@ -1237,6 +1237,35 @@ so two offers cannot waive it twice. The waived amount **counts towards what the
 offer was worth**: a campaign that gave away shipping cost the firm exactly
 that, and a cost report leaving it out would understate it.
 
+## Commission on the margin — landed 2026-09-03
+
+The last item of the incentives spec, and it was blocked on one thing: the
+invoice line carried no cost.
+
+The cost was recoverable all along — `stock_ledger_entries` records the moving
+average that actually left the warehouse on every dispatch — but recovering it
+at report time would answer about *today's* average rather than the day's, and a
+payout approved in March would then disagree with the report beside it. So it is
+**snapshotted onto `sales_invoice_lines.cost_amount`** when the bill is raised,
+which is the same reason a payout is snapshotted at accrual.
+
+**NULL is not zero.** An invoice raised straight off a sales order has no
+dispatch behind it, so nothing moved and nothing was costed; zero would say the
+goods were free, and a margin rule reading one as the other pays commission on
+the whole sale price. Such a line contributes nothing to a MARGIN rule rather
+than being guessed at.
+
+`commission_rules.measure` is VALUE or MARGIN, defaulted to VALUE so no existing
+rule changes what it pays. MARGIN is a different *arrangement* rather than a
+different rate. A sale below cost earns nothing rather than a negative: clawing
+it back off other sales is an arrangement nobody asked for.
+
+The demo pays one person's product-scoped rule on the margin at 15%, against
+their 4% flat rate on everything else — which drops their effective rate from
+5.06% to **3.17%** over the seeded history. A margin rule and a value rule are
+only told apart by looking if the numbers differ enough that nobody mistakes it
+for rounding.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

@@ -13,6 +13,7 @@ import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/commission.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/commission/commission_page.dart';
 import 'package:flutter/material.dart';
@@ -1178,5 +1179,32 @@ void main() {
     // Not "Missed": nobody set them a number, so there is nothing they failed.
     expect(find.text('None set'), findsOneWidget);
     expect(find.text('Missed'), findsNothing);
+  });
+
+  testWidgets('a margin rule says what it is paid on', (tester) async {
+    // 15% of margin and 15% of value are different arrangements, and the
+    // number alone cannot tell them apart.
+    final CommissionRuleRecord rule = CommissionRuleRecord.fromJson(<String, dynamic>{
+      'id': 'cr-1',
+      'percentage': '15',
+      'measure': 'MARGIN',
+      'effective_from': '2026-04-01',
+      'status': 'ACTIVE',
+    });
+
+    expect(rule.rateLabel, '15% of margin');
+  });
+
+  testWidgets('a value rule says nothing extra', (tester) async {
+    // It is the arrangement every existing rule has, and adding words to it
+    // would make every screen read as though something had changed.
+    final CommissionRuleRecord rule = CommissionRuleRecord.fromJson(<String, dynamic>{
+      'id': 'cr-2',
+      'percentage': '4',
+      'effective_from': '2026-04-01',
+      'status': 'ACTIVE',
+    });
+
+    expect(rule.rateLabel, '4%');
   });
 }

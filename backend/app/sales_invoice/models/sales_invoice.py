@@ -264,6 +264,19 @@ class SalesInvoiceLine(BaseEntity):
     freight_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: What these goods cost the firm, snapshotted when the bill was raised.
+    #:
+    #: **Nullable, and NULL is not zero.** NULL means no cost could be traced
+    #: -- an invoice raised straight off an order has no dispatch behind it,
+    #: so nothing moved and nothing was costed. Zero would mean the goods were
+    #: free, and a margin rule reading one as the other pays commission on the
+    #: whole sale price as though the firm had bought the goods for nothing.
+    #:
+    #: Snapshotted rather than derived on demand because the moving average
+    #: moves: re-reading it in September would answer about September, and a
+    #: payout approved in March would then disagree with the report beside it.
+    #: That is the same reason a payout is snapshotted at accrual.
+    cost_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     net_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

@@ -49,6 +49,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
+from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
@@ -1393,6 +1394,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                 self._q(item.gross_amount - item.discount.amount) for item in priced
             ],
         )
+        # Costed once for the whole invoice rather than per line: the ledger
+        # is read by note and product, and a line-by-line query would ask the
+        # same question of the same note repeatedly.
+        dispatch_costs = self._dispatch_costs(
+            {
+                item.source_line.delivery_note_id
+                for item in priced
+                if item.source_type == SalesInvoiceSourceType.DELIVERY_NOTE.value
+                and hasattr(item.source_line, "delivery_note_id")
+            }
+        )
         freight = self._freight_shares(
             row,
             freight=freight_amount,
@@ -1418,6 +1430,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             line_discount = item.discount
             bill_share = shares[position]
             freight_share = freight[position]
+            cost_amount = self._line_cost(
+                source_line=priced_source,
+                source_type=source_type,
+                invoice_quantity=invoice_quantity,
+                source_quantity=source_quantity,
+                costs=dispatch_costs,
+            )
             discount_amount = self._q(line_discount.amount + bill_share)
             line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
@@ -1463,6 +1482,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 discount_amount=line_discount.amount,
                 bill_discount_amount=bill_share,
                 freight_amount=freight_share,
+                cost_amount=cost_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
@@ -2412,6 +2432,108 @@ class SalesInvoiceService(TransactionalDocumentService):
             percent=None if percent is None else Decimal(str(percent)),
             amount=None if amount is None else Decimal(str(amount)),
         )
+
+    def _line_cost(
+        self,
+        *,
+        source_line: SourceLine,
+        source_type: str,
+        invoice_quantity: Decimal,
+        source_quantity: Decimal,
+        costs: dict[tuple[UUID, UUID], Decimal],
+    ) -> Decimal | None:
+        """Return what the goods on this line cost, or None where nothing says.
+
+        **None is not zero.** An invoice raised straight off a sales order has
+        no dispatch behind it, so nothing moved and nothing was costed; zero
+        would say the goods were free, and a margin rule reading one as the
+        other pays commission on the whole sale price.
+
+        Pro-rated by the share being billed, the way the free goods and the
+        discount already are: a note dispatching ten and an invoice billing
+        four take four tenths of what the dispatch cost.
+
+        Args:
+            source_line: The delivery note line being billed.
+            source_type: What kind of document that is.
+            invoice_quantity: How much of it this bill takes.
+            source_quantity: How much the note carried.
+            costs: What each note and product's dispatch cost.
+
+        Returns:
+            The cost attributable to this line, or None where it is unknown.
+
+        """
+        if source_type != SalesInvoiceSourceType.DELIVERY_NOTE.value:
+            return None
+        note_id = getattr(source_line, "delivery_note_id", None)
+        product_id = getattr(source_line, "product_id", None)
+        if note_id is None or product_id is None:
+            return None
+        total = costs.get((note_id, product_id))
+        if total is None:
+            return None
+        if source_quantity <= ZERO:
+            # Nothing was dispatched on this line, so none of the movement's
+            # cost belongs to it -- a gift-only line is the case.
+            return ZERO
+        share = self._q(invoice_quantity) / self._q(source_quantity)
+        return self._q(total * share)
+
+    def _dispatch_costs(self, note_ids: set[UUID]) -> dict[tuple[UUID, UUID], Decimal]:
+        """Return what each delivery note's dispatch cost, by note and product.
+
+        Read off the stock ledger, which is where the moving average that
+        actually left the warehouse is recorded -- the same source every
+        forward posting in this repo values a stock leg from. Nothing else
+        knows it: the note carries what was charged, not what it cost.
+
+        Keyed on the note **and the product** rather than the note line,
+        because the ledger records a movement of goods and not a line of
+        paperwork. A note with two lines of one product is one movement, and
+        its cost is split back across them by quantity.
+
+        Args:
+            note_ids: The delivery notes to cost.
+
+        Returns:
+            Total dispatch cost per (note, product). Absent where nothing was
+            costed, which the caller must read as "unknown" and not as zero.
+
+        """
+        if not note_ids:
+            return {}
+        numbers = {
+            number: note_id
+            for note_id, number in self._session.execute(
+                select(DeliveryNote.id, DeliveryNote.delivery_note_number).where(
+                    DeliveryNote.id.in_(note_ids)
+                )
+            ).all()
+        }
+        if not numbers:
+            return {}
+        costs: dict[tuple[UUID, UUID], Decimal] = {}
+        rows = self._session.execute(
+            select(
+                StockLedgerEntry.reference_number,
+                StockLedgerEntry.product_id,
+                StockLedgerEntry.total_cost,
+            ).where(
+                StockLedgerEntry.reference_type == "DELIVERY_NOTE",
+                StockLedgerEntry.reference_number.in_(numbers),
+                StockLedgerEntry.transaction_type == "DISPATCH",
+                StockLedgerEntry.total_cost.is_not(None),
+                StockLedgerEntry.is_deleted.is_(False),
+            )
+        ).all()
+        for number, product_id, total in rows:
+            note_id = numbers.get(number)
+            if note_id is None:  # pragma: no cover - the filter guarantees it
+                continue
+            key = (note_id, product_id)
+            costs[key] = costs.get(key, ZERO) + self._q(total)
+        return costs
 
     def _line_net_amount(
         self,

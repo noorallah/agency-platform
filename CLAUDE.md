@@ -434,6 +434,22 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   rather than claiming to. Waived whole or not at all, so two offers cannot
   waive it twice -- and the waived amount counts towards `benefit_amount`,
   since a campaign that gave away shipping cost the firm exactly that.
+- **A margin rule needs a cost the invoice remembers, and NULL is not zero.**
+  `commission_rules.measure` is VALUE or MARGIN; MARGIN pays on the money less
+  what the goods cost, which is a different arrangement rather than a
+  different rate -- a firm selling at a thin markup pays far less on the same
+  turnover. The cost was always recoverable from `stock_ledger_entries`, which
+  records the moving average that actually left the warehouse, but reading it
+  at report time answers about *today's* average, so a payout approved in
+  March would disagree with the report beside it. It is **snapshotted onto
+  `sales_invoice_lines.cost_amount`** when the bill is raised, the same reason
+  a payout is snapshotted at accrual. The column is **nullable and NULL is not
+  zero**: an invoice raised straight off an order has no dispatch behind it,
+  so nothing moved and nothing was costed, and zero would say the goods were
+  free -- which on a margin rule pays commission on the whole sale price. Such
+  a line contributes nothing rather than being guessed at, and a sale below
+  cost earns nothing rather than a negative, because clawing it back off other
+  sales is an arrangement nobody asked for.
 - **Freight is the bill discount's mirror image, and it has to reach the
   line.** `freight_amount` on the four sales documents is what the customer is
   charged for delivery, and it is **part of the taxable value**: a charge the
@@ -765,8 +781,10 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   against the targets summed), because requiring every month makes an annual
   bonus unearnable and requiring one makes it unmissable. **Somebody with no
   target reports `target_met: null`, not false**, and earns no bonus: nobody
-  set them a number, so there is nothing they failed. Margin-based commission
-  is the one spec item still unbuilt -- `sales_invoice_lines` carries no cost.
+  set them a number, so there is nothing they failed. **Margin-based
+  commission landed on 2026-09-03**: `sales_invoice_lines.cost_amount`
+  snapshots what the goods cost when the bill was raised, off the stock
+  ledger's own moving average.
 - **A commission rule can be about goods, and the report resolves per line.**
   `product_id`/`product_category_id` on `commission_rules` make a rule a
   statement about lines rather than about the document, resolved in **six

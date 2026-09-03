@@ -58,6 +58,7 @@ class CommissionRuleRecord {
     this.productCategoryId = '',
     this.productCategoryName = '',
     this.rateType = 'PERCENT',
+    this.measure = 'VALUE',
     this.perUnitAmount = '0',
     this.minimumAmount = '',
     this.bonusPercentage = '0',
@@ -99,6 +100,11 @@ class CommissionRuleRecord {
 
   /// PERCENT or PER_UNIT — a share of the money, or a sum for each unit sold.
   final String rateType;
+
+  /// VALUE or MARGIN. What the rate is applied to, not what the rate is: a
+  /// firm selling at a thin markup pays far less on the same turnover under
+  /// MARGIN, which is the point of it.
+  final String measure;
   final String perUnitAmount;
 
   /// Nothing is earned under this rule until the period reaches this. Empty
@@ -126,10 +132,14 @@ class CommissionRuleRecord {
     // A per-unit rate is not a percentage and has no ladder: showing either
     // would be showing a field this rule does not use.
     if (rateType == 'PER_UNIT') return '$perUnitAmount per unit';
-    if (slabs.isEmpty) return '$percentage%';
+    // What it is paid *on* belongs beside the rate, not in a column of its
+    // own: 15% of margin and 15% of value are different arrangements and the
+    // number alone cannot tell them apart.
+    final String on = measure == 'MARGIN' ? ' of margin' : '';
+    if (slabs.isEmpty) return '$percentage%$on';
     final String shape =
         slabMode == 'WHOLE_AMOUNT' ? 'whole amount' : 'marginal';
-    return '${slabs.length} slabs ($shape)';
+    return '${slabs.length} slabs ($shape)$on';
   }
 
   /// Who it applies to, in the words a person would use.
@@ -161,6 +171,9 @@ class CommissionRuleRecord {
         productName: stringValue(json['product_name']),
         productCategoryId: stringValue(json['product_category_id']),
         productCategoryName: stringValue(json['product_category_name']),
+        measure: stringValue(json['measure']).isEmpty
+            ? 'VALUE'
+            : stringValue(json['measure']),
         rateType: stringValue(json['rate_type']).isEmpty
             ? 'PERCENT'
             : stringValue(json['rate_type']),

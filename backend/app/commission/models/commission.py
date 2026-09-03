@@ -114,6 +114,12 @@ class CommissionRule(BaseEntity):
         UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
     )
     #: PERCENT or PER_UNIT. Defaults to what every existing rule is.
+    #: VALUE or MARGIN. VALUE is what a rate has always meant here; MARGIN
+    #: pays on the money less what the goods cost. Defaulted to VALUE so no
+    #: existing rule changes what it pays.
+    measure: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="VALUE", server_default="VALUE"
+    )
     rate_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default="PERCENT", server_default="PERCENT"
     )
@@ -158,6 +164,25 @@ class CommissionBasis(StrEnum):
 
     COLLECTED = "COLLECTED"
     INVOICED = "INVOICED"
+
+
+class CommissionMeasure(StrEnum):
+    """What the rate is applied to.
+
+    VALUE is what a rate has always meant here: a percentage of the money.
+    MARGIN pays on the money **less what the goods cost**, which is a
+    different arrangement rather than a different rate -- a firm selling at a
+    thin markup pays far less on the same turnover, and that is the point of
+    it.
+
+    A line whose cost is unknown cannot be measured on MARGIN and contributes
+    nothing rather than being treated as costing zero. Zero cost would pay on
+    the whole sale price as though the goods had been free, which is the worst
+    number this report could produce.
+    """
+
+    VALUE = "VALUE"
+    MARGIN = "MARGIN"
 
 
 class CommissionRateType(StrEnum):
