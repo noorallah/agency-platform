@@ -457,6 +457,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             line_specs,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
+            freight_amount=data.freight_amount,
             firm_id=firm_id,
             invoice_date=data.invoice_date,
             business_profile_id=business_profile_id,
@@ -596,6 +597,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             line_specs,
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
+            freight_amount=data.freight_amount,
             firm_id=firm_id,
             invoice_date=data.invoice_date,
             business_profile_id=data.business_profile_id,
@@ -941,6 +943,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             total_free_quantity=row.total_free_quantity,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
+            freight_amount=row.freight_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
@@ -1194,6 +1197,43 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             self._session.add(source)
 
+    def _freight_shares(
+        self,
+        row: object,
+        *,
+        freight: Decimal | None,
+        taxables: list[Decimal],
+    ) -> list[Decimal]:
+        """Split what the customer is charged for delivery across the lines.
+
+        Delivery charged by the seller is ancillary to the supply of the goods,
+        so it is taxed at the goods' own rate -- which is what apportioning it
+        achieves. The mirror image of the bill discount, on the same weights
+        and through the same `apportion`, so both sets of shares sum exactly to
+        the header figures they split.
+
+        Split on what the lines are worth **after their own discounts**, the
+        same weights the bill discount uses. A line discounted to nothing
+        carries no freight, which is right: it is worth nothing to deliver.
+
+        Args:
+            row: The document, whose header figure is written back.
+            freight: What was asked for, or None for nothing.
+            taxables: What each line is worth after its own discount.
+
+        Returns:
+            One share per line, summing exactly to the freight charged.
+
+        Raises:
+            ValidationError: If the freight is negative.
+
+        """
+        amount = self._q(freight or ZERO)
+        if amount < ZERO:
+            raise ValidationError("Freight cannot be negative.")
+        row.freight_amount = amount  # type: ignore[attr-defined]
+        return apportion(amount, taxables)
+
     def _bill_discount_shares(
         self,
         row: SalesInvoice,
@@ -1227,6 +1267,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         bill_percent: Decimal | None,
         bill_amount: Decimal | None,
+        freight_amount: Decimal | None = None,
         firm_id: UUID,
         invoice_date: date,
         business_profile_id: UUID | None,
@@ -1352,6 +1393,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 self._q(item.gross_amount - item.discount.amount) for item in priced
             ],
         )
+        freight = self._freight_shares(
+            row,
+            freight=freight_amount,
+            taxables=[
+                self._q(item.gross_amount - item.discount.amount) for item in priced
+            ],
+        )
 
         for position, item in enumerate(priced):
             index = item.index
@@ -1369,6 +1417,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             free_quantity = item.free_quantity
             line_discount = item.discount
             bill_share = shares[position]
+            freight_share = freight[position]
             discount_amount = self._q(line_discount.amount + bill_share)
             line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
@@ -1384,6 +1433,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     unit_price=unit_price,
                     discount_amount=discount_amount,
                     charges_amount=charges_amount,
+                    freight_amount=freight_share,
                 ),
                 actor_id=actor_id,
             )
@@ -1412,6 +1462,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 discount_percent=line_discount.percent,
                 discount_amount=line_discount.amount,
                 bill_discount_amount=bill_share,
+                freight_amount=freight_share,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
@@ -2369,8 +2420,18 @@ class SalesInvoiceService(TransactionalDocumentService):
         unit_price: Decimal,
         discount_amount: Decimal,
         charges_amount: Decimal,
+        freight_amount: Decimal = ZERO,
     ) -> Decimal:
-        return self._q(quantity * unit_price - discount_amount + charges_amount)
+        """Return what this line is taxed on.
+
+        Freight has a parameter of its own rather than riding on
+        `charges_amount`: that is a charge somebody put on the line, and this
+        is the line's share of a charge on the whole document. Folding one
+        into the other would leave neither figure recoverable.
+        """
+        return self._q(
+            quantity * unit_price - discount_amount + charges_amount + freight_amount
+        )
 
     def _fill_missing_scope(
         self,
@@ -2618,6 +2679,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             free_quantity=row.free_quantity,
             discount_amount=row.discount_amount,
             bill_discount_amount=row.bill_discount_amount,
+            freight_amount=row.freight_amount,
             charges_amount=row.charges_amount,
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,

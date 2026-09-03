@@ -422,6 +422,23 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **Freight is the bill discount's mirror image, and it has to reach the
+  line.** `freight_amount` on the four sales documents is what the customer is
+  charged for delivery, and it is **part of the taxable value**: a charge the
+  seller makes for getting the goods to the buyer is part of the value of the
+  supply. It is apportioned across the lines by the same `apportion`, on the
+  same weights (what each line is worth after its own discount), with the
+  residual to the largest line -- one lowers each line's taxable value and the
+  other raises it. Being on the line is the whole point: a document-level
+  figure that never touches a taxable value taxes nothing, which is what
+  `header_discount_amount` does on a purchase order and is deliberately not
+  copied. `additional_charges` stays **outside** the tax and is left alone --
+  it is for additions that really are outside it, and re-taxing it would
+  change every document that carries one. A line discounted to nothing carries
+  no freight; freight and a bill discount both survive on the line rather than
+  netting; and both `app/gst_returns` and the e-invoice payload put it inside
+  the taxable value, since leaving it out declares less than the invoice
+  charged tax on.
 - **Applying money already received posts no journal, and only part of it
   moves the balance.** `settlements.sales_order_id` records which order a
   deposit came in against -- a note, not a ring-fence: cancelling the order

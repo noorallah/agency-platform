@@ -451,6 +451,42 @@ void main() {
     expect(api.created!.containsKey('bill_discount_amount'), isFalse);
   });
 
+  testWidgets('a delivery charge reaches the payload', (tester) async {
+    final _OrderApi api = _api();
+    await _pump(tester, api);
+    await _choose(tester, 'sales-order-customer', 'Anand Agencies');
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Delivery charge'),
+      '50',
+    );
+    await tester.pumpAndSettle();
+
+    await _create(tester);
+    expect(api.created!['freight_amount'], '50');
+  });
+
+  testWidgets('the delivery charge says it is taxed with the goods',
+      (tester) async {
+    await _pump(tester, _api());
+
+    // The opposite of what the discount field beside it does, and the
+    // difference decides the tax -- so the form says which.
+    expect(
+      find.textContaining('Split across the lines and taxed with them'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('an empty delivery charge claims nothing', (tester) async {
+    final _OrderApi api = _api();
+    await _pump(tester, api);
+    await _choose(tester, 'sales-order-customer', 'Anand Agencies');
+
+    await _create(tester);
+    // Silence is not zero anywhere else in this form either.
+    expect(api.created!.containsKey('freight_amount'), isFalse);
+  });
+
   testWidgets('goods given away are quantified separately from the price',
       (tester) async {
     // Free goods move stock and are outside the gross and the tax base, so

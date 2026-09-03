@@ -117,11 +117,12 @@ class _Books:
         status: str = "APPROVED",
         on: date = date(2026, 4, 10),
         discount: str = "0",
+        freight: str = "0",
         interstate: bool = False,
     ) -> SalesInvoice:
         """Bill one line, taxed CGST + SGST unless asked for IGST."""
         buyer = customer or self.registered
-        taxable = Decimal(gross) - Decimal(discount)
+        taxable = Decimal(gross) - Decimal(discount) + Decimal(freight)
         invoice = SalesInvoice(
             firm_id=self.firm.id,
             customer_id=buyer.id,
@@ -148,6 +149,7 @@ class _Books:
             unit_price=Decimal("100"),
             gross_amount=Decimal(gross),
             discount_amount=Decimal(discount),
+            freight_amount=Decimal(freight),
             tax_amount=Decimal(tax),
             net_amount=taxable + Decimal(tax),
         )
@@ -506,3 +508,19 @@ def test_both_returns_deduct_the_same_credit_notes() -> None:
 
     assert summary["credit_notes_deducted"]["taxable_value"] == 150.0
     assert summary["outward_taxable_supplies"]["taxable_value"] == declared - credited
+
+
+def test_freight_is_declared_inside_the_taxable_value() -> None:
+    """Delivery charged by the seller is taxed with the goods.
+
+    Leaving it out of the return would declare less than the invoice charged
+    tax on -- the one way a return can be wrong that nobody notices until an
+    assessment.
+    """
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", gross="1000", freight="200", tax="216")
+
+    invoice = books.gstr1()["b2b"][0]["invoices"][0]
+
+    assert invoice["taxable_value"] == 1200.0
+    assert books.gstr1()["hsn"][0]["taxable_value"] == 1200.0

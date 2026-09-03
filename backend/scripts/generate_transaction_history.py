@@ -1494,6 +1494,7 @@ class HistoryBuilder:
         unit_price: str,
         invoice: bool = True,
         bill_discount_percent: str | None = None,
+        freight: str | None = None,
         free_quantity: str = "0",
         quote_first: bool = False,
     ) -> None:
@@ -1505,7 +1506,10 @@ class HistoryBuilder:
 
         ``bill_discount_percent`` is passed to all three documents rather than
         to the order alone: each one resolves and apportions it for itself, so
-        sending it to all three is what proves the three agree. ``free_quantity``
+        sending it to all three is what proves the three agree. ``freight`` is
+        passed the same way and for the same reason -- it is the bill
+        discount's mirror image, raising each line's taxable value where the
+        discount lowers it, and every store held zero of it. ``free_quantity``
         is goods thrown in -- real stock leaving the warehouse, outside the
         gross and outside the tax base, and inherited by the invoice from the
         line it bills.
@@ -1530,6 +1534,7 @@ class HistoryBuilder:
                 quantity=quantity,
                 unit_price=unit_price,
                 bill_discount_percent=bill_discount_percent,
+                freight=freight,
                 free_quantity=free_quantity,
             )
         if order is None:
@@ -1544,6 +1549,7 @@ class HistoryBuilder:
                         if bill_discount_percent is None
                         else Decimal(bill_discount_percent)
                     ),
+                    freight_amount=None if freight is None else Decimal(freight),
                     lines=[
                         SalesOrderLineWrite(
                             line_number=1,
@@ -1578,6 +1584,7 @@ class HistoryBuilder:
                     if bill_discount_percent is None
                     else Decimal(bill_discount_percent)
                 ),
+                freight_amount=None if freight is None else Decimal(freight),
                 lines=[
                     DeliveryNoteLineWrite(
                         sales_order_line_id=so_line.id,
@@ -1617,6 +1624,7 @@ class HistoryBuilder:
                     if bill_discount_percent is None
                     else Decimal(bill_discount_percent)
                 ),
+                freight_amount=None if freight is None else Decimal(freight),
                 lines=[
                     SalesInvoiceLineWrite(
                         source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
@@ -1670,6 +1678,7 @@ class HistoryBuilder:
         quantity: str,
         unit_price: str,
         bill_discount_percent: str | None,
+        freight: str | None,
         free_quantity: str,
     ) -> SalesOrder | None:
         """Offer the sale, and convert it into the order when the offer stands.
@@ -1716,6 +1725,7 @@ class HistoryBuilder:
                     if bill_discount_percent is None
                     else Decimal(bill_discount_percent)
                 ),
+                freight_amount=None if freight is None else Decimal(freight),
                 lines=[
                     QuotationLineWrite(
                         line_number=1,
@@ -2040,6 +2050,11 @@ def build_for_firm(
                 # ordinary one is not being tested by data where they are all
                 # the same.
                 whole_bill = "5" if month_index % 4 == 1 and offset == 0 else None
+                # A different cycle from the bill discount, so the two
+                # are seen apart as well as together -- and one month in
+                # twenty carries both, which is the case that proves they do
+                # not cancel each other out on the line.
+                delivery = "120" if month_index % 5 == 2 and offset == 0 else None
                 gift = "1" if month_index % 3 == 0 and offset == 1 else "0"
                 # Every second sale is offered before it is taken, so the
                 # order is the conversion of a quotation rather than a
@@ -2058,6 +2073,7 @@ def build_for_firm(
                         unit_price=sale_price,
                         invoice=bill,
                         bill_discount_percent=whole_bill,
+                        freight=delivery,
                         free_quantity=gift,
                         quote_first=quoted,
                     )

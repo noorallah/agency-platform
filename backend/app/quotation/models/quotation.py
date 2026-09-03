@@ -104,6 +104,22 @@ class SalesQuotation(BaseEntity):
     bill_discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: What the customer is charged for getting the goods to them.
+    #:
+    #: **Part of the taxable value, not an extra on the end.** Delivery charged
+    #: by the seller is ancillary to the supply of the goods, so it is taxed at
+    #: the goods' own rate -- which is what apportioning it across the lines
+    #: achieves. `additional_charges` sits outside the tax and stays that way:
+    #: it is for genuinely non-taxable additions, and silently re-taxing it
+    #: would change the meaning of every document that carries one.
+    #:
+    #: The mirror image of `bill_discount_amount`, and it uses the same
+    #: `apportion`: one reduces each line's taxable value and the other raises
+    #: it, and both give the rounding residual to the largest line so the
+    #: shares sum exactly to the header figure.
+    freight_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     line_discount_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -196,6 +212,13 @@ class SalesQuotationLine(BaseEntity):
     #: This line's share of the document's bill discount. Stored rather than
     #: derived at print time, because it is what the tax was computed on.
     bill_discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: This line's share of the document's freight, in proportion to what the
+    #: line is worth after its own discounts. Stored rather than derived at
+    #: print time, for the reason the bill discount's share is: the tax was
+    #: charged on it, so the number has to survive.
+    freight_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     net_amount: Mapped[Decimal] = mapped_column(

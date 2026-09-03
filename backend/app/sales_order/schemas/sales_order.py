@@ -119,6 +119,14 @@ class SalesOrderCreate(SalesOrderSchema):
     bill_discount_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
     )
+    #: What the customer is charged for delivery. Part of the taxable value:
+    #: it is split across the lines and taxed with them, because delivery
+    #: charged by the seller is ancillary to the supply of the goods.
+    #: `additional_charges` stays outside the tax, for additions that really
+    #: are outside it.
+    freight_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     lines: list[SalesOrderLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[SalesOrderAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -205,6 +213,8 @@ class SalesOrderLineResponse(SalesOrderSchema):
     tax_amount: Decimal
     #: This line's share of the document's bill discount.
     bill_discount_amount: Decimal
+    #: This line's share of the document's freight.
+    freight_amount: Decimal = Decimal("0")
     net_amount: Decimal
     warehouse_id: UUID | None
     storage_node_id: UUID | None
@@ -274,6 +284,8 @@ class SalesOrderResponse(SalesOrderSchema):
     #: What was taken off the whole document, and the rate it represents.
     bill_discount_percent: Decimal
     bill_discount_amount: Decimal
+    #: What was charged for delivery, split across the lines and taxed there.
+    freight_amount: Decimal = Decimal("0")
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal
