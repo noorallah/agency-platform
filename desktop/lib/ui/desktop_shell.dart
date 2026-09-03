@@ -19,6 +19,7 @@ import '../models/product.dart';
 import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
+import 'customers/customer_statement_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
 import 'inventory/batch_management_page.dart';
@@ -1714,6 +1715,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'customer-statements' => CustomerStatementPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'products' => ProductManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1771,6 +1777,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
     return ModuleWorkspaceFrame(
       title: switch (tabId) {
         'customers' => 'Customer Management',
+        'customer-statements' => 'Customer Statements',
         'products' => 'Product Management',
         'vendors' => 'Vendor Management',
         'branches' => 'Branch Management',
@@ -1784,6 +1791,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
       description: switch (tabId) {
         'customers' =>
           'Manage firm-scoped customer masters, addresses, and contacts.',
+        'customer-statements' =>
+          'What each account did over a period, and what of it is overdue.',
         'products' =>
           'Manage profile-driven product masters with dynamic attributes.',
         'vendors' =>

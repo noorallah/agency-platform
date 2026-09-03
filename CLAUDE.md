@@ -422,6 +422,24 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A statement's running balance is recomputed in date order, never read
+  off `outstanding_after`.** That column on
+  `customer_receivable_transactions` is a snapshot taken when the row was
+  written, in the order things were *recorded*; a statement is read in the
+  order things were *dated*. Money arriving against last month's bill is
+  recorded after it and dated before it, so the stored figure shows a balance
+  that never existed on any day. `CustomerStatementService` sums the opening
+  balance from the deltas before the period -- the same arithmetic that
+  produced the current balance -- rather than subtracting the period's
+  movement from today's, which is right only while nothing is backdated.
+  **And an ageing row reconciles against the account and says how**: the
+  bills and the balance are not the same number, because a credit note or a
+  sales return reduces the account and sits on no invoice while TCS raises it
+  without being billed. One seeded customer's bills read 27,150.98 against an
+  account of 21,230.48; `total_outstanding - unapplied_credits +
+  charges_not_billed` is now the balance exactly, and the buckets always sum
+  to `total_outstanding`. Two reports about one customer that disagree with
+  nothing to explain the gap is a bug report waiting to be filed.
 - **Tax collected at source is charged on the money, not on the bill.**
   `app/tcs` implements 206C(1H), and the statute says "at the time of receipt
   of such amount" -- so the event that raises it is a **receipt**, never an

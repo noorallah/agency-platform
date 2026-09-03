@@ -24,6 +24,7 @@ from app.customers.schemas import (
     CreditControlSettingsWrite,
     CreditStatusResponse,
     CustomerAddressResponse,
+    CustomerAgeing,
     CustomerContactResponse,
     CustomerCreate,
     CustomerGroupResponse,
@@ -34,6 +35,7 @@ from app.customers.schemas import (
     CustomerReceivableTransactionResponse,
     CustomerReceivableTransactionType,
     CustomerResponse,
+    CustomerStatement,
     CustomerSummary,
     CustomerUpdate,
 )
@@ -46,6 +48,7 @@ from app.customers.services import (
     CreditControlService,
     CustomerGroupService,
     CustomerService,
+    CustomerStatementService,
 )
 from app.finance.services.document_posting import DocumentPostingService
 
@@ -263,6 +266,29 @@ def import_customers(
 # declaration order, and below it "groups" is read as a customer id and
 # answered 422 -- the trap that made nine routes across eight routers
 # unreachable from the day they were written.
+# Declared above `/{customer_id}`: FastAPI matches in declaration order, and
+# below it "ageing" is read as a customer id and answered 422. Nine routes in
+# eight routers had shipped that way before the guard test existed.
+@router.get("/ageing", response_model=ApiResponse[list[CustomerAgeing]])
+def customer_ageing(
+    scope: CustomerViewScope,
+    customer_id: UUID | None = None,
+    as_of: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerAgeing]]:
+    """Report what every customer still owes, by how long they have owed it.
+
+    Derived from the settlement allocations, because what a bill still owes is
+    a fact about the money received against it and is deliberately stored
+    nowhere.
+    """
+    return ApiResponse(
+        data=CustomerStatementService(db).ageing(
+            firm_scope=scope.firm_id, customer_id=customer_id, as_of=as_of
+        )
+    )
+
+
 @router.get("/groups", response_model=PaginatedResponse[CustomerGroupResponse])
 def list_customer_groups(
     scope: CustomerViewScope,
@@ -520,6 +546,34 @@ POSTED_ELSEWHERE = {
     CustomerReceivableTransactionType.RECEIPT: "receipts",
     CustomerReceivableTransactionType.ADVANCE_RECEIPT: "receipts",
 }
+
+
+@router.get(
+    "/{customer_id}/statement",
+    response_model=ApiResponse[CustomerStatement],
+)
+def customer_statement(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    from_date: Annotated[date, Query()],
+    to_date: Annotated[date, Query()],
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerStatement]:
+    """Return one customer's account movement over a period.
+
+    The opening balance is summed from the deltas before the period and the
+    running balance is recomputed in date order -- the stored
+    `outstanding_after` is a snapshot taken in the order rows were *written*,
+    which a backdated document makes disagree with the order they are *read*.
+    """
+    return ApiResponse(
+        data=CustomerStatementService(db).statement(
+            customer_id,
+            firm_scope=scope.firm_id,
+            from_date=from_date,
+            to_date=to_date,
+        )
+    )
 
 
 @router.get(

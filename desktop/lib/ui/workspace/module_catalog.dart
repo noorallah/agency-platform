@@ -236,6 +236,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CUSTOMER_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'customer-statements',
+          label: 'Statements',
+          requiredPermissions: ['CUSTOMER_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'products',
           label: 'Products',
           requiredPermissions: ['PRODUCT_VIEW'],

@@ -22,8 +22,20 @@ from app.customers.schemas.customer import (
     CustomerSummary,
     CustomerUpdate,
 )
+from app.customers.schemas.statement import (
+    AgeingBucket,
+    CustomerAgeing,
+    CustomerStatement,
+    CustomerStatementLine,
+    OverdueInvoice,
+)
 
 __all__ = [
+    "AgeingBucket",
+    "CustomerAgeing",
+    "CustomerStatement",
+    "CustomerStatementLine",
+    "OverdueInvoice",
     "CreditControlSettingsResponse",
     "CreditControlSettingsWrite",
     "CreditEnforcement",

@@ -3556,6 +3556,36 @@ class ApiClient {
     );
   }
 
+  // ---- customer statement and ageing -----------------------------------
+
+  /// One customer's account movement over a period.
+  Future<Json> customerStatement(
+    String customerId, {
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/customers/$customerId/statement',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  /// What every customer still owes, by how long they have owed it.
+  Future<List<Json>> customerAgeing({String? customerId, String? asOf}) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/customers/ageing',
+      query: <String, String>{
+        if (customerId != null) 'customer_id': customerId,
+        if (asOf != null) 'as_of': asOf,
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
+
   // ---- GST returns ----------------------------------------------------
 
   /// Outward supplies for a period, section by section.
