@@ -344,6 +344,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['SALES_TARGET_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'proforma-invoices',
+          label: 'Proforma',
+          requiredPermissions: ['PROFORMA_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'credit-notes',
           label: 'Credit Notes',
           requiredPermissions: ['CREDIT_NOTE_VIEW'],

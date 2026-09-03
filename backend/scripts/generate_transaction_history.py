@@ -103,6 +103,8 @@ from app.goods_receipt.schemas import GoodsReceiptCreate, GoodsReceiptLineWrite
 from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import InventoryTransaction
 from app.products.models import Product
+from app.proforma.schemas import ProformaCreate
+from app.proforma.services import ProformaService
 from app.promotions.models import (
     Promotion,
     PromotionAction,
@@ -206,6 +208,10 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_quotations",
     "credit_note_lines",
     "credit_notes",
+    # Proformas hang off the sales orders below. They post nothing, so there
+    # is no journal to worry about -- only the order they state.
+    "proforma_invoice_lines",
+    "proforma_invoices",
     "sales_return_attachments",
     "sales_return_notes",
     "sales_return_lines",
@@ -398,6 +404,7 @@ class Tally:
     sales_invoices: int = 0
     sales_returns: int = 0
     credit_notes: int = 0
+    proformas: int = 0
     receipts: int = 0
     tcs_collections: int = 0
     targets: int = 0
@@ -416,7 +423,8 @@ class Tally:
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
-            f"CN {self.credit_notes} | TCS {self.tcs_collections} | "
+            f"CN {self.credit_notes} | PF {self.proformas} | "
+            f"TCS {self.tcs_collections} | "
             f"TGT {self.targets} | PAY {self.payouts}"
         )
 
@@ -518,6 +526,7 @@ class HistoryBuilder:
         #: Which invoices see part of the goods come back.
         self._return_cycle = 0
         self._credit_cycle = 0
+        self._proforma_cycle = 0
         #: Which receipts send part of the goods back to the supplier.
         self._vendor_return_cycle = 0
         self._today = utc_now().date()
@@ -805,6 +814,44 @@ class HistoryBuilder:
             "from goods receipts alone and may lose dispatches its siblings "
             "make. Run scripts/seed_multi_firm_demo.py to restore it."
         )
+
+    def _state_in_advance(self, *, order: SalesOrder, on: date, firm_id: UUID) -> None:
+        """Issue a proforma against the order, the way an exporter would.
+
+        `proforma_invoices` held zero rows in every store the day the module
+        shipped, which looks exactly like a firm that has never been asked for
+        one. Every defect this repo has found in a sales module was found
+        because a seeded document reached it.
+
+        One order in four, because a proforma is what a buyer asks for when
+        they need a figure before the goods move -- a letter of credit, a
+        payment approval, a customs entry -- not something every sale
+        produces. Driven to ISSUED so the frozen state is in the data as well
+        as the draft one.
+        """
+        self._proforma_cycle += 1
+        if self._proforma_cycle % 4 != 0:
+            return
+        service = ProformaService(self._session)
+        try:
+            row = service.create_proforma(
+                ProformaCreate(
+                    sales_order_id=order.id,
+                    proforma_date=on,
+                    valid_until=on + timedelta(days=30),
+                    payment_terms="30 days from the date of this statement",
+                    delivery_terms="Ex works",
+                ),
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            service.issue_proforma(row.id, firm_scope=firm_id, actor_id=ACTOR)
+        except (ValidationError, BusinessRuleError) as error:
+            self._tally.skipped.append(f"{on} proforma: {error}")
+            self._session.rollback()
+            return
+        self._tally.proformas += 1
+        self._session.commit()
 
     # -- tax collected at source ---------------------------------------
 
@@ -1417,6 +1464,7 @@ class HistoryBuilder:
             )
             orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
         self._tally.sales_orders += 1
+        self._state_in_advance(order=order, on=on, firm_id=firm_id)
 
         so_line = self._session.scalar(
             select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)

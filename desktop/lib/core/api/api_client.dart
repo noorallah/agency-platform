@@ -21,6 +21,7 @@ import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
 import '../../models/einvoice.dart';
+import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
 import '../../models/sales_invoice.dart';
@@ -3555,6 +3556,56 @@ class ApiClient {
       total: _totalOf(response),
     );
   }
+
+  // ---- proforma invoices -----------------------------------------------
+
+  Future<PagedResult<ProformaRecord>> proformaInvoices({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+    String? search,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/proforma-invoices',
+      query: <String, String>{
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null) 'document_status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<ProformaRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) => ProformaRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  Future<ProformaRecord> createProformaInvoice(Json body) async =>
+      ProformaRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/proforma-invoices', body: body),
+      ));
+
+  Future<ProformaRecord> issueProformaInvoice(String id) async =>
+      ProformaRecord.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/proforma-invoices/$id/issue'),
+      ));
+
+  Future<ProformaRecord> cancelProformaInvoice(
+    String id, {
+    required String reason,
+  }) async =>
+      ProformaRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/proforma-invoices/$id/cancel',
+        body: <String, dynamic>{'reason': reason},
+      )));
 
   // ---- customer statement and ageing -----------------------------------
 

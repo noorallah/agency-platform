@@ -39,6 +39,7 @@ import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_return_page.dart';
+import 'sales/proforma_page.dart';
 import 'sales/tcs_page.dart';
 import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
@@ -1930,6 +1931,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'proforma-invoices' => ProformaPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'credit-notes' => CreditNotePage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2018,6 +2024,12 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Tax Collected at Source',
           'Charged on the money a buyer pays, not on what they were billed, '
               'and only on the part above the year’s threshold.',
+        ),
+      'proforma-invoices' => (
+          'Proforma Invoices',
+          'What an approved order will be charged, stated before the goods '
+              'move. Not a tax invoice: it posts nothing and no input credit '
+              'can be claimed against it.',
         ),
       'credit-notes' => (
           'Credit Notes',

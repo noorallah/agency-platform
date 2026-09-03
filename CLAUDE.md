@@ -422,6 +422,23 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   passed it, which is also why it survived: **the fixtures repeated the price
   too, so every test proved the number it had just supplied**. Found by
   driving the chain with minimal payloads.
+- **A proforma posts nothing, and the absence of anywhere to record that it
+  did is the design.** `app/proforma` states what an approved sales order will
+  be charged, for a buyer who needs the figure before the goods move -- a
+  letter of credit, a payment approval, a customs entry. Neither table carries
+  a `journal_entry_id` or a `receivable_transaction_id`; adding one is the
+  first step towards a document that looks like a bill to the books as well as
+  to the customer, and the unit suite counts journal and receivable rows after
+  issuing rather than trusting the absence. **Its number comes from its own
+  `PI` series, never the tax invoice's** -- GSTR-1's DOCS section declares the
+  invoice series, so a proforma drawn from it would either leave a gap the
+  return cannot explain or put a number in it that was never a supply. **Its
+  lines are snapshotted**, not read live: an order can be edited afterwards,
+  withdrawing its own approval as it goes, and a document somebody is
+  arranging payment against must not change underneath them. Once ISSUED it
+  cannot be edited -- a revision is a new document with `supersedes_id`
+  pointing back -- and withdrawing keeps the row, because the customer holds a
+  copy.
 - **A statement's running balance is recomputed in date order, never read
   off `outstanding_after`.** That column on
   `customer_receivable_transactions` is a snapshot taken when the row was

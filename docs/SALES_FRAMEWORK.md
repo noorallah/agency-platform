@@ -1056,6 +1056,49 @@ An unapplied advance is reported **beside** the closing balance rather than
 folded into it: netting them hides money the customer is entitled to have
 applied.
 
+## Proforma invoices — landed 2026-09-03
+
+A buyer needs a document before the goods move: to open a letter of credit, to
+get a payment approved, to clear customs. A quotation is an offer and a tax
+invoice is a demand; the thing in between is a proforma, and `app/proforma` is
+it.
+
+**It posts nothing, and the absence is the design.** There is no
+`journal_entry_id` and no `receivable_transaction_id` on either table, because
+a proforma raises no revenue, no output tax, no receivable and no stock
+movement. Adding either column later is the first step towards a document that
+looks like a bill to the books as well as to the customer. The unit suite
+proves the absence rather than trusting it: after issuing, it counts the
+journal entries and the receivable rows and expects zero.
+
+**Its number comes from its own series, never the tax invoice's.** GSTR-1's
+DOCS section declares the invoice series a firm issued, so a proforma drawing
+from that series would either leave a gap the return cannot explain or put a
+number in it that was never a supply. `PROFORMA_INVOICE` is a document type of
+its own with a `PI` prefix.
+
+**Its lines are snapshotted from the sales order, not sent by the caller and
+not read live.** A caller that could name its own lines would be stating a
+price the order never agreed. Reading the order live would be worse: an order
+can be edited afterwards -- withdrawing its own approval as it goes -- and a
+document the customer is arranging payment against must not change underneath
+them. Free goods are copied too; a proforma that dropped them would understate
+what is being shipped.
+
+**Once issued it cannot be edited.** A revision is a new proforma with
+`supersedes_id` pointing back, not a rewrite of the old one. Withdrawing keeps
+the row: the customer holds a copy, and a document that vanished leaves them
+with a number this system cannot explain.
+
+DRAFT → ISSUED → CANCELLED, and no approval step of its own — the order it
+states was approved already, which is also why there are two permission codes
+rather than three. `SALES_MANAGER` holds both: a proforma posts nothing, so
+raising one is ordinary sales-desk work.
+
+The demo issues one against every fourth order, because a proforma is what a
+buyer asks for when they need a figure in advance, not something every sale
+produces.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a

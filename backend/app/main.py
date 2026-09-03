@@ -42,6 +42,7 @@ from app.identity.api import router as identity_router
 from app.inventory.api import router as inventory_router
 from app.pricing.api import router as pricing_router
 from app.products.api import router as products_router
+from app.proforma.api import router as proforma_router
 from app.promotions.api import router as promotions_router
 from app.purchase.api import router as purchases_router
 from app.purchase_invoice.api import router as purchase_invoices_router
@@ -124,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(promotions_router)
     application.include_router(sales_targets_router)
     application.include_router(products_router)
+    application.include_router(proforma_router)
     application.include_router(purchases_router)
     application.include_router(purchase_invoices_router)
     application.include_router(purchase_returns_router)

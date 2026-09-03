@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | TCS 27-30 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | TCS 27-30 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -127,6 +127,12 @@ SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
   SELECT coalesce(sum(l.bill_discount_amount), 0) FROM sales_invoice_lines l
   WHERE l.sales_invoice_id = i.id);   -- must be 0
 ```
+
+**`PF` should read 14.** Proformas arrived on 2026-09-03 and every store held
+zero, which looks exactly like a firm nobody has ever asked for one. Every
+fourth order gets one, issued rather than left in draft, because a proforma is
+what a buyer asks for when they need a figure before the goods move -- not
+something every sale produces.
 
 **`TCS` is the one count that legitimately differs between the firms**, and
 reads 27 to 30. Tax collected at source is charged when a buyer's payments
@@ -259,6 +265,9 @@ answers for whichever schema the connection is pointed at.
   sales that no longer exist. A payout references the journal entries the
   reset clears, so one that outlived them would be a debt the books cannot
   explain.
+- **`proforma_invoices` and its lines are in the reset order**, before the
+  sales orders they state. They post nothing, so there is no journal to worry
+  about -- only the order.
 - **`tcs_collections` is in the reset order and `tcs_settings` is not.** The
   collections hang off the settlements the reset clears; the settings are an
   arrangement about the firm, like a commission rule, and rebuilding the
