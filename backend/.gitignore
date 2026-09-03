@@ -32,3 +32,8 @@ Thumbs.db
 .tok
 uvicorn-*.log
 coverage.json
+
+# Scratch ids written while driving endpoints by hand. They are session
+# state, not source -- three were committed by accident in #198 and #201.
+.cid*
+.po
