@@ -83,8 +83,6 @@ const Map<String, String> _accepted = <String, String>{
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
 const Map<String, String> _knownGaps = <String, String>{
-  'updateCommissionPayout': 'a draft payout cannot be adjusted, though the '
-      'service takes a reason and expects it to be',
   'cancelPhysicalCount': 'a count can be opened, recorded and posted, and not '
       'called off',
   'updateGoodsReceipt': 'a receipt cannot be corrected before completion',

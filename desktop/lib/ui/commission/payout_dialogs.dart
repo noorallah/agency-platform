@@ -9,10 +9,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/commission.dart';
 import '../../models/finance.dart';
+import '../workspace/desktop_framework.dart';
 import 'commission_page.dart' show CommissionDateField, isoDate, parseIsoDate;
 
 /// Turn what a period earned into draft payouts.
@@ -280,4 +282,169 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
       ],
     );
   }
+}
+
+
+/// Correct what a draft payout owes, before anybody approves it.
+///
+/// Only a draft. Changing what was approved would leave the accrual journal
+/// saying one number and the record saying another, and the way to correct an
+/// approved payout is to cancel it -- which reverses the journal -- and accrue
+/// the period again. The service refuses it either way; the screen says so
+/// rather than letting somebody find out.
+class CommissionAdjustmentDialog extends StatefulWidget {
+  const CommissionAdjustmentDialog({
+    super.key,
+    required this.api,
+    required this.payout,
+  });
+
+  final ApiClient api;
+  final CommissionPayoutRecord payout;
+
+  @override
+  State<CommissionAdjustmentDialog> createState() =>
+      _CommissionAdjustmentDialogState();
+}
+
+class _CommissionAdjustmentDialogState
+    extends State<CommissionAdjustmentDialog> {
+  late final TextEditingController _amount =
+      TextEditingController(text: widget.payout.adjustmentAmount);
+  late final TextEditingController _reason =
+      TextEditingController(text: widget.payout.adjustmentReason);
+  late final TextEditingController _notes =
+      TextEditingController(text: widget.payout.notes);
+
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    // Owned here, not by the caller: disposing after `showDialog` returns
+    // disposes mid-animation, with the fields still rebuilding.
+    _amount.dispose();
+    _reason.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  double get _earned => double.tryParse(widget.payout.earnedAmount) ?? 0;
+
+  double get _adjustment => double.tryParse(_amount.text.trim()) ?? 0;
+
+  /// What the firm would owe. Shown live, because the interesting number is
+  /// the total rather than the correction, and a negative one is refused.
+  double get _payable => _earned + _adjustment;
+
+  Future<void> _save() async {
+    final String reason = _reason.text.trim();
+    // The server refuses an unexplained adjustment; saying so here keeps the
+    // typing rather than losing it to a round trip.
+    if (_adjustment != 0 && reason.isEmpty) {
+      setState(() => _error = 'Say why the payout is being adjusted. An '
+          'adjustment with no reason is a number nobody can explain at the '
+          'year end.');
+      return;
+    }
+    if (_payable < 0) {
+      setState(() => _error = 'That would make the payout negative. A payout '
+          'cannot take money back — record what is owed as zero and settle '
+          'the difference separately.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.api.updateCommissionPayout(
+        widget.payout.id,
+        <String, dynamic>{
+          'adjustment_amount': _amount.text.trim().isEmpty
+              ? '0'
+              : _amount.text.trim(),
+          'adjustment_reason': reason,
+          'notes': _notes.text.trim(),
+        },
+        expectedVersion: widget.payout.version,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.isConflict
+            ? concurrencyMessage('payout', changesKept: true)
+            : error.message;
+        _saving = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => WorkspaceDialog(
+        title: 'Adjust ${widget.payout.salesmanName}',
+        subtitle: '${widget.payout.periodStart} to '
+            '${widget.payout.periodEnd}, on the '
+            '${widget.payout.basis.toLowerCase()} basis',
+        icon: Icons.tune,
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_error != null) ...[
+                Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+              Text(
+                'Earned ${widget.payout.earnedAmount} on measured '
+                '${widget.payout.measuredAmount}. The earned figure was read '
+                'once, when the period was accrued, so it does not move if a '
+                'rate is corrected afterwards — an adjustment is how it gets '
+                'put right.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(signed: true),
+                decoration: const InputDecoration(
+                  labelText: 'Adjustment',
+                  helperText: 'Negative to reduce what is owed. Blank or zero '
+                      'for none.',
+                  helperMaxLines: 2,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _reason,
+                decoration: const InputDecoration(
+                  labelText: 'Reason',
+                  helperText: 'Required for any adjustment other than zero.',
+                  helperMaxLines: 2,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _notes,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'Notes'),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Payable becomes ${_payable.toStringAsFixed(2)}.',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ],
+          ),
+        ),
+        onClose: () => Navigator.of(context).pop(false),
+        onSave: _saving ? null : _save,
+        saveLabel: 'Save',
+      );
 }

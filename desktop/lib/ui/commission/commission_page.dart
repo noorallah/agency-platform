@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -508,6 +510,29 @@ class _CommissionPageState extends State<CommissionPage> {
 
   /// Only what this row can actually do next.
   ///
+  /// Correct what a draft payout owes.
+  ///
+  /// `updateCommissionPayout` had a route, a client method and no control, so
+  /// a payout accrued at the wrong rate could only be cancelled and accrued
+  /// again -- and the service takes an adjustment and a reason precisely so
+  /// it need not be.
+  Future<void> _adjust(CommissionPayoutRecord row) async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => CommissionAdjustmentDialog(
+        api: widget.api,
+        payout: row,
+      ),
+    );
+    if (!(saved ?? false) || !mounted) return;
+    NotificationService.show(
+      context,
+      'Payout for ${row.salesmanName} adjusted.',
+      kind: AppNotificationKind.success,
+    );
+    await _loadPayouts();
+  }
+
   /// An action the server is going to refuse is worse than none: it reads as
   /// a working action until the moment somebody needs it. Paying is gated on
   /// its own code, because whoever states a debt should not be the one who
@@ -516,6 +541,15 @@ class _CommissionPageState extends State<CommissionPage> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Before Approve, because correcting the figure is what somebody
+        // does *instead of* approving it. Only a draft: the service refuses
+        // an approved one, since the accrual journal already states the
+        // number.
+        if (row.isDraft && _mayManage)
+          TextButton(
+            onPressed: () => unawaited(_adjust(row)),
+            child: const Text('Adjust'),
+          ),
         if (row.isDraft && _mayManage)
           TextButton(
             onPressed: () => _payoutAction(
