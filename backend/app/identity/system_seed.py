@@ -168,6 +168,13 @@ PERMISSION_GROUPS = {
         # so it is its own code rather than riding on a sales permission.
         "EINVOICE_MANAGE",
     ),
+    "proforma": (
+        "PROFORMA_VIEW",
+        # A proforma posts nothing, so raising one moves no money and needs no
+        # separate approval of its own -- the order it states was approved
+        # already. Two codes rather than three for exactly that reason.
+        "PROFORMA_MANAGE",
+    ),
     "credit_note": (
         "CREDIT_NOTE_VIEW",
         "CREDIT_NOTE_MANAGE",
@@ -393,6 +400,10 @@ ROLE_PERMISSION_CODES = {
             # declared tax and is not theirs, the same split as commission.
             "CREDIT_NOTE_VIEW",
             "CREDIT_NOTE_MANAGE",
+            # A proforma states what an approved order will be charged and
+            # posts nothing, so raising one is ordinary sales-desk work.
+            "PROFORMA_VIEW",
+            "PROFORMA_MANAGE",
             # Reading what was registered is part of running a sales desk;
             # filing with the authority is not, the same split as approving a
             # credit note.
