@@ -635,6 +635,16 @@ def main() -> int:
                         reset=False,
                     )
                     print(f"{blueprint.code} history: {tally.line()}")
+                    # The notes, not only the counts. Every one of them is a
+                    # document the run could not raise, and reading them is
+                    # how a real dispatch defect was found -- this script
+                    # printed the tally and dropped them on the floor, so a
+                    # firm seeding differently from its siblings was
+                    # invisible here while the standalone script showed it.
+                    for note in tally.skipped[:5]:
+                        print(f"  note: {note}")
+                    if len(tally.skipped) > 5:
+                        print(f"  note: ...and {len(tally.skipped) - 5} more")
 
         _print_summary(platform, settings)
     finally:
@@ -1858,18 +1868,24 @@ def _seed_commission(
     when everybody earns the same.
     """
     service = CommissionService(session)
-    _rules, existing = service.list_rules(firm_id=firm.id, page=1, page_size=1)
-    if existing:
-        return
-    service.create_rule(
-        CommissionRuleCreate(
-            percentage=Decimal("2.5"),
-            effective_from=date(2024, 4, 1),
-        ),
-        firm_id=firm.id,
-        actor_id=actor_id,
-    )
-    if salesman_ids:
+    # Checked one rule at a time rather than "does the firm have any". The
+    # all-or-nothing guard meant a firm that had lost one of the two never got
+    # it back, and the precedence this seeds exists to show is invisible with
+    # only one of them present.
+    existing, _total = service.list_rules(firm_id=firm.id, page=1, page_size=100)
+    if not any(rule.salesman_id is None for rule in existing):
+        service.create_rule(
+            CommissionRuleCreate(
+                percentage=Decimal("2.5"),
+                effective_from=date(2024, 4, 1),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    if salesman_ids and not any(
+        rule.salesman_id == salesman_ids[0] and rule.product_category_id is None
+        for rule in existing
+    ):
         service.create_rule(
             CommissionRuleCreate(
                 salesman_id=salesman_ids[0],

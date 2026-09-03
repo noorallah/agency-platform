@@ -76,11 +76,18 @@ One firm on its own, which is much faster:
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | TGT 2 | PAY 2
 ```
+
+**`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
+printed the tally line and dropped `tally.skipped` on the floor, so every
+document a run could not raise was invisible from the multi-firm entry point
+while the standalone script showed it -- which is the entry point everybody
+uses. The first run after fixing it immediately reported two firms seeding a
+different set of commission rules from the other two.
 
 **The four firms should agree line for line.** They differ only in tenancy
 mode, business profile and unit factors, so a count that differs is a signal.
@@ -109,6 +116,27 @@ SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
   SELECT coalesce(sum(l.bill_discount_amount), 0) FROM sales_invoice_lines l
   WHERE l.sales_invoice_id = i.id);   -- must be 0
 ```
+
+**`TGT` and `PAY` should read 2 and 2.** Targets and commission payouts
+arrived on 2026-09-03, and before that every store held zero of both: no firm
+had a number to measure its salesmen against, and commission reported what was
+owed while nothing was ever paid. Each firm now carries four commission
+arrangements rather than one -- the firm-wide default, one person's own flat
+rate, a **product-scoped** rate for that same person, and a **ladder** with a
+floor and a target bonus for the other -- because the module is about
+precedence and a demo where everybody earns the same shows none of it.
+
+Reading WHOLE01's report over the whole history is the quickest check that the
+precedence is alive: one salesman comes out at **5.06%**, which is neither of
+the two rates that govern them and could only be a blend of 6% on the scoped
+product and 4% on the rest. The other comes out at exactly **2.00%**, the
+bottom band of their ladder. One target is met and one missed, so both states
+appear on screen.
+
+The scoped rule names a **product** rather than a category on purpose: these
+firms carry a single category, so a category rule would cover every line and
+be indistinguishable from an unscoped one -- the precedence it exists to show
+would be invisible in the very data seeded to show it.
 
 **Read the DN count against the SO count.** They should match. A shortfall
 means deliveries were skipped, and the standalone script prints why:
@@ -189,6 +217,18 @@ answers for whichever schema the connection is pointed at.
   documents, which is why the seeder resets *before* laying the day-one shelf
   down. Anything that reorders that will silently produce stores whose opening
   stock documents have no movements behind them.
+- **`sales_targets` and `commission_payouts` are reset with the history; the
+  commission *rules* are not.** A rule is an arrangement that outlives any
+  particular year. A seeded target is *derived from* what was sold, so leaving
+  it behind while the trading is rebuilt leaves a number measured against
+  sales that no longer exist. A payout references the journal entries the
+  reset clears, so one that outlived them would be a debt the books cannot
+  explain.
+- **`promotion_redemptions` and `promotion_coupons` were missing from the
+  reset order** until 2026-09-03, so `--reset` failed outright on any firm
+  whose documents had claimed an offer -- a foreign key violation, not a quiet
+  skip. That is the third time a table arrived with a feature and this list
+  did not learn about it; the settlements omission was the first.
 - **Batches survive a reset.** `batches` is not in `RESET_ORDER`, so batch
   records outlive the movements that created them. Regenerating reuses them by
   number rather than duplicating, and a leftover batch correctly reports zero

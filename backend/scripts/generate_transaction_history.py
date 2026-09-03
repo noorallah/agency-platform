@@ -51,15 +51,29 @@ from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import inspect, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.engine import Inspector
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
 from app.business.gating import resolve_capabilities
+from app.commission.schemas import (
+    CommissionBasisEnum,
+    CommissionRuleCreate,
+    CommissionSlabWrite,
+)
+from app.commission.schemas.payout import (
+    CommissionPayoutAccrue,
+    CommissionPayoutPay,
+)
+from app.commission.services import CommissionPayoutService, CommissionService
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager, EngineFactory
-from app.core.exceptions import BusinessRuleError, ValidationError
+from app.core.exceptions import (
+    BusinessRuleError,
+    ConflictError,
+    ValidationError,
+)
 from app.core.tenancy import (
     DeploymentMode,
     FirmConnectionResolver,
@@ -72,6 +86,10 @@ from app.customers.models import Customer
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
 from app.finance.models import FinancialYear
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
 from app.goods_receipt.models import GoodsReceiptLine
@@ -101,7 +119,7 @@ from app.purchase_return.schemas import (
 from app.purchase_return.services import PurchaseReturnService
 from app.quotation.schemas import QuotationCreate, QuotationLineWrite
 from app.quotation.services import QuotationService
-from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -118,6 +136,12 @@ from app.sales_return.schemas import (
     SalesReturnSourceType,
 )
 from app.sales_return.services import SalesReturnService
+from app.sales_targets.schemas import (
+    SalesTargetBasis,
+    SalesTargetPeriod,
+    SalesTargetWrite,
+)
+from app.sales_targets.services import SalesTargetService
 from app.settlements.schemas import (
     SettlementAllocationWrite,
     SettlementCreate,
@@ -159,6 +183,13 @@ RESET_ORDER: tuple[str, ...] = (
     # entries the history clears, and a payout that outlives its journal is a
     # debt the books can no longer explain.
     "commission_payouts",
+    # Targets go with the history and not with the masters, unlike commission
+    # rules. A rule is an arrangement that outlives any particular year; a
+    # seeded target is *derived from* what was sold, so leaving it behind
+    # while the trading is rebuilt leaves a number measured against sales that
+    # no longer exist -- and the met-or-missed story it exists to show becomes
+    # arbitrary.
+    "sales_targets",
     "sales_quotation_attachments",
     "sales_quotation_notes",
     "sales_quotation_lines",
@@ -219,6 +250,13 @@ RESET_ORDER: tuple[str, ...] = (
     # The offers and what they gave away. Children first: a promotion's
     # conditions and actions reference it, and a superseded revision
     # references the one it replaced.
+    #
+    # `promotion_redemptions` and `promotion_coupons` arrived with the coupon
+    # work and this list did not know about them, so `--reset` failed outright
+    # on any firm whose documents had claimed an offer -- the same shape as
+    # the settlements omission recorded above, and found the same way.
+    "promotion_redemptions",
+    "promotion_coupons",
     "promotion_execution_logs",
     "promotion_actions",
     "promotion_conditions",
@@ -343,6 +381,8 @@ class Tally:
     sales_invoices: int = 0
     sales_returns: int = 0
     receipts: int = 0
+    targets: int = 0
+    payouts: int = 0
     skipped: list[str] = field(default_factory=list)
 
     def line(self) -> str:
@@ -356,7 +396,8 @@ class Tally:
             f"PROMO {self.promotions} | "
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
-            f"RCPT {self.receipts} | SRET {self.sales_returns}"
+            f"RCPT {self.receipts} | SRET {self.sales_returns} | "
+            f"TGT {self.targets} | PAY {self.payouts}"
         )
 
 
@@ -710,6 +751,257 @@ class HistoryBuilder:
         self._session.commit()
 
     # -- cycles --------------------------------------------------------
+
+    # -- incentives ----------------------------------------------------
+
+    def incentives(self, years_in_scope: list[date]) -> None:
+        """Put the incentive arrangements on the firm, and run one payout.
+
+        Everything below is deliberately *after* the trading, because none of
+        it changes a document: commission is a report over invoices and
+        receipts that already exist, and a target is a number to measure them
+        against. Running it first would only mean the same rows read later.
+
+        Four arrangements rather than one, because the whole module is about
+        precedence and a demo where everybody earns the same shows none of it:
+
+        - the firm-wide default and one person's own flat rate, both already
+          seeded as masters;
+        - a **product** rule for that same person, which takes the lines it
+          names while their flat rate still covers the rest -- the "3% on
+          everything, 5% on the cold chain" shape;
+        - a **ladder with a floor and a target bonus** for the second person,
+          so slabs, `minimum_amount` and `bonus_percentage` all appear in a
+          store rather than only in a test.
+
+        The targets are set from what each person **actually** sold: one
+        below, so it is met, and one above, so it is missed. That is a demo
+        deciding what to show rather than a measurement -- and it is the only
+        way both states are on screen, which is what makes the bonus rule
+        legible at all.
+        """
+        salesmen = self._salesmen_who_sold()
+        if len(salesmen) < 2:
+            self._tally.skipped.append(
+                "incentives: fewer than two salesmen carried invoices"
+            )
+            return
+        self._incentive_rules(salesmen)
+        self._targets(salesmen, years_in_scope)
+        self._payout_run(years_in_scope)
+
+    def _salesmen_who_sold(self) -> list[UUID]:
+        """Return the people whose name is actually on an invoice.
+
+        Read from the documents rather than from the territory assignments:
+        somebody who covers a round but sold nothing has no commission to
+        report and no target worth setting.
+        """
+        rows = self._session.scalars(
+            select(SalesInvoice.salesman_id)
+            .where(
+                SalesInvoice.firm_id == self._target.firm_id,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.salesman_id.is_not(None),
+                SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+            )
+            .distinct()
+            .order_by(SalesInvoice.salesman_id)
+        ).all()
+        return [row for row in rows if row is not None]
+
+    def _incentive_rules(self, salesmen: list[UUID]) -> None:
+        """Add the two arrangements the masters seeder does not create."""
+        service = CommissionService(self._session)
+        existing, _total = service.list_rules(
+            firm_id=self._target.firm_id, page=1, page_size=100
+        )
+        # Who gets which arrangement is chosen from the rules that exist, not
+        # by position. Picking positionally read the salesmen in id order, so
+        # in two firms of four the ladder landed on somebody who already had a
+        # flat rate, the overlap guard refused it, and those stores seeded
+        # with no slabs at all -- a count that differed between firms, which
+        # is exactly the signal this seeder exists to raise.
+        # Only *unscoped* rules count as owning a rate. The overlap guard
+        # compares scope as well as person, so a category rule and a ladder
+        # can sit on one salesman quite happily -- treating any rule at all as
+        # ownership left both shared-store firms with no ladder, because a
+        # previous run had put the category rule on the second person.
+        owned = {
+            rule.salesman_id
+            for rule in existing
+            if rule.salesman_id
+            and rule.product_id is None
+            and rule.product_category_id is None
+        }
+        # The category rule goes to somebody who already has a rate of their
+        # own, so "the narrower rule wins for its lines and the broader one
+        # covers the rest" is visible on one person rather than described.
+        with_rate = next((who for who in salesmen if who in owned), salesmen[0])
+        # The ladder goes to somebody with no unscoped rate, because that is
+        # the one a ladder would collide with.
+        without_rate = next((who for who in salesmen if who not in owned), None)
+        # Scoped to one **product**, not to a category. These firms carry a
+        # single category, so a category rule would cover every line and be
+        # indistinguishable from an unscoped one -- the precedence it exists
+        # to show would be invisible in the very data seeded to show it. A
+        # product rule covers some lines and leaves the person's own flat rate
+        # to cover the rest, which is the thing worth seeing.
+        product = self._session.scalar(
+            select(Product)
+            .where(
+                Product.firm_id == self._target.firm_id,
+                Product.is_deleted.is_(False),
+            )
+            .order_by(Product.code.asc())
+        )
+        if product is not None and not any(
+            rule.product_id == product.id for rule in existing
+        ):
+            service.create_rule(
+                CommissionRuleCreate(
+                    salesman_id=with_rate,
+                    percentage=Decimal("6"),
+                    effective_from=date(2024, 4, 1),
+                    product_id=product.id,
+                ),
+                firm_id=self._target.firm_id,
+                actor_id=ACTOR,
+            )
+        if without_rate is None:
+            self._tally.skipped.append(
+                "incentives: everybody already has a rule, so no ladder was seeded"
+            )
+        else:
+            service.create_rule(
+                CommissionRuleCreate(
+                    salesman_id=without_rate,
+                    # Ignored: a rule with slabs pays the ladder, and this
+                    # column is here only because every rule carries it.
+                    percentage=Decimal("0"),
+                    effective_from=date(2024, 4, 1),
+                    basis=CommissionBasisEnum.COLLECTED,
+                    minimum_amount=Decimal("1000"),
+                    bonus_percentage=Decimal("2"),
+                    slabs=[
+                        CommissionSlabWrite(
+                            from_amount=Decimal("0"),
+                            to_amount=Decimal("50000"),
+                            percentage=Decimal("2"),
+                        ),
+                        CommissionSlabWrite(
+                            from_amount=Decimal("50000"),
+                            percentage=Decimal("4"),
+                        ),
+                    ],
+                ),
+                firm_id=self._target.firm_id,
+                actor_id=ACTOR,
+            )
+        self._session.commit()
+
+    def _targets(self, salesmen: list[UUID], years_in_scope: list[date]) -> None:
+        """Set one target somebody met and one somebody missed.
+
+        Over the most recent financial year in scope, because a target over a
+        year the history never reached would be neither.
+        """
+        service = SalesTargetService(self._session)
+        year_start = years_in_scope[-1]
+        year_end = min(date(year_start.year + 1, 3, 31), self._today)
+        if year_end <= year_start:
+            return
+        for index, salesman_id in enumerate(salesmen[:2]):
+            sold = self._session.scalar(
+                select(func.coalesce(func.sum(SalesInvoice.grand_total), 0)).where(
+                    SalesInvoice.firm_id == self._target.firm_id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.salesman_id == salesman_id,
+                    SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+                    SalesInvoice.invoice_date >= year_start,
+                    SalesInvoice.invoice_date <= year_end,
+                )
+            )
+            sold = Decimal(str(sold or 0))
+            if sold <= Decimal(0):
+                continue
+            # The first person's number is one they beat and the second's is
+            # one they missed, so the report shows Met and Missed rather than
+            # a column of the same word.
+            share = Decimal("0.8") if index == 0 else Decimal("1.3")
+            try:
+                service.create_target(
+                    SalesTargetWrite(
+                        salesman_id=salesman_id,
+                        period_start=year_start,
+                        period_end=year_end,
+                        period_type=SalesTargetPeriod.YEARLY,
+                        basis=SalesTargetBasis.INVOICED,
+                        target_amount=(sold * share).quantize(Decimal("1")),
+                    ),
+                    firm_id=self._target.firm_id,
+                    actor_id=ACTOR,
+                )
+                self._tally.targets += 1
+            except (ValidationError, BusinessRuleError, ConflictError) as error:
+                self._tally.skipped.append(f"target: {error}")
+        self._session.commit()
+
+    def _payout_run(self, years_in_scope: list[date]) -> None:
+        """Accrue one quarter, approve it all, and pay the first of them.
+
+        Not every quarter: a store where every payout is settled has nothing
+        for the "what do we still owe" question to show, which is the same
+        reason one invoice in four is left uncollected.
+        """
+        service = CommissionPayoutService(self._session)
+        year_start = years_in_scope[-1]
+        period_start = year_start
+        period_end = min(
+            date(year_start.year, 6, 30) if year_start.month == 4 else year_start,
+            self._today,
+        )
+        if period_end <= period_start:
+            return
+        try:
+            payouts = service.accrue(
+                CommissionPayoutAccrue(
+                    period_start=period_start, period_end=period_end
+                ),
+                firm_id=self._target.firm_id,
+                actor_id=ACTOR,
+            )
+            self._session.commit()
+        except (ValidationError, BusinessRuleError, ConflictError) as error:
+            self._tally.skipped.append(f"payout accrual: {error}")
+            self._session.rollback()
+            return
+        money_account = ControlAccountService(self._session).resolve(
+            self._target.firm_id, ControlAccountPurpose.CASH
+        )
+        for index, payout in enumerate(payouts):
+            try:
+                service.approve(
+                    payout.id,
+                    firm_id=self._target.firm_id,
+                    actor_id=ACTOR,
+                )
+                self._session.commit()
+                self._tally.payouts += 1
+                if index == 0:
+                    service.pay(
+                        payout.id,
+                        CommissionPayoutPay(
+                            paid_on=period_end,
+                            money_account_id=money_account,
+                        ),
+                        firm_id=self._target.firm_id,
+                        actor_id=ACTOR,
+                    )
+                    self._session.commit()
+            except (ValidationError, BusinessRuleError, ConflictError) as error:
+                self._tally.skipped.append(f"payout: {error}")
+                self._session.rollback()
 
     def _batch_for(self, product: Product, on: date) -> tuple[str | None, date | None]:
         """Name the batch a delivery arrives in, if this firm works that way.
@@ -1435,6 +1727,11 @@ def build_for_firm(
                 except (ValidationError, BusinessRuleError) as error:
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")
             cycle += 1
+
+    # Last, because none of it changes a document: commission reports over
+    # invoices and receipts that already exist, and a target is a number to
+    # measure them against.
+    builder.incentives(years_in_scope)
     return builder.tally
 
 
