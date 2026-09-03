@@ -99,6 +99,10 @@ class PromotionService:
         document_gross = quantize_money(sum((s.gross for s in states), ZERO))
         products = self._products_for(data)
         bill_discount = ZERO
+        # What was charged for delivery is either waived whole or not at all,
+        # so this is a flag rather than a running total: a second offer cannot
+        # waive an already-waived charge twice.
+        freight_waived = ZERO
         gifts: list[PromotionGift] = []
         applied: list[str] = []
         applications: list[PromotionApplication] = []
@@ -149,7 +153,7 @@ class PromotionService:
                 continue
 
             before_lines = sum((state.discount for state in states), ZERO)
-            added_bill = self._apply(
+            added_bill, waives_freight = self._apply(
                 promotion,
                 matched=matched_lines,
                 states=states,
@@ -158,6 +162,8 @@ class PromotionService:
                 gifts=gifts,
             )
             bill_discount += added_bill
+            if waives_freight:
+                freight_waived = quantize_money(data.freight_amount)
             applied.append(promotion.code)
             applications.append(
                 PromotionApplication(
@@ -171,10 +177,18 @@ class PromotionService:
                     # What this offer alone took off, line and bill together --
                     # so a campaign can be costed without re-pricing every
                     # document it touched.
+                    # The waived delivery counts: a campaign that gave away
+                    # shipping cost the firm exactly that, and a cost report
+                    # that left it out would understate it.
                     benefit_amount=quantize_money(
                         sum((state.discount for state in states), ZERO)
                         - before_lines
                         + added_bill
+                        + (
+                            quantize_money(data.freight_amount)
+                            if waives_freight
+                            else ZERO
+                        )
                     ),
                 )
             )
@@ -202,6 +216,7 @@ class PromotionService:
                 for state in states
             ],
             bill_discount_amount=quantize_money(bill_discount),
+            freight_waived=freight_waived,
             applied_promotion_codes=applied,
             gifts=gifts,
             applied=applications,
@@ -498,13 +513,14 @@ class PromotionService:
         bill_discount: Decimal,
         allow_bill: bool = True,
         gifts: list[PromotionGift] | None = None,
-    ) -> Decimal:
+    ) -> tuple[Decimal, bool]:
         """Give this promotion's benefits, and return what it took off the bill.
 
         Every percentage is taken off what is **left**, which is what stops
         stacked benefits from ever exceeding the line.
         """
         added_bill = ZERO
+        waives_freight = False
         for action in promotion.actions:
             params = action.parameters or {}
             kind = action.action_type
@@ -564,7 +580,12 @@ class PromotionService:
                 else:
                     amount = Decimal(str(params.get("amount", 0)))
                     added_bill += min(quantize_money(amount), taxable)
-        return added_bill
+            elif kind == PromotionActionType.FREE_SHIPPING.value:
+                # Nothing to compute: the charge is waived whole or not at
+                # all, and how much it was is the document's business rather
+                # than the offer's.
+                waives_freight = True
+        return added_bill, waives_freight
 
     @staticmethod
     def _decision(

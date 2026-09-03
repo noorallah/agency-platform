@@ -40,6 +40,7 @@ from app.promotions.models import (
 )
 from app.promotions.schemas import (
     PromotionActionType,
+    PromotionActionWrite,
     PromotionConditionOperator,
     PromotionEvaluationRequest,
     PromotionField,
@@ -152,12 +153,14 @@ def _request(
     lines: list[tuple[int, UUID | None, str, str]],
     on: date = date(2026, 8, 4),
     customer_id: UUID | None = None,
+    freight: str = "0",
 ) -> PromotionEvaluationRequest:
     """Describe a document to be priced: (line_number, product, qty, gross)."""
     return PromotionEvaluationRequest(
         transaction_type="SALES_ORDER",
         transaction_date=on,
         customer_id=customer_id,
+        freight_amount=Decimal(freight),
         lines=[
             PromotionLineRequest(
                 line_number=number,
@@ -1487,3 +1490,104 @@ def test_a_gift_action_naming_no_product_gives_nothing() -> None:
     )
 
     assert outcome.gifts == []
+
+
+def test_free_shipping_waives_the_whole_delivery_charge() -> None:
+    """Not a discount on it.
+
+    Free shipping means nothing is charged for delivery, so there is nothing
+    to tax either -- and a document showing a delivery charge beside a
+    discount cancelling it says something different from one showing no
+    charge at all.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="SHIP-FREE",
+        actions=[(PromotionActionType.FREE_SHIPPING, {})],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, None, "1", "1000")], freight="150"),
+        firm_scope=firm.id,
+    )
+
+    assert outcome.freight_waived == Decimal("150.00")
+    # It is a waiver, not a discount: nothing came off the lines or the bill.
+    assert outcome.bill_discount_amount == Decimal("0.00")
+
+
+def test_free_shipping_on_a_document_with_no_delivery_charge_gives_nothing() -> None:
+    """Rather than claiming to have given something.
+
+    A benefit the engine reports but the document never received is a lie
+    told to whoever asks why the price is what it is.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="SHIP-FREE",
+        actions=[(PromotionActionType.FREE_SHIPPING, {})],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, None, "1", "1000")]),
+        firm_scope=firm.id,
+    )
+
+    assert outcome.freight_waived == Decimal("0.00")
+
+
+def test_two_offers_cannot_waive_the_same_charge_twice() -> None:
+    """It is waived whole or not at all, so the second adds nothing."""
+    session = _session_factory()()
+    firm = _firm(session)
+    for code in ("SHIP-A", "SHIP-B"):
+        _promotion(
+            session,
+            firm_id=firm.id,
+            code=code,
+            actions=[(PromotionActionType.FREE_SHIPPING, {})],
+        )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, None, "1", "1000")], freight="150"),
+        firm_scope=firm.id,
+    )
+
+    assert outcome.freight_waived == Decimal("150.00")
+
+
+def test_the_waived_delivery_counts_towards_what_the_offer_was_worth() -> None:
+    """A campaign that gave away shipping cost the firm exactly that.
+
+    A cost report that left it out would understate what the offer cost.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="SHIP-FREE",
+        actions=[(PromotionActionType.FREE_SHIPPING, {})],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, None, "1", "1000")], freight="150"),
+        firm_scope=firm.id,
+    )
+
+    assert outcome.applied[0].benefit_amount == Decimal("150.00")
+
+
+def test_free_shipping_needs_no_parameter() -> None:
+    """The charge is waived whole.
+
+    How much it was is the document's business rather than the offer's, so
+    there is nothing for the action to carry.
+    """
+    PromotionActionWrite(action_type=PromotionActionType.FREE_SHIPPING)

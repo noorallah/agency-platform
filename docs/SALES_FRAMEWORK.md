@@ -1220,10 +1220,22 @@ meaning of every document that ever carries one.
 The demo charges 120 of delivery one month in five, on a different cycle from
 the bill discount so the two are seen apart as well as together.
 
-### What this still does not do
+### Free shipping
 
-Free shipping as a promotion. The engine can now target a charge that exists,
-which it could not before, but `PromotionActionType` has no action for it yet.
+`PromotionActionType.FREE_SHIPPING` **waives** the delivery charge rather than
+discounting it. Free shipping means nothing is charged for delivery, so there is
+nothing to tax on it either — and a document showing a delivery charge beside a
+discount cancelling it says something different from one showing no charge at
+all. A firm wanting to take only part of it off has `BILL_DISCOUNT_AMOUNT`
+already, which is why the action takes no parameter.
+
+The engine is told what the document is charging (`freight_amount` on the
+request) and answers with `freight_waived`, because it cannot waive a charge it
+has not been told about — and an offer applied to a document with no delivery
+charge gives nothing rather than claiming to. It is waived whole or not at all,
+so two offers cannot waive it twice. The waived amount **counts towards what the
+offer was worth**: a campaign that gave away shipping cost the firm exactly
+that, and a cost report leaving it out would understate it.
 
 ## What is still not built
 

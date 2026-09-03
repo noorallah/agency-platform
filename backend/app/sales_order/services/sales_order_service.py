@@ -115,6 +115,7 @@ class PromotionBenefits:
         """Index the engine's answer by line number."""
         self._lines = {item.line_number: item for item in outcome.lines}
         self._bill = outcome.bill_discount_amount
+        self._freight_waived = outcome.freight_waived
         self._gifts = list(outcome.gifts)
 
     def line_discount(self, index: int) -> Decimal | None:
@@ -137,6 +138,16 @@ class PromotionBenefits:
     def bill_discount(self) -> Decimal | None:
         """Return what the whole document earned, or None if nothing did."""
         return self._bill if self._bill > ZERO else None
+
+    def freight_waived(self) -> Decimal:
+        """Return how much of the delivery charge an offer took off.
+
+        A waiver rather than a discount: free shipping means nothing is
+        charged for delivery, so nothing is taxed on it either. Showing a
+        charge beside a discount cancelling it would say something different
+        from showing no charge.
+        """
+        return self._freight_waived
 
     def gifts(self) -> list[PromotionGift]:
         """Return goods to add that no line on the document asked for."""
@@ -1334,6 +1345,7 @@ class SalesOrderService(TransactionalDocumentService):
         actor_id: UUID,
         customer_group_id: UUID | None = None,
         bill_priced: bool = False,
+        freight_amount: Decimal | None = None,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this document earns.
 
@@ -1353,6 +1365,7 @@ class SalesOrderService(TransactionalDocumentService):
                 salesman_id=row.salesman_id,
                 coupon_code=row.coupon_code,
                 caller_priced_bill=bill_priced,
+                freight_amount=self._q(freight_amount or ZERO),
                 lines=[
                     PromotionLineRequest(
                         line_number=index + 1,
@@ -1520,6 +1533,7 @@ class SalesOrderService(TransactionalDocumentService):
             actor_id=actor_id,
             customer_group_id=group_id,
             bill_priced=bill_amount is not None or bill_percent is not None,
+            freight_amount=freight_amount,
         )
 
         # A gift is a **line**, not a field: nothing on the document mentions
@@ -1559,7 +1573,12 @@ class SalesOrderService(TransactionalDocumentService):
         )
         freight = self._freight_shares(
             row,
-            freight=freight_amount,
+            # What an offer waived comes off before the split, so the lines
+            # carry -- and are taxed on -- what the customer is actually
+            # being charged for delivery.
+            freight=max(
+                self._q(freight_amount or ZERO) - benefits.freight_waived(), ZERO
+            ),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)
