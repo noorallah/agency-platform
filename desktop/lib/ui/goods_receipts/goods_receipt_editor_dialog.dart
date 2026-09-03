@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -112,6 +114,7 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
     required this.purchaseOrders,
     required this.warehouses,
     required this.products,
+    this.existing,
     this.features = const BusinessFeatures.unknown(),
   });
 
@@ -121,6 +124,14 @@ class GoodsReceiptEditorDialog extends StatefulWidget {
   final List<PurchaseOrder> purchaseOrders;
   final List<WarehouseRecord> warehouses;
   final List<Product> products;
+
+  /// The draft being corrected, where one is.
+  ///
+  /// A receipt could be created, completed, cancelled and closed and never
+  /// corrected, so a wrong quantity meant cancelling and re-keying every
+  /// line -- and the service takes the edit precisely so it need not. Only a
+  /// draft: once completed the lines are what stock was posted at.
+  final GoodsReceiptRecord? existing;
 
   /// Which optional fields this firm's profile turns on. Unknown means shown:
   /// a configuration gap is not a decision.
@@ -142,6 +153,23 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
+
+  bool get _isEditing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final GoodsReceiptRecord? current = widget.existing;
+    if (current != null) {
+      _receiptDate = current.receiptDate;
+      _invoiceReference = current.invoiceReference;
+      _transportDetails = current.transportDetails;
+      _vehicleNumber = current.vehicleNumber;
+      _remarks = current.remarks;
+      final PurchaseOrder? order = _orderOf(current.purchaseOrderId);
+      if (order != null) unawaited(_selectOrder(order));
+    }
+  }
 
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
@@ -189,7 +217,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     final String defaultWarehouse =
         order.warehouseId.isNotEmpty ? order.warehouseId : '';
     setState(() {
-      _lines = [
+      _lines = _withSavedQuantities([
         for (int index = 0; index < order.lines.length; index++)
           _draftLine(
             order.lines[index],
@@ -197,9 +225,48 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
             received[order.lines[index].id] ?? 0,
             defaultWarehouse,
           ),
-      ];
+      ]);
       _loadingLines = false;
     });
+  }
+
+  /// The order this receipt was raised against, if it is still in the list.
+  PurchaseOrder? _orderOf(String orderId) {
+    for (final PurchaseOrder order in widget.purchaseOrders) {
+      if (order.id == orderId) return order;
+    }
+    return null;
+  }
+
+  /// Put the draft's own numbers back on the lines the order derived.
+  ///
+  /// The order gives each line its ordered quantity, units and tax profile;
+  /// the receipt gives what was actually counted. Matched on
+  /// `purchase_order_line_id`, which both carry -- the same key the payload
+  /// is built on.
+  List<GoodsReceiptDraftLine> _withSavedQuantities(
+    List<GoodsReceiptDraftLine> drafts,
+  ) {
+    final GoodsReceiptRecord? current = widget.existing;
+    if (current == null) return drafts;
+    final Map<String, GoodsReceiptLine> saved = <String, GoodsReceiptLine>{
+      for (final GoodsReceiptLine line in current.lines)
+        line.purchaseOrderLineId: line,
+    };
+    for (final GoodsReceiptDraftLine draft in drafts) {
+      final GoodsReceiptLine? line = saved[draft.purchaseOrderLineId];
+      if (line == null) continue;
+      draft.receiptQuantity = line.currentReceiptQuantity;
+      draft.rejectedQuantity = line.rejectedQuantity;
+      draft.damagedQuantity = line.damagedQuantity;
+      draft.freeQuantity = line.freeQuantity;
+      if (line.warehouseId.isNotEmpty) draft.warehouseId = line.warehouseId;
+      draft.batchNumber = line.batchNumber;
+      draft.expiryDate = line.expiryDate;
+      draft.manufacturingDate = line.manufacturingDate;
+      draft.remarks = line.remarks;
+    }
+    return drafts;
   }
 
   GoodsReceiptDraftLine _draftLine(
@@ -289,7 +356,13 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
         ],
       };
       final GoodsReceiptRecord saved =
-          await widget.api.createGoodsReceipt(payload);
+          _isEditing
+              ? await widget.api.updateGoodsReceipt(
+                  widget.existing!.id,
+                  payload,
+                  expectedVersion: widget.existing!.version,
+                )
+              : await widget.api.createGoodsReceipt(payload);
       if (!mounted) return;
       Navigator.pop(context, saved);
     } on ApiException catch (exception) {

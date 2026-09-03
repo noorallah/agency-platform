@@ -251,7 +251,7 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   }
 
   /// Open the receipt editor and reload if it saved one.
-  Future<void> _createReceipt() async {
+  Future<void> _createReceipt({GoodsReceiptRecord? existing}) async {
     final GoodsReceiptRecord? saved = await showDialog<GoodsReceiptRecord>(
       context: context,
       barrierDismissible: false,
@@ -260,6 +260,7 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         purchaseOrders: _receivableOrders,
         warehouses: _warehouses,
         products: _products,
+        existing: existing,
         features: _features,
       ),
     );
@@ -431,10 +432,13 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
         actions: const [
           ToolbarAction.newItem,
           ToolbarAction.view,
+          ToolbarAction.edit,
           ToolbarAction.refresh,
         ],
-        isVisible: (action) =>
-            action != ToolbarAction.newItem || _canCreate,
+        isVisible: (action) => switch (action) {
+          ToolbarAction.newItem || ToolbarAction.edit => _canCreate,
+          _ => true,
+        },
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
@@ -444,6 +448,11 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
               ToolbarAction.newItem =>
                 _canCreate && _receivableOrders.isNotEmpty,
               ToolbarAction.view => _selected != null,
+              // Only a draft: once a receipt is completed its lines are what
+              // stock was posted at, and the service refuses the edit.
+              ToolbarAction.edit => _canCreate &&
+                  _selected != null &&
+                  _selected!.status == 'DRAFT',
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -454,6 +463,9 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
             case ToolbarAction.view:
               final GoodsReceiptRecord? selected = _selected;
               if (selected != null) unawaited(_openReceipt(selected));
+            case ToolbarAction.edit:
+              final GoodsReceiptRecord? draft = _selected;
+              if (draft != null) unawaited(_createReceipt(existing: draft));
             case ToolbarAction.refresh:
               unawaited(_load());
             default:
