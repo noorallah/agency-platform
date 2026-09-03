@@ -103,16 +103,17 @@ const Map<String, String> _accepted = <String, String>{
 /// Found by sweep on 2026-09-03, after #195 fixed six of the same shape by
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
-const Map<String, String> _knownGaps = <String, String>{
-  'updateGoodsReceipt':
-      'the only capability still unreachable. A receipt can be created, '
-          'completed, cancelled and closed, but a draft cannot be corrected, '
-          'so a wrong quantity or warehouse means cancelling and re-keying '
-          'every line -- and the service takes the edit precisely so it need '
-          'not. Left because the editor is built around picking a purchase '
-          'order and has to be reshaped to open an existing receipt, which is '
-          'a bigger piece than the rest of this list rather than a smaller one',
-};
+/// Empty, and worth keeping that way.
+///
+/// It held twenty-four on 2026-09-03. Seven were wired, two were superseded,
+/// three were never holes at all -- the guard was counting method names and
+/// could not see a screen reaching a route through the generic resource
+/// machinery -- and the rest were judged into `_accepted` above with the
+/// reason beside each. The last one out was `updateGoodsReceipt`.
+///
+/// A new entry here is a feature somebody shipped without a way in. Put it
+/// here rather than in `_accepted`, and take it out by wiring it.
+const Map<String, String> _knownGaps = <String, String>{};
 
 /// Every method name referenced from anywhere in `lib/` but the client itself.
 ///
