@@ -14,6 +14,17 @@
 // them into the ones that have been looked at and judged fine, and the ones
 // that are a real hole somebody has to close. A method in neither list fails
 // the build, which makes adding one a deliberate act with a reason beside it.
+//
+// **A route can be reachable while its named method is not.**
+// `ResourceManagementPage` writes through a generic `api.create(resource, ...)`
+// and `api.update(resource, id, ...)`, so a screen declaring
+// `resource: 'finance/ledger-accounts'` reaches POST and PATCH on that path
+// without ever naming `createLedgerAccount`. Counting method names alone
+// therefore reports a screen that exists as a hole -- which it did, for the
+// whole chart of accounts, until somebody opened the workspace and looked.
+// `_genericallyReachable` closes that: a method whose path matches a declared
+// `resource:` counts as reached, and the mistake cannot be made by reading
+// this file's output again.
 
 import 'dart:io';
 
@@ -72,10 +83,6 @@ const Map<String, String> _accepted = <String, String>{
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
 const Map<String, String> _knownGaps = <String, String>{
-  'createLedgerAccount': 'the chart of accounts is read-only, so a firm cannot '
-      'add an account',
-  'updateLedgerAccount': 'as createLedgerAccount',
-  'accountGroups': 'the grouping a ledger-account editor needs',
   'updateCommissionPayout': 'a draft payout cannot be adjusted, though the '
       'service takes a reason and expects it to be',
   'cancelPhysicalCount': 'a count can be opened, recorded and posted, and not '
@@ -115,6 +122,54 @@ Set<String> _referenced(Set<String> declared) {
   return found;
 }
 
+/// Every `/api/v1/...` path each client method builds, by method name.
+///
+/// Read off the method body rather than guessed from the name, because the
+/// two disagree often enough to matter.
+Map<String, String> _pathsByMethod(String client) {
+  final Map<String, String> paths = <String, String>{};
+  final List<RegExpMatch> declarations =
+      _declaration.allMatches(client).toList();
+  for (int index = 0; index < declarations.length; index++) {
+    final int start = declarations[index].start;
+    final int end = index + 1 < declarations.length
+        ? declarations[index + 1].start
+        : client.length;
+    final RegExpMatch? path =
+        RegExp(r"'(/api/v1/[^']*)'").firstMatch(client.substring(start, end));
+    if (path != null) paths[declarations[index].group(1)!] = path.group(1)!;
+  }
+  return paths;
+}
+
+/// Methods whose route a screen already reaches through the generic resource
+/// machinery.
+///
+/// `ResourceManagementPage` takes `resource: 'finance/ledger-accounts'` and
+/// calls `api.create` / `api.update` / `api.delete` against it, so the named
+/// twins are reached in effect even though nothing writes their names. This
+/// is the check whose absence made the chart of accounts look read-only when
+/// it has always been editable.
+Set<String> _genericallyReachable(Map<String, String> paths) {
+  final Set<String> resources = <String>{};
+  for (final FileSystemEntity entity
+      in Directory('lib').listSync(recursive: true)) {
+    if (entity is! File || !entity.path.endsWith('.dart')) continue;
+    for (final RegExpMatch match
+        in RegExp(r"(?:optionsR|r)esource: '([^']+)'")
+            .allMatches(entity.readAsStringSync())) {
+      resources.add(match.group(1)!);
+    }
+  }
+  return <String>{
+    for (final MapEntry<String, String> entry in paths.entries)
+      for (final String resource in resources)
+        if (entry.value == '/api/v1/$resource' ||
+            entry.value.startsWith('/api/v1/$resource/\$'))
+          entry.key,
+  };
+}
+
 Set<String> _declared() {
   final File file = File('lib/core/api/api_client.dart');
   // Run from the desktop root or not at all -- a silent pass because the tree
@@ -129,8 +184,11 @@ Set<String> _declared() {
 
 void main() {
   test('every ApiClient method is reachable from a screen', () {
+    final String client =
+        File('lib/core/api/api_client.dart').readAsStringSync();
     final Set<String> declared = _declared()..removeAll(_plumbing);
-    final Set<String> referenced = _referenced(declared);
+    final Set<String> referenced = _referenced(declared)
+      ..addAll(_genericallyReachable(_pathsByMethod(client)));
 
     final List<String> unexplained = (declared
           ..removeAll(referenced)
@@ -156,8 +214,11 @@ void main() {
     // its entry stays behind leaves the next reader believing a feature is
     // unreachable when it is not, which is how a stale note talks somebody out
     // of checking.
+    final String client =
+        File('lib/core/api/api_client.dart').readAsStringSync();
     final Set<String> declared = _declared();
-    final Set<String> referenced = _referenced(declared);
+    final Set<String> referenced = _referenced(declared)
+      ..addAll(_genericallyReachable(_pathsByMethod(client)));
 
     final List<String> stale = <String>[
       for (final String name in <String>{..._knownGaps.keys, ..._accepted.keys})
