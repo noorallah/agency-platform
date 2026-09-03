@@ -757,10 +757,42 @@ however many times the gift has been stated. And where the source line charged
 for nothing, the invoice inherits the **whole** gift rather than a share of it:
 there is no share to pro-rate by.
 
-This is what "Buy X Get Y across different products" needs underneath it. The
-promotion engine's `FREE_QUANTITY` action still only gives more of the *same*
-product; giving a different one means the engine emitting a line rather than
-setting a field, and that is the next piece of work rather than a done one.
+This is what "Buy X Get Y across different products" needed underneath it —
+see below, where it landed.
+
+## Buy X of one thing, get Y of another — landed 2026-09-03
+
+`FREE_QUANTITY` and `FREE_PRODUCT` are not one benefit wearing two names. The
+first gives **more of what was bought** and only ever changes a field on a line
+that already exists. The second gives **something else**, which no line on the
+document mentions — so the engine has nothing to adjust, and has to say *add
+this* instead.
+
+The engine answers with `gifts`, and the sales order turns each into a real
+line: nothing charged for, goods supplied free. That line is appended after the
+offers are read and **before anything is priced**, so it flows through
+conversion, tax and totals exactly as a typed line does rather than down a
+second path of its own to drift.
+
+Three rules. The threshold is counted **across the lines the offer matched**,
+not per line — ten bought as two lines of five is still ten, which is how
+anybody ordering two pack sizes types it. An offer with **no** threshold gives
+its gift once, because there the condition is on the document and the action
+has nothing left to ask for. And a gift the caller already typed is **not
+doubled**: entering the offer by hand and the engine finding it are the same
+benefit, and what was asked for beats what was assumed.
+
+The gift line **refuses every standing arrangement** rather than saying nothing
+about them, because the line stores the rate it resolved and a bill for nothing
+printing "7.5% discount" is a number nobody can explain. Making that true
+turned up a hole in the shared rule: on a zero-value line the recorded rate was
+read off a chain of `or`s, which is falsy for an explicit zero, so a line that
+had *refused* every arrangement recorded the customer's standing rate anyway.
+It reads the branch that was actually taken now.
+
+Driven on WHOLE01: twenty bought earned two gifts, both dispatched, and the
+bill came to 1,980.00 with the gift line stating two free units and costing
+nothing.
 
 ## What is still not built
 

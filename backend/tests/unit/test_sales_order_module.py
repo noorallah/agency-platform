@@ -28,6 +28,7 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
+from app.promotions.models import Promotion, PromotionAction
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_order.api.router import update_sales_order
@@ -537,3 +538,182 @@ def test_the_customers_standing_discount_reaches_a_sales_order() -> None:
     # The header keeps what the standing rate was, so a line that overrode it
     # still reads as a decision rather than a mistake.
     assert response.customer_discount_percent == Decimal("10.0000")
+
+
+def test_an_offer_giving_another_product_adds_a_line_to_the_order() -> None:
+    """The engine says what is owed; the document service writes documents.
+
+    A gift of something the order never mentioned cannot be a field on any
+    line, because there is no line to put it on. It arrives as a real line
+    carrying nothing charged and goods supplied free -- the shape the invoice
+    learned to bill -- so it flows through conversion, tax and totals exactly
+    as a typed line does rather than down a second path of its own.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    # A customer on a standing rate, because that is what makes the gift
+    # line's refusal of it observable at all.
+    customer.default_discount_percent = Decimal("7.5")
+    sold = _product(session, firm_id=firm.id)
+    gift = Product(
+        firm_id=firm.id,
+        code="SKU-GIFT",
+        name="Product SKU-GIFT",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+    )
+    session.add(gift)
+    session.commit()
+
+    promotion = Promotion(
+        firm_id=firm.id,
+        code="BUY10GET1",
+        name="Buy ten, get one of those",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    session.add(promotion)
+    session.flush()
+    session.add(
+        PromotionAction(
+            firm_id=firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type="FREE_PRODUCT",
+            parameters={
+                "buy_quantity": "10",
+                "free_quantity": "1",
+                "free_product_id": str(gift.id),
+            },
+        )
+    )
+    session.commit()
+
+    row = SalesOrderService(session).create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=sold.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+
+    lines = session.scalars(
+        select(SalesOrderLine)
+        .where(SalesOrderLine.sales_order_id == row.id)
+        .order_by(SalesOrderLine.line_number.asc())
+    ).all()
+    assert len(lines) == 2, "the gift is a line of its own"
+    assert lines[1].product_id == gift.id
+    assert lines[1].quantity == Decimal("0.0000")
+    assert lines[1].free_quantity == Decimal("1.0000")
+    # A gift is outside the gross and outside the tax base, so the order costs
+    # exactly what the line that was bought costs.
+    assert lines[1].gross_amount == Decimal("0.0000")
+    assert lines[1].tax_amount == Decimal("0.0000")
+    # The gift refuses every standing arrangement rather than saying nothing
+    # about them. Silence would let the customer's own rate resolve, and the
+    # line stores the rate it resolved -- so a bill for nothing would print
+    # "7.5% discount" beside a gift, which is a number nobody can explain.
+    assert lines[1].discount_percent == Decimal("0.0000")
+    assert lines[0].discount_percent == Decimal("7.5000")
+
+
+def test_a_gift_the_caller_already_typed_is_not_doubled() -> None:
+    """Entering the offer by hand and the engine finding it are one benefit.
+
+    The typed line is the one that stands, which is the precedence every other
+    benefit in this module follows -- what was asked for beats what was
+    assumed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    sold = _product(session, firm_id=firm.id)
+    gift = Product(
+        firm_id=firm.id,
+        code="SKU-GIFT",
+        name="Product SKU-GIFT",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+    )
+    session.add(gift)
+    session.commit()
+
+    promotion = Promotion(
+        firm_id=firm.id,
+        code="BUY10GET1",
+        name="Buy ten, get one of those",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    session.add(promotion)
+    session.flush()
+    session.add(
+        PromotionAction(
+            firm_id=firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type="FREE_PRODUCT",
+            parameters={
+                "buy_quantity": "10",
+                "free_quantity": "1",
+                "free_product_id": str(gift.id),
+            },
+        )
+    )
+    session.commit()
+
+    row = SalesOrderService(session).create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=sold.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                ),
+                SalesOrderLineWrite(
+                    line_number=2,
+                    product_id=gift.id,
+                    quantity=Decimal("0"),
+                    free_quantity=Decimal("1"),
+                    unit_price=Decimal("0"),
+                ),
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+
+    written = session.scalars(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
+    ).all()
+    assert len(written) == 2, "the engine does not add a third"

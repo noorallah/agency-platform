@@ -390,6 +390,23 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   reason this survived was that every test billed from a sales order, where
   the field is plain `quantity`, so the delivery-note path had no coverage at
   all. Found by reading a rendered bill rather than the code.
+- **`FREE_PRODUCT` gives something the document never mentioned, so the engine
+  emits a line rather than setting a field.** `FREE_QUANTITY` gives more of
+  what was bought and adjusts an existing line; there is no line to adjust for
+  a different product. `PromotionEvaluationResponse.gifts` is what the engine
+  answers with, and `SalesOrderService._gift_lines` appends them **before
+  anything is priced**, so a gift flows through conversion, tax and totals on
+  the same path a typed line does. The threshold is counted across the lines
+  the offer **matched**, not per line -- ten bought as two lines of five is
+  still ten. No threshold means give it once, because the condition is then on
+  the document. A gift the caller already typed is not doubled. And the gift
+  line sets `discount_percent` to an **explicit zero**: silence would let the
+  customer's standing rate resolve, and the line stores the rate it resolved,
+  so a bill for nothing would print a discount percentage. Making that true
+  exposed a hole in `resolve_line_discount` -- on a zero-gross line the
+  recorded rate came off `percent or price_list_percent or customer_default
+  or ...`, which is falsy for an explicit zero, so a refusal recorded the
+  customer's rate. It reads the branch actually taken now.
 - **A line whose whole content is a gift is not a line that has been billed.**
   Nothing charged, goods supplied free -- the shape a "buy ten of this, get
   two of that" offer needs. Such a line has a remaining quantity of zero from

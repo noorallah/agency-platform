@@ -47,6 +47,7 @@ from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
     PromotionField,
+    PromotionGift,
     PromotionLineOutcome,
     PromotionStatus,
 )
@@ -98,6 +99,7 @@ class PromotionService:
         document_gross = quantize_money(sum((s.gross for s in states), ZERO))
         products = self._products_for(data)
         bill_discount = ZERO
+        gifts: list[PromotionGift] = []
         applied: list[str] = []
         applications: list[PromotionApplication] = []
         decisions: list[PromotionDecision] = []
@@ -153,6 +155,7 @@ class PromotionService:
                 states=states,
                 bill_discount=bill_discount,
                 allow_bill=not data.caller_priced_bill,
+                gifts=gifts,
             )
             bill_discount += added_bill
             applied.append(promotion.code)
@@ -200,6 +203,7 @@ class PromotionService:
             ],
             bill_discount_amount=quantize_money(bill_discount),
             applied_promotion_codes=applied,
+            gifts=gifts,
             applied=applications,
             decisions=decisions,
         )
@@ -493,6 +497,7 @@ class PromotionService:
         states: list[_LineState],
         bill_discount: Decimal,
         allow_bill: bool = True,
+        gifts: list[PromotionGift] | None = None,
     ) -> Decimal:
         """Give this promotion's benefits, and return what it took off the bill.
 
@@ -521,6 +526,29 @@ class PromotionService:
                         times = int(state.quantity // buy)
                         if times > 0:
                             state.free_quantity += free * times
+            elif kind == PromotionActionType.FREE_PRODUCT.value:
+                gift_id = params.get("free_product_id")
+                free = Decimal(str(params.get("free_quantity", 0) or 0))
+                if gifts is None or gift_id in (None, "None") or free <= ZERO:
+                    continue
+                threshold = Decimal(str(params.get("buy_quantity", 0) or 0))
+                if threshold > ZERO:
+                    # Counted across the lines the offer matched, not per line:
+                    # "buy ten of these, get one of those" is a statement about
+                    # the order, and ten bought as two lines of five is still
+                    # ten. Whole multiples only, as `FREE_QUANTITY` does.
+                    bought = sum((state.quantity for state in matched), ZERO)
+                    times = int(bought // threshold)
+                    if times <= 0:
+                        continue
+                    free = free * times
+                gifts.append(
+                    PromotionGift(
+                        product_id=UUID(str(gift_id)),
+                        quantity=free,
+                        promotion_code=promotion.code,
+                    )
+                )
             elif allow_bill and kind in {
                 PromotionActionType.BILL_DISCOUNT_PERCENT.value,
                 PromotionActionType.BILL_DISCOUNT_AMOUNT.value,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -46,6 +47,7 @@ from app.products.models import Product
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
+    PromotionGift,
     PromotionLineRequest,
 )
 from app.promotions.services import PromotionService, RedemptionService
@@ -109,6 +111,7 @@ class PromotionBenefits:
         """Index the engine's answer by line number."""
         self._lines = {item.line_number: item for item in outcome.lines}
         self._bill = outcome.bill_discount_amount
+        self._gifts = list(outcome.gifts)
 
     def line_discount(self, index: int) -> Decimal | None:
         """Return what line `index` earned, or None if nothing touched it.
@@ -130,6 +133,10 @@ class PromotionBenefits:
     def bill_discount(self) -> Decimal | None:
         """Return what the whole document earned, or None if nothing did."""
         return self._bill if self._bill > ZERO else None
+
+    def gifts(self) -> list[PromotionGift]:
+        """Return goods to add that no line on the document asked for."""
+        return self._gifts
 
 
 class SalesOrderService(TransactionalDocumentService):
@@ -1047,6 +1054,47 @@ class SalesOrderService(TransactionalDocumentService):
         rate = self._q(group.default_discount_percent)
         return group.id, (rate if rate > ZERO else None)
 
+    def _gift_lines(
+        self,
+        benefits: PromotionBenefits,
+        *,
+        lines: Sequence[SalesOrderLineWrite],
+    ) -> list[SalesOrderLineWrite]:
+        """Turn what the engine gave into lines the document can carry.
+
+        Nothing charged for and goods supplied free, which is the shape the
+        invoice learned to bill on 2026-09-03. `discount_percent` is an
+        explicit zero rather than silence: silence would let the customer's
+        standing arrangement reach a line whose gross is nothing, and a
+        discount on nothing is a number nobody can explain.
+
+        A gift the caller already typed is not doubled. Somebody entering the
+        offer by hand and the engine finding it are the same benefit, and the
+        typed line is the one that stands -- the same precedence every other
+        benefit follows.
+        """
+        gifts = benefits.gifts()
+        if not gifts:
+            return []
+        typed = {item.product_id for item in lines}
+        next_number = max((item.line_number for item in lines), default=0) + 1
+        added: list[SalesOrderLineWrite] = []
+        for gift in gifts:
+            if gift.product_id in typed:
+                continue
+            added.append(
+                SalesOrderLineWrite(
+                    line_number=next_number + len(added),
+                    product_id=gift.product_id,
+                    quantity=ZERO,
+                    free_quantity=gift.quantity,
+                    unit_price=ZERO,
+                    discount_percent=ZERO,
+                    description=f"Free with {gift.promotion_code}",
+                )
+            )
+        return added
+
     def _promotions(
         self,
         row: SalesOrder,
@@ -1205,6 +1253,14 @@ class SalesOrderService(TransactionalDocumentService):
             customer_group_id=group_id,
             bill_priced=bill_amount is not None or bill_percent is not None,
         )
+
+        # A gift is a **line**, not a field: nothing on the document mentions
+        # the product, so there is nothing to adjust. Appended here, after the
+        # engine has answered and before anything is priced, so the gift line
+        # flows through conversion, tax and totals exactly as a typed one
+        # does -- there is no second path for it to drift down.
+        lines = list(lines) + self._gift_lines(benefits, lines=lines)
+        grosses += [ZERO] * (len(lines) - len(grosses))
 
         priced: list[LineDiscount] = [
             resolve_line_discount(

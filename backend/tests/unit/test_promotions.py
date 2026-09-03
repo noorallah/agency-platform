@@ -1281,3 +1281,209 @@ def test_a_break_above_every_quantity_is_never_reached() -> None:
 
     assert prices.rate_for(shop.product.id, Decimal("99")) is None
     assert prices.rate_for(shop.product.id, Decimal("100")) == Decimal("12")
+
+
+# ----------------------------------------------------------------------
+# Giving away something else
+# ----------------------------------------------------------------------
+
+
+def test_an_offer_can_give_away_a_product_the_order_never_mentioned() -> None:
+    """The difference between FREE_QUANTITY and FREE_PRODUCT.
+
+    The first gives more of what was bought and only changes a field on a line
+    that already exists. The second gives *something else*, which nothing on
+    the document mentions -- so the engine has to say "add this", and the
+    document service is what writes documents.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    gift = _product(session, firm_id=firm.id, code="SKU-GIFT")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BUY10GET1",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {
+                    "buy_quantity": "10",
+                    "free_quantity": "1",
+                    "free_product_id": str(gift.id),
+                },
+            )
+        ],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, sold.id, "10", "1000")]), firm_scope=firm.id
+    )
+
+    assert len(outcome.gifts) == 1
+    assert outcome.gifts[0].product_id == gift.id
+    assert outcome.gifts[0].quantity == Decimal("1")
+    assert outcome.gifts[0].promotion_code == "BUY10GET1"
+    # The line that was bought is untouched: a gift is not a discount.
+    assert outcome.lines[0].discount_amount == Decimal("0.00")
+    assert outcome.lines[0].free_quantity == Decimal("0")
+
+
+def test_a_gift_is_counted_across_the_lines_the_offer_matched() -> None:
+    """Ten bought as two lines of five is still ten.
+
+    "Buy ten of these, get one of those" is a statement about the order, so
+    counting it per line would refuse the offer to somebody who split the same
+    ten units across two lines -- which is how anybody ordering two pack sizes
+    types it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    gift = _product(session, firm_id=firm.id, code="SKU-GIFT")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BUY10GET1",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {
+                    "buy_quantity": "10",
+                    "free_quantity": "1",
+                    "free_product_id": str(gift.id),
+                },
+            )
+        ],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, sold.id, "5", "500"), (2, sold.id, "5", "500")]),
+        firm_scope=firm.id,
+    )
+
+    assert outcome.gifts[0].quantity == Decimal("1")
+
+
+def test_a_gift_is_given_in_whole_multiples() -> None:
+    """Buying nineteen on a "ten get one" earns one, not one and nine tenths."""
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    gift = _product(session, firm_id=firm.id, code="SKU-GIFT")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BUY10GET1",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {
+                    "buy_quantity": "10",
+                    "free_quantity": "1",
+                    "free_product_id": str(gift.id),
+                },
+            )
+        ],
+    )
+
+    service = PromotionService(session)
+    nineteen = service.evaluate(
+        _request(lines=[(1, sold.id, "19", "1900")]), firm_scope=firm.id
+    )
+    twenty = service.evaluate(
+        _request(lines=[(1, sold.id, "20", "2000")]), firm_scope=firm.id
+    )
+
+    assert nineteen.gifts[0].quantity == Decimal("1")
+    assert twenty.gifts[0].quantity == Decimal("2")
+
+
+def test_a_gift_below_the_threshold_is_not_given() -> None:
+    """Nine of a "buy ten" earns nothing, and says nothing was given."""
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    gift = _product(session, firm_id=firm.id, code="SKU-GIFT")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BUY10GET1",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {
+                    "buy_quantity": "10",
+                    "free_quantity": "1",
+                    "free_product_id": str(gift.id),
+                },
+            )
+        ],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, sold.id, "9", "900")]), firm_scope=firm.id
+    )
+
+    assert outcome.gifts == []
+
+
+def test_an_offer_with_no_threshold_gives_the_gift_once() -> None:
+    """An offer keyed on spend puts its threshold on the document.
+
+    The condition decides whether the offer applies at all, so the action has
+    nothing left to ask for and gives its gift exactly once. Multiplying by
+    "how many times ten thousand was spent" would be a second threshold nobody
+    declared.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    gift = _product(session, firm_id=firm.id, code="SKU-GIFT")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="SPEND",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {"free_quantity": "1", "free_product_id": str(gift.id)},
+            )
+        ],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, sold.id, "50", "50000")]), firm_scope=firm.id
+    )
+
+    assert outcome.gifts[0].quantity == Decimal("1")
+
+
+def test_a_gift_action_naming_no_product_gives_nothing() -> None:
+    """A malformed row is refused a benefit, not allowed to raise.
+
+    The write schema will not accept such an action, but promotion rows are
+    written straight to the table by the demo seeder and by migrations, so the
+    engine cannot assume the catalogue was built through the API. Giving
+    nothing is the only answer available: there is no product to hand over.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    sold = _product(session, firm_id=firm.id, code="SKU-SOLD")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="BROKEN",
+        actions=[
+            (
+                PromotionActionType.FREE_PRODUCT,
+                {"buy_quantity": "1", "free_quantity": "1"},
+            )
+        ],
+    )
+
+    outcome = PromotionService(session).evaluate(
+        _request(lines=[(1, sold.id, "10", "1000")]), firm_scope=firm.id
+    )
+
+    assert outcome.gifts == []

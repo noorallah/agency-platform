@@ -72,10 +72,18 @@ class PromotionField(StrEnum):
 class PromotionActionType(StrEnum):
     """The benefits a promotion may give.
 
-    Five, and each one changes a value the sales documents already store and
+    Six, and each one changes a value the sales documents already store and
     already tax correctly. Nothing here is declared and unread -- the tax review
     recorded two flags that were stored, returned and acted on by nobody, which
     silently produced wrong money.
+
+    `FREE_QUANTITY` and `FREE_PRODUCT` are not the same benefit wearing two
+    names. The first gives **more of what was bought** and only ever changes a
+    field on a line that already exists. The second gives **something else**,
+    which no line on the document mentions, so the engine has to emit a line
+    rather than adjust one -- and that line has to survive dispatch and reach
+    the bill, which is why it needed the invoice to learn about nil-charge
+    lines first.
     """
 
     LINE_DISCOUNT_PERCENT = "LINE_DISCOUNT_PERCENT"
@@ -83,6 +91,7 @@ class PromotionActionType(StrEnum):
     BILL_DISCOUNT_PERCENT = "BILL_DISCOUNT_PERCENT"
     BILL_DISCOUNT_AMOUNT = "BILL_DISCOUNT_AMOUNT"
     FREE_QUANTITY = "FREE_QUANTITY"
+    FREE_PRODUCT = "FREE_PRODUCT"
 
 
 class PromotionConditionWrite(PromotionSchema):
@@ -151,6 +160,10 @@ class PromotionActionWrite(PromotionSchema):
     free_quantity: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=4
     )
+    #: For FREE_PRODUCT: what is given away. It is deliberately not one of the
+    #: products the offer matches on -- the whole point is that it is
+    #: something else, and the document need never have mentioned it.
+    free_product_id: UUID | None = None
 
     @model_validator(mode="after")
     def _parameters_match_the_action(self) -> "PromotionActionWrite":
@@ -171,6 +184,11 @@ class PromotionActionWrite(PromotionSchema):
             self.buy_quantity is None or self.free_quantity is None
         ):
             raise ValueError("Free goods need a buy quantity and a free quantity.")
+        if self.action_type is PromotionActionType.FREE_PRODUCT:
+            if self.free_product_id is None:
+                raise ValueError("Say which product is given away.")
+            if self.free_quantity is None:
+                raise ValueError("Say how many of it are given away.")
         return self
 
 
@@ -321,6 +339,19 @@ class PromotionApplication(PromotionSchema):
     benefit_amount: Decimal
 
 
+class PromotionGift(PromotionSchema):
+    """Something the document is given that none of its lines asked for.
+
+    A line rather than a field, because no line on the document mentions this
+    product. The caller appends it: the engine says what is owed and the
+    document service is what writes documents.
+    """
+
+    product_id: UUID
+    quantity: Decimal
+    promotion_code: str
+
+
 class PromotionEvaluationResponse(PromotionSchema):
     """What the document earned, and why."""
 
@@ -328,6 +359,9 @@ class PromotionEvaluationResponse(PromotionSchema):
     bill_discount_amount: Decimal
     applied_promotion_codes: list[str]
     applied: list[PromotionApplication] = Field(default_factory=list)
+    #: Goods to add to the document. Empty for every offer that only changes
+    #: what an existing line costs, which is most of them.
+    gifts: list[PromotionGift] = Field(default_factory=list)
     decisions: list[PromotionDecision]
 
 
