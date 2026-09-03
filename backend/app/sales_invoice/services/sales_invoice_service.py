@@ -1299,7 +1299,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
-            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
+            unit_price = self._invoice_unit_price(spec=spec, source_line=source_line)
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
             # Resolved before the tax call, not after it. The percentage never
@@ -2256,6 +2256,29 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
+
+    def _invoice_unit_price(
+        self, *, spec: dict[str, object], source_line: object
+    ) -> Decimal:
+        """Return the price this line bills at.
+
+        **Inherited from the line being billed** where the caller said
+        nothing, for the same reason the discount and the free goods are: an
+        invoice states the deal that was struck, and re-deciding the price one
+        document later is how an agreement gets quietly rewritten.
+
+        Silence and zero are different answers. Zero is goods given away;
+        silence is "whatever was agreed". They used to be the same value,
+        because the field defaulted to zero -- so a caller that named a source
+        line and omitted the price was handed a bill for **nothing**, with no
+        refusal and no clue on the document. Every other inheritable field on
+        that line already worked this way; the price was the one that did not.
+        """
+        asked = spec.get("unit_price")
+        if asked is not None:
+            return self._q(Decimal(str(asked)))
+        inherited = getattr(source_line, "unit_price", None)
+        return self._q(Decimal(str(inherited or ZERO)))
 
     def _invoice_free_quantity(
         self,

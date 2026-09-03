@@ -1001,8 +1001,35 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.commit()
         return rows
 
+    @staticmethod
+    def _unit_price(
+        item: DeliveryNoteLineWrite, source: SalesOrderLine | None
+    ) -> Decimal:
+        """Return the price this line ships at.
+
+        **Inherited from the order line being shipped** where the caller said
+        nothing, for the same reason the discount is: a note ships the deal the
+        order struck, and re-deciding the price one document later is how an
+        agreement gets quietly rewritten.
+
+        Silence and zero are different answers, as everywhere else here. Zero
+        is goods given away; silence is "whatever was agreed". They used to be
+        the same value, because the field defaulted to zero -- so a caller that
+        omitted it dispatched at no price at all and every document downstream
+        inherited the nothing.
+        """
+        if item.unit_price is not None:
+            return Decimal(str(item.unit_price))
+        if source is None:
+            return ZERO
+        return Decimal(str(source.unit_price or ZERO))
+
     def _line_discount(
-        self, item: DeliveryNoteLineWrite, *, source: SalesOrderLine | None
+        self,
+        item: DeliveryNoteLineWrite,
+        *,
+        source: SalesOrderLine | None,
+        unit_price: Decimal,
     ) -> LineDiscount:
         """Return the discount one dispatched line ships under.
 
@@ -1028,9 +1055,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         consulted here. The order already resolved both when it was priced, so
         a line that came out at nothing came out at nothing on purpose.
         """
-        gross = self._q(
-            self._q(item.current_delivery_quantity) * self._q(item.unit_price)
-        )
+        gross = self._q(self._q(item.current_delivery_quantity) * unit_price)
         percent = item.discount_percent
         amount = item.discount_amount
         if percent is None and amount is None and source is not None:
@@ -1128,20 +1153,27 @@ class DeliveryNoteService(TransactionalDocumentService):
         # `header_discount_amount` does on a purchase order, and the reason
         # that shape is not copied here. Nothing in this pass touches the
         # database, so every validation below still runs in its own order.
-        priced = [
-            self._line_discount(item, source=source_lines.get(item.sales_order_line_id))
+        # Resolved once and used everywhere below, so the price a line is
+        # discounted at, taxed at and stored at cannot disagree.
+        prices = [
+            self._unit_price(item, source_lines.get(item.sales_order_line_id))
             for item in lines
+        ]
+        priced = [
+            self._line_discount(
+                item,
+                source=source_lines.get(item.sales_order_line_id),
+                unit_price=prices[index],
+            )
+            for index, item in enumerate(lines)
         ]
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
             amount=bill_amount,
             taxables=[
-                self._q(
-                    self._q(item.current_delivery_quantity) * self._q(item.unit_price)
-                    - line.amount
-                )
-                for item, line in zip(lines, priced, strict=True)
+                self._q(self._q(item.current_delivery_quantity) * price - line.amount)
+                for item, price, line in zip(lines, prices, priced, strict=True)
             ],
         )
 
@@ -1199,7 +1231,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             remaining_qty = self._q(ordered_qty - previous_delivered - delivered_qty)
             short_qty = self._q(remaining_qty if remaining_qty > ZERO else ZERO)
-            gross = self._q(current_qty * self._q(item.unit_price))
+            gross = self._q(current_qty * prices[index])
             line_discount = priced[index]
             discount = line_discount.amount
             taxable = self._q(gross - discount - bill_share)
@@ -1238,7 +1270,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 or source_line.packaging_type_id,
                 conversion_factor=self._q(conversion["factor"]),
                 conversion_version=conversion["version"],
-                unit_price=self._q(item.unit_price),
+                unit_price=prices[index],
                 discount_percent=line_discount.percent,
                 discount_amount=discount,
                 bill_discount_amount=bill_share,

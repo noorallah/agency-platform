@@ -132,8 +132,10 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     product_id: UUID | None = None
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so the price is inherited from the
+    #: line being billed. Zero is an answer: goods given away.
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     #: Supplied free with this line. None inherits whatever the source line
     #: offered, pro-rated by the share being billed; zero refuses it.

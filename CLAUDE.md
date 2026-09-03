@@ -407,6 +407,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   recorded rate came off `percent or price_list_percent or customer_default
   or ...`, which is falsy for an explicit zero, so a refusal recorded the
   customer's rate. It reads the branch actually taken now.
+- **A downstream document inherits the price of the line it continues.** A
+  delivery note ships at the order line's price and an invoice bills at the
+  note line's, where the caller says nothing -- the same rule the discount and
+  the free goods already followed, and for the same reason: re-deciding the
+  price one document later is how an agreement gets quietly rewritten.
+  `unit_price` on both line-write schemas is `Decimal | None` with **no
+  default** for exactly the None-versus-zero reason everything else here is:
+  silence means "whatever was agreed" and zero means goods given away. It used
+  to default to `Decimal("0")`, so the two were the same value and a caller
+  that named a source line and omitted the price got a note valued at nothing
+  and a bill for nothing -- no refusal, and nothing on the document to say
+  why. Nothing was broken in practice because the desktop and the seeder both
+  passed it, which is also why it survived: **the fixtures repeated the price
+  too, so every test proved the number it had just supplied**. Found by
+  driving the chain with minimal payloads.
 - **A line whose whole content is a gift is not a line that has been billed.**
   Nothing charged, goods supplied free -- the shape a "buy ten of this, get
   two of that" offer needs. Such a line has a remaining quantity of zero from

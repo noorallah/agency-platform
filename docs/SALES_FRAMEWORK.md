@@ -794,6 +794,26 @@ Driven on WHOLE01: twenty bought earned two gifts, both dispatched, and the
 bill came to 1,980.00 with the gift line stating two free units and costing
 nothing.
 
+## A document inherits the price it continues — fixed 2026-09-03
+
+A delivery note ships at the order line's price, and an invoice bills at the
+note line's, where the caller says nothing. That is the rule the discount and
+the free goods already followed — *a note ships the deal the order struck*,
+*an invoice inherits from the line it bills* — and the price was the one field
+that did not.
+
+`unit_price` on both line-write schemas is now `Decimal | None` with no
+default. Silence means "whatever was agreed"; zero means goods given away.
+They used to be the same value, so a caller that named a source line and
+omitted the price got a note valued at nothing and a bill for **nothing** — no
+refusal, and nothing on the document to say why.
+
+Nothing was broken in practice: the desktop and the seeder both pass the
+price. That is also why it survived, and the fixtures did the same, so every
+test proved the number it had just supplied. It was found by driving the chain
+with minimal payloads, and the fixtures now say nothing about the price where
+the inheritance is what is under test.
+
 ## What is still not built
 
 **Margin-based commission.** `sales_invoice_lines` carries no cost, so a
