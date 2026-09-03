@@ -42,12 +42,13 @@ from app.promotions.schemas import (
     PromotionActionType,
     PromotionActionWrite,
     PromotionConditionOperator,
+    PromotionCouponWrite,
     PromotionEvaluationRequest,
     PromotionField,
     PromotionLineRequest,
     PromotionStatus,
 )
-from app.promotions.services import PromotionService
+from app.promotions.services import CouponService, PromotionService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -1591,3 +1592,99 @@ def test_free_shipping_needs_no_parameter() -> None:
     there is nothing for the action to carry.
     """
     PromotionActionWrite(action_type=PromotionActionType.FREE_SHIPPING)
+
+
+def test_editing_a_coupons_wording_does_not_uncap_it() -> None:
+    """An omission is not an instruction, and here it gives money away.
+
+    `PromotionCouponWrite` defaults `status` to ACTIVE and every limit to
+    None, and `update_coupon` assigned each one straight off the model. So a
+    caller correcting the description -- naming only the fields it meant to
+    change, which is what a partial client does -- switched a paused coupon
+    back on, removed its total cap, removed its per-customer cap and removed
+    its effective window in one call.
+
+    Driven against a running backend before this was written: an INACTIVE
+    coupon capped at 100 and 2 per customer, live 2026-09-01 to 2026-12-31,
+    came back ACTIVE and uncapped with no window at all.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    coupon = _coupon(
+        session,
+        firm_id=shop.firm.id,
+        promotion=promotion,
+        code="SAVE10",
+        max_redemptions=100,
+        max_per_customer=2,
+    )
+    coupon.status = PromotionStatus.INACTIVE.value
+    coupon.effective_from = date(2026, 9, 1)
+    coupon.effective_to = date(2026, 12, 31)
+    session.commit()
+
+    CouponService(session).update_coupon(
+        coupon.id,
+        PromotionCouponWrite(
+            promotion_id=promotion.id,
+            code="SAVE10",
+            description="corrected wording",
+        ),
+        firm_scope=shop.firm.id,
+        actor_id=uuid4(),
+    )
+
+    session.refresh(coupon)
+    assert coupon.description == "corrected wording"
+    # Everything the caller said nothing about is left exactly as it was.
+    assert coupon.status == PromotionStatus.INACTIVE.value
+    assert coupon.max_redemptions == 100
+    assert coupon.max_redemptions_per_customer == 2
+    assert coupon.effective_from == date(2026, 9, 1)
+    assert coupon.effective_to == date(2026, 12, 31)
+
+
+def test_a_coupons_cap_can_still_be_cleared_on_purpose() -> None:
+    """Absent means leave alone; an explicit null still clears.
+
+    The distinction that makes a partial client safe without stopping a
+    complete one lifting a limit deliberately.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    coupon = _coupon(
+        session,
+        firm_id=shop.firm.id,
+        promotion=promotion,
+        code="SAVE10",
+        max_redemptions=100,
+        max_per_customer=2,
+    )
+
+    CouponService(session).update_coupon(
+        coupon.id,
+        PromotionCouponWrite(
+            promotion_id=promotion.id,
+            code="SAVE10",
+            max_redemptions=None,
+            max_redemptions_per_customer=5,
+        ),
+        firm_scope=shop.firm.id,
+        actor_id=uuid4(),
+    )
+
+    session.refresh(coupon)
+    assert coupon.max_redemptions is None
+    assert coupon.max_redemptions_per_customer == 5
