@@ -1293,3 +1293,103 @@ def test_a_note_may_still_be_given_a_discount_of_its_own() -> None:
     )
     assert line is not None
     assert line.discount_percent == Decimal("20.0000")
+
+
+def _note_priced(unit_price: "Decimal | None") -> "DeliveryNoteLine":
+    """Dispatch four of a line ordered at 100, saying this about the price."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    InventoryService(session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("10"),
+            reference_number="ADJ-PRICE",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == approved.id)
+    )
+    assert source_line is not None
+    note = DeliveryNoteService(session).create_note(
+        DeliveryNoteCreate(
+            sales_order_id=approved.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=unit_price,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    return line
+
+
+def test_a_note_ships_at_the_price_the_order_struck() -> None:
+    """Silence means "whatever was agreed", not "nothing".
+
+    The discount already inherited this way -- a note ships the deal the order
+    struck -- and the price did not: it defaulted to zero, so a caller that
+    omitted it dispatched at no price at all and every document downstream
+    inherited the nothing. A note valued at zero against goods that left the
+    warehouse is the quietest way this module could fail.
+    """
+    line = _note_priced(None)
+
+    assert line.unit_price == Decimal("100.0000")
+    assert line.gross_amount == Decimal("400.0000")
+
+
+def test_a_note_can_still_ship_at_a_price_of_its_own() -> None:
+    """What was asked for beats what was assumed, here as everywhere.
+
+    And zero is asking: goods dispatched at no charge are a real thing, and a
+    different statement from saying nothing at all.
+    """
+    line = _note_priced(Decimal("0"))
+
+    assert line.unit_price == Decimal("0.0000")
+    assert line.gross_amount == Decimal("0.0000")

@@ -56,8 +56,10 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     damaged_quantity: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
-    unit_price: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so the price is inherited from the
+    #: order line being shipped. Zero is an answer: goods given away.
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     #: None means the caller said nothing, so the customer's standing
     #: discount applies. Zero means they said no discount.

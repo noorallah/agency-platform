@@ -1220,6 +1220,10 @@ def _invoice_one_line(
     note: DeliveryNote,
     note_line: DeliveryNoteLine,
     quantity: Decimal = Decimal("4"),
+    # The price the *caller* names. None means they said nothing, which is
+    # what makes the inheritance testable at all -- this helper used to
+    # hardcode 100, so every case here proved the number it had just supplied.
+    unit_price: Decimal | None = Decimal("100"),
     discount_percent: Decimal | None = None,
     bill_discount_percent: Decimal | None = None,
     bill_discount_amount: Decimal | None = None,
@@ -1249,7 +1253,7 @@ def _invoice_one_line(
                     source_document_line_id=note_line.id,
                     line_number=1,
                     current_invoice_quantity=quantity,
-                    unit_price=Decimal("100"),
+                    unit_price=unit_price,
                     discount_percent=discount_percent,
                     free_quantity=free_quantity,
                 )
@@ -2075,3 +2079,44 @@ def test_a_gift_line_is_offered_to_be_billed_exactly_once() -> None:
         )
         is None
     )
+
+
+def test_a_bill_inherits_the_price_of_the_line_it_bills() -> None:
+    """Silence means "whatever was agreed", not "nothing".
+
+    Every other inheritable field on an invoice line already worked this way
+    -- the discount, and the free goods. The price was the one that did not:
+    it defaulted to zero, so a caller that named a source line and omitted the
+    price was handed a bill for nothing, with no refusal and nothing on the
+    document to say why. A bill for zero against goods that left the warehouse
+    is the quietest way this module could fail.
+    """
+    setup = _Billing(_session_factory()())
+
+    response = setup.bill(
+        dispatch_quantity=Decimal("4"),
+        quantity=Decimal("4"),
+        unit_price=None,
+    )
+
+    # The note line was dispatched at 100 and nothing since has said otherwise.
+    assert response.lines[0].unit_price == Decimal("100.0000")
+    assert response.lines[0].gross_amount == Decimal("400.0000")
+
+
+def test_a_bill_can_still_charge_a_price_of_its_own() -> None:
+    """What was asked for beats what was assumed, here as everywhere.
+
+    And zero is asking: a line billed at nothing is goods given away, which is
+    a different statement from saying nothing at all.
+    """
+    setup = _Billing(_session_factory()())
+
+    response = setup.bill(
+        dispatch_quantity=Decimal("4"),
+        quantity=Decimal("4"),
+        unit_price=Decimal("0"),
+    )
+
+    assert response.lines[0].unit_price == Decimal("0.0000")
+    assert response.lines[0].gross_amount == Decimal("0.0000")
