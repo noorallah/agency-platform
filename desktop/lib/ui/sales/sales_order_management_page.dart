@@ -10,6 +10,7 @@ import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
@@ -255,10 +256,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     } on ApiException {
       history = const [];
     }
+    final Json? deposits = await _deposits('${row['id']}');
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (_) => DocumentViewDialog(
+      builder: (context) => DocumentViewDialog(
         title: '${row['order_number'] ?? '-'}',
         subtitle: 'Sales order dated ${row['order_date'] ?? '-'}',
         icon: Icons.point_of_sale_outlined,
@@ -266,6 +268,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         lines: _linesFor(row),
         totals: _totalsFor(row),
         history: history,
+        extra: _depositsPanel(context, deposits),
       ),
     );
   }
@@ -414,6 +417,61 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         label: Text(held ? 'Release' : 'Hold'),
       ),
     );
+  }
+
+  /// What the customer has paid against this order, and what is left of it.
+  ///
+  /// Shown with the order's own totals rather than behind a toolbar button:
+  /// it is a fact about this order, and the row of lifecycle actions is
+  /// already full at the narrowest size the shell supports.
+  ///
+  /// Reversed receipts are listed rather than dropped: a deposit that
+  /// vanished from the screen leaves nobody able to say why the figure
+  /// changed.
+  Widget? _depositsPanel(BuildContext context, Json? summary) {
+    // Nothing at all where the read failed -- a panel claiming no deposits
+    // when it could not ask is worse than no panel.
+    if (summary == null) return null;
+    final List<dynamic> receipts =
+        summary['receipts'] as List<dynamic>? ?? const [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Paid against this order',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${summary['total_received']} received, '
+          '${summary['total_unapplied']} of it not yet set against any bill.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        if (receipts.isEmpty)
+          const Text('Nothing has been paid against this order.')
+        else
+          for (final dynamic row in receipts)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '${(row as Map)['settlement_number']}  '
+                '${row['settlement_date']}  '
+                '${row['amount']}'
+                '${row['status'] == 'REVERSED' ? '  (reversed)' : ''}',
+              ),
+            ),
+      ],
+    );
+  }
+
+  /// The deposits behind an order, or null where they could not be read.
+  Future<Json?> _deposits(String orderId) async {
+    try {
+      return await widget.api.salesOrderAdvances(orderId);
+    } on ApiException {
+      return null;
+    }
   }
 
   /// Ask why, then hold. The reason is required, not optional: whoever hits

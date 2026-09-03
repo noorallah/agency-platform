@@ -11,6 +11,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/entities.dart';
 import '../../models/proforma.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
@@ -93,6 +94,71 @@ class _ProformaPageState extends State<ProformaPage> {
     }
   }
 
+  /// Raise a proforma against an approved order.
+  ///
+  /// The order is the only thing asked for. Its lines are snapshotted server
+  /// side, because a caller that could name its own would be stating a price
+  /// the order never agreed.
+  Future<void> _raise() async {
+    final List<Json> orders = await _statableOrders();
+    if (!mounted) return;
+    if (orders.isEmpty) {
+      NotificationService.show(
+        context,
+        'No approved order to state. A proforma restates a deal that exists.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final Json? chosen = await showDialog<Json>(
+      context: context,
+      builder: (context) => _RaiseProformaDialog(orders: orders),
+    );
+    if (chosen == null || !mounted) return;
+    try {
+      final ProformaRecord row = await widget.api.createProformaInvoice(chosen);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${row.proformaNumber} raised. Issue it when the customer needs it.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  /// The orders a proforma may state.
+  ///
+  /// A draft is not a deal and a cancelled one has been called off, so the
+  /// picker offers neither -- the server refuses them anyway, and a list that
+  /// offers what will be refused wastes the user's time twice.
+  Future<List<Json>> _statableOrders() async {
+    try {
+      final Json response = await widget.api.documentPage(
+        'sales-orders',
+        pageSize: 100,
+      );
+      final dynamic data = response['data'];
+      if (data is! List) return const <Json>[];
+      return data
+          .whereType<Map>()
+          .map(Map<String, dynamic>.from)
+          .where((order) => const <String>{
+                'APPROVED',
+                'PARTIALLY_DELIVERED',
+                'DELIVERED',
+                'CLOSED',
+              }.contains('${order['status']}'))
+          .toList();
+    } on ApiException {
+      return const <Json>[];
+    }
+  }
+
   Future<void> _cancel(ProformaRecord row) async {
     final String? reason = await askForReason(
       context,
@@ -136,6 +202,11 @@ class _ProformaPageState extends State<ProformaPage> {
             onPressed: _load,
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh'),
+          ),
+          FilledButton.icon(
+            onPressed: _mayManage ? _raise : null,
+            icon: const Icon(Icons.add),
+            label: const Text('New'),
           ),
           FilledButton.icon(
             onPressed: _mayManage && selected != null && selected.isDraft
@@ -286,5 +357,121 @@ class _ProformaPageState extends State<ProformaPage> {
             Expanded(child: Text(value)),
           ],
         ),
+      );
+}
+
+
+/// Choose the order a proforma will state, and the terms it carries.
+class _RaiseProformaDialog extends StatefulWidget {
+  const _RaiseProformaDialog({required this.orders});
+
+  final List<Json> orders;
+
+  @override
+  State<_RaiseProformaDialog> createState() => _RaiseProformaDialogState();
+}
+
+class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
+  late String _orderId = '${widget.orders.first['id']}';
+  final TextEditingController _paymentTerms = TextEditingController();
+  final TextEditingController _deliveryTerms = TextEditingController();
+  final TextEditingController _validUntil = TextEditingController();
+
+  @override
+  void dispose() {
+    // Owned by the dialog, not the caller: disposing after `showDialog`
+    // returns disposes mid-animation, with the fields still rebuilding.
+    _paymentTerms.dispose();
+    _deliveryTerms.dispose();
+    _validUntil.dispose();
+    super.dispose();
+  }
+
+  static String _today() {
+    final DateTime now = DateTime.now();
+    return '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Raise a proforma'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'The order’s lines are copied as they stand. Editing the '
+                  'order afterwards will not change the document the customer '
+                  'is holding.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                DropdownButtonFormField<String>(
+                  initialValue: _orderId,
+                  decoration: const InputDecoration(labelText: 'Sales order'),
+                  items: [
+                    for (final Json order in widget.orders)
+                      DropdownMenuItem<String>(
+                        value: '${order['id']}',
+                        child: Text(
+                          '${order['order_number']} — '
+                          '${order['grand_total']}',
+                        ),
+                      ),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _orderId = value ?? _orderId),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: _validUntil,
+                  decoration: const InputDecoration(
+                    labelText: 'Valid until',
+                    helperText: 'How long the stated prices stand. Blank for '
+                        'no deadline.',
+                    helperMaxLines: 2,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: _paymentTerms,
+                  decoration: const InputDecoration(labelText: 'Payment terms'),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                TextField(
+                  controller: _deliveryTerms,
+                  decoration:
+                      const InputDecoration(labelText: 'Delivery terms'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(<String, dynamic>{
+              'sales_order_id': _orderId,
+              'proforma_date': _today(),
+              // Blank means no deadline, which is a real choice -- so an
+              // empty box is left out rather than sent as an empty string.
+              if (_validUntil.text.trim().isNotEmpty)
+                'valid_until': _validUntil.text.trim(),
+              if (_paymentTerms.text.trim().isNotEmpty)
+                'payment_terms': _paymentTerms.text.trim(),
+              if (_deliveryTerms.text.trim().isNotEmpty)
+                'delivery_terms': _deliveryTerms.text.trim(),
+            }),
+            child: const Text('Raise'),
+          ),
+        ],
       );
 }

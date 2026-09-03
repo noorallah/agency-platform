@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
@@ -40,6 +41,10 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
   bool _loading = true;
 
   bool get _mayView => widget.permissions.hasPermission('LOYALTY_VIEW');
+
+  /// Spending or writing off a customer's credit is money, so it is its
+  /// own authority rather than part of reading the register.
+  bool get _mayManage => widget.permissions.hasPermission('LOYALTY_MANAGE');
 
   @override
   void initState() {
@@ -70,6 +75,30 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
     }
   }
 
+  /// Write off points that have run out of time.
+  ///
+  /// Safe to run twice -- each expiry names the entry it takes -- so the
+  /// button says what it did rather than asking first.
+  Future<void> _expire() async {
+    try {
+      final Json answer = await widget.api.expireLoyalty();
+      if (!mounted) return;
+      final int lapsed = (answer['expired'] as num?)?.toInt() ?? 0;
+      NotificationService.show(
+        context,
+        lapsed == 0
+            ? 'Nothing had lapsed.'
+            : '$lapsed batch${lapsed == 1 ? '' : 'es'} of points lapsed.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.hasActiveFirm) {
@@ -95,6 +124,11 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
             onPressed: _load,
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _mayManage ? _expire : null,
+            icon: const Icon(Icons.timer_off_outlined),
+            label: const Text('Expire lapsed'),
           ),
         ],
       ),
