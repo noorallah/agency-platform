@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/design/design_tokens.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
@@ -167,6 +170,80 @@ class _BeatPlanManagementPageState extends State<BeatPlanManagementPage> {
     }
   }
 
+  /// Who this plan calls on today.
+  ///
+  /// `beatPlanCallList` had a route and a client method and nothing calling
+  /// it. The Call List workspace asks the *other* question -- who is called
+  /// across every active plan -- so a plan's own round could not be read from
+  /// the plan at all, which is the thing somebody opening a plan wants.
+  Future<void> _showCalls() async {
+    final BeatPlanRecord plan = _selected!;
+    final String today = DateTime.now().toIso8601String().substring(0, 10);
+    late final CallListRecord result;
+    try {
+      result = await widget.api.beatPlanCallList(plan.id, today);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+      return;
+    }
+    if (!mounted) return;
+    final int stops = result.entries.fold<int>(
+      0,
+      (count, entry) => count + entry.stops.length,
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (context) => WorkspaceDialog(
+        title: "${plan.name}: today's calls",
+        subtitle: '${result.onDate} · $stops stop(s)',
+        icon: Icons.checklist_outlined,
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Always per entry, never a blanket "nothing today": the
+              // entry says whether the plan runs and why not, and that is
+              // the answer somebody opened this for. Collapsing it to a
+              // count throws the reason away.
+              if (result.entries.isEmpty)
+                const Text(
+                  'This plan is on no round, so it calls on nobody.',
+                )
+              else
+                for (final entry in result.entries) ...[
+                  Text(
+                    entry.territoryName,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  // `occurs` is the plan's frequency answering for today, and
+                  // `reason` says why not -- a round with no stops and a plan
+                  // that does not run today are different answers.
+                  if (!entry.occurs)
+                    Text(entry.reason.isEmpty ? 'Does not run today.' : entry.reason)
+                  else if (entry.stops.isEmpty)
+                    const Text('Runs today, with no shops on the round.')
+                  else
+                    for (final stop in entry.stops)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          '${stop.stopOrder}. ${stop.customerName}',
+                        ),
+                      ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
+            ],
+          ),
+        ),
+        onClose: () => Navigator.of(context).pop(),
+      ),
+    );
+  }
+
   Future<void> _delete(BeatPlanRecord plan) async {
     if (!_canDelete) return;
     final bool confirmed = await showWorkspaceConfirmDialog(
@@ -207,6 +284,15 @@ class _BeatPlanManagementPageState extends State<BeatPlanManagementPage> {
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
+      ],
+      // `ToolbarAction` is a framework enum shared by every workspace, so a
+      // plan-specific action goes in the trailing slot rather than growing it.
+      trailing: [
+        OutlinedButton.icon(
+          onPressed: _selected == null ? null : () => unawaited(_showCalls()),
+          icon: const Icon(Icons.checklist_outlined, size: 18),
+          label: const Text("Today's calls"),
+        ),
       ],
       isEnabled: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
