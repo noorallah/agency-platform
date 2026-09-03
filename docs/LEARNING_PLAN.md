@@ -23,9 +23,17 @@ the product; take this one to change it.
 Every number below was measured on **2026-08-28**, not carried over. Re-measure
 with the commands at the end of `LEARNING_PATH.md` if they look stale.
 
-**The tree today:** 30 business modules under `backend/app/` plus `app/core`,
-**588 endpoints**, 102 migrations, 66 backend unit-test files, 101 desktop widget
-tests, and 23 desktop UI packages.
+**The tree today**, re-measured 2026-09-03: **38 business modules** under
+`backend/app/` plus `app/core`, **657 endpoints**, 126 migrations, 83 backend
+unit-test files, and 26 desktop UI packages.
+
+**The session table below was measured 2026-08-28 and eight modules have
+shipped since** — `promotions`, `loyalty`, `credit_note`, `proforma`,
+`sales_targets`, `einvoice`, `tcs` and `gst_returns`, 49 endpoints between
+them. They are not in the eighteen sessions. The functional guide's order has
+been extended to twenty-eight modules and covers them;
+[`FUNCTIONAL_GUIDE.md`](FUNCTIONAL_GUIDE.md) is the current list of what
+exists. Re-measure before relying on a per-session LOC or route count here.
 
 ---
 

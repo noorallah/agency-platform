@@ -31,6 +31,9 @@ settle a document, and it names the one step that has no screen.
 
 ## The order
 
+Re-measured 2026-09-03 against a tree that has grown: **38 business modules**,
+**657 endpoints**, 126 migrations.
+
 | Phase | # | Module | Done |
 | --- | ---: | --- | --- |
 | **A — Stand the firm up** | 1 | Firm setup and access | ✅ |
@@ -42,17 +45,53 @@ settle a document, and it names the one step that has no screen.
 | | 7 | Units and packaging | ☐ |
 | | 8 | Tax setup | ☐ |
 | | 9 | Products, attributes, batch and serial | ☐ |
-| | 10 | Customers and credit policy | ☐ |
+| | 10 | Customers, groups and credit policy | ☐ |
 | | 11 | Vendors | ☐ |
 | | 12 | Territory, routes and beats | ☐ |
-| | 13 | Price lists and discounts | ☐ |
-| **C — Buying** | 14 | Purchase order → receipt → invoice → return | ☐ |
-| **D — Selling** | 15 | Quotation → order → delivery → invoice → return | ☐ |
-| **E — Money** | 16 | Receipts, payments and refunds | ☐ |
-| | 17 | Commission | ☐ |
-| | 18 | Journals, ledgers and financial reports | ☐ |
-| **F — Running it** | 19 | Inventory operations | ☐ |
-| | 20 | Reports, search, audit and diagnostics | ☐ |
+| | 13 | Price lists and discount rules | ☐ |
+| | 14 | Promotions and coupons | ☐ |
+| **C — Buying** | 15 | Purchase order → receipt → invoice → return | ☐ |
+| **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ☐ |
+| | 17 | Proforma invoices | ☐ |
+| | 18 | Credit notes | ☐ |
+| **E — Money** | 19 | Receipts, payments and refunds | ☐ |
+| | 20 | Loyalty and cashback | ☐ |
+| | 21 | Commission, rules and payouts | ☐ |
+| | 22 | Sales targets | ☐ |
+| | 23 | Journals, ledgers and financial reports | ☐ |
+| **F — Compliance** | 24 | Tax collected at source | ☐ |
+| | 25 | GST returns | ☐ |
+| | 26 | E-invoicing and e-way bills | ☐ |
+| **G — Running it** | 27 | Inventory operations | ☐ |
+| | 28 | Reports, search, audit and diagnostics | ☐ |
+
+## What shipped after this guide was started
+
+Eight backend modules landed between 2026-08-24 and 2026-09-03, after the order
+above was first drawn. They are folded in as modules 14, 17, 18, 20, 22, 24, 25
+and 26 rather than appended, because a firm meets them in the middle of what it
+already does — a promotion prices an order, a credit note follows an invoice.
+
+| Module | Routes | What it does | Where it surfaces |
+| --- | ---: | --- | --- |
+| `promotions` | 11 | Offers that stack, with coupons and a redemption ledger | Pricing workspace, coupon dialog |
+| `loyalty` | 7 | Points a customer earns and spends, as one ledger | Customers › Loyalty |
+| `credit_note` | 6 | A document that reverses the tax it credits | Sales › Credit Notes |
+| `proforma` | 6 | A stated bill that posts nothing | Sales › Proforma |
+| `sales_targets` | 6 | What a firm expects to sell, and how it went | Sales |
+| `einvoice` | 7 | Invoice registration and e-way bills, in sandbox | Sales › E-Invoice |
+| `tcs` | 4 | Tax collected at source, charged on the receipt | Sales › TCS |
+| `gst_returns` | 2 | GSTR-1 and 3B, derived on read and stored nowhere | Sales › GST Returns |
+
+**None of the eight is a business-profile capability**, and that is worth
+knowing before anybody asks to switch one off for an industry. The module
+catalogue names **workspaces** — `DASHBOARD`, `ADMINISTRATION`, `SETTINGS`,
+`MASTERS`, `PRODUCTS`, `PURCHASES`, `SALES`, `INVENTORY`, `REPORTS`,
+`ACCOUNTING`, plus `KITCHEN`, `RECIPES`, `PROJECTS` and `CONTRACTS` for four
+industries — not backend packages. All eight live inside `SALES`, so a pharmacy
+and an electronics distributor both get loyalty, promotions and TCS whether the
+industry wants them or not. The catalogue is working as designed; the product
+has simply outgrown its granularity.
 
 ---
 
