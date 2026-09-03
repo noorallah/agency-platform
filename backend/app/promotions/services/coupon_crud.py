@@ -132,14 +132,31 @@ class CouponService:
 
         The code itself is fixed once minted: it is on a leaflet somebody is
         holding, and a claim already made names it.
+
+        **Only what the caller named is written.** Every field on the write
+        model carries a default -- `status` defaults to ACTIVE and each limit
+        to None -- so assigning them all turned an omission into an
+        instruction: correcting a coupon's wording switched a paused one back
+        on, removed its total cap, removed its per-customer cap and removed
+        its effective window, in one call. That is the same full-dump defect
+        `update_order` and `VendorUpdate` carried, in the shape that gives
+        money away. Absent means leave alone; an explicit null still clears,
+        so a limit can still be lifted on purpose.
         """
         row = self.get_coupon(coupon_id, firm_scope=firm_scope)
-        row.description = data.description
-        row.status = data.status.value
-        row.max_redemptions = data.max_redemptions
-        row.max_redemptions_per_customer = data.max_redemptions_per_customer
-        row.effective_from = data.effective_from
-        row.effective_to = data.effective_to
+        named = data.model_dump(exclude_unset=True)
+        if "description" in named:
+            row.description = data.description
+        if "status" in named:
+            row.status = data.status.value
+        if "max_redemptions" in named:
+            row.max_redemptions = data.max_redemptions
+        if "max_redemptions_per_customer" in named:
+            row.max_redemptions_per_customer = data.max_redemptions_per_customer
+        if "effective_from" in named:
+            row.effective_from = data.effective_from
+        if "effective_to" in named:
+            row.effective_to = data.effective_to
         row.updated_by = actor_id
         record_audit(
             self._session,

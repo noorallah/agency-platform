@@ -66,9 +66,6 @@ const Map<String, String> _accepted = <String, String>{
 /// hand. Each entry is a feature a firm is paying for and cannot use. Take one
 /// off this list by wiring it, never by moving it to `_accepted`.
 const Map<String, String> _knownGaps = <String, String>{
-  'createPromotionCoupon': 'coupons are list-only; none can be created',
-  'updatePromotionCoupon': 'coupons are list-only',
-  'deletePromotionCoupon': 'coupons are list-only',
   'createTaxSystem': 'a tax system can be deleted from the desktop and not '
       'created, which is worse than neither',
   'updateTaxSystem': 'as createTaxSystem',

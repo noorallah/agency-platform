@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../workspace/desktop_framework.dart';
+import 'coupon_dialog.dart';
 import 'promotion_dialog.dart';
 
 /// The offers a firm is running, in the order they apply.
@@ -111,6 +112,66 @@ class _PromotionPageState extends State<PromotionPage> {
     }
   }
 
+  /// Mint a coupon, or change the limits on one.
+  ///
+  /// The offers are read first: a coupon points at one, and a picker with
+  /// nothing in it would let somebody fill the form in and then be refused.
+  Future<void> _editCoupon({PromotionCouponRecord? existing}) async {
+    late final List<PromotionRecord> offers;
+    try {
+      offers = await fetchAllPages<PromotionRecord>(
+        (page) => widget.api.promotions(page: page),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+      return;
+    }
+    if (!mounted) return;
+    if (offers.isEmpty) {
+      NotificationService.show(
+        context,
+        'Create an offer first. A coupon is a way of reaching one, not an '
+        'offer in itself.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => CouponDialog(
+        api: widget.api,
+        promotions: offers,
+        existing: existing,
+      ),
+    );
+    if (saved ?? false) unawaited(_load());
+  }
+
+  /// Retire a coupon without forgetting what it already gave away.
+  Future<void> _deleteCoupon(PromotionCouponRecord row) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Retire ${row.code}?',
+      message: 'It stops being claimable. What it has already given away is '
+          'kept, so the claims against it still reconcile.',
+      confirmLabel: 'Retire',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await widget.api.deletePromotionCoupon(row.id);
+      if (!mounted) return;
+      NotificationService.show(context, '${row.code} retired.',
+          kind: AppNotificationKind.success);
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
   Future<void> _edit({PromotionRecord? existing}) async {
     final bool? saved = await showDialog<bool>(
       context: context,
@@ -168,6 +229,16 @@ class _PromotionPageState extends State<PromotionPage> {
               onPressed: () => unawaited(_edit()),
               icon: const Icon(Icons.add),
               label: const Text('New promotion'),
+            ),
+          // The coupon tab hid the promotion button and never gained one of
+          // its own, so coupons were list-only: none could be created from
+          // the desktop at all, and the code is how a customer reaches an
+          // offer that requires one.
+          if (_mayManage && _showingCoupons)
+            FilledButton.icon(
+              onPressed: () => unawaited(_editCoupon()),
+              icon: const Icon(Icons.add),
+              label: const Text('New coupon'),
             ),
           OutlinedButton.icon(
             onPressed: () => unawaited(_load()),
@@ -262,7 +333,7 @@ class _PromotionPageState extends State<PromotionPage> {
         title: 'No coupons yet',
         message: 'A coupon is a code a customer presents to claim an offer. '
             'The benefit lives on the offer; the coupon decides who reaches '
-            'it, and how often.',
+            'it, and how often. Use “New coupon” above.',
       );
     }
     return EnterpriseDataGrid<PromotionCouponRecord>(
@@ -289,6 +360,21 @@ class _PromotionPageState extends State<PromotionPage> {
         row.status,
       ],
       onSelect: (row) => setState(() => _selectedCoupon = row),
+      onOpen: _mayManage
+          ? (row) => unawaited(_editCoupon(existing: row))
+          : null,
+      contextActions: _mayManage
+          ? const [WorkspaceContextAction.edit, WorkspaceContextAction.delete]
+          : const [],
+      onContextAction: (action, row) {
+        if (!_mayManage) return;
+        if (action == WorkspaceContextAction.edit) {
+          unawaited(_editCoupon(existing: row));
+        }
+        if (action == WorkspaceContextAction.delete) {
+          unawaited(_deleteCoupon(row));
+        }
+      },
       onPageChanged: (page) => unawaited(_load(requestedPage: page)),
     );
   }
