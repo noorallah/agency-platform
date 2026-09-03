@@ -174,11 +174,16 @@ floor and a target bonus for the other -- because the module is about
 precedence and a demo where everybody earns the same shows none of it.
 
 Reading WHOLE01's report over the whole history is the quickest check that the
-precedence is alive: one salesman comes out at **5.06%**, which is neither of
-the two rates that govern them and could only be a blend of 6% on the scoped
-product and 4% on the rest. The other comes out at exactly **2.00%**, the
-bottom band of their ladder. One target is met and one missed, so both states
-appear on screen.
+precedence is alive: one salesman comes out at **3.17%**, which is neither of
+the two rates that govern them and could only be a blend of 4% of *value* on
+most lines and 15% of *margin* on the scoped product. The other comes out at
+around **1.34%**, off the bottom band of their ladder. One target is met and
+one missed, so both states appear on screen.
+
+That first figure was 5.06% until 2026-09-03, when the scoped rule was changed
+to pay on margin. A margin rule and a value rule are only told apart by looking
+if the numbers differ enough that nobody mistakes it for rounding, which is why
+the seeded rate jumped from 6% to 15% at the same time.
 
 The scoped rule names a **product** rather than a category on purpose: these
 firms carry a single category, so a category rule would cover every line and

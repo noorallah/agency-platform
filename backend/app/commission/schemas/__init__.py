@@ -28,6 +28,13 @@ class CommissionBasisEnum(StrEnum):
     INVOICED = "INVOICED"
 
 
+class CommissionMeasureEnum(StrEnum):
+    """What the rate is applied to: the money, or the money less its cost."""
+
+    VALUE = "VALUE"
+    MARGIN = "MARGIN"
+
+
 class CommissionRateTypeEnum(StrEnum):
     """Whether a rule pays a share of the money or a sum per unit sold."""
 
@@ -99,6 +106,10 @@ class CommissionRuleCreate(CommissionSchema):
     #: rule about the lines that match.
     product_id: UUID | None = None
     product_category_id: UUID | None = None
+    #: VALUE pays on the money; MARGIN pays on the money less what the goods
+    #: cost. A line whose cost is unknown contributes nothing to a MARGIN
+    #: rule rather than being treated as costing zero.
+    measure: CommissionMeasureEnum = CommissionMeasureEnum.VALUE
     rate_type: CommissionRateTypeEnum = CommissionRateTypeEnum.PERCENT
     per_unit_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -155,6 +166,10 @@ class CommissionRuleUpdate(CommissionSchema):
     slab_mode: CommissionSlabModeEnum | None = None
     product_id: UUID | None = None
     product_category_id: UUID | None = None
+    #: VALUE pays on the money; MARGIN pays on the money less what the goods
+    #: cost. A line whose cost is unknown contributes nothing to a MARGIN
+    #: rule rather than being treated as costing zero.
+    measure: CommissionMeasureEnum = CommissionMeasureEnum.VALUE
     rate_type: CommissionRateTypeEnum | None = None
     per_unit_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
@@ -193,6 +208,10 @@ class CommissionRuleResponse(CommissionSchema):
     product_name: str
     product_category_id: UUID | None
     product_category_name: str
+    #: VALUE pays on the money; MARGIN pays on the money less what the goods
+    #: cost. A line whose cost is unknown contributes nothing to a MARGIN
+    #: rule rather than being treated as costing zero.
+    measure: CommissionMeasureEnum = CommissionMeasureEnum.VALUE
     rate_type: CommissionRateTypeEnum
     per_unit_amount: Decimal
     minimum_amount: Decimal | None
@@ -240,6 +259,7 @@ class CommissionReport(CommissionSchema):
 
 
 __all__ = [
+    "CommissionMeasureEnum",
     "CommissionBasisEnum",
     "CommissionRateTypeEnum",
     "CommissionReport",

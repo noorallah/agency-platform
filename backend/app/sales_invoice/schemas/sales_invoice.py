@@ -367,6 +367,9 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     bill_discount_amount: Decimal
     #: This line's share of the document's freight.
     freight_amount: Decimal = Decimal("0")
+    #: What the goods cost, or null where no dispatch could be traced. Null
+    #: is not zero: zero would mean the goods were free.
+    cost_amount: Decimal | None = None
     net_amount: Decimal
     packaging_type_id: UUID | None
     order_uom_id: UUID | None
