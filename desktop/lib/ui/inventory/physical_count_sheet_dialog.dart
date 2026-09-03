@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/dialogs/app_dialogs.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
@@ -237,6 +238,50 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
   int _countedSoFar() =>
       _counted.values.where((c) => c.text.trim().isNotEmpty).length;
 
+  /// Abandon a sheet that will not be posted.
+  ///
+  /// `cancelPhysicalCount` had a route and a client method and no control, so
+  /// a sheet opened by mistake -- or against the wrong warehouse -- stayed
+  /// DRAFT for ever, holding a warehouse's expected quantities from whenever
+  /// it was drawn up and cluttering the list it appears in.
+  ///
+  /// Confirmed first, and the confirmation says what is lost: the counting
+  /// itself. Nothing about the sheet reaches stock until it is posted, so
+  /// abandoning it moves no quantity and writes no adjustment -- but a
+  /// half-counted sheet represents somebody's afternoon in the aisles.
+  Future<void> _abandon() async {
+    final int counted = _countedSoFar();
+    final bool go = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Abandon ${_sheet.countNumber}?',
+      message: counted == 0
+          ? 'The sheet is dropped. No stock moves and no adjustment is '
+              'written — nothing on a sheet reaches the ledger until it is '
+              'posted.'
+          : '$counted counted line(s) are dropped with it, and cannot be got '
+              'back. No stock moves and no adjustment is written.',
+      confirmLabel: 'Abandon',
+      type: ConfirmationType.delete,
+    );
+    if (!go || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.api.cancelPhysicalCount(_sheet.id);
+      if (!mounted) return;
+      _changed = true;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _error = exception.message;
+        _busy = false;
+      });
+    }
+  }
+
   Future<void> _confirmPost() async {
     final int uncounted = _sheet.lines.length - _countedSoFar();
     final bool? go = await showDialog<bool>(
@@ -291,6 +336,15 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
               Text(
                 '${_countedSoFar()} of ${_sheet.lines.length} counted',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              // Left of the spacer, away from the two actions that commit:
+              // abandoning and posting are the two irreversible things this
+              // dialog does, and they should not sit next to each other.
+              TextButton.icon(
+                onPressed: _busy ? null : () => unawaited(_abandon()),
+                icon: const Icon(Icons.cancel_outlined, size: 18),
+                label: const Text('Abandon sheet'),
               ),
               const Spacer(),
               OutlinedButton.icon(
