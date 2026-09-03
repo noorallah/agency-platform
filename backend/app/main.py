@@ -40,6 +40,7 @@ from app.goods_receipt.api import router as goods_receipt_router
 from app.gst_returns.api.router import router as gst_returns_router
 from app.identity.api import router as identity_router
 from app.inventory.api import router as inventory_router
+from app.loyalty.api import router as loyalty_router
 from app.pricing.api import router as pricing_router
 from app.products.api import router as products_router
 from app.proforma.api import router as proforma_router
@@ -126,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sales_targets_router)
     application.include_router(products_router)
     application.include_router(proforma_router)
+    application.include_router(loyalty_router)
     application.include_router(purchases_router)
     application.include_router(purchase_invoices_router)
     application.include_router(purchase_returns_router)

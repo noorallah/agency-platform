@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | TCS 27-30 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -133,6 +133,12 @@ zero, which looks exactly like a firm nobody has ever asked for one. Every
 fourth order gets one, issued rather than left in draft, because a proforma is
 what a buyer asks for when they need a figure before the goods move -- not
 something every sale produces.
+
+**`LOY` should read 7.** Every store runs a loyalty scheme -- two points per
+hundred, worth a rupee each, a floor of fifty and a two-year life -- and one
+bill in seven is part-settled with what the customer has earned. `LOY` counts
+the redemptions; the earnings are one per approved invoice, so the ledger holds
+about fifty-six rows a firm.
 
 **`ADV` should read 9.** A deposit is taken against one order in six, a third
 of its value, and applied to the bill when it is raised. Before this every
@@ -279,6 +285,12 @@ answers for whichever schema the connection is pointed at.
 - **`proforma_invoices` and its lines are in the reset order**, before the
   sales orders they state. They post nothing, so there is no journal to worry
   about -- only the order.
+- **`loyalty_entries` is in the reset order and `loyalty_settings` is not**,
+  for the same reason as TCS: a scheme is an arrangement about the firm, and
+  rebuilding the trading does not change what a point is worth. This was the
+  sixth table set to arrive with a feature and need adding to that list, and
+  it was found the way the others were -- a `--reset` failing outright on a
+  foreign key the second time it ran.
 - **`tcs_collections` is in the reset order and `tcs_settings` is not.** The
   collections hang off the settlements the reset clears; the settings are an
   arrangement about the firm, like a commission rule, and rebuilding the

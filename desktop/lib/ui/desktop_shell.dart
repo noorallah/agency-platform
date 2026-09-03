@@ -20,6 +20,7 @@ import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/customer_statement_page.dart';
+import 'customers/loyalty_page.dart';
 import 'inventory/inventory_management_page.dart';
 import 'inventory/inventory_details_dialog.dart';
 import 'inventory/batch_management_page.dart';
@@ -1721,6 +1722,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'loyalty' => LoyaltyPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'products' => ProductManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1779,6 +1785,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
       title: switch (tabId) {
         'customers' => 'Customer Management',
         'customer-statements' => 'Customer Statements',
+        'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'vendors' => 'Vendor Management',
         'branches' => 'Branch Management',
@@ -1794,6 +1801,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'Manage firm-scoped customer masters, addresses, and contacts.',
         'customer-statements' =>
           'What each account did over a period, and what of it is overdue.',
+        'loyalty' =>
+          'Credit a customer earns on what they buy, and spends on what they '
+              'buy next. Spending it settles a bill; it does not discount one.',
         'products' =>
           'Manage profile-driven product masters with dynamic attributes.',
         'vendors' =>

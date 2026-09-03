@@ -36,6 +36,7 @@ from app.inventory.models import (
     inventory,  # noqa: F401
     physical_count,  # noqa: F401
 )
+from app.loyalty.models import loyalty  # noqa: F401
 from app.pricing.models import price_list  # noqa: F401
 from app.products.models import product  # noqa: F401
 from app.proforma.models import proforma  # noqa: F401

@@ -215,6 +215,20 @@ CHART: tuple[SeedAccount, ...] = (
         "CL",
         ControlAccountPurpose.TCS_PAYABLE,
     ),
+    SeedAccount(
+        "5700",
+        "Loyalty Expense",
+        AccountTypeEnum.EXPENSE,
+        "EXP",
+        ControlAccountPurpose.LOYALTY_EXPENSE,
+    ),
+    SeedAccount(
+        "2600",
+        "Loyalty Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.LOYALTY_PAYABLE,
+    ),
 )
 
 

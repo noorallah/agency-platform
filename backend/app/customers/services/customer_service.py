@@ -401,6 +401,14 @@ class CustomerService:
         elif tx_type in {
             CustomerReceivableTransactionType.RECEIPT,
             CustomerReceivableTransactionType.CREDIT_NOTE,
+            # Loyalty credit settles a bill exactly as a receipt does: the
+            # firm has been paid, in credit it already owed rather than in
+            # cash. Without this the journal reduced the receivable control
+            # account while the customer's own balance stayed where it was,
+            # and the two books drifted by every redemption -- which
+            # `verify_sample_data.py` caught within minutes of the seed
+            # running.
+            CustomerReceivableTransactionType.LOYALTY,
         }:
             applied = amount if amount <= current else current
             excess = amount - applied

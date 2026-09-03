@@ -50,6 +50,12 @@ class ControlAccountPurpose(StrEnum):
     #: filed on a different return, and netting the two would put a
     #: quarterly TCS payment inside a monthly GST one.
     TCS_PAYABLE = "TCS_PAYABLE"
+    #: What a loyalty scheme costs the firm, booked when the points are
+    #: earned rather than when they are spent -- the cost belongs to the month
+    #: it was incurred in, not to whenever customers happen to collect.
+    LOYALTY_EXPENSE = "LOYALTY_EXPENSE"
+    #: What the firm owes customers in unspent credit.
+    LOYALTY_PAYABLE = "LOYALTY_PAYABLE"
     DISCOUNT_RECEIVED = "DISCOUNT_RECEIVED"
     ROUNDING = "ROUNDING"
     CASH = "CASH"
@@ -93,6 +99,8 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.COMMISSION_EXPENSE: frozenset({"EXPENSE"}),
     ControlAccountPurpose.COMMISSION_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.TCS_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
+    ControlAccountPurpose.LOYALTY_EXPENSE: frozenset({"EXPENSE"}),
+    ControlAccountPurpose.LOYALTY_PAYABLE: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.DISCOUNT_RECEIVED: frozenset({"INCOME"}),
     ControlAccountPurpose.ROUNDING: frozenset({"INCOME", "EXPENSE"}),
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),
