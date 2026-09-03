@@ -485,6 +485,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   rather than a transaction; and expiry is a sweep that names the entry it
   takes, so it can be run twice. `expiry_months` NULL means points never
   expire -- zero would mean they expire the day they are earned.
+- **Points expire out of what is left of a batch, and their cost comes back
+  with them.** Two defects, found by the 2026-09-03 review. `expire` wrote
+  back the *whole* earned entry, so a batch the customer had already spent
+  lapsed a second time and left them on **negative points** -- the balance is
+  a sum over the ledger with no floor, and `redeem` refuses anything above it,
+  so the sweep was the only way below zero. Spending is allocated **oldest
+  batch first**, which is why the fix cannot just cap at the balance: a
+  customer with one lapsing batch and one fresh one, who spent the older
+  one's worth, keeps the fresh one in full. And nothing reversed the accrual
+  when credit ran out of time, so `Loyalty Payable` kept a debt nobody could
+  claim -- nine lapsed batches worth 936.31 in WHOLE01 with no journal between
+  them, against 49 earnings that had all posted. A lapse now posts
+  `Dr Loyalty Payable / Cr Loyalty Expense` for the share that lapsed, and
+  `expire` takes an `actor_id` because a journal with no author is one nobody
+  can ask about.
 - **A margin rule needs a cost the invoice remembers, and NULL is not zero.**
   `commission_rules.measure` is VALUE or MARGIN; MARGIN pays on the money less
   what the goods cost, which is a different arrangement rather than a
