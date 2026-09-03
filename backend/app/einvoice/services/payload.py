@@ -137,15 +137,20 @@ class EInvoicePayloadBuilder:
             if not hsn:
                 name = getattr(product, "name", "a product")
                 problems.append(f"{name} has no HSN or SAC code")
-            # Freight is inside the taxable value: delivery charged by the
-            # seller is ancillary to the supply and is taxed with the goods,
-            # so a payload that left it out would register less than the
-            # invoice charged tax on.
+            # Freight and the line's own charges are both inside the taxable
+            # value: each is ancillary to the supply and taxed with the goods,
+            # so a payload leaving either out registers less than the invoice
+            # charged tax on. `charges_amount` was missing until the
+            # 2026-09-03 review -- freight was added when #191 moved it inside
+            # the base, and the line charges were never added at all.
+            other_charges = quantize_money(
+                Decimal(str(line.charges_amount)) + Decimal(str(line.freight_amount))
+            )
             taxable = quantize_money(
                 Decimal(str(line.gross_amount))
                 - Decimal(str(line.discount_amount))
                 - Decimal(str(line.bill_discount_amount))
-                + Decimal(str(line.freight_amount))
+                + other_charges
             )
             split = split_components(
                 [
@@ -180,7 +185,7 @@ class EInvoicePayloadBuilder:
                     ),
                     # The portal has a field for it, and it is part of the
                     # assessable value above rather than an addition to it.
-                    "OthChrg": float(quantize_money(Decimal(str(line.freight_amount)))),
+                    "OthChrg": float(other_charges),
                     "AssAmt": float(taxable),
                     "GstRt": float(split.rate),
                     "CgstAmt": float(split.cgst),

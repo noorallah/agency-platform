@@ -666,6 +666,8 @@ which nothing did until the endpoint published an ETag.
 | 40 | `commission` | 2026-09-03 | **one finding, and it is a race.** `_assert_period_is_free` reads and `accrue` writes with nothing between them and no constraint behind them, so two requests that both check before either commits both pass -- driven on WHOLE01, leaving one salesman holding two live payouts for one month, which pays the same collections twice. Everything else the module claims was checked and holds | yes |
 | 41 | `credit_note` | 2026-09-03 | **one finding: the module reversed tax on a smaller base than the tax was charged on.** `_charged_taxable` returned gross less discounts, which was the whole taxable value until #191 moved freight inside it and nothing moved this with it; `charges_amount` had never been there. It cost twice -- the cap refused a full credit of what the customer was actually charged, and the derived rate was inflated, so crediting 1,000 of a 1,050 base reversed 189 of output tax where 180 was collected | yes |
 | 42 | **concurrency**, every guard that reads to decide a write | 2026-09-03 | the rule the three findings of rows 39-41 were all breaking: **optimistic concurrency protects a decision about a row, and nothing about a decision about a set of rows.** `inventory` looked like the worst site and is the safe one, because dispatch *updates* a row and `version_id_col` catches the stale write. `loyalty.redeem` and `credit_note`'s cap **insert** against a sum, so no version can conflict; both now hold the thing being consumed | yes |
+| 43 | `pricing`, `tcs`, `proforma` | 2026-09-03 | **none.** The price ladder keys on `min_quantity`, sorts its breaks and takes the highest at or below; TCS charges only the excess over the threshold, from a running total that excludes the receipt being charged, to its own `TCS_PAYABLE`; a proforma carries no journal or receivable column at all, draws its own PI series and refuses an edit once issued | nothing to fix |
+| 44 | `gst_returns`, `einvoice` | 2026-09-03 | **both declared less taxable value than the invoice charged tax on.** `charges_amount` is inside the base `_line_net_amount` hands the tax engine and was in neither filing module -- freight was added to both when #191 moved it inside, the line charges never were. The same staleness `credit_note` carried in #207, now in the two modules that file with the authority | yes |
 
 ### 23 `settlements` — what was checked, and the two things worth knowing
 
@@ -1289,3 +1291,39 @@ one of them everywhere would have been wrong in two cases out of three.
 
 Everything else that aggregates before writing was checked and is either a
 report -- which decides nothing -- or an update to the row it read.
+
+
+### 43-44 the last five, and the same staleness twice more
+
+`pricing`, `tcs` and `proforma` were read against every claim their modules
+make and **found nothing**, which is a result rather than an absence of
+effort. The price ladder's unique key carries `min_quantity` -- without it a
+list could hold only one break per product, which is the whole feature -- the
+breaks are sorted ascending and `rate_for` takes the highest at or below the
+line, stopping at the first break above it *because* they are sorted, and it
+answers None rather than zero so a product no list mentions still falls
+through to the customer's own rate. TCS charges only the part of a receipt
+above the threshold, from a running total that excludes the receipt being
+charged, and posts to its own `TCS_PAYABLE` rather than to Output Tax. A
+proforma has no `journal_entry_id` and no `receivable_transaction_id` to
+write to, draws from its own `PI` series, and refuses an edit once issued.
+
+**The two filing modules were the ones with the finding, and it is #207's
+again.** `SalesInvoiceService._line_net_amount` hands the tax engine
+`gross - discounts + charges_amount + freight_amount`. Both
+`GstrService._taxable` and the e-invoice payload had the freight -- each
+gained it when #191 moved freight inside the taxable value -- and neither
+ever had `charges_amount`. So a GST return declared, and an e-invoice
+registered, **less taxable value than the invoice charged tax on**, with the
+real tax figure sitting beside it. `_taxable`'s own docstring names that as
+"the one way a return can be wrong that nobody notices until an assessment".
+
+Currently latent: `charges_amount` is caller-supplied and no seeded line sets
+it, so nothing in the demo mis-files. Any firm that used the field would.
+
+**Three modules deep, one root.** #191 changed what "taxable" means and four
+places derived from it: `sales_invoice` moved, `credit_note` did not (#207),
+`gst_returns` and `einvoice` moved half way -- they took the freight and left
+the charges. That is the thing to carry: **when a taxable base changes, grep
+the fields, not the concept.** A helper that looks updated may have been
+updated for the last change and not for the one before it.

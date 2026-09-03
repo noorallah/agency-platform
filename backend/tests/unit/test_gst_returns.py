@@ -118,11 +118,14 @@ class _Books:
         on: date = date(2026, 4, 10),
         discount: str = "0",
         freight: str = "0",
+        charges: str = "0",
         interstate: bool = False,
     ) -> SalesInvoice:
         """Bill one line, taxed CGST + SGST unless asked for IGST."""
         buyer = customer or self.registered
-        taxable = Decimal(gross) - Decimal(discount) + Decimal(freight)
+        taxable = (
+            Decimal(gross) - Decimal(discount) + Decimal(freight) + Decimal(charges)
+        )
         invoice = SalesInvoice(
             firm_id=self.firm.id,
             customer_id=buyer.id,
@@ -150,6 +153,7 @@ class _Books:
             gross_amount=Decimal(gross),
             discount_amount=Decimal(discount),
             freight_amount=Decimal(freight),
+            charges_amount=Decimal(charges),
             tax_amount=Decimal(tax),
             net_amount=taxable + Decimal(tax),
         )
@@ -524,3 +528,34 @@ def test_freight_is_declared_inside_the_taxable_value() -> None:
 
     assert invoice["taxable_value"] == 1200.0
     assert books.gstr1()["hsn"][0]["taxable_value"] == 1200.0
+
+
+def test_a_line_charge_is_declared_inside_the_taxable_value() -> None:
+    """`charges_amount` is taxed with the goods, so it is declared with them.
+
+    `SalesInvoiceService._line_net_amount` hands the tax engine
+    `gross - discounts + charges_amount + freight_amount`. `_taxable` had the
+    freight -- added when #191 moved it inside the taxable value -- and never
+    had the charges, so a return declared **less taxable value than the
+    invoice charged tax on**. Its own docstring names that as the one way a
+    return can be wrong that nobody notices until an assessment.
+
+    Found by the 2026-09-03 review, the same staleness `credit_note` carried
+    in #207.
+    """
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", gross="1000", charges="100", tax="198")
+
+    invoice = books.gstr1()["b2b"][0]["invoices"][0]
+    assert invoice["taxable_value"] == 1100.0
+    # And the HSN summary, which an assessment reads beside it.
+    assert books.gstr1()["hsn"][0]["taxable_value"] == 1100.0
+
+
+def test_freight_and_a_line_charge_are_both_declared() -> None:
+    """Both, and neither one instead of the other."""
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", gross="1000", freight="50", charges="100", tax="207")
+
+    invoice = books.gstr1()["b2b"][0]["invoices"][0]
+    assert invoice["taxable_value"] == 1150.0

@@ -648,16 +648,23 @@ class GstReturnService:
         declaring that as the taxable value would over-state every supply by
         its own tax.
 
-        Freight belongs in here because delivery charged by the seller is
-        ancillary to the supply of the goods and is taxed with them. Leaving
-        it out would declare less than the invoice charged tax on, which is
-        the one way a return can be wrong that nobody notices until an
-        assessment.
+        Freight and the line's own charges belong in here because both are
+        ancillary to the supply of the goods and are taxed with them --
+        exactly the base `SalesInvoiceService._line_net_amount` hands the tax
+        engine. Leaving either out declares less than the invoice charged tax
+        on, which is the one way a return can be wrong that nobody notices
+        until an assessment.
+
+        `charges_amount` was missing until the 2026-09-03 review: freight was
+        added here when #191 moved it inside the taxable value and the line
+        charges were never added at all. `credit_note` carried the same
+        staleness (#207).
         """
         return quantize_money(
             Decimal(str(line.gross_amount))
             - Decimal(str(line.discount_amount))
             - Decimal(str(line.bill_discount_amount))
+            + Decimal(str(line.charges_amount))
             + Decimal(str(line.freight_amount))
         )
 
