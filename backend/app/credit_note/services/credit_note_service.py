@@ -516,6 +516,9 @@ class CreditNoteService(TransactionalDocumentService):
                 raise ValidationError(
                     "A credit note line must name a line of the invoice it credits."
                 )
+            # Held before the cap is read, or two notes both see the same
+            # room on this line and both take it.
+            self._hold_line(source.id)
             charged = self._charged_taxable(source)
             already = self._already_credited(
                 firm_id=note.firm_id,
@@ -552,6 +555,26 @@ class CreditNoteService(TransactionalDocumentService):
         note.tax_amount = quantize_money(tax_total)
         note.total_amount = quantize_money(taxable_total + tax_total)
         self._session.flush()
+
+    def _hold_line(self, invoice_line_id: UUID) -> None:
+        """Take the invoice line before reading what is left of it.
+
+        The cap is a **sum over other notes' lines**, so nothing about it is
+        protected by `BaseEntity.version`: that guards an update to a row, and
+        a credit note inserts. Two notes drafted against one line that both
+        read before either commits therefore both pass, and the line is
+        credited past what it was charged -- which reverses output tax that
+        was never collected.
+
+        The lock goes on the invoice line because that is what the cap belongs
+        to. A unique index cannot express this one: the cap is a sum, not a
+        key.
+        """
+        self._session.execute(
+            select(SalesInvoiceLine.id)
+            .where(SalesInvoiceLine.id == invoice_line_id)
+            .with_for_update()
+        )
 
     @staticmethod
     def _charged_taxable(source: SalesInvoiceLine) -> Decimal:

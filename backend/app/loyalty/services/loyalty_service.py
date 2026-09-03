@@ -371,6 +371,9 @@ class LoyaltyService:
         asked = quantize_money(points)
         if asked <= ZERO:
             raise ValidationError("A redemption must be for more than nothing.")
+        # Held before the balance is read, or two redemptions both see the
+        # same points and both spend them.
+        self._hold_customer(invoice.customer_id, firm_scope=firm_scope)
         held = self._points_of(invoice.customer_id, firm_scope=firm_scope)
         if asked > held:
             raise ValidationError(f"That customer holds {held} points, not {asked}.")
@@ -475,6 +478,9 @@ class LoyaltyService:
         change = quantize_money(points)
         if change == ZERO:
             raise ValidationError("An adjustment of nothing changes nothing.")
+        # The same hold: an adjustment that takes points away is refused
+        # below the balance, and reads it to decide.
+        self._hold_customer(customer_id, firm_scope=firm_scope)
         held = self._points_of(customer_id, firm_scope=firm_scope)
         if held + change < ZERO:
             raise ValidationError(
@@ -689,6 +695,30 @@ class LoyaltyService:
         self._session.flush()
 
     # ---- internals -----------------------------------------------------
+
+    def _hold_customer(self, customer_id: UUID, *, firm_scope: UUID) -> None:
+        """Take the customer's row before reading what they hold.
+
+        A balance is a **sum over entries**, so nothing about it is protected
+        by `BaseEntity.version`: that guards an update to a row, and a
+        redemption inserts. Two redemptions that both read before either
+        commits therefore both pass, and the customer spends more credit than
+        they have.
+
+        The lock goes on the customer because that is what the balance belongs
+        to -- the same shape `app/promotions` uses when it locks the promotion
+        before counting claims against it. Serialising per customer, not per
+        firm, so two tills serving different people do not queue behind each
+        other.
+        """
+        self._session.execute(
+            select(Customer.id)
+            .where(
+                Customer.id == customer_id,
+                Customer.firm_id == firm_scope,
+            )
+            .with_for_update()
+        )
 
     def _points_of(self, customer_id: UUID, *, firm_scope: UUID) -> Decimal:
         """Return a customer's balance, summed from the ledger."""
