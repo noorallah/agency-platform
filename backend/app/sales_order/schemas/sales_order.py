@@ -256,6 +256,15 @@ class SalesOrderResponse(SalesOrderSchema):
     closed_at: datetime | None
     cancel_reason: str | None
     close_reason: str | None
+    #: A hold is a flag beside the status, not a status of its own: an order
+    #: that is PARTIALLY_DELIVERED can be held, and releasing it has to put it
+    #: back to PARTIALLY_DELIVERED rather than guess.
+    is_on_hold: bool = False
+    #: Kept after release, not cleared -- "why was this held" is the question
+    #: asked afterwards.
+    hold_reason: str | None = None
+    held_at: datetime | None = None
+    released_at: datetime | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime

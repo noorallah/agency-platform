@@ -13,6 +13,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/proforma.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 
 /// List the firm's proformas, raise one from an order, issue or withdraw it.
 class ProformaPage extends StatefulWidget {
@@ -93,46 +94,19 @@ class _ProformaPageState extends State<ProformaPage> {
   }
 
   Future<void> _cancel(ProformaRecord row) async {
-    final TextEditingController reason = TextEditingController();
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Withdraw ${row.proformaNumber}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Nothing is reversed, because a proforma posts nothing. The '
-              'document stays on the record: the customer holds a copy, and '
-              'one that vanished would leave them with a number nobody here '
-              'can explain.',
-            ),
-            const SizedBox(height: AppSpacing.md),
-            TextField(
-              controller: reason,
-              decoration: const InputDecoration(labelText: 'Reason'),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep it'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Withdraw'),
-          ),
-        ],
-      ),
+    final String? reason = await askForReason(
+      context,
+      title: 'Withdraw ${row.proformaNumber}',
+      explanation: 'Nothing is reversed, because a proforma posts nothing. '
+          'The document stays on the record: the customer holds a copy, and '
+          'one that vanished would leave them with a number nobody here can '
+          'explain.',
+      cancelLabel: 'Keep it',
+      confirmLabel: 'Withdraw',
     );
-    final String text = reason.text.trim();
-    reason.dispose();
-    if (confirmed != true || text.isEmpty) return;
+    if (reason == null || !mounted) return;
     await _act(
-      () => widget.api.cancelProformaInvoice(row.id, reason: text),
+      () => widget.api.cancelProformaInvoice(row.id, reason: reason),
       '${row.proformaNumber} withdrawn.',
     );
   }

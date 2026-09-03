@@ -118,6 +118,20 @@ class SalesOrder(BaseEntity):
     #: and approval is when a claim can be counted -- an offer is not a claim.
     coupon_code: Mapped[str | None] = mapped_column(String(40))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
+    #: A hold is a **flag, not a status**, and that is the whole design. An
+    #: order that is PARTIALLY_DELIVERED can be held, and releasing it has to
+    #: put it back to PARTIALLY_DELIVERED -- not to APPROVED. Writing HOLD into
+    #: `status` would destroy the only record of how far the order had got,
+    #: and releasing would then have to guess. Nothing is overwritten here, so
+    #: nothing has to be restored.
+    is_on_hold: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    hold_reason: Mapped[str | None] = mapped_column(Text)
+    held_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    held_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_by: Mapped[UUID | None] = mapped_column(UUIDType())
     close_reason: Mapped[str | None] = mapped_column(Text)
 
 

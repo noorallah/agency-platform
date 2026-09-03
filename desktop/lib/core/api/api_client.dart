@@ -4695,6 +4695,24 @@ class ApiClient {
         expectedVersion: expectedVersion,
       );
 
+  /// Stop an order progressing, without unwinding anything.
+  ///
+  /// The status is untouched, so releasing puts the order back exactly where
+  /// it was. The reason is required rather than optional: the person who hits
+  /// the refusal downstream is the one who has to get the hold lifted, and a
+  /// blank reason tells them nothing.
+  Future<Json> holdSalesOrder(String id, {required String reason}) => request(
+        'POST',
+        '/api/v1/sales-orders/$id/hold',
+        body: <String, dynamic>{'reason': reason},
+      );
+
+  Future<Json> releaseSalesOrder(String id, {String? remarks}) => request(
+        'POST',
+        '/api/v1/sales-orders/$id/release',
+        body: <String, dynamic>{if (remarks != null) 'reason': remarks},
+      );
+
   Future<Json> createSalesInvoice(Json body) =>
       request('POST', '/api/v1/sales-invoices', body: body);
 
