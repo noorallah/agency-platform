@@ -42,6 +42,7 @@ class DocumentViewDialog extends StatelessWidget {
     required this.lines,
     required this.totals,
     required this.history,
+    this.extra,
   });
 
   final String title;
@@ -51,6 +52,11 @@ class DocumentViewDialog extends StatelessWidget {
   final List<DocumentLineSnapshot> lines;
   final DocumentTotalsSnapshot totals;
   final List<DocumentTimelineSnapshot> history;
+
+  /// Anything else this particular document has to say, shown with its
+  /// totals. A slot rather than a screen-specific field, because the money
+  /// that matters about a document is not always on the document.
+  final Widget? extra;
 
   @override
   Widget build(BuildContext context) => WorkspaceDialog(
@@ -67,6 +73,10 @@ class DocumentViewDialog extends StatelessWidget {
               EnterpriseDocumentLines(lines: lines),
               const SizedBox(height: 12),
               EnterpriseTotalsPanel(totals: totals),
+              if (extra != null) ...[
+                const SizedBox(height: 12),
+                extra!,
+              ],
               const SizedBox(height: 12),
               EnterpriseTimeline(entries: history),
             ],

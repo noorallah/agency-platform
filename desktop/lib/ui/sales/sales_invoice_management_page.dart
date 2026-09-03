@@ -10,7 +10,9 @@ import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
+import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'sales_invoice_editor_dialog.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
@@ -576,10 +578,87 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
             icon: const Icon(Icons.linear_scale_outlined, size: 18),
           ),
           _actionButton(DocumentToolbarAction.approve, '/approve'),
+          _redeemButton(),
           _actionButton(DocumentToolbarAction.cancel, '/cancel'),
           _actionButton(DocumentToolbarAction.close, '/close'),
         ],
       );
+
+  /// Settle part of a bill with credit the customer has earned.
+  ///
+  /// Here rather than on the loyalty register, because this is where the bill
+  /// is -- a register is for reading what happened, not for spending.
+  Widget _redeemButton() => Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: OutlinedButton.icon(
+          onPressed: _selected == null ||
+                  _loading ||
+                  !widget.permissions.hasPermission('LOYALTY_MANAGE') ||
+                  // Only an approved bill owes anything to settle.
+                  const <String>{'DRAFT', 'CANCELLED'}
+                      .contains('${_selected?['status'] ?? ''}')
+              ? null
+              : () => unawaited(_redeem(_selected!)),
+          icon: const Icon(Icons.card_giftcard, size: 18),
+          label: const Text('Use points'),
+        ),
+      );
+
+  /// Ask how many points, having first said how many there are.
+  ///
+  /// The balance is read before the dialog opens so nobody is asked for a
+  /// number without being told the ceiling -- and `redeemable` is the
+  /// server's answer, so this never offers a redemption the service refuses.
+  Future<void> _redeem(Map<String, dynamic> invoice) async {
+    final String? customerId = invoice['customer_id'] as String?;
+    if (customerId == null) return;
+    late final Json held;
+    try {
+      held = await widget.api.loyaltyBalance(customerId);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+      return;
+    }
+    if (!mounted) return;
+    if (held['redeemable'] != true) {
+      NotificationService.show(
+        context,
+        '${held['customer_name'] ?? 'That customer'} holds '
+        '${held['points'] ?? 0} points, which cannot be spent yet.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final String? points = await askForReason(
+      context,
+      title: 'Use points on ${invoice['invoice_number'] ?? ''}',
+      explanation: '${held['customer_name']} holds ${held['points']} points, '
+          'worth ${held['amount']}. Spending them settles the bill — the tax '
+          'on it does not change.',
+      label: 'Points to use',
+      confirmLabel: 'Use them',
+    );
+    if (points == null || !mounted) return;
+    try {
+      await widget.api.redeemLoyalty(
+        invoiceId: '${invoice['id']}',
+        points: points,
+      );
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '$points points used on ${invoice['invoice_number']}.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
 
   /// Show which stages of a sale this firm types, and let the right role
   /// change them.

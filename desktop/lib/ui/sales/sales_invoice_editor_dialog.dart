@@ -49,6 +49,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _reference = TextEditingController();
   final TextEditingController _billDiscount = TextEditingController();
+  final TextEditingController _freight = TextEditingController();
   final Map<String, TextEditingController> _quantities =
       <String, TextEditingController>{};
 
@@ -90,6 +91,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   void dispose() {
     _reference.dispose();
     _billDiscount.dispose();
+    _freight.dispose();
     for (final TextEditingController controller in _quantities.values) {
       controller.dispose();
     }
@@ -300,6 +302,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // discount on the bill, and an empty string is a schema error.
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
+      if (_freight.text.trim().isNotEmpty)
+        'freight_amount': _freight.text.trim(),
       'lines': lines,
     };
   }
@@ -342,6 +346,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'reference_number': _reference.text.trim(),
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
+      if (_freight.text.trim().isNotEmpty)
+        'freight_amount': _freight.text.trim(),
       'lines': lines,
     };
   }
@@ -475,6 +481,18 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                 ),
                 keyboardType: TextInputType.number,
                 validator: _percentage,
+                onChanged: (_) => setState(() {}),
+              ),
+              TextFormField(
+                controller: _freight,
+                decoration: const InputDecoration(
+                  labelText: 'Delivery charge',
+                  // The opposite of the field above it, and the difference
+                  // decides the tax -- so it is said rather than assumed.
+                  helperText: 'Split across the lines and taxed with them.',
+                  helperMaxLines: 2,
+                ),
+                keyboardType: TextInputType.number,
                 onChanged: (_) => setState(() {}),
               ),
               TextFormField(

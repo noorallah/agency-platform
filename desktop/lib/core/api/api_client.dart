@@ -3649,6 +3649,29 @@ class ApiClient {
         },
       ));
 
+  /// Write off points that have run out of time. Safe to run twice.
+  Future<Json> expireLoyalty() async =>
+      _unwrapMap(await request('POST', '/api/v1/loyalty/expire'));
+
+  /// What a receipt of this size from this buyer would attract in TCS.
+  ///
+  /// Answered before the receipt exists, so the figure is known when the
+  /// money is asked for rather than discovered after it has been taken.
+  Future<Json> tcsPreview({
+    required String customerId,
+    required String amount,
+    required String on,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/tcs/preview',
+        query: <String, String>{
+          'customer_id': customerId,
+          'amount': amount,
+          'on': on,
+        },
+      ));
+
   // ---- customer statement and ageing -----------------------------------
 
   /// One customer's account movement over a period.

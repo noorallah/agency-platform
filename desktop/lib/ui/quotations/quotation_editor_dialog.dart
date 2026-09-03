@@ -118,6 +118,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// the lines already discounted to, and the server splits it across
   /// them so the tax falls with it.
   final TextEditingController _billDiscount = TextEditingController();
+  final TextEditingController _freight = TextEditingController();
 
   String? _customerId;
   String? _branchId;
@@ -261,6 +262,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       line.dispose();
     }
     _billDiscount.dispose();
+    _freight.dispose();
     _reference.dispose();
     _paymentTerms.dispose();
     _deliveryTerms.dispose();
@@ -371,6 +373,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // bill" and would refuse an empty string.
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
+      if (_freight.text.trim().isNotEmpty)
+        'freight_amount': _freight.text.trim(),
       'lines': [
         for (int index = 0; index < _lines.length; index += 1)
           <String, dynamic>{
@@ -578,6 +582,21 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       ),
                       keyboardType: TextInputType.number,
                       validator: _percentage,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextFormField(
+                      controller: _freight,
+                      decoration: const InputDecoration(
+                        labelText: 'Delivery charge',
+                        // The opposite of the field above it, and the
+                        // difference decides the tax -- so it is said rather
+                        // than left to be assumed.
+                        helperText: 'Split across the lines and taxed with '
+                            'them.',
+                        helperMaxLines: 2,
+                      ),
+                      keyboardType: TextInputType.number,
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: AppSpacing.sm),

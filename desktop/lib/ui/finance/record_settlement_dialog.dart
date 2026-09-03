@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/desktop_framework.dart';
@@ -82,6 +83,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   final Map<String, TextEditingController> _allocations = {};
 
   String _partyId = '';
+  /// The order a deposit came in against, where it came in against one. A
+  /// note about why the money arrived, not a ring-fence: cancelling the order
+  /// does not make the deposit vanish.
+  String _orderId = '';
+  List<Json> _orders = const <Json>[];
+
+  /// What tax collected at source this receipt would attract, answered before
+  /// the money is taken rather than discovered after.
+  Json? _tcs;
   String _method = 'BANK';
   DateTime _date = DateTime.now();
   List<OutstandingInvoice> _invoices = const [];
@@ -174,6 +184,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         direction: widget.direction,
         data: <String, dynamic>{
           'party_id': _partyId,
+          // Only where one was named: blank is "no particular order", which
+          // is what most receipts are.
+          if (_orderId.isNotEmpty) 'sales_order_id': _orderId,
           'settlement_date':
               _date.toIso8601String().substring(0, 10),
           'amount': _amount.text.trim(),
@@ -264,6 +277,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                   ),
                 ),
               ]),
+              if (widget.direction == SettlementDirection.receipt) ...[
+                const SizedBox(height: AppSpacing.md),
+                _orderPicker(),
+                _tcsNotice(context),
+              ],
               const SizedBox(height: AppSpacing.lg),
               // A refund returns money held on account, which is the
               // opposite of settling a document -- so there is nothing
@@ -282,6 +300,102 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The customer's live orders, so a deposit can say which one it is for.
+  Future<void> _loadOrders(String partyId) async {
+    try {
+      final Json response = await widget.api.documentPage(
+        'sales-orders',
+        pageSize: 100,
+        additionalQuery: <String, String>{'customer_id': partyId},
+      );
+      final dynamic data = response['data'];
+      if (!mounted || data is! List) return;
+      setState(() {
+        _orders = data
+            .whereType<Map>()
+            .map(Map<String, dynamic>.from)
+            .where((order) => '${order['customer_id']}' == partyId)
+            .where((order) => '${order['status']}' != 'CANCELLED')
+            .toList();
+      });
+    } on ApiException {
+      // A picker that could not be filled is left empty rather than blocking
+      // the receipt: naming the order is a note, not a requirement.
+      if (mounted) setState(() => _orders = const <Json>[]);
+    }
+  }
+
+  /// Ask what this receipt would attract in tax collected at source.
+  ///
+  /// Before the money is taken, because the figure is needed when it is asked
+  /// for rather than discovered afterwards. Silent where the firm collects
+  /// none, which is most firms.
+  Future<void> _loadTcs() async {
+    final double amount = _amountEntered;
+    if (_partyId.isEmpty || amount <= 0) {
+      if (mounted) setState(() => _tcs = null);
+      return;
+    }
+    try {
+      final Json answer = await widget.api.tcsPreview(
+        customerId: _partyId,
+        amount: _amount.text.trim(),
+        on: _date.toIso8601String().substring(0, 10),
+      );
+      if (!mounted) return;
+      setState(() => _tcs = answer);
+    } on ApiException {
+      if (mounted) setState(() => _tcs = null);
+    }
+  }
+
+  /// Which order this money came in against, where it came in against one.
+  Widget _orderPicker() => DropdownButtonFormField<String>(
+        initialValue: _orderId.isEmpty ? null : _orderId,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Against order (optional)',
+          helperText: 'A note about why the money arrived. Cancelling the '
+              'order does not take the deposit back.',
+          helperMaxLines: 2,
+        ),
+        items: [
+          const DropdownMenuItem<String>(
+            value: '',
+            child: Text('No particular order'),
+          ),
+          for (final Json order in _orders)
+            DropdownMenuItem<String>(
+              value: '${order['id']}',
+              child: Text(
+                '${order['order_number']} — ${order['grand_total']}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: (value) => setState(() => _orderId = value ?? ''),
+      );
+
+  /// What the buyer will be charged on top, where anything is.
+  Widget _tcsNotice(BuildContext context) {
+    final Json? answer = _tcs;
+    if (answer == null || answer['applicable'] != true) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.sm),
+      child: Text(
+        // Owed on top of what is being paid, not taken out of it -- said
+        // plainly, because the other reading is the natural one.
+        'Tax collected at source: ${answer['tcs_amount']} on '
+        '${answer['taxable_amount']} above the threshold, at '
+        '${answer['rate_percent']}%. The buyer owes it on top of this '
+        'receipt.',
+        style: Theme.of(context).textTheme.bodySmall,
       ),
     );
   }
@@ -305,8 +419,17 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         ],
         onChanged: (value) {
           if (value == null) return;
-          setState(() => _partyId = value);
+          setState(() {
+            _partyId = value;
+            // The previous customer's orders and tax are not this one's.
+            _orderId = '';
+            _orders = const <Json>[];
+            _tcs = null;
+          });
           if (widget.direction.allocates) unawaited(_loadInvoices(value));
+          if (widget.direction == SettlementDirection.receipt) {
+            unawaited(_loadOrders(value));
+          }
         },
       );
 
@@ -314,7 +437,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         controller: _amount,
         decoration: const InputDecoration(labelText: 'Amount'),
         keyboardType: TextInputType.number,
-        onChanged: (_) => setState(() {}),
+        onChanged: (_) {
+          setState(() {});
+          if (widget.direction == SettlementDirection.receipt) {
+            unawaited(_loadTcs());
+          }
+        },
       );
 
   Widget _methodPicker() => DropdownButtonFormField<String>(
