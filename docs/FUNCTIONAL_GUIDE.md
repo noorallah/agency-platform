@@ -485,8 +485,10 @@ core workspaces.
 and `VEHICLE_TRACKING` gate fields. `TERRITORY`, `APPROVAL_WORKFLOW` and
 `MULTIPLE_WAREHOUSES` have working code and are deliberately ungated pending a
 product decision — enforcing `TERRITORY` today would take routes away from
-PHARMACY, FOOD and RETAIL, which plausibly sell by territory. The remaining
-seven have no code behind them.
+PHARMACY, FOOD and RETAIL, which plausibly sell by territory. Six of the
+remaining codes have no backing code and stay `is_implemented = false`:
+`IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`,
+`SERVICE_CONTRACTS` and `PROJECT_MANAGEMENT`.
 
 ## Tables
 
@@ -531,17 +533,21 @@ profile → else enforce nothing. Then per catalogue entry: an explicit
   default and therefore no gating at all for unassigned firms. Fixed, but it is
   the shape to watch when editing a profile.
 
-### One inconsistency worth fixing
+### ~~One inconsistency worth fixing~~ — closed by #168
 
-**`COMMISSION` is still catalogued as unimplemented while the module is live.**
-`20260810_0059` set `is_implemented = false` for the seven featureless codes,
-and `20260823_0102` then built commission rules, the collected report, its two
-permission codes and a desktop workspace — without flipping that flag. So an
-administrator cannot enable the `COMMISSION` feature, while commission itself
-works regardless, because nothing in `app/commission` calls `require_feature`.
-Nothing is broken for a firm today; the catalogue is simply lying about the
-product. Either flip the flag and gate the module on it, or drop the feature
-code.
+Kept because the shape recurs. `20260810_0059` cleared `is_implemented` for
+seven codes with no backing code. That was true of `COMMISSION` when it was
+written and stopped being true on 2026-08-23, when `app/commission` shipped
+with effective-dated rates, a collection-based report, seeded permissions and a
+desktop screen — and the flag outlived the fact, so `_reject_unimplemented`
+went on refusing an administrator a feature the platform had.
+`20260903_0107` flipped it.
+
+**`is_implemented` is a claim about the codebase, so it goes stale the moment
+the codebase moves and nothing re-checks it.** Six codes still carry
+`false`; each is one shipped module away from repeating this. Whatever
+implements one of them has to flip its flag in the same change, the way #168
+had to be a separate repair.
 
 ---
 
