@@ -147,3 +147,48 @@ __all__ = [
     "CreditNoteStatusEnum",
     "CreditNoteUpdate",
 ]
+
+
+class CreditNoteRegisterRecord(CreditNoteSchema):
+    """One credit note, as the register lists it."""
+
+    credit_note_id: UUID
+    credit_note_number: str
+    credit_note_date: date
+    customer_id: UUID
+    customer_name: str
+    sales_invoice_id: UUID
+    sales_invoice_number: str
+    reason: CreditNoteReasonEnum
+    taxable_amount: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    status: CreditNoteStatusEnum
+
+
+class CreditNoteByCustomerRecord(CreditNoteSchema):
+    """Credited value and count per customer.
+
+    Cancelled notes are left out: a withdrawn credit is one the customer never
+    had, and counting it would overstate what the firm gave back.
+    """
+
+    customer_id: UUID
+    customer_name: str
+    taxable_amount: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    note_count: int
+
+
+class CreditNoteByReasonRecord(CreditNoteSchema):
+    """What the firm is crediting for, and how much of it.
+
+    The question the register cannot answer on its own. A month of rate
+    differences is a pricing problem and a month of short supply is a
+    warehouse one, and they are fixed by different people.
+    """
+
+    reason: CreditNoteReasonEnum
+    total_amount: Decimal
+    note_count: int

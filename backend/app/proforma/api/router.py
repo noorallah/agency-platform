@@ -16,6 +16,8 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.proforma.schemas import (
     ProformaCancel,
     ProformaCreate,
+    ProformaOutstandingRecord,
+    ProformaRegisterRecord,
     ProformaResponse,
     ProformaUpdate,
 )
@@ -84,6 +86,34 @@ def create_proforma(
     return ApiResponse(
         data=service.proforma_response(row),
         message=f"Proforma {row.proforma_number} raised.",
+    )
+
+
+@router.get(
+    "/reports/register",
+    response_model=ApiResponse[list[ProformaRegisterRecord]],
+)
+def proforma_register(
+    scope: ProformaViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ProformaRegisterRecord]]:
+    """Every proforma raised, with the order it states."""
+    return ApiResponse(
+        data=ProformaService(db).register_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/outstanding",
+    response_model=ApiResponse[list[ProformaOutstandingRecord]],
+)
+def proformas_outstanding(
+    scope: ProformaViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ProformaOutstandingRecord]]:
+    """Issued proformas a customer is still arranging payment against."""
+    return ApiResponse(
+        data=ProformaService(db).outstanding_report(firm_scope=scope.firm_id)
     )
 
 

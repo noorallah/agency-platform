@@ -7,7 +7,7 @@ anything writes one without going through here.
 """
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -28,7 +28,10 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind, LoyaltySettings
 from app.loyalty.schemas import (
     LoyaltyBalance,
+    LoyaltyBalanceRecord,
     LoyaltyEntryResponse,
+    LoyaltyExpiringRecord,
+    LoyaltyMovementRecord,
     LoyaltySettingsResponse,
     LoyaltySettingsWrite,
 )
@@ -587,10 +590,31 @@ class LoyaltyService:
             ).all()
         )
 
-    def _expire_for(
-        self, customer_id: UUID, *, firm_scope: UUID, today: date, actor_id: UUID
-    ) -> int:
-        """Lapse one customer's unspent, out-of-date batches."""
+    def unspent_batches(
+        self, customer_id: UUID, *, firm_scope: UUID
+    ) -> list[tuple[LoyaltyEntry, Decimal]]:
+        """Return each earned batch with how much of it is still there.
+
+        Spending is allocated **oldest batch first**, which is the ordinary
+        treatment and the reason a caller cannot just cap at the balance: a
+        customer holding one lapsing batch and one fresh one, who spent the
+        older one's worth, keeps the fresh one in full.
+
+        Extracted so the sweep and the expiring-points report share one
+        implementation. Two copies of a FIFO allocation would agree until the
+        day somebody fixed one of them, and a report that disagreed with the
+        sweep would tell a customer their points were safe the week before
+        they lapsed.
+
+        Args:
+            customer_id: Whose ledger to walk.
+            firm_scope: The owning firm.
+
+        Returns:
+            Every earned batch that still has something left, oldest first,
+            paired with the points remaining on it.
+
+        """
         entries = list(
             self._session.scalars(
                 select(LoyaltyEntry)
@@ -622,14 +646,24 @@ class LoyaltyService:
             ),
             ZERO,
         )
-        lapsed = 0
+        left: list[tuple[LoyaltyEntry, Decimal]] = []
         for batch in batches:
             held = Decimal(str(batch.points)) - taken.get(batch.id, ZERO)
             spent_here = min(pool, max(held, ZERO))
             pool -= spent_here
             remaining = held - spent_here
-            if remaining <= ZERO:
-                continue
+            if remaining > ZERO:
+                left.append((batch, remaining))
+        return left
+
+    def _expire_for(
+        self, customer_id: UUID, *, firm_scope: UUID, today: date, actor_id: UUID
+    ) -> int:
+        """Lapse one customer's unspent, out-of-date batches."""
+        lapsed = 0
+        for batch, remaining in self.unspent_batches(
+            customer_id, firm_scope=firm_scope
+        ):
             if batch.expires_on is None or batch.expires_on >= today:
                 continue
             self._lapse(
@@ -842,6 +876,149 @@ class LoyaltyService:
                 None if row.expires_on is None else row.expires_on.isoformat()
             ),
             "remarks": row.remarks,
+        }
+
+    # ---- reports -------------------------------------------------------
+
+    def balances_report(self, *, firm_scope: UUID) -> list[LoyaltyBalanceRecord]:
+        """Return what every customer holds, largest first.
+
+        Only customers with something left: a row of zero says nothing a
+        reader can act on, and the ledger holds one for everybody who has ever
+        earned a point.
+        """
+        settings = self.settings_for(firm_scope)
+        rate = Decimal(str(settings.amount_per_point)) if settings else ZERO
+        totals: dict[UUID, Decimal] = {}
+        for customer_id, points in self._session.execute(
+            select(LoyaltyEntry.customer_id, func.sum(LoyaltyEntry.points))
+            .where(
+                LoyaltyEntry.firm_id == firm_scope,
+                LoyaltyEntry.is_deleted.is_(False),
+            )
+            .group_by(LoyaltyEntry.customer_id)
+        ).all():
+            held = quantize_money(Decimal(str(points or 0)))
+            if held > ZERO:
+                totals[customer_id] = held
+        names = self._customer_names(set(totals))
+        return [
+            LoyaltyBalanceRecord(
+                customer_id=customer_id,
+                customer_name=names.get(customer_id, str(customer_id)),
+                points=held,
+                amount=quantize_ledger(held * rate),
+            )
+            for customer_id, held in sorted(totals.items(), key=lambda i: -i[1])
+        ]
+
+    def movements_report(self, *, firm_scope: UUID) -> list[LoyaltyMovementRecord]:
+        """Return every movement of credit, newest first."""
+        rows = list(
+            self._session.scalars(
+                select(LoyaltyEntry)
+                .where(
+                    LoyaltyEntry.firm_id == firm_scope,
+                    LoyaltyEntry.is_deleted.is_(False),
+                )
+                .order_by(LoyaltyEntry.earned_on.desc(), LoyaltyEntry.id.desc())
+            ).all()
+        )
+        names = self._customer_names({row.customer_id for row in rows})
+        invoice_ids = [row.sales_invoice_id for row in rows if row.sales_invoice_id]
+        invoices = {
+            row.id: row.invoice_number
+            for row in self._session.scalars(
+                select(SalesInvoice).where(SalesInvoice.id.in_(invoice_ids))
+            ).all()
+        }
+        return [
+            LoyaltyMovementRecord(
+                entry_id=row.id,
+                customer_id=row.customer_id,
+                customer_name=names.get(row.customer_id, str(row.customer_id)),
+                kind=row.kind,
+                points=row.points,
+                amount=row.amount,
+                earned_on=row.earned_on,
+                expires_on=row.expires_on,
+                sales_invoice_number=(
+                    None
+                    if row.sales_invoice_id is None
+                    else invoices.get(row.sales_invoice_id)
+                ),
+                remarks=row.remarks,
+            )
+            for row in rows
+        ]
+
+    def expiring_report(
+        self, *, firm_scope: UUID, within_days: int = 90
+    ) -> list[LoyaltyExpiringRecord]:
+        """Return points that will lapse, soonest first.
+
+        The remaining figure comes from `unspent_batches`, the allocation the
+        sweep itself uses, so this cannot promise a customer points the sweep
+        is about to take -- nor warn them about points they have already
+        spent. Two copies of that arithmetic would agree until the day
+        somebody fixed one of them.
+
+        Args:
+            firm_scope: The owning firm.
+            within_days: How far ahead to look.
+
+        Returns:
+            One row per batch still holding points, ordered by the date it
+            runs out.
+
+        """
+        today = utc_now().date()
+        horizon = today + timedelta(days=within_days)
+        settings = self.settings_for(firm_scope)
+        rate = Decimal(str(settings.amount_per_point)) if settings else ZERO
+        customers = list(
+            self._session.scalars(
+                select(LoyaltyEntry.customer_id)
+                .where(
+                    LoyaltyEntry.firm_id == firm_scope,
+                    LoyaltyEntry.is_deleted.is_(False),
+                    LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+                    LoyaltyEntry.expires_on.is_not(None),
+                    LoyaltyEntry.expires_on <= horizon,
+                )
+                .group_by(LoyaltyEntry.customer_id)
+            ).all()
+        )
+        names = self._customer_names(set(customers))
+        rows: list[LoyaltyExpiringRecord] = []
+        for customer_id in customers:
+            for batch, remaining in self.unspent_batches(
+                customer_id, firm_scope=firm_scope
+            ):
+                if batch.expires_on is None or batch.expires_on > horizon:
+                    continue
+                rows.append(
+                    LoyaltyExpiringRecord(
+                        customer_id=customer_id,
+                        customer_name=names.get(customer_id, str(customer_id)),
+                        points=remaining,
+                        amount=quantize_ledger(remaining * rate),
+                        earned_on=batch.earned_on,
+                        expires_on=batch.expires_on,
+                        days_remaining=(batch.expires_on - today).days,
+                    )
+                )
+        return sorted(rows, key=lambda row: (row.expires_on, row.customer_name))
+
+    def _customer_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Return the names in one query rather than one per row."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.display_name
+            for row in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(ids)))
+            ).all()
         }
 
 

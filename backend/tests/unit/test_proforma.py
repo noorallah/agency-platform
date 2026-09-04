@@ -383,3 +383,64 @@ def test_the_response_says_it_is_not_a_tax_invoice() -> None:
 
     assert answer.is_tax_invoice is False
     assert answer.sales_order_number == books.order.order_number
+
+
+def test_outstanding_leaves_out_a_proforma_a_revision_replaced() -> None:
+    """A buyer holding two figures for one order is what supersedes prevents.
+
+    The seeded demo cannot show this -- every proforma there is ISSUED and
+    none supersedes another -- so the filter is proven here or not at all.
+    """
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    first = books.raise_proforma()
+    service.issue_proforma(first.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    second = books.raise_proforma(supersedes_id=first.id)
+    service.issue_proforma(second.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+
+    outstanding = service.outstanding_report(firm_scope=books.firm.id)
+
+    assert [row.proforma_id for row in outstanding] == [second.id]
+
+
+def test_outstanding_leaves_out_a_draft_and_a_withdrawn_one() -> None:
+    """Only a figure the customer actually holds is outstanding."""
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    draft = books.raise_proforma()
+    issued = books.raise_proforma()
+    service.issue_proforma(issued.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    withdrawn = books.raise_proforma()
+    service.issue_proforma(
+        withdrawn.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    service.cancel_proforma(
+        withdrawn.id,
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        reason="the customer withdrew",
+    )
+
+    outstanding = service.outstanding_report(firm_scope=books.firm.id)
+
+    assert [row.proforma_id for row in outstanding] == [issued.id]
+    assert draft.id not in {row.proforma_id for row in outstanding}
+
+
+def test_an_expired_proforma_is_reported_rather_than_dropped() -> None:
+    """A figure somebody is still acting on is the one worth flagging.
+
+    `days_to_expiry` goes negative rather than the row disappearing: dropping
+    it would leave the register showing a document nobody could see had
+    lapsed.
+    """
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    row = books.raise_proforma(valid_until=date(2026, 1, 1))
+    service.issue_proforma(row.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+
+    outstanding = service.outstanding_report(firm_scope=books.firm.id)
+
+    assert len(outstanding) == 1
+    assert outstanding[0].days_to_expiry is not None
+    assert outstanding[0].days_to_expiry < 0

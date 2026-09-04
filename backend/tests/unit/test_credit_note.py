@@ -590,3 +590,43 @@ def test_line_charges_count_the_same_way() -> None:
     )
 
     assert Decimal(str(note.tax_amount)) == Decimal("198.0000")
+
+
+def test_by_customer_leaves_out_a_cancelled_note() -> None:
+    """A withdrawn credit is one the customer never had.
+
+    Counting it would overstate what the firm gave back, and the register --
+    which lists everything -- is where a cancelled note is still visible.
+    """
+    books = _Books(_session_factory()())
+    service = CreditNoteService(books.session)
+    kept = books.note(taxable="100")
+    dropped = books.note(taxable="250")
+    service.cancel_note(dropped.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+
+    by_customer = service.by_customer_report(firm_scope=books.firm.id)
+
+    assert len(by_customer) == 1
+    assert by_customer[0].note_count == 1
+    assert by_customer[0].taxable_amount == Decimal("100.00")
+    # The register still shows both, cancelled included.
+    assert len(service.register_report(firm_scope=books.firm.id)) == 2
+    assert kept.id != dropped.id
+
+
+def test_by_reason_groups_what_the_credit_was_for() -> None:
+    """Group what the credit was for.
+
+    A month of rate differences and a month of short supply are different
+    problems, fixed by different people.
+    """
+    books = _Books(_session_factory()())
+    books.note(taxable="100", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
+    books.note(taxable="40", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
+    books.note(taxable="30", reason=CreditNoteReasonEnum.POST_SALE_DISCOUNT)
+
+    rows = CreditNoteService(books.session).by_reason_report(firm_scope=books.firm.id)
+
+    counts = {row.reason: row.note_count for row in rows}
+    assert counts[CreditNoteReasonEnum.RATE_DIFFERENCE] == 2
+    assert counts[CreditNoteReasonEnum.POST_SALE_DISCOUNT] == 1

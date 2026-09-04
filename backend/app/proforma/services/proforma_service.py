@@ -34,7 +34,10 @@ from app.proforma.models import ProformaInvoice, ProformaInvoiceLine, ProformaSt
 from app.proforma.schemas import (
     ProformaCreate,
     ProformaLineResponse,
+    ProformaOutstandingRecord,
+    ProformaRegisterRecord,
     ProformaResponse,
+    ProformaStatusEnum,
     ProformaUpdate,
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -601,4 +604,117 @@ class ProformaService(TransactionalDocumentService):
             "sales_order_id": str(row.sales_order_id),
             "grand_total": str(row.grand_total),
             "cancel_reason": row.cancel_reason,
+        }
+
+    # ---- reports -------------------------------------------------------
+
+    def register_report(self, *, firm_scope: UUID) -> list[ProformaRegisterRecord]:
+        """Every proforma raised, newest first."""
+        rows = list(
+            self._session.scalars(
+                select(ProformaInvoice)
+                .where(
+                    ProformaInvoice.firm_id == firm_scope,
+                    ProformaInvoice.is_deleted.is_(False),
+                )
+                .order_by(
+                    ProformaInvoice.proforma_date.desc(),
+                    ProformaInvoice.created_at.desc(),
+                )
+            ).all()
+        )
+        names = self._customer_names({row.customer_id for row in rows})
+        orders = self._order_numbers({row.sales_order_id for row in rows})
+        return [
+            ProformaRegisterRecord(
+                proforma_id=row.id,
+                proforma_number=row.proforma_number,
+                proforma_date=row.proforma_date,
+                valid_until=row.valid_until,
+                customer_id=row.customer_id,
+                customer_name=names.get(row.customer_id, str(row.customer_id)),
+                sales_order_id=row.sales_order_id,
+                sales_order_number=orders.get(row.sales_order_id, ""),
+                grand_total=row.grand_total,
+                status=ProformaStatusEnum(row.status),
+            )
+            for row in rows
+        ]
+
+    def outstanding_report(
+        self, *, firm_scope: UUID
+    ) -> list[ProformaOutstandingRecord]:
+        """Issued proformas a customer is still arranging payment against.
+
+        Superseded ones are left out -- a revision replaced them, and a buyer
+        holding two figures for one order is the confusion `supersedes_id`
+        exists to prevent. An expired one is reported with a negative
+        `days_to_expiry` rather than dropped: a figure somebody is still
+        acting on is exactly the one worth knowing has lapsed.
+        """
+        superseded = {
+            row
+            for row in self._session.scalars(
+                select(ProformaInvoice.supersedes_id).where(
+                    ProformaInvoice.firm_id == firm_scope,
+                    ProformaInvoice.is_deleted.is_(False),
+                    ProformaInvoice.supersedes_id.is_not(None),
+                )
+            ).all()
+        }
+        rows = [
+            row
+            for row in self._session.scalars(
+                select(ProformaInvoice)
+                .where(
+                    ProformaInvoice.firm_id == firm_scope,
+                    ProformaInvoice.is_deleted.is_(False),
+                    ProformaInvoice.status == ProformaStatus.ISSUED.value,
+                )
+                .order_by(ProformaInvoice.proforma_date.asc())
+            ).all()
+            if row.id not in superseded
+        ]
+        names = self._customer_names({row.customer_id for row in rows})
+        orders = self._order_numbers({row.sales_order_id for row in rows})
+        # Today in UTC: everything stored here is UTC, and the server's own
+        # date is already tomorrow, or still yesterday, for part of every day.
+        today = utc_now().date()
+        return [
+            ProformaOutstandingRecord(
+                proforma_id=row.id,
+                proforma_number=row.proforma_number,
+                proforma_date=row.proforma_date,
+                valid_until=row.valid_until,
+                days_to_expiry=(
+                    None if row.valid_until is None else (row.valid_until - today).days
+                ),
+                customer_id=row.customer_id,
+                customer_name=names.get(row.customer_id, str(row.customer_id)),
+                sales_order_number=orders.get(row.sales_order_id, ""),
+                grand_total=row.grand_total,
+            )
+            for row in rows
+        ]
+
+    def _customer_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Read the names in one query rather than one per row."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.display_name
+            for row in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(ids)))
+            ).all()
+        }
+
+    def _order_numbers(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Read the order numbers in one query."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.order_number
+            for row in self._session.scalars(
+                select(SalesOrder).where(SalesOrder.id.in_(list(ids)))
+            ).all()
         }
