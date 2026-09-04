@@ -133,6 +133,29 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.operational,
   ),
 
+  // ---- Promotions ----------------------------------------------------
+  ReportDefinition(
+    id: 'promotion-performance',
+    label: 'Promotion performance',
+    description: 'What each offer was claimed, and what it cost the firm.',
+    path: '/api/v1/promotions/reports/performance',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'promotion-redemptions',
+    label: 'Promotion claims',
+    description: 'Every claim on an offer, and the document that took it.',
+    path: '/api/v1/promotions/reports/redemptions',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'promotion-coupons',
+    label: 'Coupon performance',
+    description: 'Which codes people actually presented, and what they cost.',
+    path: '/api/v1/promotions/reports/coupons',
+    area: ReportArea.operational,
+  ),
+
   // ---- Purchase ------------------------------------------------------
   ReportDefinition(
     id: 'purchase-order-register',

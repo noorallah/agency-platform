@@ -421,3 +421,79 @@ class PromotionCouponResponse(PromotionSchema):
     #: rather than only what was allowed.
     redemption_count: int
     version: int
+
+
+class PromotionPerformanceRecord(PromotionSchema):
+    """What one offer has been claimed, and what it cost.
+
+    Keyed on `version_group_id` rather than on the promotion row, because an
+    ACTIVE promotion is superseded rather than edited: the row is only the
+    version that happens to be current. Reporting per row would split one
+    campaign into a handful of small ones every time somebody corrected a
+    typo, and would show a limit as untouched the moment it was edited --
+    which is the defect `_claimed` already exists to prevent.
+
+    `code`, `name` and `status` are read off the **latest** version, since
+    that is the offer as it now stands.
+    """
+
+    version_group_id: UUID
+    code: str
+    name: str
+    status: PromotionStatus
+    version_count: int
+    #: Only CLAIMED counts against a limit. PENDING is a draft that has been
+    #: priced and not approved, and REVERSED is a claim given back; both are
+    #: reported because a campaign whose claims are mostly cancelled is a
+    #: different thing from one nobody took up, and the totals cannot say so.
+    claimed_count: int
+    pending_count: int
+    reversed_count: int
+    #: How many different customers claimed it. A campaign taken up ninety
+    #: times by three shops is not one that reached ninety.
+    customer_count: int
+    benefit_amount: Decimal
+    max_redemptions: int | None
+    #: Null when the campaign is uncapped -- which is a different answer from
+    #: zero, and the reason this is not an int with a default.
+    remaining_redemptions: int | None
+
+
+class PromotionRedemptionRecord(PromotionSchema):
+    """One claim on an offer, as the register lists it."""
+
+    redemption_id: UUID
+    promotion_id: UUID
+    promotion_code: str
+    promotion_name: str
+    coupon_code: str | None
+    customer_id: UUID | None
+    customer_name: str | None
+    document_type: str
+    document_id: UUID
+    document_number: str | None
+    redeemed_on: date
+    benefit_amount: Decimal
+    status: str
+
+
+class PromotionCouponPerformanceRecord(PromotionSchema):
+    """What one coupon code has been claimed, and what it cost.
+
+    A coupon is a way of reaching an offer rather than a second kind of one,
+    so the benefit and the conditions belong to the promotion. What this
+    answers is which codes people actually presented -- the question a
+    campaign's own totals cannot, because a promotion reached by ten codes
+    reports one number.
+    """
+
+    coupon_id: UUID
+    code: str
+    promotion_id: UUID
+    promotion_code: str
+    status: str
+    claimed_count: int
+    customer_count: int
+    benefit_amount: Decimal
+    max_redemptions: int | None
+    remaining_redemptions: int | None

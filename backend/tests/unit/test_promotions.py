@@ -52,6 +52,7 @@ from app.promotions.schemas import (
 from app.promotions.services import (
     CouponService,
     PromotionCrudService,
+    PromotionReportService,
     PromotionService,
 )
 from app.sales_order.models import SalesOrderLine
@@ -1841,3 +1842,222 @@ def test_retiring_an_offer_retires_the_codes_that_reach_it() -> None:
     assert coupon.is_deleted, (
         "a code whose offer has been retired must not stay in the list " "looking live"
     )
+
+
+# ---- reports -----------------------------------------------------------
+
+
+def test_the_performance_report_costs_a_campaign_and_counts_its_claims() -> None:
+    """The question `promotion_redemptions` could answer and nothing asked.
+
+    Every claim and its benefit had been recorded since the module shipped,
+    and nothing read the table in aggregate -- so a firm could run a campaign
+    and had no way to find out what it had given away.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TEN",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    orders = SalesOrderService(session)
+    first = shop.order()
+    orders.approve_order(first.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    shop.order()  # left a draft, so it stays PENDING
+
+    report = PromotionReportService(session).performance_report(firm_scope=shop.firm.id)
+
+    assert len(report) == 1
+    row = report[0]
+    assert row.code == "TEN"
+    assert row.claimed_count == 1
+    assert row.pending_count == 1, "a draft is promised, not claimed"
+    assert row.reversed_count == 0
+    assert row.customer_count == 1
+    assert row.benefit_amount == Decimal("100.0000")
+    assert row.max_redemptions is None
+    assert row.remaining_redemptions is None, "uncapped is not the same as none left"
+
+
+def test_an_offer_nobody_claimed_still_appears_with_zeroes() -> None:
+    """A campaign that reached nobody is what the reader most wants to find.
+
+    Deriving the report from the redemption rows alone would leave it out
+    entirely, and answer only about the offers that worked.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="NOBODY",
+        status=PromotionStatus.DRAFT,
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+
+    report = PromotionReportService(session).performance_report(firm_scope=shop.firm.id)
+
+    assert [row.code for row in report] == ["NOBODY"]
+    assert report[0].claimed_count == 0
+    assert report[0].benefit_amount == Decimal("0")
+
+
+def test_a_campaign_is_costed_across_its_versions_not_per_row() -> None:
+    """An offer's identity is its version group, and this is the whole report.
+
+    A promotion is superseded rather than edited, so counting per promotion
+    row splits one campaign into a handful of small ones the moment somebody
+    corrects its name -- and reports a limit as untouched, which is the defect
+    `_claimed` already exists to prevent. Three defects in this module have had
+    exactly this shape.
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    first_version = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="LOYAL",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    first_version.max_redemptions = 5
+    session.commit()
+
+    orders = SalesOrderService(session)
+    order = shop.order()
+    orders.approve_order(order.id, firm_scope=shop.firm.id, actor_id=uuid4())
+
+    # The offer is edited: a second version of the same campaign, and the
+    # claim above still names the first.
+    successor = Promotion(
+        firm_id=shop.firm.id,
+        code="LOYAL",
+        name="Promotion LOYAL (revised)",
+        priority=first_version.priority,
+        status=PromotionStatus.ACTIVE.value,
+        version_group_id=first_version.version_group_id,
+        version_number=2,
+        max_redemptions=5,
+        supersedes_promotion_id=first_version.id,
+    )
+    first_version.status = PromotionStatus.INACTIVE.value
+    session.add(successor)
+    session.commit()
+
+    report = PromotionReportService(session).performance_report(firm_scope=shop.firm.id)
+
+    assert len(report) == 1, "one campaign, not one row per revision"
+    row = report[0]
+    assert row.version_count == 2
+    assert row.name == "Promotion LOYAL (revised)", "read off the latest version"
+    assert row.claimed_count == 1, "the claim on version 1 counts against the group"
+    assert (
+        row.remaining_redemptions == 4
+    ), "an edit must not hand the campaign its allowance back"
+
+
+def test_a_reversed_claim_is_reported_separately_from_a_live_one() -> None:
+    """What a customer claimed and what they gave back are two facts."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="GIVEBACK",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    orders = SalesOrderService(session)
+    order = shop.order()
+    orders.approve_order(order.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    orders.cancel_order(
+        order.id, firm_scope=shop.firm.id, actor_id=uuid4(), reason="changed mind"
+    )
+
+    row = PromotionReportService(session).performance_report(firm_scope=shop.firm.id)[0]
+
+    assert row.reversed_count == 1
+    assert row.claimed_count == 0
+    assert row.benefit_amount == Decimal("0"), "a claim given back cost nothing"
+
+
+def test_the_claims_register_names_the_document_that_took_the_offer() -> None:
+    """The row behind every number on the performance report."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TEN",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    order = shop.order()
+    SalesOrderService(session).approve_order(
+        order.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+
+    register = PromotionReportService(session).redemption_report(
+        firm_scope=shop.firm.id
+    )
+
+    assert len(register) == 1
+    row = register[0]
+    assert row.promotion_code == "TEN"
+    assert row.customer_name == "Customer CUS-001"
+    assert row.document_id == order.id
+    assert row.status == "CLAIMED"
+    assert row.benefit_amount == Decimal("100.0000")
+
+
+def test_the_coupon_report_answers_per_code_not_per_offer() -> None:
+    """One promotion reached by several codes reports one number without it."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="CODED",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+    used = _coupon(session, firm_id=shop.firm.id, promotion=promotion, code="USED")
+    _coupon(session, firm_id=shop.firm.id, promotion=promotion, code="UNUSED")
+
+    order = shop.order(coupon_code="USED")
+    SalesOrderService(session).approve_order(
+        order.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+
+    report = PromotionReportService(session).coupon_report(firm_scope=shop.firm.id)
+
+    assert len(report) == 2, "a code nobody presented is the one worth seeing"
+    by_code = {row.code: row for row in report}
+    assert by_code["USED"].claimed_count == 1
+    assert by_code["USED"].coupon_id == used.id
+    assert by_code["USED"].benefit_amount == Decimal("100.0000")
+    assert by_code["UNUSED"].claimed_count == 0
+    assert by_code["UNUSED"].benefit_amount == Decimal("0")
+
+
+def test_a_promotion_report_never_reaches_another_firm() -> None:
+    """Every report is firm-scoped, and a firm with nothing sees nothing."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TEN",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    order = shop.order()
+    SalesOrderService(session).approve_order(
+        order.id, firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+    other = _firm(session, code="OTHER01")
+    service = PromotionReportService(session)
+
+    assert service.performance_report(firm_scope=other.id) == []
+    assert service.redemption_report(firm_scope=other.id) == []
+    assert service.coupon_report(firm_scope=other.id) == []
+    assert len(service.performance_report(firm_scope=shop.firm.id)) == 1
