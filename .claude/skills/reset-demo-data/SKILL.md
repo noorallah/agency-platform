@@ -132,9 +132,42 @@ customer per firm trades on a standing 7.5% discount, which every sale to them
 picks up server-side; a discount on the whole bill lands every fourth month;
 and a unit is thrown in free every third. None of it was there before
 2026-08-23, so nothing in the demo showed a discount and nothing exercised the
-apportionment across three tenancy modes. Checking that every discounted
-invoice's line shares sum to its header figure is a one-line query worth
-running after a seed:
+apportionment across three tenancy modes.
+
+**From the day promotions were seeded until 2026-09-04 it exercised far
+less of that than this paragraph claimed.**
+`resolve_line_discount` ranks six tiers, and `CLEARANCE` was seeded with no
+conditions at all -- so it matched every line of every document, and a
+promotion outranks the price list, the customer's standing rate and their
+segment's. Across 58 orders and two financial years, **one** line reached any
+tier below promotions. The price lists and customer groups were worse off
+still: every store held zero rows in both, so two tiers the code ranks and the
+documentation describes had never priced anything anywhere. A blanket offer
+added later silently switched off the demonstration of everything under it,
+and a document priced by the wrong tier still looks like a discounted
+document, so nothing said so.
+
+The seed now carries all six, each at a rate no other tier and no compounded
+pair of promotions produces, so a resolved percentage names the tier that set
+it:
+
+| resolved | tier |
+| ---: | --- |
+| 2% | price list, base break |
+| 4.25% / 6.75% | price list, quantity breaks at 15 and 18 |
+| 9.25% | price list, one shop's own -- **replaces** the ladder |
+| 1.75% / 3.25% | customer group, Retailer and Wholesaler |
+| 7.5% | the customer's own standing rate |
+| 1% / 2.5% / 5% / 7.5% | promotions, and their compounded pairs |
+
+`CLEARANCE` now needs a line of 40, which keeps what it was seeded for -- it
+still stacks behind `BULK5` at 25, and `BIGORDER` still stops it -- while
+leaving every line under 25 for the tiers below to answer. **A run reports any
+tier no line reached**, in the notes beside the tally, because the next
+blanket offer would otherwise switch them off as quietly as the first one did.
+
+Checking that every discounted invoice's line shares sum to its header figure
+is a one-line query worth running after a seed:
 
 ```sql
 SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
