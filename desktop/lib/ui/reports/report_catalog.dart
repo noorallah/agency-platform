@@ -135,6 +135,48 @@ const List<ReportDefinition> reportCatalog = [
 
   // ---- Purchase ------------------------------------------------------
   ReportDefinition(
+    id: 'purchase-order-register',
+    label: 'Purchase order register',
+    description: 'Every order raised on a supplier, and what it was worth.',
+    path: '/api/v1/purchases/reports/register',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-order-pending',
+    label: 'Orders not yet received',
+    description: 'Orders with goods still owed by the supplier.',
+    path: '/api/v1/purchases/reports/pending',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-order-overdue',
+    label: 'Overdue purchase orders',
+    description: 'Orders whose goods were expected and have not arrived.',
+    path: '/api/v1/purchases/reports/overdue',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-order-by-vendor',
+    label: 'Orders by supplier',
+    description: 'Where the firm places its business, by value.',
+    path: '/api/v1/purchases/reports/by-vendor',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-order-by-buyer',
+    label: 'Orders by buyer',
+    description: 'What each buyer has committed the firm to.',
+    path: '/api/v1/purchases/reports/by-buyer',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'purchase-order-by-product',
+    label: 'Purchases by product',
+    description: 'What the firm is buying, by quantity and by value.',
+    path: '/api/v1/purchases/reports/by-product',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
     id: 'goods-receipt-pending',
     label: 'Receipts awaiting completion',
     description: 'Goods booked in but not yet put into stock.',

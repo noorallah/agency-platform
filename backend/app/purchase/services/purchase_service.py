@@ -17,8 +17,10 @@ from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import platform_reader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import ZERO
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -31,6 +33,7 @@ from app.document_framework.services.transactional_document_service import (
     TransactionalDocumentService,
 )
 from app.goods_receipt.models import GoodsReceipt
+from app.identity.models import User
 from app.products.models import Product
 from app.purchase.models import (
     PurchaseAttachment,
@@ -44,10 +47,16 @@ from app.purchase.schemas import (
     PurchaseAttachmentResponse,
     PurchaseDeliveryScheduleResponse,
     PurchaseNoteResponse,
+    PurchaseOrderByBuyerRecord,
+    PurchaseOrderByProductRecord,
+    PurchaseOrderByVendorRecord,
     PurchaseOrderCreate,
     PurchaseOrderImportRequest,
     PurchaseOrderLineResponse,
     PurchaseOrderListFilters,
+    PurchaseOrderOverdueRecord,
+    PurchaseOrderPendingRecord,
+    PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
@@ -1725,3 +1734,289 @@ class PurchaseService(TransactionalDocumentService):
         if status:
             payload["status"] = status
         return PurchaseOrderCreate.model_validate(payload)
+
+    # ---- reports -------------------------------------------------------
+
+    #: The statuses that mean the vendor still owes goods.
+    #: ``_resync_order_status`` derives these by summing the completed
+    #: receipts, so reading the status is reading what the receipts already
+    #: said -- a second way of working the same thing out is a second answer
+    #: waiting to disagree with the first.
+    _AWAITING = (
+        PurchaseOrderStatus.APPROVED.value,
+        PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+    )
+
+    def register_report(self, *, firm_scope: UUID) -> list[PurchaseOrderRegisterRecord]:
+        """Return every purchase order raised, newest first.
+
+        Args:
+            firm_scope: The firm whose orders to list.
+
+        Returns:
+            One record per order, cancelled ones included -- a register states
+            what was raised, and an order called off was still raised.
+
+        """
+        rows = self._report_orders(firm_scope)
+        names = self._vendor_names({row.vendor_id for row in rows})
+        return [
+            PurchaseOrderRegisterRecord(
+                order_id=row.id,
+                po_number=row.po_number,
+                purchase_date=row.purchase_date,
+                expected_delivery_date=row.expected_delivery_date,
+                vendor_id=row.vendor_id,
+                vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
+                buyer_id=row.buyer_id,
+                branch_id=row.branch_id,
+                warehouse_id=row.warehouse_id,
+                status=PurchaseOrderStatus(row.status),
+                grand_total=row.grand_total,
+            )
+            for row in rows
+        ]
+
+    def pending_report(self, *, firm_scope: UUID) -> list[PurchaseOrderPendingRecord]:
+        """Return orders the vendor still owes goods against.
+
+        Args:
+            firm_scope: The firm whose orders to list.
+
+        Returns:
+            One record per order still in the receiving part of its life.
+
+        """
+        rows = [
+            row
+            for row in self._report_orders(firm_scope)
+            if row.status in self._AWAITING
+        ]
+        names = self._vendor_names({row.vendor_id for row in rows})
+        return [
+            PurchaseOrderPendingRecord(
+                order_id=row.id,
+                po_number=row.po_number,
+                purchase_date=row.purchase_date,
+                expected_delivery_date=row.expected_delivery_date,
+                vendor_id=row.vendor_id,
+                vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
+                status=PurchaseOrderStatus(row.status),
+                order_value=row.grand_total,
+            )
+            for row in rows
+        ]
+
+    def overdue_report(self, *, firm_scope: UUID) -> list[PurchaseOrderOverdueRecord]:
+        """Return orders whose goods were expected and have not all arrived.
+
+        An order carrying no expected date is left out rather than counted as
+        overdue: nobody named a day, so no day has been missed.
+
+        Args:
+            firm_scope: The firm whose orders to list.
+
+        Returns:
+            One record per late order, worst first.
+
+        """
+        # Today in UTC. Everything stored here is UTC, so the server's own
+        # date is already tomorrow, or still yesterday, for part of every day.
+        today = utc_now().date()
+        rows = [
+            row
+            for row in self._report_orders(firm_scope)
+            if row.status in self._AWAITING
+            and row.expected_delivery_date is not None
+            and row.expected_delivery_date < today
+        ]
+        names = self._vendor_names({row.vendor_id for row in rows})
+        records = [
+            PurchaseOrderOverdueRecord(
+                order_id=row.id,
+                po_number=row.po_number,
+                purchase_date=row.purchase_date,
+                expected_delivery_date=row.expected_delivery_date,
+                days_overdue=(today - row.expected_delivery_date).days,
+                vendor_id=row.vendor_id,
+                vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
+                status=PurchaseOrderStatus(row.status),
+                order_value=row.grand_total,
+            )
+            for row in rows
+            if row.expected_delivery_date is not None
+        ]
+        return sorted(records, key=lambda record: -record.days_overdue)
+
+    def by_vendor_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseOrderByVendorRecord]:
+        """Return ordered value and count per vendor.
+
+        Cancelled orders are left out: an order called off was never a
+        purchase, and counting it overstates what the firm has committed.
+
+        Args:
+            firm_scope: The firm whose orders to total.
+
+        Returns:
+            One record per vendor, largest first.
+
+        """
+        totals: dict[UUID, Decimal] = {}
+        counts: dict[UUID, int] = {}
+        for row in self._live_report_orders(firm_scope):
+            totals[row.vendor_id] = totals.get(row.vendor_id, ZERO) + Decimal(
+                str(row.grand_total)
+            )
+            counts[row.vendor_id] = counts.get(row.vendor_id, 0) + 1
+        names = self._vendor_names(set(counts))
+        return [
+            PurchaseOrderByVendorRecord(
+                vendor_id=vendor_id,
+                vendor_name=names.get(vendor_id, str(vendor_id)),
+                order_count=counts[vendor_id],
+                total_value=total,
+            )
+            for vendor_id, total in sorted(totals.items(), key=lambda item: -item[1])
+        ]
+
+    def by_buyer_report(self, *, firm_scope: UUID) -> list[PurchaseOrderByBuyerRecord]:
+        """Return ordered value and count per buyer.
+
+        An order naming no buyer contributes nothing rather than being pooled
+        under a blank name: the column is nullable, and a row headed by nobody
+        is not a person's purchasing record.
+
+        Args:
+            firm_scope: The firm whose orders to total.
+
+        Returns:
+            One record per buyer, largest first.
+
+        """
+        totals: dict[UUID, Decimal] = {}
+        counts: dict[UUID, int] = {}
+        for row in self._live_report_orders(firm_scope):
+            if row.buyer_id is None:
+                continue
+            totals[row.buyer_id] = totals.get(row.buyer_id, ZERO) + Decimal(
+                str(row.grand_total)
+            )
+            counts[row.buyer_id] = counts.get(row.buyer_id, 0) + 1
+        names = self._buyer_names(set(counts))
+        return [
+            PurchaseOrderByBuyerRecord(
+                buyer_id=buyer_id,
+                buyer_name=names.get(buyer_id, str(buyer_id)),
+                order_count=counts[buyer_id],
+                total_value=total,
+            )
+            for buyer_id, total in sorted(totals.items(), key=lambda item: -item[1])
+        ]
+
+    def by_product_report(
+        self, *, firm_scope: UUID
+    ) -> list[PurchaseOrderByProductRecord]:
+        """Return what the firm is buying, by quantity and by value.
+
+        Args:
+            firm_scope: The firm whose orders to total.
+
+        Returns:
+            One record per product, most-ordered first.
+
+        """
+        live = {row.id for row in self._live_report_orders(firm_scope)}
+        if not live:
+            return []
+        quantities: dict[UUID, Decimal] = {}
+        values: dict[UUID, Decimal] = {}
+        orders: dict[UUID, set[UUID]] = {}
+        lines = self._session.scalars(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id.in_(list(live)),
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        for line in lines:
+            key = line.product_id
+            quantities[key] = quantities.get(key, ZERO) + Decimal(
+                str(line.ordered_quantity)
+            )
+            values[key] = values.get(key, ZERO) + Decimal(str(line.net_amount))
+            orders.setdefault(key, set()).add(line.purchase_order_id)
+        products = {
+            row.id: row
+            for row in self._session.scalars(
+                select(Product).where(Product.id.in_(list(quantities)))
+            ).all()
+        }
+        return [
+            PurchaseOrderByProductRecord(
+                product_id=product_id,
+                product_code=getattr(products.get(product_id), "code", ""),
+                product_name=getattr(products.get(product_id), "name", str(product_id)),
+                ordered_quantity=quantity,
+                total_value=values[product_id],
+                order_count=len(orders[product_id]),
+            )
+            for product_id, quantity in sorted(
+                quantities.items(), key=lambda item: -item[1]
+            )
+        ]
+
+    def _report_orders(self, firm_scope: UUID) -> list[PurchaseOrder]:
+        """Return every order this firm has raised, newest first."""
+        return list(
+            self._session.scalars(
+                select(PurchaseOrder)
+                .where(
+                    PurchaseOrder.firm_id == firm_scope,
+                    PurchaseOrder.is_deleted.is_(False),
+                )
+                .order_by(
+                    PurchaseOrder.purchase_date.desc(),
+                    PurchaseOrder.created_at.desc(),
+                )
+            ).all()
+        )
+
+    def _live_report_orders(self, firm_scope: UUID) -> list[PurchaseOrder]:
+        """Return the orders that still stand, cancelled ones left out."""
+        return [
+            row
+            for row in self._report_orders(firm_scope)
+            if row.status != PurchaseOrderStatus.CANCELLED.value
+        ]
+
+    def _vendor_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Read the vendor names in one query rather than one per row."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.display_name
+            for row in self._session.scalars(
+                select(Vendor).where(Vendor.id.in_(list(ids)))
+            ).all()
+        }
+
+    def _buyer_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Name the buyers, reading the store that actually holds the users.
+
+        That table lives only in the platform schema, so a tenant session
+        cannot see it -- the trap this repo has hit eight times, every one of
+        them latent until a document carried the id. SQLite keeps every table
+        in one schema, so the unit suite reads it on the request session and
+        could never catch this; only ``tests/integration/`` can.
+        """
+        if not ids:
+            return {}
+        statement = select(User.id, User.full_name).where(User.id.in_(list(ids)))
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            rows = list(self._session.execute(statement).all())
+        else:
+            with platform_reader() as reader:
+                rows = list(reader.execute(statement).all())
+        return {row[0]: row[1] for row in rows}

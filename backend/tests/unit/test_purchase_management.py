@@ -1,7 +1,7 @@
 """Purchase backend validation, lifecycle, and API-scope tests."""
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID, uuid4
@@ -32,6 +32,7 @@ from app.core.exceptions import (
 )
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
+from app.core.utils.dates import utc_now
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentNumberingRule,
@@ -39,7 +40,7 @@ from app.document_framework.models import (
 )
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt
-from app.identity.models import UserFirm
+from app.identity.models import User, UserFirm
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.api.router import (
@@ -1700,3 +1701,211 @@ def test_a_closed_order_says_which_of_the_two_it_is() -> None:
 
     with pytest.raises(ValidationError, match="Closed purchase orders"):
         _edit(service, order, firm_id=firm_id, actor_id=actor_id, qty="3")
+
+
+def _reportable_orders(
+    session: Session,
+) -> tuple[PurchaseService, UUID, UUID, UUID]:
+    """Build three orders a report can be read off, in three states.
+
+    One approved and overdue, one approved and due tomorrow, one cancelled.
+    That is the smallest set that can tell the four questions apart: the
+    register shows all three, pending and overdue show subsets of the two
+    approved ones, and the by-vendor totals must leave the cancelled one out.
+    """
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    # The order built by `_submittable_order` carries no expected date, so it
+    # is given one in the past: an order with no date named is deliberately
+    # not overdue, and that case is asserted separately below.
+    stored = session.get(PurchaseOrder, order.id)
+    assert stored is not None
+    stored.expected_delivery_date = utc_now().date() - timedelta(days=9)
+    stored.buyer_id = None
+    session.flush()
+
+    # `PurchaseOrder` declares no relationship to its lines, so the line the
+    # two further orders copy is read rather than walked.
+    line = session.scalars(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    ).first()
+    assert line is not None
+
+    second = service.create_order(
+        _purchase_data(
+            branch_id=stored.branch_id,
+            warehouse_id=stored.warehouse_id,
+            vendor_id=stored.vendor_id,
+            product_id=line.product_id,
+            purchase_uom_id=line.purchase_uom_id,
+            inventory_uom_id=line.inventory_uom_id,
+            tax_profile_id=line.tax_profile_id,
+            storage_node_id=line.storage_node_id,
+            po_number="PO-RPT-002",
+            status="DRAFT",
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+    service.submit_order(second.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(second.id, firm_scope=firm_id, actor_id=actor_id)
+    stored_second = session.get(PurchaseOrder, second.id)
+    assert stored_second is not None
+    stored_second.expected_delivery_date = utc_now().date() + timedelta(days=1)
+    session.flush()
+
+    third = service.create_order(
+        _purchase_data(
+            branch_id=stored.branch_id,
+            warehouse_id=stored.warehouse_id,
+            vendor_id=stored.vendor_id,
+            product_id=line.product_id,
+            purchase_uom_id=line.purchase_uom_id,
+            inventory_uom_id=line.inventory_uom_id,
+            tax_profile_id=line.tax_profile_id,
+            storage_node_id=line.storage_node_id,
+            po_number="PO-RPT-003",
+            status="DRAFT",
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+    service.cancel_order(
+        third.id, firm_scope=firm_id, actor_id=actor_id, reason="changed our mind"
+    )
+    session.flush()
+    return service, firm_id, actor_id, order.id
+
+
+def test_the_purchase_order_register_lists_every_order_including_cancelled() -> None:
+    """A register states what was raised, and a cancelled order was raised."""
+    session = _session_factory()()
+    service, firm_id, _actor_id, _first = _reportable_orders(session)
+
+    register = service.register_report(firm_scope=firm_id)
+
+    assert len(register) == 3
+    assert {record.status.value for record in register} == {"APPROVED", "CANCELLED"}
+    # The vendor is named rather than left as a bare id, which is the whole
+    # reason the report exists rather than the list endpoint being read.
+    assert all(record.vendor_name for record in register)
+    assert all(record.vendor_name != str(record.vendor_id) for record in register)
+
+
+def test_pending_reads_the_status_the_receipts_already_wrote() -> None:
+    """Only the two approved orders are owed; the cancelled one is not."""
+    session = _session_factory()()
+    service, firm_id, _actor_id, _first = _reportable_orders(session)
+
+    pending = service.pending_report(firm_scope=firm_id)
+
+    assert len(pending) == 2
+    assert all(record.status.value == "APPROVED" for record in pending)
+
+
+def test_overdue_counts_from_the_expected_date_and_skips_orders_with_none() -> None:
+    """An order nobody promised a day for has missed no day.
+
+    The filter is the point of the report: a list that treated a null expected
+    date as overdue would report every order the buyer had not dated, which is
+    a list nobody can act on.
+    """
+    session = _session_factory()()
+    service, firm_id, _actor_id, first_id = _reportable_orders(session)
+
+    overdue = service.overdue_report(firm_scope=firm_id)
+
+    assert [record.order_id for record in overdue] == [first_id]
+    assert overdue[0].days_overdue == 9
+
+    # Clear the date and the order drops out rather than becoming infinitely
+    # late.
+    stored = session.get(PurchaseOrder, first_id)
+    assert stored is not None
+    stored.expected_delivery_date = None
+    session.flush()
+    assert service.overdue_report(firm_scope=firm_id) == []
+
+
+def test_by_vendor_leaves_the_cancelled_order_out() -> None:
+    """An order called off was never a purchase.
+
+    Counting it would overstate what the firm has committed to a supplier,
+    which is the one number this report exists to answer.
+    """
+    session = _session_factory()()
+    service, firm_id, _actor_id, _first = _reportable_orders(session)
+
+    by_vendor = service.by_vendor_report(firm_scope=firm_id)
+
+    assert len(by_vendor) == 1
+    assert by_vendor[0].order_count == 2
+
+    register = service.register_report(firm_scope=firm_id)
+    live = sum(
+        record.grand_total for record in register if record.status.value != "CANCELLED"
+    )
+    assert by_vendor[0].total_value == live
+
+
+def test_by_buyer_skips_an_order_nobody_is_named_on() -> None:
+    """`buyer_id` is nullable, and a row headed by nobody is not a record.
+
+    Pooling the unnamed orders under a blank name would put a firm's whole
+    unattributed purchasing at the top of a report about people.
+    """
+    session = _session_factory()()
+    service, firm_id, _actor_id, first_id = _reportable_orders(session)
+
+    assert service.by_buyer_report(firm_scope=firm_id) == []
+
+    buyer = User(
+        email="buyer.reports@example.com",
+        password_hash="x",
+        full_name="Priya Buyer",
+        is_active=True,
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(buyer)
+    session.flush()
+    stored = session.get(PurchaseOrder, first_id)
+    assert stored is not None
+    stored.buyer_id = buyer.id
+    session.flush()
+
+    by_buyer = service.by_buyer_report(firm_scope=firm_id)
+    assert len(by_buyer) == 1
+    assert by_buyer[0].buyer_name == "Priya Buyer"
+    assert by_buyer[0].order_count == 1
+
+
+def test_by_product_totals_the_lines_of_the_orders_that_still_stand() -> None:
+    """The quantity is the ordered quantity, summed over live orders only."""
+    session = _session_factory()()
+    service, firm_id, _actor_id, _first = _reportable_orders(session)
+
+    by_product = service.by_product_report(firm_scope=firm_id)
+
+    assert len(by_product) == 1
+    assert by_product[0].order_count == 2
+    # Two live orders of two units each; the cancelled third is not counted.
+    assert by_product[0].ordered_quantity == Decimal("4")
+    assert by_product[0].product_name
+
+
+def test_a_report_never_reaches_another_firm() -> None:
+    """Every report is scoped, and a firm with nothing sees nothing."""
+    session = _session_factory()()
+    service, firm_id, _actor_id, _first = _reportable_orders(session)
+    other = _firm(session, "PO-RPT-OTHER")
+
+    assert service.register_report(firm_scope=other.id) == []
+    assert service.pending_report(firm_scope=other.id) == []
+    assert service.overdue_report(firm_scope=other.id) == []
+    assert service.by_vendor_report(firm_scope=other.id) == []
+    assert service.by_buyer_report(firm_scope=other.id) == []
+    assert service.by_product_report(firm_scope=other.id) == []
+    assert len(service.register_report(firm_scope=firm_id)) == 3
