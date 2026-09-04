@@ -8,10 +8,32 @@ import '../../models/report.dart';
 /// route, warehouse, vendor and product. All of the work was already done on
 /// the server; what was missing was somewhere to read it.
 ///
+/// Six more were found the same way on 2026-09-04 -- the sales return's four
+/// and the quotation's two, written after this list was and never added to
+/// it. `tests/unit/test_reports_have_a_screen.py` now fails the build on a
+/// `/reports/` route with no entry here, because the orphan-route guard
+/// cannot see this class: it matches a served path against the *shapes* the
+/// desktop builds, and `/sales-returns/reports/register` has the same shape
+/// as `/sales-orders/reports/register`, which is listed.
+///
 /// Adding a report here is one entry. The grid derives its own columns from the
 /// rows, so a report only names columns when the derived set reads badly.
 const List<ReportDefinition> reportCatalog = [
   // ---- Sales ---------------------------------------------------------
+  ReportDefinition(
+    id: 'quotation-register',
+    label: 'Quotation register',
+    description: 'Every offer made, and what it was worth.',
+    path: '/api/v1/quotations/reports/register',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'quotation-conversion',
+    label: 'Quotation conversion',
+    description: 'How many offers became orders, and how many lapsed.',
+    path: '/api/v1/quotations/reports/conversion',
+    area: ReportArea.operational,
+  ),
   ReportDefinition(
     id: 'sales-order-register',
     label: 'Sales order register',
@@ -75,7 +97,10 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'delivery_note_number', label: 'Delivery note number'),
       ReportColumn(key: 'delivery_date', label: 'Delivery date'),
       ReportColumn(key: 'status', label: 'Status'),
-      ReportColumn(key: 'total_current_delivery_quantity', label: 'Total current delivery quantity', numeric: true),
+      ReportColumn(
+          key: 'total_current_delivery_quantity',
+          label: 'Total current delivery quantity',
+          numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
     ],
   ),
@@ -120,9 +145,13 @@ const List<ReportDefinition> reportCatalog = [
     columns: [
       ReportColumn(key: 'grn_number', label: 'Grn number'),
       ReportColumn(key: 'receipt_date', label: 'Receipt date'),
-      ReportColumn(key: 'purchase_order_number', label: 'Purchase order number'),
+      ReportColumn(
+          key: 'purchase_order_number', label: 'Purchase order number'),
       ReportColumn(key: 'status', label: 'Status'),
-      ReportColumn(key: 'total_accepted_quantity', label: 'Total accepted quantity', numeric: true),
+      ReportColumn(
+          key: 'total_accepted_quantity',
+          label: 'Total accepted quantity',
+          numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
     ],
   ),
@@ -144,9 +173,13 @@ const List<ReportDefinition> reportCatalog = [
     columns: [
       ReportColumn(key: 'grn_number', label: 'Grn number'),
       ReportColumn(key: 'receipt_date', label: 'Receipt date'),
-      ReportColumn(key: 'purchase_order_number', label: 'Purchase order number'),
+      ReportColumn(
+          key: 'purchase_order_number', label: 'Purchase order number'),
       ReportColumn(key: 'status', label: 'Status'),
-      ReportColumn(key: 'total_accepted_quantity', label: 'Total accepted quantity', numeric: true),
+      ReportColumn(
+          key: 'total_accepted_quantity',
+          label: 'Total accepted quantity',
+          numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
     ],
   ),
@@ -161,9 +194,14 @@ const List<ReportDefinition> reportCatalog = [
     columns: [
       ReportColumn(key: 'line_number', label: 'Line number', numeric: true),
       ReportColumn(key: 'description', label: 'Description'),
-      ReportColumn(key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
-      ReportColumn(key: 'current_receipt_quantity', label: 'Current receipt quantity', numeric: true),
-      ReportColumn(key: 'damaged_quantity', label: 'Damaged quantity', numeric: true),
+      ReportColumn(
+          key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
+      ReportColumn(
+          key: 'current_receipt_quantity',
+          label: 'Current receipt quantity',
+          numeric: true),
+      ReportColumn(
+          key: 'damaged_quantity', label: 'Damaged quantity', numeric: true),
       ReportColumn(key: 'batch_number', label: 'Batch number'),
     ],
   ),
@@ -178,9 +216,14 @@ const List<ReportDefinition> reportCatalog = [
     columns: [
       ReportColumn(key: 'line_number', label: 'Line number', numeric: true),
       ReportColumn(key: 'description', label: 'Description'),
-      ReportColumn(key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
-      ReportColumn(key: 'current_receipt_quantity', label: 'Current receipt quantity', numeric: true),
-      ReportColumn(key: 'rejected_quantity', label: 'Rejected quantity', numeric: true),
+      ReportColumn(
+          key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
+      ReportColumn(
+          key: 'current_receipt_quantity',
+          label: 'Current receipt quantity',
+          numeric: true),
+      ReportColumn(
+          key: 'rejected_quantity', label: 'Rejected quantity', numeric: true),
       ReportColumn(key: 'batch_number', label: 'Batch number'),
     ],
   ),
@@ -275,6 +318,35 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
+    id: 'sales-return-register',
+    label: 'Sales return register',
+    description: 'Every return taken back, with what it credited.',
+    path: '/api/v1/sales-returns/reports/register',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'sales-return-by-customer',
+    label: 'Returns by customer',
+    description: 'Who is sending goods back, and how much of it.',
+    path: '/api/v1/sales-returns/reports/by-customer',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'sales-return-by-product',
+    label: 'Returns by product',
+    description: 'What comes back most, by quantity and by value.',
+    path: '/api/v1/sales-returns/reports/by-product',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
+    id: 'sales-return-reconciliation',
+    label: 'Sales return reconciliation',
+    description: 'Each return line against the dispatch it came from, with '
+        'what is still owed back.',
+    path: '/api/v1/sales-returns/reports/reconciliation',
+    area: ReportArea.operational,
+  ),
+  ReportDefinition(
     id: 'purchase-invoice-register',
     label: 'Purchase invoice register',
     description: 'Every supplier invoice, with the number they gave it.',
@@ -291,7 +363,8 @@ const List<ReportDefinition> reportCatalog = [
     // named rather than derived from forty fields of one record.
     columns: [
       ReportColumn(key: 'invoice_number', label: 'Invoice number'),
-      ReportColumn(key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(
+          key: 'supplier_invoice_number', label: 'Supplier invoice number'),
       ReportColumn(key: 'invoice_date', label: 'Invoice date'),
       ReportColumn(key: 'due_date', label: 'Due date'),
       ReportColumn(key: 'status', label: 'Status'),
@@ -315,7 +388,8 @@ const List<ReportDefinition> reportCatalog = [
     // named rather than derived from forty fields of one record.
     columns: [
       ReportColumn(key: 'invoice_number', label: 'Invoice number'),
-      ReportColumn(key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(
+          key: 'supplier_invoice_number', label: 'Supplier invoice number'),
       ReportColumn(key: 'invoice_date', label: 'Invoice date'),
       ReportColumn(key: 'due_date', label: 'Due date'),
       ReportColumn(key: 'status', label: 'Status'),
@@ -339,5 +413,7 @@ const List<ReportDefinition> reportCatalog = [
 ];
 
 /// The reports belonging to one tab.
-List<ReportDefinition> reportsFor(ReportArea area) =>
-    [for (final ReportDefinition report in reportCatalog) if (report.area == area) report];
+List<ReportDefinition> reportsFor(ReportArea area) => [
+      for (final ReportDefinition report in reportCatalog)
+        if (report.area == area) report
+    ];
