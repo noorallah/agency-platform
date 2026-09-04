@@ -3,8 +3,11 @@
 from app.loyalty.schemas.loyalty import (
     LoyaltyAdjust,
     LoyaltyBalance,
+    LoyaltyBalanceRecord,
     LoyaltyEntryKindEnum,
     LoyaltyEntryResponse,
+    LoyaltyExpiringRecord,
+    LoyaltyMovementRecord,
     LoyaltyRedeem,
     LoyaltySettingsResponse,
     LoyaltySettingsWrite,
@@ -13,8 +16,11 @@ from app.loyalty.schemas.loyalty import (
 __all__ = [
     "LoyaltyAdjust",
     "LoyaltyBalance",
+    "LoyaltyBalanceRecord",
     "LoyaltyEntryKindEnum",
     "LoyaltyEntryResponse",
+    "LoyaltyExpiringRecord",
+    "LoyaltyMovementRecord",
     "LoyaltyRedeem",
     "LoyaltySettingsResponse",
     "LoyaltySettingsWrite",

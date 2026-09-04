@@ -19,7 +19,10 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.credit_note.schemas import (
+    CreditNoteByCustomerRecord,
+    CreditNoteByReasonRecord,
     CreditNoteCreate,
+    CreditNoteRegisterRecord,
     CreditNoteResponse,
     CreditNoteStatusEnum,
     CreditNoteUpdate,
@@ -88,6 +91,48 @@ def create_credit_note(
     db.refresh(row)
     set_etag(response, row)
     return ApiResponse(data=service.note_response(row), message="Credit note raised.")
+
+
+@router.get(
+    "/reports/register",
+    response_model=ApiResponse[list[CreditNoteRegisterRecord]],
+)
+def credit_note_register(
+    scope: CreditNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CreditNoteRegisterRecord]]:
+    """Every credit note raised, with the invoice it credits."""
+    return ApiResponse(
+        data=CreditNoteService(db).register_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/by-customer",
+    response_model=ApiResponse[list[CreditNoteByCustomerRecord]],
+)
+def credit_notes_by_customer(
+    scope: CreditNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CreditNoteByCustomerRecord]]:
+    """Credited value and count per customer, cancelled notes excluded."""
+    return ApiResponse(
+        data=CreditNoteService(db).by_customer_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/by-reason",
+    response_model=ApiResponse[list[CreditNoteByReasonRecord]],
+)
+def credit_notes_by_reason(
+    scope: CreditNoteViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CreditNoteByReasonRecord]]:
+    """Report what the firm is crediting for, and how much of it."""
+    return ApiResponse(
+        data=CreditNoteService(db).by_reason_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/{note_id}", response_model=ApiResponse[CreditNoteResponse])

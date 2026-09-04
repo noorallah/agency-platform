@@ -15,7 +15,10 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.loyalty.schemas import (
     LoyaltyAdjust,
     LoyaltyBalance,
+    LoyaltyBalanceRecord,
     LoyaltyEntryResponse,
+    LoyaltyExpiringRecord,
+    LoyaltyMovementRecord,
     LoyaltyRedeem,
     LoyaltySettingsResponse,
     LoyaltySettingsWrite,
@@ -146,6 +149,51 @@ def expire(
         firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data={"expired": lapsed}, message=f"{lapsed} entries lapsed.")
+
+
+@router.get(
+    "/reports/balances",
+    response_model=ApiResponse[list[LoyaltyBalanceRecord]],
+)
+def loyalty_balances(
+    scope: LoyaltyViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LoyaltyBalanceRecord]]:
+    """Report what every customer holds, and what it is worth today."""
+    return ApiResponse(
+        data=LoyaltyService(db).balances_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/movements",
+    response_model=ApiResponse[list[LoyaltyMovementRecord]],
+)
+def loyalty_movements(
+    scope: LoyaltyViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LoyaltyMovementRecord]]:
+    """Every movement of credit: earned, spent, adjusted and lapsed."""
+    return ApiResponse(
+        data=LoyaltyService(db).movements_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/expiring",
+    response_model=ApiResponse[list[LoyaltyExpiringRecord]],
+)
+def loyalty_expiring(
+    scope: LoyaltyViewScope,
+    within_days: Annotated[int, Query(ge=1, le=730)] = 90,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[LoyaltyExpiringRecord]]:
+    """Points that will lapse, soonest first."""
+    return ApiResponse(
+        data=LoyaltyService(db).expiring_report(
+            firm_scope=scope.firm_id, within_days=within_days
+        )
+    )
 
 
 @router.get("/{customer_id}", response_model=ApiResponse[LoyaltyBalance])

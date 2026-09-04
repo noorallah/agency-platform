@@ -21,10 +21,13 @@ from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.credit_note.schemas import (
+    CreditNoteByCustomerRecord,
+    CreditNoteByReasonRecord,
     CreditNoteCreate,
     CreditNoteLineResponse,
     CreditNoteLineWrite,
     CreditNoteReasonEnum,
+    CreditNoteRegisterRecord,
     CreditNoteResponse,
     CreditNoteStatusEnum,
     CreditNoteUpdate,
@@ -729,6 +732,131 @@ class CreditNoteService(TransactionalDocumentService):
             "journal_entry_id": (
                 str(row.journal_entry_id) if row.journal_entry_id else None
             ),
+        }
+
+    # ---- reports -------------------------------------------------------
+
+    def register_report(self, *, firm_scope: UUID) -> list[CreditNoteRegisterRecord]:
+        """Every credit note raised, newest first."""
+        rows = list(
+            self._session.scalars(
+                select(CreditNote)
+                .where(
+                    CreditNote.firm_id == firm_scope,
+                    CreditNote.is_deleted.is_(False),
+                )
+                .order_by(
+                    CreditNote.credit_note_date.desc(), CreditNote.created_at.desc()
+                )
+            ).all()
+        )
+        names = self._customer_names({row.customer_id for row in rows})
+        invoices = self._invoice_numbers({row.sales_invoice_id for row in rows})
+        return [
+            CreditNoteRegisterRecord(
+                credit_note_id=row.id,
+                credit_note_number=row.credit_note_number,
+                credit_note_date=row.credit_note_date,
+                customer_id=row.customer_id,
+                customer_name=names.get(row.customer_id, str(row.customer_id)),
+                sales_invoice_id=row.sales_invoice_id,
+                sales_invoice_number=invoices.get(row.sales_invoice_id, ""),
+                reason=CreditNoteReasonEnum(row.reason),
+                taxable_amount=row.taxable_amount,
+                tax_amount=row.tax_amount,
+                total_amount=row.total_amount,
+                status=CreditNoteStatusEnum(row.status),
+            )
+            for row in rows
+        ]
+
+    def by_customer_report(
+        self, *, firm_scope: UUID
+    ) -> list[CreditNoteByCustomerRecord]:
+        """Credited value and count per customer.
+
+        Cancelled notes are excluded: a withdrawn credit is one the customer
+        never had, and counting it overstates what the firm gave back.
+        """
+        rows = self._live_notes(firm_scope)
+        taxable: dict[UUID, Decimal] = {}
+        tax: dict[UUID, Decimal] = {}
+        counts: dict[UUID, int] = {}
+        for row in rows:
+            key = row.customer_id
+            taxable[key] = taxable.get(key, ZERO) + Decimal(str(row.taxable_amount))
+            tax[key] = tax.get(key, ZERO) + Decimal(str(row.tax_amount))
+            counts[key] = counts.get(key, 0) + 1
+        names = self._customer_names(set(counts))
+        return [
+            CreditNoteByCustomerRecord(
+                customer_id=customer_id,
+                customer_name=names.get(customer_id, str(customer_id)),
+                taxable_amount=quantize_ledger(taxable[customer_id]),
+                tax_amount=quantize_ledger(tax[customer_id]),
+                total_amount=quantize_ledger(taxable[customer_id] + tax[customer_id]),
+                note_count=count,
+            )
+            for customer_id, count in sorted(
+                counts.items(), key=lambda item: -taxable[item[0]]
+            )
+        ]
+
+    def by_reason_report(self, *, firm_scope: UUID) -> list[CreditNoteByReasonRecord]:
+        """Total what the firm is crediting for, and how much of it.
+
+        The register cannot answer this on its own, and the two answers are
+        acted on by different people: a month of rate differences is a pricing
+        problem, a month of short supply is a warehouse one.
+        """
+        totals: dict[str, Decimal] = {}
+        counts: dict[str, int] = {}
+        for row in self._live_notes(firm_scope):
+            totals[row.reason] = totals.get(row.reason, ZERO) + Decimal(
+                str(row.total_amount)
+            )
+            counts[row.reason] = counts.get(row.reason, 0) + 1
+        return [
+            CreditNoteByReasonRecord(
+                reason=CreditNoteReasonEnum(reason),
+                total_amount=quantize_ledger(total),
+                note_count=counts[reason],
+            )
+            for reason, total in sorted(totals.items(), key=lambda item: -item[1])
+        ]
+
+    def _live_notes(self, firm_scope: UUID) -> list[CreditNote]:
+        """Every note that still stands, cancelled ones left out."""
+        return list(
+            self._session.scalars(
+                select(CreditNote).where(
+                    CreditNote.firm_id == firm_scope,
+                    CreditNote.is_deleted.is_(False),
+                    CreditNote.status != CreditNoteStatus.CANCELLED.value,
+                )
+            ).all()
+        )
+
+    def _customer_names(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Read the names in one query rather than one per row."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.display_name
+            for row in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(ids)))
+            ).all()
+        }
+
+    def _invoice_numbers(self, ids: set[UUID]) -> dict[UUID, str]:
+        """Read the invoice numbers in one query."""
+        if not ids:
+            return {}
+        return {
+            row.id: row.invoice_number
+            for row in self._session.scalars(
+                select(SalesInvoice).where(SalesInvoice.id.in_(list(ids)))
+            ).all()
         }
 
 

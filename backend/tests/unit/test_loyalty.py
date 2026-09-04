@@ -624,3 +624,49 @@ def test_lapsed_points_release_the_liability_they_raised() -> None:
     # The mirror of the accrual: the payable comes down, the cost comes back.
     payable = next(leg for leg in legs if Decimal(str(leg.debit_amount)) > Decimal("0"))
     assert Decimal(str(payable.debit_amount)) == Decimal("100.00")
+
+
+def test_the_expiring_report_and_the_sweep_agree_on_what_is_left() -> None:
+    """Both read `unspent_batches`, so they cannot tell different stories.
+
+    Earn 100, spend 60, and 40 is what lapses -- so 40 is what the report has
+    to warn about. A second copy of the allocation would agree until somebody
+    fixed one of them, and a report promising points the sweep is about to
+    take is worse than no report.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    books.spend("60", on=date(2026, 6, 15))
+    service = LoyaltyService(books.session)
+
+    warned = service.expiring_report(firm_scope=books.firm.id, within_days=3650)
+    assert [row.points for row in warned] == [Decimal("40.0000")]
+
+    service.expire(firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 8, 1))
+    assert books.points() == Decimal("0.0000")
+
+
+def test_a_batch_already_spent_is_not_warned_about() -> None:
+    """Nothing is left of it, so there is nothing to lose."""
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    books.spend("100", on=date(2026, 6, 15))
+
+    warned = LoyaltyService(books.session).expiring_report(
+        firm_scope=books.firm.id, within_days=3650
+    )
+
+    assert warned == []
+
+
+def test_balances_leave_out_a_customer_holding_nothing() -> None:
+    """A row of zero says nothing anybody can act on.
+
+    The ledger keeps one for everybody who ever earned a point, so without
+    this the report grows a line per customer who has spent up.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=None)
+    books.spend("100", on=date(2026, 6, 15))
+
+    assert LoyaltyService(books.session).balances_report(firm_scope=books.firm.id) == []

@@ -109,3 +109,49 @@ class LoyaltyAdjust(LoyaltySchema):
     #: error is negative.
     points: Decimal = Field(max_digits=18)
     reason: str = Field(min_length=1, max_length=500)
+
+
+class LoyaltyBalanceRecord(LoyaltySchema):
+    """What one customer holds, and what it is worth today.
+
+    Valued at today's rate rather than at what the points were worth when
+    earned: the rate is the firm's to change, and this answers what the credit
+    would fetch now.
+    """
+
+    customer_id: UUID
+    customer_name: str
+    points: Decimal
+    amount: Decimal
+
+
+class LoyaltyMovementRecord(LoyaltySchema):
+    """One movement of credit, as the register lists it."""
+
+    entry_id: UUID
+    customer_id: UUID
+    customer_name: str
+    kind: str
+    points: Decimal
+    amount: Decimal
+    earned_on: date
+    expires_on: date | None
+    sales_invoice_number: str | None
+    remarks: str | None
+
+
+class LoyaltyExpiringRecord(LoyaltySchema):
+    """Points that will lapse, and when.
+
+    The remaining figure comes from `LoyaltyService.unspent_batches` -- the
+    same allocation the sweep uses -- so this cannot promise a customer points
+    the sweep is about to take, nor warn about points they already spent.
+    """
+
+    customer_id: UUID
+    customer_name: str
+    points: Decimal
+    amount: Decimal
+    earned_on: date
+    expires_on: date
+    days_remaining: int

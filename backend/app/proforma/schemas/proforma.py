@@ -124,3 +124,41 @@ class ProformaCancel(ProformaSchema):
     """Withdraw a proforma, saying why."""
 
     reason: str = Field(min_length=1, max_length=500)
+
+
+class ProformaRegisterRecord(ProformaSchema):
+    """One proforma, as the register lists it."""
+
+    proforma_id: UUID
+    proforma_number: str
+    proforma_date: date
+    valid_until: date | None
+    customer_id: UUID
+    customer_name: str
+    sales_order_id: UUID
+    sales_order_number: str
+    grand_total: Decimal
+    status: ProformaStatusEnum
+
+
+class ProformaOutstandingRecord(ProformaSchema):
+    """An issued proforma the customer is still arranging payment against.
+
+    Superseded ones are left out: a revision replaced them, and a buyer
+    holding two figures for one order is the confusion the `supersedes_id`
+    chain exists to prevent.
+
+    `days_to_expiry` goes negative once the stated prices have run out --
+    reported rather than filtered away, because a figure somebody is still
+    acting on is exactly the one worth knowing has lapsed.
+    """
+
+    proforma_id: UUID
+    proforma_number: str
+    proforma_date: date
+    valid_until: date | None
+    days_to_expiry: int | None
+    customer_id: UUID
+    customer_name: str
+    sales_order_number: str
+    grand_total: Decimal
