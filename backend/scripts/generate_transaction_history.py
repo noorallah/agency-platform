@@ -239,6 +239,13 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # What the tax authority was told about a bill has to go before the bill.
+    # Both carry `ondelete="RESTRICT"`, so a firm that had registered even one
+    # invoice could not be reset at all -- the fourth table to arrive with a
+    # feature and not reach this list, after settlements, promotions and
+    # coupons. Found by a reseed failing outright on WHOLE01.
+    "eway_bills",
+    "einvoice_registrations",
     "sales_invoice_accounting_events",
     "sales_invoice_attachments",
     "sales_invoice_notes",
@@ -278,6 +285,12 @@ RESET_ORDER: tuple[str, ...] = (
     "opening_stock_batches",
     "stock_ledger_entries",
     "inventory_transactions",
+    # A serial identifies one physical unit and RESTRICTs against the stock
+    # row it sits in, so serialised stock would block the delete the same way.
+    # Unlike `batches`, which deliberately survive because regenerating reuses
+    # them by number, a serial is not reused -- it goes with the movements
+    # that created it. Latent rather than seen: no demo firm serialises yet.
+    "serial_numbers",
     "inventories",
     "product_valuations",
     "document_lifecycle_events",
@@ -336,6 +349,51 @@ def _assert_reset_tables_exist(inspector: Inspector) -> None:
             f"{', '.join(missing)}. Correct the name -- skipping it would "
             "leave the rows it was meant to clear."
         )
+    _assert_nothing_holds_the_history_down(configured)
+
+
+def _assert_nothing_holds_the_history_down(configured: set[str]) -> None:
+    """Refuse to start if a table outside the list RESTRICTs one inside it.
+
+    The list checked above says every configured name is a real table. This
+    says the inverse, which is the half that keeps going wrong: a table that
+    references one being deleted, and refuses the delete, stops the whole
+    reset partway through with a foreign key violation.
+
+    Four tables have arrived with a feature and not reached the list --
+    settlements, then `promotion_redemptions` and `promotion_coupons`, then
+    `einvoice_registrations` and `eway_bills` -- and each was found by a
+    reseed failing rather than by anybody noticing. Asked of the schema, it
+    is a question with an answer.
+
+    `ondelete="CASCADE"` needs no entry: the database removes those itself,
+    which is why eight referencing tables are correctly absent. Only RESTRICT
+    (and a bare reference, which behaves the same) can block.
+    """
+    from app.core.database.base import Base
+
+    holding: dict[str, set[str]] = {}
+    for table in Base.metadata.tables.values():
+        if table.name in configured:
+            continue
+        for key in table.foreign_keys:
+            if key.column.table.name not in configured:
+                continue
+            if (key.ondelete or "").upper() == "CASCADE":
+                continue
+            holding.setdefault(table.name, set()).add(key.column.table.name)
+    if not holding:
+        return
+    named = "; ".join(
+        f"{name} -> {', '.join(sorted(targets))}"
+        for name, targets in sorted(holding.items())
+    )
+    raise RuntimeError(
+        "reset_history would be blocked partway through: these tables "
+        f"reference history without cascading -- {named}. Add each to "
+        "RESET_ORDER before the table it points at, or give the reference "
+        "ON DELETE CASCADE if the rows really belong to the parent."
+    )
 
 
 def reset_history(session: Session, firm_id: UUID) -> int:

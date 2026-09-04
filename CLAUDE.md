@@ -678,6 +678,21 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   quantize_ledger(tax)` -- what the journal actually credited -- or the two
   books sit a paisa apart with nothing to say which is right. Invisible until
   a seeded credit note reached it, which is what the demo history is for.
+- **A table that RESTRICTs a reset table blocks the whole reseed, and the
+  schema can be asked.** `einvoice_registrations` and `eway_bills` reference
+  `sales_invoices` with `ondelete="RESTRICT"` and were never added to
+  `RESET_ORDER`, so a firm that had registered even one invoice could not be
+  reseeded at all -- it failed partway with a foreign key violation, the
+  **fourth** table to arrive with a feature and not reach that list after
+  settlements, `promotion_redemptions` and `promotion_coupons`.
+  `serial_numbers` is the same shape against `inventories` and was latent
+  because no demo firm serialises yet. `_assert_nothing_holds_the_history_down`
+  now asks the metadata the inverse question the existing guard never did --
+  the old one checked every configured name is a real table, this checks
+  nothing outside the list holds a table inside it down. **`ondelete="CASCADE"`
+  needs no entry**: eight referencing tables are correctly absent because the
+  database removes them itself, which is the distinction that makes the check
+  precise rather than noisy.
 - **A beat plan's weekday must be one its route actually works, and the route
   is the authority.** Every store held zero beat plans until 2026-09-04, so
   both call-list endpoints answered an empty page for every firm and every
