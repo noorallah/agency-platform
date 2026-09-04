@@ -1777,18 +1777,48 @@ def _seed_territories(
         route_types[code] = created.id
 
     def _ensure_route_profile(node_id: UUID, route: RouteProfileInput) -> None:
-        """Give an existing node its route profile, if it has none."""
-        present = session.scalar(
+        """Give an existing node its route profile, and the days it should work.
+
+        Two jobs, and the second is why this is not just a create-if-missing.
+        A profile that exists keeps whatever days it has -- but a day this
+        script means the round to work and the store does not have is added.
+        `WHOLE01-R-N1` sat on Monday alone where every other firm's equivalent
+        works Monday, Wednesday and Friday, so its Wednesday and Friday rounds
+        reported "the route does not work on this day" for ever and that firm
+        showed two blank weekdays.
+
+        **Additive, never subtractive.** The service replaces the day set --
+        anything absent from the request is soft-deleted -- so the union is
+        sent rather than the intended list, and a day somebody added by hand
+        survives a reseed. That is the same "backfill only where missing"
+        rule the GSTIN, HSN and tax-profile backfills follow; narrowing a
+        round is a decision, and this script does not get to reverse it.
+        """
+        node = session.get(SalesTerritoryNode, node_id)
+        if node is None:
+            return
+        profile_id = session.scalar(
             select(TerritoryRouteProfile.id).where(
                 TerritoryRouteProfile.territory_id == node_id,
                 TerritoryRouteProfile.is_deleted.is_(False),
             )
         )
-        if present is not None:
-            return
-        node = session.get(SalesTerritoryNode, node_id)
-        if node is None:
-            return
+        wanted = route
+        if profile_id is not None:
+            stored = set(
+                session.scalars(
+                    select(TerritoryWorkingDay.weekday).where(
+                        TerritoryWorkingDay.route_profile_id == profile_id,
+                        TerritoryWorkingDay.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+            missing = set(route.working_days) - stored
+            if not missing:
+                return
+            wanted = route.model_copy(
+                update={"working_days": sorted(stored | set(route.working_days))}
+            )
         service.update_territory(
             node_id,
             TerritoryUpdate(
@@ -1796,7 +1826,7 @@ def _seed_territories(
                 name=node.name,
                 hierarchy_level_id=node.hierarchy_level_id,
                 parent_id=node.parent_id,
-                route_profile=route,
+                route_profile=wanted,
             ),
             firm_scope=firm.id,
             actor_id=actor_id,
