@@ -24,7 +24,7 @@ from uuid import UUID
 
 from generate_transaction_history import generate_history, reset_history
 from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_settings
@@ -96,13 +96,25 @@ from app.products.schemas import (
 )
 from app.products.schemas.product import ProductStatus, ProductType
 from app.products.services.product_service import ProductService
-from app.sales.models import SalesTerritoryNode
+from app.sales.models import (
+    BeatPlan,
+    BeatPlanCustomerStop,
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritoryRouteProfile,
+    TerritoryWorkingDay,
+)
 from app.sales.schemas import (
+    BeatPlanCreate,
+    BeatPlanCustomerStopInput,
+    BeatPlanType,
+    BeatPlanUpdate,
     RouteProfileInput,
     RouteTypeWrite,
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
     TerritoryCreate,
+    TerritoryUpdate,
 )
 from app.sales.schemas.territory import SalesmanAssignmentInput, VisitFrequency
 from app.sales.services import SalesTerritoryService
@@ -1764,6 +1776,32 @@ def _seed_territories(
         )
         route_types[code] = created.id
 
+    def _ensure_route_profile(node_id: UUID, route: RouteProfileInput) -> None:
+        """Give an existing node its route profile, if it has none."""
+        present = session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == node_id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        if present is not None:
+            return
+        node = session.get(SalesTerritoryNode, node_id)
+        if node is None:
+            return
+        service.update_territory(
+            node_id,
+            TerritoryUpdate(
+                code=node.code,
+                name=node.name,
+                hierarchy_level_id=node.hierarchy_level_id,
+                parent_id=node.parent_id,
+                route_profile=route,
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
     def _node(
         code: str,
         name: str,
@@ -1779,6 +1817,15 @@ def _seed_territories(
             )
         )
         if existing is not None:
+            # A node that already exists still needs its route profile, and
+            # this used to return before checking: `WHOLE01-R-S1` had been
+            # seeded before the profile was part of the route list and so was
+            # never a route at all, which made every beat plan against it
+            # refuse with "is not a route". The fourth instance of a master
+            # field added later never reaching a store already seeded --
+            # backfilled only where missing, never overwritten.
+            if route is not None:
+                _ensure_route_profile(existing, route)
             return existing
         return service.create_territory(
             TerritoryCreate(
@@ -1799,6 +1846,10 @@ def _seed_territories(
     south = _node(f"{firm.code}-T-S", "South Zone", "TERRITORY", region_id)
 
     routes: list[UUID] = []
+    #: The route each plan hangs off, and the days that route works. A beat
+    #: plan whose weekday is not one of its route's working days reports "the
+    #: route does not work on this day" for ever, so the two are kept together.
+    route_days: dict[UUID, list[int]] = {}
     for parent, suffix, label, kind, frequency, days in (
         (north, "R-N1", "North Sales Beat", "SALES", VisitFrequency.WEEKLY, [1, 3, 5]),
         (
@@ -1826,6 +1877,7 @@ def _seed_territories(
         )
         if made is not None:
             routes.append(made)
+            route_days[made] = list(days)
 
     # Put the firm's customers on the rounds, so "customers without a route" on
     # the Geography dashboard reports something real rather than everyone.
@@ -1873,6 +1925,235 @@ def _seed_territories(
             firm_scope=firm.id,
             actor_id=actor_id,
         )
+
+    _seed_beat_plans(session, service, firm, actor_id, routes, route_days)
+
+
+def _seed_beat_plans(
+    session: Session,
+    service: SalesTerritoryService,
+    firm: Firm,
+    actor_id: UUID,
+    routes: list[UUID],
+    route_days: dict[UUID, list[int]],
+) -> None:
+    """Give each round a timetable, so the call list has something to answer.
+
+    Every store held **zero** beat plans, so `GET /call-lists` and a plan's own
+    call list both answered an empty page for every firm and every date -- the
+    feature looked unbuilt, which is what happened to the whole territory
+    module before 2026-08-16 and to `territory_salesman_assignments` before
+    2026-08-23. A screen with nothing behind it is indistinguishable from a
+    screen that does not work.
+
+    Three rules decide whether a plan calls anybody, and the seed has to
+    satisfy all three or it reproduces the empty screen with extra rows:
+
+    1. the recurrence must hit the date (`_occurs_on`),
+    2. the route must be in force on it (`_route_in_force`), and
+    3. **the route must work that weekday** (`_route_works_on`) -- which is why
+       each plan's weekday is drawn from its own route's working days rather
+       than picked.
+
+    Between them the plans cover Monday to Friday, so whichever day somebody
+    opens the screen there is a round to see; Saturday and Sunday show the
+    "does not run today" answer, which is a different thing from an empty
+    round and worth being able to look at.
+
+    Stops are deliberately seeded for **one** plan only. A plan that lists none
+    falls back to every customer on its territory in visit order, which is the
+    ordinary case; listing them is how a route splits into day-beats. Seeding
+    one of each exercises both paths.
+    """
+    if not routes:
+        return
+    existing = {
+        code
+        for code in session.scalars(
+            select(BeatPlan.code).where(
+                BeatPlan.firm_id == firm.id,
+                BeatPlan.is_deleted.is_(False),
+            )
+        ).all()
+    }
+    #: What each route actually works, read from the store rather than from
+    #: the list above. `WHOLE01-R-N1` was seeded by an older version of this
+    #: script with Monday alone where the list now says Monday, Wednesday and
+    #: Friday -- and an existing profile is deliberately never overwritten, so
+    #: the two disagree for ever. A plan built from the literal would name a
+    #: weekday its route does not work and report "the route does not work on
+    #: this day" for the rest of time, which is the empty screen this function
+    #: exists to fill, with extra rows.
+    working: dict[UUID, list[int]] = {}
+    for route_id in routes:
+        stored = list(
+            session.scalars(
+                select(TerritoryWorkingDay.weekday)
+                .join(
+                    TerritoryRouteProfile,
+                    TerritoryRouteProfile.id == TerritoryWorkingDay.route_profile_id,
+                )
+                .where(
+                    TerritoryRouteProfile.territory_id == route_id,
+                    TerritoryRouteProfile.is_deleted.is_(False),
+                    TerritoryWorkingDay.is_deleted.is_(False),
+                )
+                .order_by(TerritoryWorkingDay.weekday.asc())
+            ).all()
+        )
+        # A route naming no working days works every day its plan says, so an
+        # empty list means the whole week is available rather than none of it.
+        working[route_id] = stored or [1, 2, 3, 4, 5]
+
+    weekday_names = {
+        1: "Monday",
+        2: "Tuesday",
+        3: "Wednesday",
+        4: "Thursday",
+        5: "Friday",
+        6: "Saturday",
+        7: "Sunday",
+    }
+    made = 0
+    #: One weekly round per day the route works, so between them the rounds
+    #: cover as much of the week as the firm's own routes allow. Days a route
+    #: does not work stay uncovered, which is the truth about that firm rather
+    #: than something to paper over.
+    for route_id in routes:
+        for weekday in working[route_id]:
+            code = f"{firm.code}-BP-{weekday_names[weekday][:3].upper()}"
+            if code in existing:
+                continue
+            existing.add(code)
+            service.create_beat_plan(
+                BeatPlanCreate(
+                    code=code,
+                    name=f"{firm.code} {weekday_names[weekday]} round",
+                    territory_id=route_id,
+                    plan_type=BeatPlanType.WEEKLY,
+                    weekday=weekday,
+                ),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+            made += 1
+
+    # And one of each of the other two recurrences, so all three kinds are
+    # visible. Both hang off a day their own route works, for the reason
+    # above.
+    extras: list[tuple[str, str, BeatPlanType, int | None]] = [
+        ("COLL", "Collections, alternate {day}s", BeatPlanType.FORTNIGHTLY, None),
+        ("MTH", "Second {day} review", BeatPlanType.MONTHLY, 2),
+    ]
+    for index, (suffix, label, plan_type, week) in enumerate(extras):
+        route_id = routes[min(index + 1, len(routes) - 1)]
+        weekday = working[route_id][0]
+        code = f"{firm.code}-BP-{suffix}"
+        if code in existing:
+            continue
+        existing.add(code)
+        service.create_beat_plan(
+            BeatPlanCreate(
+                code=code,
+                name=f"{firm.code} " + label.format(day=weekday_names[weekday]),
+                territory_id=route_id,
+                plan_type=plan_type,
+                weekday=weekday,
+                week_of_month=week,
+                # A fortnightly plan with no anchor is refused rather than
+                # guessed at, so it gets one.
+                starts_on=(
+                    date(2026, 4, 7) if plan_type is BeatPlanType.FORTNIGHTLY else None
+                ),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+        made += 1
+    if made:
+        session.commit()
+    _seed_beat_plan_stops(session, service, firm, actor_id, routes)
+
+
+def _seed_beat_plan_stops(
+    session: Session,
+    service: SalesTerritoryService,
+    firm: Firm,
+    actor_id: UUID,
+    routes: list[UUID],
+) -> None:
+    """Give one plan an explicit order of calls.
+
+    The rest fall back to their territory's customers, which is the ordinary
+    arrangement. This one says which shops belong to the round and in what
+    order, which is what the table exists for -- and seeding both means the
+    fallback and the explicit path are each exercised by real data.
+    """
+    plan = session.scalar(
+        select(BeatPlan).where(
+            BeatPlan.firm_id == firm.id,
+            BeatPlan.code == f"{firm.code}-BP-MON",
+            BeatPlan.is_deleted.is_(False),
+        )
+    )
+    if plan is None:
+        return
+    already = session.scalar(
+        select(func.count())
+        .select_from(BeatPlanCustomerStop)
+        .where(
+            BeatPlanCustomerStop.beat_plan_id == plan.id,
+            BeatPlanCustomerStop.is_deleted.is_(False),
+        )
+    )
+    if already:
+        return
+    customers = list(
+        session.scalars(
+            select(TerritoryCustomerAssignment.customer_id).where(
+                # No `firm_id` here: the assignment is scoped through its
+                # territory, and that territory is this firm's route.
+                TerritoryCustomerAssignment.territory_id == plan.territory_id,
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+            )
+            # `visit_sequence` is nullable, and PostgreSQL sorts NULLs first
+            # ascending where SQLite sorts them last -- ranked explicitly so
+            # the stop order is the same wherever this runs.
+            .order_by(
+                case(
+                    (TerritoryCustomerAssignment.visit_sequence.is_(None), 1), else_=0
+                ),
+                TerritoryCustomerAssignment.visit_sequence.asc(),
+                TerritoryCustomerAssignment.customer_id.asc(),
+            )
+        ).all()
+    )
+    if not customers:
+        return
+    service.update_beat_plan(
+        plan.id,
+        BeatPlanUpdate(
+            code=plan.code,
+            name=plan.name,
+            territory_id=plan.territory_id,
+            plan_type=BeatPlanType(plan.plan_type),
+            weekday=plan.weekday,
+            week_of_month=plan.week_of_month,
+            starts_on=plan.starts_on,
+            ends_on=plan.ends_on,
+            customer_stops=[
+                BeatPlanCustomerStopInput(
+                    customer_id=customer_id,
+                    stop_order=order,
+                    planned_duration_minutes=20,
+                )
+                for order, customer_id in enumerate(customers, start=1)
+            ],
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
 
 
 def _seed_commission(
