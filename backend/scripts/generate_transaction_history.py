@@ -93,6 +93,7 @@ from app.credit_note.services import CreditNoteService
 from app.customers.models import Customer, CustomerGroup
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
+from app.einvoice.services import EInvoiceService
 from app.finance.models import FinancialYear
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
@@ -476,6 +477,8 @@ class Tally:
     promotions: int = 0
     sales_invoices: int = 0
     sales_returns: int = 0
+    einvoices: int = 0
+    eway_bills: int = 0
     credit_notes: int = 0
     proformas: int = 0
     advances: int = 0
@@ -495,6 +498,8 @@ class Tally:
             f"GRN {self.goods_receipts} | PINV {self.purchase_invoices} | "
             f"PRET {self.purchase_returns} | "
             f"PROMO {self.promotions} | "
+            f"IRN {self.einvoices} | "
+            f"EWB {self.eway_bills} | "
             f"QT {self.quotations} | SO {self.sales_orders} | "
             f"DN {self.delivery_notes} | INV {self.sales_invoices} | "
             f"RCPT {self.receipts} | SRET {self.sales_returns} | "
@@ -634,6 +639,105 @@ class HistoryBuilder:
         (Decimal("1.75"), "customer group, retailer"),
         (Decimal("3.25"), "customer group, wholesaler"),
     )
+
+    def file_with_the_authority(self) -> None:
+        """Register some approved invoices, and put a few on the road.
+
+        Every store held zero registrations and zero e-way bills, so nothing
+        in the demo drove the payload validation, the CGST/SGST-versus-IGST
+        split the two GSTINs' state codes decide, or the one-live-registration
+        key. This module is the one where that gap had already cost something:
+        no invoice could be registered anywhere until the firm's GSTIN, the
+        customers' GSTINs and a product's HSN were backfilled, and that was
+        found by driving it by hand rather than by anything failing.
+
+        **Sandbox, always.** `EInvoiceService` takes the mode explicitly and
+        `portal_for("LIVE")` raises rather than falling back, which is the
+        point: a firm that believes it is filing must never be rehearsing.
+        Seeded data has no business anywhere near a live portal.
+
+        One invoice in three is registered and one in six of those carries an
+        e-way bill, so the demo has registered invoices, unregistered ones and
+        goods on the road -- a store where every invoice is registered cannot
+        show which of its invoices still needs to be.
+
+        A refusal is recorded rather than raised: `register` comes back FAILED
+        with the portal's reason on the row, which is what a firm with an
+        incomplete master would see. The note says how many, because a store
+        where every registration failed looks identical to one that worked
+        until somebody opens a row.
+        """
+        service = EInvoiceService(self._session, mode="SANDBOX")
+        invoices = list(
+            self._session.scalars(
+                select(SalesInvoice)
+                .where(
+                    SalesInvoice.firm_id == self._target.firm_id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status.in_(("APPROVED", "CLOSED")),
+                )
+                .order_by(SalesInvoice.invoice_date, SalesInvoice.id)
+            ).all()
+        )
+        registered = 0
+        failed = 0
+        bills = 0
+        for index, invoice in enumerate(invoices):
+            if index % 3:
+                continue
+            try:
+                row = service.register(
+                    invoice.id, firm_scope=self._target.firm_id, actor_id=ACTOR
+                )
+            except (ValidationError, BusinessRuleError, ConflictError) as error:
+                self._tally.skipped.append(
+                    f"e-invoice {invoice.invoice_number}: {error}"
+                )
+                self._session.rollback()
+                continue
+            if row.status != "REGISTERED":
+                failed += 1
+                continue
+            registered += 1
+            self._tally.einvoices += 1
+            # Committed here, not at the end. A refusal below rolls the
+            # session back, and a rollback discards **everything** uncommitted
+            # -- not just the attempt that failed. Leaving the commit to the
+            # end reported 13 registrations and 6 e-way bills while the store
+            # held 5 and 2: every success since the last commit went with the
+            # next refusal, and the tally counted them because it is
+            # incremented before the rollback that destroys them.
+            self._session.commit()
+            if registered % 2:
+                continue
+            try:
+                service.generate_eway_bill(
+                    invoice.id,
+                    distance_km=Decimal("120"),
+                    transport_mode="ROAD",
+                    transporter_id=None,
+                    transporter_name="Sundar Transport Lines",
+                    vehicle_number="KA01AB1234",
+                    firm_scope=self._target.firm_id,
+                    actor_id=ACTOR,
+                )
+            except (ValidationError, BusinessRuleError, ConflictError) as error:
+                self._tally.skipped.append(f"e-way {invoice.invoice_number}: {error}")
+                self._session.rollback()
+                continue
+            bills += 1
+            self._tally.eway_bills += 1
+            self._session.commit()
+        self._session.commit()
+        if failed:
+            self._tally.skipped.append(
+                f"e-invoice: {failed} registration(s) came back FAILED -- read "
+                "the reason on the row; a missing GSTIN or HSN is the usual one"
+            )
+        if registered and not bills:
+            self._tally.skipped.append(
+                "e-invoice: nothing reached the road, so no e-way bill was raised"
+            )
 
     def report_unpriced_tiers(self) -> None:
         """Note any pricing tier no line in this firm's history reached.
@@ -2656,6 +2760,9 @@ def build_for_firm(
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")
             cycle += 1
 
+    # After every invoice exists, because a registration quotes one -- and
+    # before the tiers are reported, which is only a read.
+    builder.file_with_the_authority()
     builder.report_unpriced_tiers()
 
     # Last, because none of it changes a document: commission reports over
