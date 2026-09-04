@@ -14,15 +14,22 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.promotions.schemas import (
+    PromotionCouponPerformanceRecord,
     PromotionCouponResponse,
     PromotionCouponWrite,
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
+    PromotionPerformanceRecord,
+    PromotionRedemptionRecord,
     PromotionResponse,
     PromotionStatus,
     PromotionWrite,
 )
-from app.promotions.services import CouponService, PromotionService
+from app.promotions.services import (
+    CouponService,
+    PromotionReportService,
+    PromotionService,
+)
 from app.promotions.services.promotion_crud import PromotionCrudService
 
 router = APIRouter(
@@ -185,6 +192,48 @@ def delete_coupon(
         coupon_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data={"status": "deleted"})
+
+
+@router.get(
+    "/reports/performance",
+    response_model=ApiResponse[list[PromotionPerformanceRecord]],
+)
+def promotion_performance(
+    scope: PromotionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PromotionPerformanceRecord]]:
+    """Return what each offer was claimed, and what it cost."""
+    return ApiResponse(
+        data=PromotionReportService(db).performance_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/redemptions",
+    response_model=ApiResponse[list[PromotionRedemptionRecord]],
+)
+def promotion_redemptions(
+    scope: PromotionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PromotionRedemptionRecord]]:
+    """Return every claim on an offer, newest first."""
+    return ApiResponse(
+        data=PromotionReportService(db).redemption_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/coupons",
+    response_model=ApiResponse[list[PromotionCouponPerformanceRecord]],
+)
+def promotion_coupon_performance(
+    scope: PromotionViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PromotionCouponPerformanceRecord]]:
+    """Return what each coupon code was claimed, and what it cost."""
+    return ApiResponse(
+        data=PromotionReportService(db).coupon_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get("/{promotion_id}", response_model=ApiResponse[PromotionResponse])

@@ -113,6 +113,7 @@ from app.promotions.models import (
     Promotion,
     PromotionAction,
     PromotionCondition,
+    PromotionCoupon,
 )
 from app.purchase.models import PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderStatus
@@ -770,7 +771,53 @@ class HistoryBuilder:
             actions=[("LINE_DISCOUNT_PERCENT", {"percent": "1"})],
             conditions=[],
         )
+        # An offer nobody stumbles into: it applies only when the code is
+        # presented. Every store held zero coupons, so `_coupon_reaches`, the
+        # per-code and per-customer limits, and the whole claimed-by-name path
+        # were exercised by no seeded document in any firm -- which is the
+        # state that hides a defect until somebody drives it by hand.
+        welcome = self._promotion(
+            code="WELCOME",
+            name="Two and a half percent, on presenting the code",
+            priority=40,
+            allow_stacking=True,
+            effective_from=first_year_start,
+            effective_to=None,
+            version_group_id=uuid4(),
+            version_number=1,
+            actions=[("LINE_DISCOUNT_PERCENT", {"percent": "2.5"})],
+            conditions=[],
+            requires_coupon=True,
+        )
+        # Two codes on one offer, and only one of them ever presented. A
+        # coupon report that grouped by promotion would report a single
+        # number for both, which is the question it exists to answer
+        # separately -- and a code nobody used is the row worth seeing.
+        self._coupon(welcome, code="WELCOME10", max_redemptions=None)
+        self._coupon(welcome, code="WELCOME10B", max_redemptions=None)
         self._session.commit()
+
+    def _coupon(
+        self, promotion: Promotion, *, code: str, max_redemptions: int | None
+    ) -> None:
+        """Attach one code to an offer.
+
+        `max_redemptions` is left None deliberately: null means no limit,
+        which is a different answer from zero, and a demo that capped every
+        code would never show the uncapped case the column exists for.
+        """
+        self._session.add(
+            PromotionCoupon(
+                firm_id=self._target.firm_id,
+                promotion_id=promotion.id,
+                code=code,
+                status="ACTIVE",
+                max_redemptions=max_redemptions,
+                created_by=ACTOR,
+                updated_by=ACTOR,
+            )
+        )
+        self._session.flush()
 
     def _promotion(
         self,
@@ -785,8 +832,13 @@ class HistoryBuilder:
         version_number: int,
         actions: list[tuple[str, dict[str, str]]],
         conditions: list[tuple[str, str, Decimal]],
-    ) -> None:
-        """Write one promotion with its actions and conditions."""
+        requires_coupon: bool = False,
+    ) -> Promotion:
+        """Write one promotion with its actions and conditions.
+
+        Returns the row, so a caller that needs to hang a coupon off it does
+        not have to read back what it just wrote.
+        """
         firm_id = self._target.firm_id
         row = Promotion(
             firm_id=firm_id,
@@ -799,6 +851,7 @@ class HistoryBuilder:
             effective_to=effective_to,
             version_group_id=version_group_id,
             version_number=version_number,
+            requires_coupon=requires_coupon,
             created_by=ACTOR,
             updated_by=ACTOR,
         )
@@ -830,6 +883,7 @@ class HistoryBuilder:
                 )
             )
         self._tally.promotions += 1
+        return row
 
     def ensure_year(self, year_start: date) -> None:
         """Create the financial year and its periods if they are not there.
@@ -1699,6 +1753,7 @@ class HistoryBuilder:
         freight: str | None = None,
         free_quantity: str = "0",
         quote_first: bool = False,
+        coupon_code: str | None = None,
     ) -> None:
         """Take an order, dispatch it, and invoice it.
 
@@ -1746,6 +1801,7 @@ class HistoryBuilder:
                     branch_id=branch.id,
                     warehouse_id=warehouse.id,
                     order_date=on,
+                    coupon_code=coupon_code,
                     bill_discount_percent=(
                         None
                         if bill_discount_percent is None
@@ -2290,6 +2346,13 @@ def build_for_firm(
                 # covers the phone-order path, which is the one the desktop
                 # could not raise at all until 2026-08-23.
                 quoted = offset == 0
+                # One sale in six presents a coupon code. Only one of the two
+                # seeded codes is ever used, so the coupon report has both a
+                # code people redeemed and one nobody did -- the second being
+                # the row a campaign's own totals can never show.
+                presented = (
+                    "WELCOME10" if month_index % 6 == 4 and offset == 1 else None
+                )
                 try:
                     builder.sell(
                         on=sell_on,
@@ -2304,6 +2367,7 @@ def build_for_firm(
                         freight=delivery,
                         free_quantity=gift,
                         quote_first=quoted,
+                        coupon_code=presented,
                     )
                 except (ValidationError, BusinessRuleError) as error:
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")
