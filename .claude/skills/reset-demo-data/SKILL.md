@@ -170,6 +170,32 @@ than only in the docs. The first run of it found the third copy of the
 four-decimals-into-a-two-decimal-receivable defect, which had made every
 approval of such a note fail outright.
 
+**Each firm carries seven beat plans as of 2026-09-04**, and every store held
+zero before that: `GET /call-lists` and a plan's own call list both answered
+an empty page for every firm and every date, so the feature looked unbuilt in
+exactly the way the whole territory module did before 2026-08-16.
+
+The plans are **derived from each route's own working days**, not from the
+list the seeder would have written the route with. `WHOLE01-R-N1` works
+Monday alone where the other three firms' equivalents work Monday, Wednesday
+and Friday -- something narrowed it in an earlier session -- and an existing
+route profile is deliberately never overwritten, so the two disagree for ever.
+A plan built from the literal would name a weekday its route does not work and
+report *"the route does not work on this day"* for the rest of time. So
+WHOLE01 shows rounds on Monday, Tuesday and Thursday, and the other three
+firms show one every weekday. **That is the truth about those routes rather
+than a fault.**
+
+One plan per firm carries explicit customer stops; the rest fall back to every
+customer on their territory in visit order, which is the ordinary arrangement.
+Seeding one of each exercises both paths.
+
+**`_node` now backfills a missing route profile.** `WHOLE01-R-S1` had been
+seeded before the profile was part of the route list, so it was not a route at
+all and every beat plan against it was refused -- the fourth instance of a
+master field added later never reaching a store already seeded. Backfilled
+only where missing, never overwritten.
+
 **`TGT` and `PAY` should read 2 and 2.** Targets and commission payouts
 arrived on 2026-09-03, and before that every store held zero of both: no firm
 had a number to measure its salesmen against, and commission reported what was

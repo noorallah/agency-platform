@@ -678,6 +678,25 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   quantize_ledger(tax)` -- what the journal actually credited -- or the two
   books sit a paisa apart with nothing to say which is right. Invisible until
   a seeded credit note reached it, which is what the demo history is for.
+- **A beat plan's weekday must be one its route actually works, and the route
+  is the authority.** Every store held zero beat plans until 2026-09-04, so
+  both call-list endpoints answered an empty page for every firm and every
+  date -- the same "looks unbuilt" shape the territory module had before
+  2026-08-16. `seed_multi_firm_demo.py` now gives each route one weekly round
+  per working day, plus a fortnightly and a monthly so all three recurrences
+  are visible. **The days are read from the store, not from the seeder's own
+  list**: `WHOLE01-R-N1` works Monday alone where its siblings work Monday,
+  Wednesday and Friday, and an existing route profile is never overwritten, so
+  a plan built from the literal would name a day its route does not work and
+  report "the route does not work on this day" for ever. Three conditions
+  decide whether a plan calls anybody -- the recurrence hits, the route is in
+  force, **and** the route works that weekday -- and a seed that satisfies two
+  of the three reproduces the empty screen with extra rows. Finding it also
+  turned up the **fourth** instance of a master field added later never
+  reaching a store already seeded: `_node` returned an existing territory
+  without checking it had the route profile that makes it a route, so
+  `WHOLE01-R-S1` was not one and every plan against it was refused. Backfilled
+  only where missing.
 - **A master field added later never reaches a store already seeded --
   third instance, and this one billed no tax for two years.** The batch flags
   were the first, the HSN code the second, and `tax_profile_group_code` the
