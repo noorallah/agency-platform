@@ -175,6 +175,29 @@ SELECT count(*) FROM sales_invoices i WHERE i.bill_discount_amount <> (
   WHERE l.sales_invoice_id = i.id);   -- must be 0
 ```
 
+**`IRN` should read 17 and `EWB` 8 -- except in WHOLE01.** E-invoicing
+arrived on 2026-09-03 and every store held zero registrations and zero e-way
+bills, so nothing drove the payload validation, the CGST/SGST-versus-IGST
+split the two GSTINs' state codes decide, or the one-live-registration key.
+That gap had already cost something: no invoice could be registered anywhere
+until the firm GSTIN, the customer GSTINs and a product's HSN were backfilled,
+and that was found by hand rather than by anything failing.
+
+Registration is **always** in the sandbox, which mints `SBX...` references:
+`portal_for("LIVE")` raises rather than falling back, because a firm that
+believes it is filing must never be rehearsing, and seeded data has no
+business near a live portal. One invoice in three is registered and one in two
+of those carries an e-way bill, so the demo has registered invoices,
+unregistered ones and goods on the road.
+
+**WHOLE01 reads 13 and 6, and that difference is explained rather than a
+signal.** It carries a customer somebody created by hand while testing
+(`OB-REV2 "Revise Check 2"`) which has no GST number, so its four invoices are
+refused -- correctly, and locally, naming the field rather than sending a
+payload the portal would answer with a numeric code. The run prints one note
+per refusal. Any *other* divergence in these two counts is a signal in the
+ordinary way.
+
 **`PF` should read 14.** Proformas arrived on 2026-09-03 and every store held
 zero, which looks exactly like a firm nobody has ever asked for one. Every
 fourth order gets one, issued rather than left in draft, because a proforma is
