@@ -190,15 +190,20 @@ an empty page for every firm and every date, so the feature looked unbuilt in
 exactly the way the whole territory module did before 2026-08-16.
 
 The plans are **derived from each route's own working days**, not from the
-list the seeder would have written the route with. `WHOLE01-R-N1` works
-Monday alone where the other three firms' equivalents work Monday, Wednesday
-and Friday -- something narrowed it in an earlier session -- and an existing
-route profile is deliberately never overwritten, so the two disagree for ever.
-A plan built from the literal would name a weekday its route does not work and
-report *"the route does not work on this day"* for the rest of time. So
-WHOLE01 shows rounds on Monday, Tuesday and Thursday, and the other three
-firms show one every weekday. **That is the truth about those routes rather
-than a fault.**
+list the seeder would have written the route with -- a plan naming a weekday
+its route does not work reports *"the route does not work on this day"* for
+ever, which is the empty screen the plans exist to fill, with extra rows.
+
+`_node` keeps those days in step: a day the script means a round to work and
+the store does not have is added, and **nothing is ever removed**. The service
+replaces the day set, so the union is sent rather than the intended list, and
+a day somebody added by hand survives a reseed. `WHOLE01-R-N1` had drifted to
+Monday alone where every sibling works Monday, Wednesday and Friday, which
+left that firm two blank weekdays; it is back in step. Narrowing a round is a
+decision and this script does not reverse it -- it only fills gaps, the same
+rule the GSTIN, HSN and tax-profile backfills follow.
+
+All four firms now show a round every weekday and none at the weekend.
 
 One plan per firm carries explicit customer stops; the rest fall back to every
 customer on their territory in visit order, which is the ordinary arrangement.

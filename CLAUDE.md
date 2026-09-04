@@ -700,10 +700,11 @@ Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests pl
   2026-08-16. `seed_multi_firm_demo.py` now gives each route one weekly round
   per working day, plus a fortnightly and a monthly so all three recurrences
   are visible. **The days are read from the store, not from the seeder's own
-  list**: `WHOLE01-R-N1` works Monday alone where its siblings work Monday,
-  Wednesday and Friday, and an existing route profile is never overwritten, so
-  a plan built from the literal would name a day its route does not work and
-  report "the route does not work on this day" for ever. Three conditions
+  list**, and `_node` keeps the two in step by **adding** a day the script
+  means a round to work and the store lacks -- never removing one, since the
+  service replaces the set and a day somebody added by hand has to survive a
+  reseed. `WHOLE01-R-N1` had drifted to Monday alone where its siblings work
+  Monday, Wednesday and Friday, which left that firm two blank weekdays. Three conditions
   decide whether a plan calls anybody -- the recurrence hits, the route is in
   force, **and** the route works that weekday -- and a seed that satisfies two
   of the three reproduces the empty screen with extra rows. Finding it also
