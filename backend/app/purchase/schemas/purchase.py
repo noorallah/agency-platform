@@ -338,3 +338,94 @@ class PurchaseSummary(PurchaseSchema):
     closed: int
     total_value: Decimal
     overdue_delivery: int
+
+
+class PurchaseOrderRegisterRecord(PurchaseSchema):
+    """One purchase order, as the register lists it."""
+
+    order_id: UUID
+    po_number: str
+    purchase_date: date
+    expected_delivery_date: date | None
+    vendor_id: UUID
+    vendor_name: str
+    buyer_id: UUID | None
+    branch_id: UUID
+    warehouse_id: UUID | None
+    status: PurchaseOrderStatus
+    grand_total: Decimal
+
+
+class PurchaseOrderPendingRecord(PurchaseSchema):
+    """An order with goods still owed by the vendor.
+
+    Read off the status rather than by summing receipts: the status is already
+    derived from the completed receipts by `_resync_order_status`, and a
+    second way of working out the same thing is a second answer waiting to
+    disagree.
+    """
+
+    order_id: UUID
+    po_number: str
+    purchase_date: date
+    expected_delivery_date: date | None
+    vendor_id: UUID
+    vendor_name: str
+    status: PurchaseOrderStatus
+    order_value: Decimal
+
+
+class PurchaseOrderOverdueRecord(PurchaseSchema):
+    """An order whose goods were expected and have not all arrived.
+
+    The purchase side's back-order list. `days_overdue` is counted from the
+    expected date in UTC, because everything stored here is UTC and the
+    server's own date is already tomorrow for part of every day.
+    """
+
+    order_id: UUID
+    po_number: str
+    purchase_date: date
+    expected_delivery_date: date
+    days_overdue: int
+    vendor_id: UUID
+    vendor_name: str
+    status: PurchaseOrderStatus
+    order_value: Decimal
+
+
+class PurchaseOrderByVendorRecord(PurchaseSchema):
+    """Ordered value and count per vendor.
+
+    Cancelled orders are left out: an order called off was never a purchase,
+    and counting it would overstate what the firm has committed.
+    """
+
+    vendor_id: UUID
+    vendor_name: str
+    order_count: int
+    total_value: Decimal
+
+
+class PurchaseOrderByBuyerRecord(PurchaseSchema):
+    """Ordered value and count per buyer.
+
+    The name is read from the platform store: `users` lives only there, and a
+    firm-owned session cannot see it.
+    """
+
+    buyer_id: UUID
+    buyer_name: str
+    order_count: int
+    total_value: Decimal
+
+
+class PurchaseOrderByProductRecord(PurchaseSchema):
+    """What the firm is buying, by quantity and by value."""
+
+    product_id: UUID
+    product_code: str
+    product_name: str
+    ordered_quantity: Decimal
+    total_value: Decimal
+    order_count: int

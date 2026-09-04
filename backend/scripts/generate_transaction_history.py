@@ -68,6 +68,7 @@ from app.commission.schemas.payout import (
     CommissionPayoutPay,
 )
 from app.commission.services import CommissionPayoutService, CommissionService
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager, EngineFactory
 from app.core.exceptions import (
@@ -598,6 +599,14 @@ class HistoryBuilder:
         self._quotation_cycle = 0
         #: Which invoices see part of the goods come back.
         self._return_cycle = 0
+        #: Which of the firm's people raised each purchase order, and which
+        #: orders are left open. Counters rather than randomness, for the
+        #: reason every other cycle here is one: a run has to be reproducible.
+        self._buyer_cycle = 0
+        #: The firm's own people, read once. `users` lives only in the
+        #: platform store, so this cannot be a `select(User)` on the firm
+        #: session -- that is the defect this seeding exists to make visible.
+        self._buyer_ids: list[UUID] | None = None
         self._credit_cycle = 0
         self._proforma_cycle = 0
         self._advance_cycle = 0
@@ -1422,6 +1431,23 @@ class HistoryBuilder:
         # history has both live and expired batches to look at.
         return number, on + timedelta(days=548)
 
+    def _buyers(self) -> list[UUID]:
+        """Return the firm's own people, to be named as buyers.
+
+        Read through `FirmMetadataReader`, which goes to the platform store:
+        `users` and `user_firms` exist only there, so a `select(User)` on this
+        firm session raises `relation "<firm schema>.users" does not exist` on
+        every firm outside the platform store. Eight occurrences of that trap
+        are on the record, and every one of them was latent until a seeded
+        document carried the id -- which is precisely what naming a buyer here
+        is for.
+        """
+        if self._buyer_ids is None:
+            reader = FirmMetadataReader(self._session)
+            members = reader.active_members(self._target.firm_id)
+            self._buyer_ids = [member.user_id for member in members]
+        return self._buyer_ids
+
     def buy(
         self,
         *,
@@ -1432,15 +1458,40 @@ class HistoryBuilder:
         product: Product,
         quantity: str,
         unit_price: str,
+        receive: bool = True,
     ) -> None:
-        """Raise a purchase order and receive it into stock."""
+        """Raise a purchase order and, unless told otherwise, receive it.
+
+        Args:
+            on: The order date.
+            branch: The branch raising it.
+            warehouse: Where the goods are to land.
+            vendor: Who is supplying them.
+            product: What is being bought.
+            quantity: How much, in the purchase unit.
+            unit_price: What is being paid for it.
+            receive: Whether the goods arrive. The caller leaves one order
+                a year open, because a demo where every order has been
+                received has nothing for the pending and overdue reports to
+                show -- the same reasoning that leaves one invoice in four
+                uncollected.
+
+        """
         purchase = PurchaseService(self._session)
+        buyers = self._buyers()
+        # A lead time the vendor was given. Fourteen days puts an unreceived
+        # order past its date once a fortnight has passed, so the overdue
+        # report has rows for the older months and none for this one -- which
+        # is what makes it a report rather than a copy of the pending list.
+        expected = on + timedelta(days=14)
         order = purchase.create_order(
             PurchaseOrderCreate(
                 vendor_id=vendor.id,
                 branch_id=branch.id,
                 warehouse_id=warehouse.id,
                 purchase_date=on,
+                expected_delivery_date=expected,
+                buyer_id=(buyers[self._buyer_cycle % len(buyers)] if buyers else None),
                 status=PurchaseOrderStatus.APPROVED,
                 lines=[
                     {
@@ -1453,7 +1504,13 @@ class HistoryBuilder:
             firm_id=self._target.firm_id,
             actor_id=ACTOR,
         )
+        self._buyer_cycle += 1
         self._tally.purchase_orders += 1
+        if not receive:
+            # Approved, dated, and nothing received against it. The order
+            # stays APPROVED, which is what `pending_report` reads and what
+            # `overdue_report` reads once the expected date has passed.
+            return
 
         line = self._session.scalar(
             select(PurchaseOrderLine).where(
@@ -2181,6 +2238,28 @@ def build_for_firm(
                 builder.tally.skipped.append(f"{buy_on} purchase: {error}")
                 cycle += 1
                 continue
+
+            # One order a year is raised, approved and never received, so the
+            # pending and overdue reports have live rows rather than a clean
+            # sheet. An extra order rather than a skipped receipt: the monthly
+            # buy is what stocks the shelf, and starving it would fail that
+            # month's sales for want of stock -- a delivery-note count below
+            # the sales-order count, which is this repo's signature of a
+            # dispatch defect, not of a report having something to show.
+            if month_index == 6:
+                try:
+                    builder.buy(
+                        on=buy_on,
+                        branch=branch,
+                        warehouse=warehouse,
+                        vendor=vendor,
+                        product=product,
+                        quantity=quantity,
+                        unit_price=price,
+                        receive=False,
+                    )
+                except (ValidationError, BusinessRuleError) as error:
+                    builder.tally.skipped.append(f"{buy_on} open purchase: {error}")
 
             # Two sales per month against different customers, so the by-customer
             # reports rank something and receivables are not all one name.

@@ -27,10 +27,16 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.purchase.schemas import (
+    PurchaseOrderByBuyerRecord,
+    PurchaseOrderByProductRecord,
+    PurchaseOrderByVendorRecord,
     PurchaseOrderCreate,
     PurchaseOrderHistoryResponse,
     PurchaseOrderImportRequest,
     PurchaseOrderListFilters,
+    PurchaseOrderOverdueRecord,
+    PurchaseOrderPendingRecord,
+    PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
@@ -274,6 +280,90 @@ def print_purchase_order(
         iter([pdf]),
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/reports/register",
+    response_model=ApiResponse[list[PurchaseOrderRegisterRecord]],
+)
+def purchase_order_register(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderRegisterRecord]]:
+    """Return the purchase order register for the visible firm scope."""
+    return ApiResponse(
+        data=PurchaseService(db).register_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/pending",
+    response_model=ApiResponse[list[PurchaseOrderPendingRecord]],
+)
+def pending_purchase_orders(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderPendingRecord]]:
+    """Return orders the vendor still owes goods against."""
+    return ApiResponse(
+        data=PurchaseService(db).pending_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/overdue",
+    response_model=ApiResponse[list[PurchaseOrderOverdueRecord]],
+)
+def overdue_purchase_orders(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderOverdueRecord]]:
+    """Return orders whose goods were expected and have not all arrived."""
+    return ApiResponse(
+        data=PurchaseService(db).overdue_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/by-vendor",
+    response_model=ApiResponse[list[PurchaseOrderByVendorRecord]],
+)
+def purchase_orders_by_vendor(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderByVendorRecord]]:
+    """Return ordered value and count per vendor."""
+    return ApiResponse(
+        data=PurchaseService(db).by_vendor_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/by-buyer",
+    response_model=ApiResponse[list[PurchaseOrderByBuyerRecord]],
+)
+def purchase_orders_by_buyer(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderByBuyerRecord]]:
+    """Return ordered value and count per buyer."""
+    return ApiResponse(
+        data=PurchaseService(db).by_buyer_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/reports/by-product",
+    response_model=ApiResponse[list[PurchaseOrderByProductRecord]],
+)
+def purchase_orders_by_product(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseOrderByProductRecord]]:
+    """Return what the firm is buying, by quantity and by value."""
+    return ApiResponse(
+        data=PurchaseService(db).by_product_report(firm_scope=scope.firm_id)
     )
 
 
