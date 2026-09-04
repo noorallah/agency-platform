@@ -87,10 +87,10 @@ reach for `seed_multi_firm_demo.py` whenever the four firms need to agree.
 ## What a good run looks like
 
 ```
-MEDI01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
-FOOD01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
-WHOLE01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
-ELEC01 history: 3 financial year(s) | PO 29 | GRN 29 | PINV 29 | PRET 5 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+MEDI01 history: 3 financial year(s) | PO 30 | GRN 30 | PINV 30 | PRET 6 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+FOOD01 history: 3 financial year(s) | PO 30 | GRN 30 | PINV 30 | PRET 6 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+WHOLE01 history: 3 financial year(s) | PO 30 | GRN 30 | PINV 30 | PRET 6 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
+ELEC01 history: 3 financial year(s) | PO 30 | GRN 30 | PINV 30 | PRET 6 | PROMO 4 | QT 29 | SO 58 | DN 58 | INV 49 | RCPT 37 | SRET 8 | CN 9 | PF 14 | ADV 9 | LOY 7 | TCS 27-30 | TGT 2 | PAY 2
 ```
 
 **`seed_multi_firm_demo.py` prints the notes now, not only the counts.** It
@@ -99,6 +99,20 @@ document a run could not raise was invisible from the multi-firm entry point
 while the standalone script showed it -- which is the entry point everybody
 uses. The first run after fixing it immediately reported two firms seeding a
 different set of commission rules from the other two.
+
+**The purchase counts drift by a cycle with the date.** The generator derives
+its periods from today, so `PO`/`GRN`/`PINV` read 29 or 30 and `PRET` 5 or 6
+depending on when the run happens. `TCS` varies for a different reason and
+legitimately: the section only charges above a per-buyer threshold, so a firm
+whose customers cross it on a different receipt collects on a different number
+of them. Everything else should match.
+
+**A re-run prints `incentives: everybody already has a rule, so no ladder was
+seeded` on every firm, and that is correct.** Commission *rules* survive a
+reset by design, so a second run finds the four arrangements already there and
+does not duplicate them. It reads like the ladder is missing; check before
+believing it -- `commission_rule_slabs` should hold 2 rows per firm, and the
+report below is the real test.
 
 **The four firms should agree line for line.** They differ only in tenancy
 mode, business profile and unit factors, so a count that differs is a signal.

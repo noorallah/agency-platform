@@ -2019,16 +2019,23 @@ def _seed_beat_plans(
     #: cover as much of the week as the firm's own routes allow. Days a route
     #: does not work stay uncovered, which is the truth about that firm rather
     #: than something to paper over.
-    for route_id in routes:
+    for position, route_id in enumerate(routes, start=1):
         for weekday in working[route_id]:
-            code = f"{firm.code}-BP-{weekday_names[weekday][:3].upper()}"
+            # Keyed on the route as well as the day. Two rounds working the
+            # same weekday collided on a day-only code, so the second got no
+            # plan at all -- WHOLE01's South round was left with nothing but
+            # the monthly review while North held three.
+            code = f"{firm.code}-BP-R{position}-{weekday_names[weekday][:3].upper()}"
             if code in existing:
                 continue
             existing.add(code)
             service.create_beat_plan(
                 BeatPlanCreate(
                     code=code,
-                    name=f"{firm.code} {weekday_names[weekday]} round",
+                    name=(
+                        f"{firm.code} {weekday_names[weekday]} round "
+                        f"(round {position})"
+                    ),
                     territory_id=route_id,
                     plan_type=BeatPlanType.WEEKLY,
                     weekday=weekday,
