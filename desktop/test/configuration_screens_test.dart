@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/document_framework.dart';
 import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/ui/settings/financial_years_page.dart';
@@ -88,6 +89,7 @@ class _ConfigApi extends ApiClient {
     this.years = const [],
     this.periods = const [],
     this.rules = const [],
+    this.types = const [],
   }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -98,8 +100,12 @@ class _ConfigApi extends ApiClient {
   final List<FinancialYear> years;
   final List<AccountingPeriod> periods;
   final List<NumberingRule> rules;
+  final List<DocumentTypeRecord> types;
   final List<String> statusCalls = [];
   String? previewedId;
+  final List<Json> created = [];
+  final List<MapEntry<String, Json>> updated = [];
+  final List<String> deleted = [];
 
   @override
   Future<List<FinancialYear>> financialYears() async => years;
@@ -124,6 +130,24 @@ class _ConfigApi extends ApiClient {
     previewedId = ruleId;
     return 'SI-2026-2027-000008';
   }
+
+  @override
+  Future<List<DocumentTypeRecord>> documentTypes() async => types;
+
+  @override
+  Future<NumberingRule> createNumberingRule(Json body) async {
+    created.add(body);
+    return _rule();
+  }
+
+  @override
+  Future<NumberingRule> updateNumberingRule(String id, Json body) async {
+    updated.add(MapEntry(id, body));
+    return _rule(id: id);
+  }
+
+  @override
+  Future<void> deleteNumberingRule(String id) async => deleted.add(id);
 }
 
 Future<void> _pumpYears(
@@ -339,6 +363,144 @@ void main() {
           );
         }
       }
+    });
+  });
+
+  group('numbering series, editing', () {
+    DocumentTypeRecord type() => DocumentTypeRecord.fromJson({
+          'id': 'dt-1',
+          'code': 'SALES_INVOICE',
+          'name': 'Sales Invoice',
+        });
+
+    testWidgets('a reader sees no way to change anything', (tester) async {
+      // The server enforces SETTINGS_UPDATE, so this only decides whether the
+      // controls are worth showing -- but a button that always answers 403 is
+      // worse than no button.
+      await _pumpRules(
+        tester,
+        _ConfigApi(rules: [_rule()], types: [type()]),
+        perms: const ['SETTINGS_VIEW'],
+      );
+
+      expect(find.text('New series'), findsNothing);
+      expect(find.byTooltip('Edit'), findsNothing);
+      expect(find.byTooltip('Retire'), findsNothing);
+      // And the thing they came for is still there.
+      expect(find.text('Preview next'), findsOneWidget);
+    });
+
+    testWidgets('an administrator gets all three', (tester) async {
+      await _pumpRules(
+        tester,
+        _ConfigApi(rules: [_rule()], types: [type()]),
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      expect(find.text('New series'), findsOneWidget);
+      expect(find.byTooltip('Edit'), findsOneWidget);
+      expect(find.byTooltip('Retire'), findsOneWidget);
+    });
+
+    testWidgets('the counter cannot be moved on an existing series',
+        (tester) async {
+      // `next_sequence` is advanced by the server under a lock. Setting it
+      // back would hand out a number a document already holds, which the
+      // per-firm uniqueness key then refuses on somebody else's save.
+      final _ConfigApi api = _ConfigApi(rules: [_rule()], types: [type()]);
+      await _pumpRules(
+        tester,
+        api,
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      await tester.tap(find.byTooltip('Edit'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Next number: 8'), findsOneWidget);
+      expect(find.text('Start numbering at'), findsNothing);
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated, hasLength(1));
+      expect(
+        api.updated.single.value.containsKey('next_sequence'),
+        isFalse,
+        reason: 'an edit must not carry the counter',
+      );
+    });
+
+    testWidgets('a new series may say where its counter starts',
+        (tester) async {
+      final _ConfigApi api = _ConfigApi(rules: const [], types: [type()]);
+      await _pumpRules(
+        tester,
+        api,
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      await tester.tap(find.text('New series'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Start numbering at'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).at(0), 'PURCHASE');
+      await tester.enterText(find.byType(TextField).at(1), 'Purchase numbers');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.created, hasLength(1));
+      expect(api.created.single['code'], 'PURCHASE');
+      expect(api.created.single['next_sequence'], 1);
+    });
+
+    testWidgets('a series that would repeat itself says so before saving',
+        (tester) async {
+      // The server refuses this pairing. Saying it here means the person
+      // choosing finds out while they are choosing, rather than reading a
+      // refusal after the fact.
+      await _pumpRules(
+        tester,
+        _ConfigApi(rules: [_rule()], types: [type()]),
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      await tester.tap(find.byTooltip('Edit'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('would repeat one issued in March'),
+          findsNothing);
+
+      await tester.tap(find.text('Include the financial year'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('would repeat one issued in March'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('retiring asks first, and says what survives', (tester) async {
+      final _ConfigApi api = _ConfigApi(rules: [_rule()], types: [type()]);
+      await _pumpRules(
+        tester,
+        api,
+        perms: const ['SETTINGS_VIEW', 'SETTINGS_UPDATE'],
+      );
+
+      await tester.tap(find.byTooltip('Retire'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('keep the numbers they have'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(api.deleted, isEmpty);
+
+      await tester.tap(find.byTooltip('Retire'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Retire').last);
+      await tester.pumpAndSettle();
+      expect(api.deleted, ['r-1']);
     });
   });
 }
