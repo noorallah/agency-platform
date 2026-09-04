@@ -40,7 +40,7 @@ Re-measured 2026-09-03 against a tree that has grown: **38 business modules**,
 | | 2 | Business profile: what the firm may operate | ✅ |
 | | 3 | Document numbering and lifecycle | ✅ |
 | | 4 | Financial year and chart of accounts | ✅ |
-| **B — Masters** | 5 | Branches and warehouses | ☐ |
+| **B — Masters** | 5 | Branches and warehouses | ✅ |
 | | 6 | Geography | ☐ |
 | | 7 | Units and packaging | ☐ |
 | | 8 | Tax setup | ☐ |
@@ -977,6 +977,137 @@ preconditions is missing before somebody discovers it at dispatch.
 
 ---
 
+# 5. Branches and warehouses
+
+## What it does
+
+The firm's physical shape. A **branch** is a place that trades — it has an
+address, a GST registration, working hours and a manager. A **warehouse** sits
+under a branch and is a place that holds stock. Inside a warehouse, **storage
+nodes** describe zones, racks and bins as a tree.
+
+This matters beyond the address book: **every stock movement names a
+warehouse**, and documents are filed against a branch. Nothing can be received,
+dispatched, counted or transferred until at least one of each exists.
+
+## Configure first
+
+| Needs | Why |
+| --- | --- |
+| The firm, provisioned | Both are firm-owned |
+| Geography masters (module 6) | Address fields are keys — country, state, district, city, postal code, locality — not free text |
+| Branch and warehouse **types** (optional) | Classification only; a branch with no type is fine |
+
+## Workflow
+
+### A. Set up the places
+
+| # | Step | Endpoint | Permission |
+| --- | --- | --- | --- |
+| 1 | Create branch types, if you classify branches | `POST /branch-types` | `BRANCH_UPDATE` |
+| 2 | Create the branch | `POST /branches` | `BRANCH_CREATE` |
+| 3 | Create warehouse types, if you classify warehouses | `POST /warehouse-types` | `WAREHOUSE_UPDATE` |
+| 4 | Create warehouses under the branch | `POST /warehouses` | `WAREHOUSE_CREATE` |
+| 5 | Describe the inside of a warehouse | `POST /warehouses/storage-nodes` | `STORAGE_AREA_MANAGE` |
+
+A branch carries `code` (unique per firm), display name, the six geography
+keys, address lines, timezone, currency, `gst_registration`, PAN, a licence
+number, `working_hours` as JSON, and `is_default`.
+
+A warehouse carries its branch, code, the same geography keys, `capacity` and
+`capacity_unit`, `is_default`, and **ten capability flags** — temperature
+controlled, cold storage, hazardous storage, and whether it has receiving,
+dispatch, returns, inspection and packing areas and a loading dock.
+
+### B. Bulk work
+
+Both entities support the same six: `bulk-delete`, `bulk-restore`,
+`bulk-status`, `duplicate`, `import` and `export`. Import **stages the whole
+file and commits once**.
+
+### C. Retire a place
+
+| # | Step | Refused when |
+| --- | --- | --- |
+| 1 | Delete a warehouse (`WAREHOUSE_DELETE`) | It still holds stock — `current_quantity` or `reserved_quantity` is non-zero on any inventory record |
+| 2 | Delete a branch (`BRANCH_DELETE`) | It still has live warehouses under it |
+| 3 | Restore either (`*_RESTORE`) | — |
+
+Both are soft deletes, and both refusals live **in the service**, which is the
+only place they can: a soft delete never reaches the database's referential
+check.
+
+## How to use it
+
+All under **Masters**:
+
+| Task | Where | Permission |
+| --- | --- | --- |
+| Branches | **Masters › Branches** | `BRANCH_VIEW` |
+| Warehouses | **Masters › Warehouses** | `WAREHOUSE_VIEW` |
+| Zones, racks and bins | **Masters › Storage Areas** | `STORAGE_AREA_MANAGE` |
+| Classification | **Masters › Branch Types**, **Warehouse Types** | `BRANCH_VIEW` / `WAREHOUSE_VIEW` |
+| What this deployment can do | **Masters › Branch & Warehouse Settings** | `BRANCH_VIEW` |
+
+## Tables
+
+| Table | Holds | Columns that carry the meaning |
+| --- | --- | --- |
+| `branches` | Places that trade | `code` (unique per firm), six geography keys, `gst_registration`, `working_hours` (JSON), `is_default`, `status` |
+| `warehouses` | Places that hold stock | `branch_id`, `capacity` + `capacity_unit`, `is_default`, ten capability flags, `status` |
+| `warehouse_storage_nodes` | Zones, racks, bins | `parent_id`, `node_type`, `path` (materialised), `sort_order` |
+| `branch_types`, `warehouse_types` | Classification | `code` |
+| `branch_attribute_values`, `warehouse_attribute_values` | Custom fields (module 2) | Typed value columns |
+
+## Rules that bite
+
+- **Only one default branch and one default warehouse per firm.** The service
+  demotes the incumbent and flushes *before* promoting the new one, and a
+  partial unique index (`UQ_branches_default_active`,
+  `UQ_warehouses_default_active`) holds the rule at the database.
+- **An import stages and commits once.** Both import endpoints used to loop
+  over the single-row create, which commits — so a batch whose fifth row
+  clashed returned 409 with the first four already written, and the corrected
+  file then failed on those four as duplicates. The import was impossible to
+  complete. The dialog says which behaviour you get, because the first question
+  after a failure is whether half of it went in.
+- **The bulk endpoints are a second implementation.** All six once wrote no
+  audit rows at all and skipped the delete guards their single-row twins
+  enforced. Review both paths whenever either changes.
+- **An update sends only what changed.** `BranchUpdate` / `WarehouseUpdate` are
+  partial: one rename once cleared the branch's street lines, city, default
+  flag and GST registration, and all ten warehouse capability flags, because
+  the form does not edit those and the write model dumped defaults over them.
+- **`ondelete="RESTRICT"` on the geography keys is not a guard.** Those masters
+  are soft-deleted, so a "deleted" city stays wired to every branch naming it
+  while vanishing from the list. The refusal has to be in the geography
+  service (module 6).
+- **A literal path must be declared before `/{id}`.** `GET /branches/export`
+  and `GET /warehouses/export` were both read as an id and answered 422 —
+  unreachable from the day they were written, and now guarded by a test.
+
+### The settings screen is a capability report, not settings
+
+`GET /branch-warehouse/settings` stores nothing and reads nothing. It returns
+fourteen booleans **hardcoded in the router**, telling a client which
+capabilities this deployment actually has, so a screen does not offer features
+that cannot work. Every flag was once `True`, including five with no
+implementation anywhere.
+
+Which makes it the same shape as `business_features.is_implemented`: **a claim
+about the codebase that goes stale the moment the codebase moves.** It has,
+already — `stock_transfer_ready` still reads `False` with a comment saying *"No
+transfer service or endpoint exists"*, and `POST /api/v1/inventory/transfers`
+now moves stock between warehouses under `INVENTORY_ADJUST`, writing
+`TRANSFER_OUT` and `TRANSFER_IN` movements. The capability shipped; the flag
+was not flipped, so any client trusting this response hides a feature the
+platform has.
+
+`inter_branch_transfer_ready`, `rfid_ready`, `iot_ready` and
+`warehouse_automation_ready` still read `False`, and those four are still true.
+
+---
+
 # Still to write
 
-Modules 5–20 in the table above. Each gets the same six parts.
+Modules 6–28 in the table above. Each gets the same six parts.
