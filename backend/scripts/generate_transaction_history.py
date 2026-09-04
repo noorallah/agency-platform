@@ -90,7 +90,7 @@ from app.credit_note.schemas import (
     CreditNoteReasonEnum,
 )
 from app.credit_note.services import CreditNoteService
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerGroup
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
 from app.finance.models import FinancialYear
@@ -106,6 +106,7 @@ from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import InventoryTransaction
 from app.loyalty.schemas import LoyaltySettingsWrite
 from app.loyalty.services import LoyaltyService
+from app.pricing.models import PriceList, PriceListItem
 from app.products.models import Product
 from app.proforma.schemas import ProformaCreate
 from app.proforma.services import ProformaService
@@ -623,6 +624,57 @@ class HistoryBuilder:
 
     # -- masters -------------------------------------------------------
 
+    #: What each pricing tier pays, and the name to report it under. Every
+    #: figure is one no other tier and no compounded pair of promotions
+    #: produces, so a resolved percentage identifies the tier that set it.
+    _TIERS = (
+        (Decimal("2"), "price list, base break"),
+        (Decimal("6.75"), "price list, quantity break"),
+        (Decimal("9.25"), "price list, a shop's own"),
+        (Decimal("1.75"), "customer group, retailer"),
+        (Decimal("3.25"), "customer group, wholesaler"),
+    )
+
+    def report_unpriced_tiers(self) -> None:
+        """Note any pricing tier no line in this firm's history reached.
+
+        `resolve_line_discount` ranks six tiers and the demo is supposed to
+        show them. It stopped showing three of them the day a promotion with
+        no conditions was seeded: a promotion outranks everything below it, so
+        a blanket offer switches the lower tiers off silently, and a document
+        priced by the wrong tier still looks like a discounted document.
+
+        Reported rather than raised. A firm can legitimately have no line
+        small enough to fall past the promotions -- what must not happen is
+        that nobody notices.
+        """
+        priced = {
+            row[0]
+            for row in self._session.execute(
+                select(SalesOrderLine.discount_percent).where(
+                    SalesOrderLine.firm_id == self._target.firm_id,
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        rounded = {
+            Decimal(str(value)).quantize(Decimal("0.0001"))
+            for value in priced
+            if value is not None
+        }
+        missing = [
+            label
+            for rate, label in self._TIERS
+            if rate.quantize(Decimal("0.0001")) not in rounded
+        ]
+        if missing:
+            self._tally.skipped.append(
+                "pricing: no line was priced by "
+                + "; ".join(missing)
+                + " -- a promotion that matches everything outranks the tiers "
+                "below it, so check the offers' conditions"
+            )
+
     def masters(
         self,
     ) -> tuple[Branch, Warehouse, Vendor, list[Customer], list[Product]]:
@@ -687,10 +739,214 @@ class HistoryBuilder:
         # rather than in the master seed because it is a fact about trading:
         # without it nothing in the demo exercised the rule, and nothing on
         # screen showed a discount.
-        if customers[0].default_discount_percent <= Decimal("0"):
-            customers[0].default_discount_percent = Decimal("7.5")
+        #
+        # Named rather than taken positionally. `customers[0]` is whatever
+        # sorts first by code, and a store holds records nobody seeded: a
+        # customer created by hand while somebody was testing sorted above
+        # WHOLE01's three real shops, so that firm gave its standing rate to
+        # `OB-REV2 "Revise Check 2"` while its siblings gave theirs to a shop.
+        # Same mistake the commission rules made -- who gets an arrangement is
+        # chosen from what the demo created, never by position in a list the
+        # demo does not own.
+        primary = self._primary_shop(customers)
+        if primary.default_discount_percent <= Decimal("0"):
+            primary.default_discount_percent = Decimal("7.5")
             self._session.commit()
+        self._segment_the_customers(customers, standing=primary)
+        self._price_lists(customers, products, standing=primary)
         return branch, warehouse, vendor, customers, products
+
+    def _primary_shop(self, customers: list[Customer]) -> Customer:
+        """Return the firm's own first shop, by the code the demo gave it.
+
+        `generate_sample_data.py` names them `<FIRM>C01`, `C02`, `C03`. Falling
+        back to the first only when none matches keeps a firm seeded by some
+        other route working.
+        """
+        wanted = f"{self._target.code}C01"
+        for customer in customers:
+            if customer.code == wanted:
+                return customer
+        return customers[0]
+
+    def _segment_the_customers(
+        self, customers: list[Customer], *, standing: Customer
+    ) -> None:
+        """Put the firm's shops into commercial segments.
+
+        Every store held zero `customer_groups`, so the **last** tier of
+        `resolve_line_discount` -- what a segment is normally given -- was
+        ranked by the code and reached by no document anywhere.
+
+        The shop on a standing rate is deliberately put in a group **as well**.
+        Its own rate is more specific and must win, and a demo where the two
+        never overlap cannot show that they are ranked rather than added.
+        """
+        firm_id = self._target.firm_id
+        existing = {
+            row.code: row
+            for row in self._session.scalars(
+                select(CustomerGroup).where(
+                    CustomerGroup.firm_id == firm_id,
+                    CustomerGroup.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        # Rates chosen so that no tier can be mistaken for another. The
+        # promotions already give 1, 2.5, 5 and 7.5 percent and compound to
+        # 3.475, 5.95, 8.425 and 10.7144; a segment rate of 5 would be
+        # indistinguishable from `BULK5` on the very documents meant to show
+        # which of the two won. Reading a resolved percentage has to identify
+        # the tier that produced it, or the seed proves nothing about the
+        # ranking it exists to demonstrate.
+        wanted = [
+            ("RETAILER", "Retailer", Decimal("1.75")),
+            ("WHOLESALER", "Wholesaler", Decimal("3.25")),
+        ]
+        groups: list[CustomerGroup] = []
+        for code, name, rate in wanted:
+            row = existing.get(code)
+            if row is None:
+                row = CustomerGroup(
+                    firm_id=firm_id,
+                    code=code,
+                    name=name,
+                    default_discount_percent=rate,
+                    is_active=True,
+                    created_by=ACTOR,
+                    updated_by=ACTOR,
+                )
+                self._session.add(row)
+                self._session.flush()
+            groups.append(row)
+
+        # Only the shops the demo created are segmented: a record somebody
+        # made by hand is not the seeder's to reclassify.
+        mine = [
+            customer
+            for customer in customers
+            if customer.code.startswith(self._target.code)
+        ]
+        for index, customer in enumerate(mine):
+            if customer.customer_group_id is None:
+                customer.customer_group_id = groups[index % len(groups)].id
+        if standing.customer_group_id is None:
+            standing.customer_group_id = groups[0].id
+        self._session.commit()
+
+    def _price_lists(
+        self,
+        customers: list[Customer],
+        products: list[Product],
+        *,
+        standing: Customer,
+    ) -> None:
+        """Give the firm a price list, and one shop an arrangement of its own.
+
+        Every store held zero `price_lists`, so the tier between a promotion
+        and the customer's own rate priced nothing -- and the quantity ladder
+        `PriceListResolver.rate_for` resolves had never been asked a question.
+
+        Two lists, because one cannot show the rule that matters. The
+        firm-wide one carries **breaks** at 0, 25 and 60 on a single product,
+        so a large line and a small one off the same list resolve differently.
+        The customer-specific one **replaces** that ladder rather than
+        amending it, which is the behaviour a merge would quietly destroy: an
+        arrangement made with one shop is the arrangement, not an amendment to
+        the firm's standing one.
+
+        The shop given its own list is deliberately **not** the one on a
+        standing rate -- a list outranks a standing rate, so putting both on
+        one customer would hide the standing rate the demo seeds it for.
+        """
+        firm_id = self._target.firm_id
+        if self._session.scalar(
+            select(PriceList.id).where(
+                PriceList.firm_id == firm_id, PriceList.is_deleted.is_(False)
+            )
+        ):
+            return
+        opening = date(2000, 1, 1)
+        laddered = products[0]
+        firm_wide = PriceList(
+            firm_id=firm_id,
+            code="STANDING",
+            name="Standing trade rates",
+            customer_id=None,
+            territory_id=None,
+            effective_from=opening,
+            status="ACTIVE",
+            created_by=ACTOR,
+            updated_by=ACTOR,
+        )
+        self._session.add(firm_wide)
+        self._session.flush()
+        # Zero is the ordinary rate; the breaks above it are what a bulk line
+        # earns. Every figure here is one no promotion produces, so a
+        # resolved percentage names the tier that produced it.
+        # The breaks sit at 15 and 18 rather than at round numbers, because
+        # `BULK5` covers every line of 25 or more and a promotion outranks a
+        # price list: a ladder whose steps are above 25 has steps no document
+        # can ever reach. Sales are raised at 12, 18, 25, 30 and 45, so a line
+        # of 12 takes the base and a line of 18 takes the top -- and the
+        # middle step is what makes that meaningful, since reaching 6.75 from
+        # 18 proves the walk took the **highest** break at or below the line
+        # rather than the first one above zero.
+        for min_quantity, rate in (
+            (Decimal("0"), Decimal("2")),
+            (Decimal("15"), Decimal("4.25")),
+            (Decimal("18"), Decimal("6.75")),
+        ):
+            self._session.add(
+                PriceListItem(
+                    firm_id=firm_id,
+                    price_list_id=firm_wide.id,
+                    product_id=laddered.id,
+                    min_quantity=min_quantity,
+                    discount_percent=rate,
+                    created_by=ACTOR,
+                    updated_by=ACTOR,
+                )
+            )
+
+        own = next(
+            (
+                customer
+                for customer in customers
+                if customer.code.startswith(self._target.code)
+                and customer.id != standing.id
+            ),
+            None,
+        )
+        if own is not None:
+            negotiated = PriceList(
+                firm_id=firm_id,
+                code="NEGOTIATED",
+                name=f"Agreed with {own.display_name}",
+                customer_id=own.id,
+                territory_id=None,
+                effective_from=opening,
+                status="ACTIVE",
+                created_by=ACTOR,
+                updated_by=ACTOR,
+            )
+            self._session.add(negotiated)
+            self._session.flush()
+            # One flat rate, no breaks -- which is the point: this replaces
+            # the firm-wide ladder for this shop rather than merging into it,
+            # so a line of 18 takes 9.25 and not the 6.75 the ladder gives.
+            self._session.add(
+                PriceListItem(
+                    firm_id=firm_id,
+                    price_list_id=negotiated.id,
+                    product_id=laddered.id,
+                    min_quantity=Decimal("0"),
+                    discount_percent=Decimal("9.25"),
+                    created_by=ACTOR,
+                    updated_by=ACTOR,
+                )
+            )
+        self._session.commit()
 
     # -- calendar ------------------------------------------------------
 
@@ -759,9 +1015,23 @@ class HistoryBuilder:
         )
         # Behind the one that does not stack, so a large order proves it was
         # skipped rather than merely absent.
+        #
+        # **Conditional, and it has to be.** This offer carried no conditions
+        # at all, so it applied to every line of every document -- and a
+        # promotion outranks the price list, the customer's standing rate and
+        # their segment's rate. Of 58 orders across two years, exactly **one**
+        # line reached any tier below promotions. Three tiers of
+        # `resolve_line_discount` were ranked by the code, described in the
+        # documentation, and priced nothing anywhere. A blanket offer added
+        # later silently switched off the demonstration of everything under
+        # it, and nothing said so.
+        #
+        # Forty keeps its purpose intact -- it still stacks behind `BULK5` at
+        # 25, and `BIGORDER` still stops it -- while leaving every line under
+        # 25 for the tiers below to answer.
         self._promotion(
             code="CLEARANCE",
-            name="One percent, when nothing has ended the stack",
+            name="One percent on a large line, when nothing has ended the stack",
             priority=30,
             allow_stacking=True,
             effective_from=first_year_start,
@@ -769,7 +1039,7 @@ class HistoryBuilder:
             version_group_id=uuid4(),
             version_number=1,
             actions=[("LINE_DISCOUNT_PERCENT", {"percent": "1"})],
-            conditions=[],
+            conditions=[("line_quantity", "GREATER_OR_EQUAL", Decimal("40"))],
         )
         # An offer nobody stumbles into: it applies only when the code is
         # presented. Every store held zero coupons, so `_coupon_reaches`, the
@@ -1648,6 +1918,17 @@ class HistoryBuilder:
         quantity = (received / 4).quantize(Decimal("1"))
         if quantity <= 0:
             return
+        # Why the goods went back, and what state they were in. Every seeded
+        # return said QUALITY_REJECTED and flagged nothing, and the module
+        # ships a `/reports/damaged` and a `/reports/expired` that filter on
+        # exactly these two columns -- so both could only ever answer an empty
+        # grid, however much stock had gone back. Rotated rather than set on
+        # every line: a report that cannot tell a damaged return from an
+        # ordinary one is not being tested by data where they are all the same.
+        condition = self._vendor_return_cycle // 5 % 3
+        damaged = condition == 0
+        expired = condition == 1
+        reason = "DAMAGED" if damaged else "EXPIRED" if expired else "QUALITY_REJECTED"
         returns = PurchaseReturnService(self._session)
         try:
             row = returns.create_return(
@@ -1656,7 +1937,7 @@ class HistoryBuilder:
                     branch_id=branch.id,
                     warehouse_id=warehouse.id,
                     return_date=on,
-                    return_reason="QUALITY_REJECTED",
+                    return_reason=reason,
                     lines=[
                         PurchaseReturnLineWrite(
                             source_document_type=(
@@ -1673,6 +1954,8 @@ class HistoryBuilder:
                             # what made four returns in five refuse.
                             batch_number=line.batch_number,
                             expiry_date=line.expiry_date,
+                            is_damaged=damaged,
+                            is_expired=expired,
                         )
                     ],
                 ),
@@ -2372,6 +2655,8 @@ def build_for_firm(
                 except (ValidationError, BusinessRuleError) as error:
                     builder.tally.skipped.append(f"{sell_on} sale: {error}")
             cycle += 1
+
+    builder.report_unpriced_tiers()
 
     # Last, because none of it changes a document: commission reports over
     # invoices and receipts that already exist, and a target is a number to

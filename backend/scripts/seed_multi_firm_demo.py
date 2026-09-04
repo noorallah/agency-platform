@@ -523,6 +523,18 @@ def main() -> int:
         action="store_true",
         help="Seed masters only, the way this script behaved before.",
     )
+    parser.add_argument(
+        "--firm",
+        action="append",
+        metavar="CODE",
+        help=(
+            "Seed only this firm; repeatable. Everything else is untouched. "
+            "The standalone generate_transaction_history.py can already do "
+            "one firm, but its --reset takes the opening stock with it and "
+            "only this script lays that down again -- so a single firm could "
+            "not be rebuilt in full from anywhere."
+        ),
+    )
     args = parser.parse_args()
 
     # Keep batch/lot/serial mappers loaded so inventory transaction FKs resolve.
@@ -598,8 +610,11 @@ def main() -> int:
                 for firm in seeded_firms
             ]
 
+        wanted = {code.upper() for code in (args.firm or ())}
         for target in firm_targets:
             blueprint = target.blueprint
+            if wanted and blueprint.code.upper() not in wanted:
+                continue
             firm = FirmRef(id=target.firm_id, name=blueprint.name, code=blueprint.code)
             tenant = target.tenant
             manager = provider.manager_for(tenant)

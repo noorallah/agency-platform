@@ -201,3 +201,86 @@ def test_a_zero_value_line_records_an_explicit_refusal_as_zero() -> None:
     assert result.amount == Decimal("0.00")
     assert result.percent == Decimal("0.00")
     assert result.source == "percent"
+
+
+# ---- the whole ranking, in one place -----------------------------------
+#
+# The existing cases pin adjacent pairs -- typed over price list, price list
+# over blanket rate. What none of them pinned is the order end to end, and
+# that is the thing that failed in practice: a promotion with no conditions
+# was seeded, it matched every line of every document, and because a promotion
+# outranks the three tiers below it, the price list, the standing rate and the
+# segment rate priced **nothing at all** across two financial years of demo
+# data. The code was right and the ranking was invisible.
+
+
+def test_the_six_tiers_rank_in_the_documented_order() -> None:
+    """Each tier wins only when every tier above it is silent.
+
+    Read down the table: at each step the tier above is removed and the next
+    one takes over, so this asserts the order rather than six separate facts.
+    """
+    every = {
+        "amount": Decimal("100"),
+        "percent": Decimal("9"),
+        "promotion_amount": Decimal("80"),
+        "price_list_percent": Decimal("7"),
+        "customer_default": Decimal("5"),
+        "customer_group_default": Decimal("3"),
+    }
+    expected = [
+        ("amount", "amount", Decimal("100")),
+        ("percent", "percent", Decimal("90")),
+        ("promotion_amount", "promotion", Decimal("80")),
+        ("price_list_percent", "price_list", Decimal("70")),
+        ("customer_default", "customer", Decimal("50")),
+        ("customer_group_default", "customer_group", Decimal("30")),
+    ]
+    for index, (removed, source, amount) in enumerate(expected):
+        given = {key: every[key] for key in list(every)[index:]}
+        resolved = resolve_line_discount(gross=THOUSAND, **given)
+        assert resolved.source == source, removed
+        assert resolved.amount == amount, removed
+
+    # And with nothing at all, nothing is taken.
+    assert resolve_line_discount(gross=THOUSAND).amount == Decimal("0")
+
+
+def test_a_promotion_hides_every_arrangement_beneath_it() -> None:
+    """The shape of the defect, stated as a rule rather than as a story.
+
+    An offer that matches everything is not a pricing decision about the
+    lines it matches -- it is a decision that no tier below it will ever be
+    consulted. That is correct behaviour, and it is why a blanket promotion
+    is a configuration mistake rather than a code one: nothing in the engine
+    can tell that the firm did not mean it.
+    """
+    resolved = resolve_line_discount(
+        gross=THOUSAND,
+        promotion_amount=Decimal("10"),
+        price_list_percent=Decimal("40"),
+        customer_default=Decimal("30"),
+        customer_group_default=Decimal("20"),
+    )
+
+    assert resolved.source == "promotion"
+    assert resolved.amount == Decimal(
+        "10"
+    ), "a promotion worth far less than the arrangements below it still wins"
+
+
+def test_a_promotion_of_nothing_is_a_silence_not_a_refusal() -> None:
+    """None means no offer applied, and the tiers below still answer.
+
+    The distinction the rest of this module turns on: `None` and `Decimal(0)`
+    are different answers everywhere a discount is concerned. A promotion
+    engine that found no match must not thereby refuse the customer's own
+    standing rate.
+    """
+    silent = resolve_line_discount(
+        gross=THOUSAND,
+        promotion_amount=None,
+        customer_default=Decimal("5"),
+    )
+    assert silent.source == "customer"
+    assert silent.amount == Decimal("50")
