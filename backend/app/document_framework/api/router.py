@@ -9,7 +9,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import RequiredFirmScope
+from app.common.scope import (
+    RequiredFirmScope,
+    ResolvedFirmScope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ConflictError
@@ -47,6 +51,17 @@ router = APIRouter(
 )
 
 PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
+
+#: A firm administering its own numbering series. `SETTINGS_UPDATE` is
+#: seeded under `system_administration` and held by `FIRM_ADMIN` alone, so
+#: the authority is administrative without being platform-wide -- and a
+#: platform admin still passes, because their check short-circuits the
+#: permission lookup. Document types and states stay platform-administered:
+#: what a firm calls its invoices is its own business, but the lifecycle a
+#: purchase order moves through is the platform's design.
+SettingsUpdateScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("SETTINGS_UPDATE")
+]
 
 
 def _service(db: Session) -> DocumentFrameworkService:
@@ -242,11 +257,10 @@ def list_numbering_rules(
 )
 def create_numbering_rule(
     data: DocumentNumberingRuleCreate,
-    principal: PlatformPrincipal,
-    scope: RequiredFirmScope,
+    scope: SettingsUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentNumberingRuleResponse]:
-    row = _service(db).create_numbering_rule(scope.firm_id, data, _actor_id(principal))
+    row = _service(db).create_numbering_rule(scope.firm_id, data, scope.actor_id)
     db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
 
@@ -258,12 +272,11 @@ def create_numbering_rule(
 def update_numbering_rule(
     rule_id: UUID,
     data: DocumentNumberingRuleUpdate,
-    principal: PlatformPrincipal,
-    scope: RequiredFirmScope,
+    scope: SettingsUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentNumberingRuleResponse]:
     row = _service(db).update_numbering_rule(
-        scope.firm_id, rule_id, data, _actor_id(principal)
+        scope.firm_id, rule_id, data, scope.actor_id
     )
     db.commit()
     return ApiResponse(data=DocumentNumberingRuleResponse.model_validate(row))
@@ -272,11 +285,10 @@ def update_numbering_rule(
 @router.delete("/numbering-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_numbering_rule(
     rule_id: UUID,
-    principal: PlatformPrincipal,
-    scope: RequiredFirmScope,
+    scope: SettingsUpdateScope,
     db: Session = Depends(get_db),
 ) -> Response:
-    _service(db).delete_numbering_rule(scope.firm_id, rule_id, _actor_id(principal))
+    _service(db).delete_numbering_rule(scope.firm_id, rule_id, scope.actor_id)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

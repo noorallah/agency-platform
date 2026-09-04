@@ -169,6 +169,13 @@ def firm_permission_scope(code: str) -> object:
     ) -> ResolvedFirmScope:
         return scope
 
+    # The code, readable from the built application rather than only from the
+    # source. `test_every_enforced_permission_code_is_seeded` scans source
+    # text, and it could not see this composer at all: it matched
+    # `_permission(` and this is `_permission_scope(`, so 138 of the 157 codes
+    # this codebase enforces were invisible to the guard written to catch an
+    # unseeded one. A test can now ask the routes instead of the files.
+    dependency.permission_code = code  # type: ignore[attr-defined]
     return Depends(dependency)
 
 

@@ -1,6 +1,7 @@
 """Document lifecycle framework tests."""
 
 import importlib
+from collections.abc import Iterator
 from datetime import date
 from uuid import UUID, uuid4
 
@@ -457,3 +458,99 @@ def test_a_partial_update_is_judged_on_what_the_rule_will_be() -> None:
         ),
         actor_id,
     )
+
+
+def _endpoints(routes: object) -> "Iterator[object]":
+    """Yield the leaf endpoints of a built application.
+
+    `app.routes` does not hold them. FastAPI wraps an included router in
+    `_IncludedRouter`, which carries neither a path nor a `routes` list --
+    only `original_router` -- so a walk that looks for sub-routes finds 46
+    nodes and none of the 400-odd endpoints. Worth knowing before writing any
+    test that interrogates the routing table.
+    """
+    for route in routes:  # type: ignore[attr-defined]
+        inner = getattr(route, "original_router", None)
+        if inner is not None:
+            yield from _endpoints(inner.routes)
+            continue
+        nested = getattr(route, "routes", None)
+        if nested:
+            yield from _endpoints(nested)
+            continue
+        yield route
+
+
+def _codes_enforced_on(fragment: str) -> dict[str, set[str]]:
+    """Return the permission codes each matching endpoint actually enforces.
+
+    Asked of the application rather than of the source text, which is the
+    thing worth asserting: a handler's signature proves nothing about what
+    the dependency tree beneath it requires. `firm_permission_scope` records
+    the code it composes so this can be read back.
+    """
+    from app.main import create_app
+
+    enforced: dict[str, set[str]] = {}
+    for route in _endpoints(create_app().routes):
+        path = getattr(route, "path", "")
+        if fragment not in path:
+            continue
+        dependant = getattr(route, "dependant", None)
+        if dependant is None:
+            continue
+        codes: set[str] = set()
+        pending = list(dependant.dependencies)
+        while pending:
+            dependency = pending.pop()
+            code = getattr(dependency.call, "permission_code", None)
+            if code:
+                codes.add(code)
+            pending.extend(dependency.dependencies)
+        for method in getattr(route, "methods", set()):
+            enforced.setdefault(f"{method} {path}", set()).update(codes)
+    return enforced
+
+
+def test_a_firm_administers_its_own_numbering_series() -> None:
+    """`SETTINGS_UPDATE` -- not platform admin, and not bare membership.
+
+    The three write endpoints took `require_platform_admin`, so a firm's own
+    administrator could not change the prefix on its invoice series: only
+    whoever runs the platform could, per firm, by hand. What a firm calls its
+    documents is its business.
+
+    `SETTINGS_UPDATE` is seeded under `system_administration` and granted to
+    `FIRM_ADMIN` alone -- not to `FIRM_MANAGER`, not to any operational role
+    -- so the authority is administrative without being platform-wide, and a
+    platform admin still passes because their check short-circuits the lookup.
+    """
+    enforced = _codes_enforced_on("numbering-rules")
+    writes = {
+        key: codes
+        for key, codes in enforced.items()
+        if key.split(" ")[0] in {"POST", "PUT", "DELETE"}
+    }
+    assert len(writes) == 3, f"expected three write routes, found {sorted(writes)}"
+    for key, codes in sorted(writes.items()):
+        assert (
+            "SETTINGS_UPDATE" in codes
+        ), f"{key} enforces {sorted(codes) or 'no permission code'}"
+
+
+def test_document_types_stay_platform_administered() -> None:
+    """Only the numbering moved, and deliberately so.
+
+    A firm naming its own documents is one decision; a firm redefining the
+    lifecycle every transactional module reads is another, and nobody has
+    asked for the second.
+    """
+    enforced = _codes_enforced_on("document-types")
+    writes = [
+        key
+        for key, codes in enforced.items()
+        if key.split(" ")[0] in {"POST", "PUT", "DELETE"} and "SETTINGS_UPDATE" in codes
+    ]
+    assert (
+        not writes
+    ), f"these were widened along with the numbering rules: {sorted(writes)}"

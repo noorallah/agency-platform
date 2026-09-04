@@ -3021,6 +3021,46 @@ class ApiClient {
         NumberingRule.fromJson,
       );
 
+  /// A firm's own numbering series, which it administers itself.
+  ///
+  /// These need `SETTINGS_UPDATE`, seeded to `FIRM_ADMIN` alone. They used to
+  /// need platform admin, so a firm could not change the prefix on its own
+  /// invoice series -- what a firm calls its documents is its business, where
+  /// the lifecycle those documents move through stays the platform's.
+  Future<NumberingRule> createNumberingRule(Json body) async =>
+      NumberingRule.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/document-framework/numbering-rules',
+            body: body,
+          ),
+        ),
+      );
+
+  Future<NumberingRule> updateNumberingRule(String id, Json body) async =>
+      NumberingRule.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/document-framework/numbering-rules/$id',
+            body: body,
+          ),
+        ),
+      );
+
+  Future<void> deleteNumberingRule(String id) =>
+      request('DELETE', '/api/v1/document-framework/numbering-rules/$id');
+
+  /// The document types a numbering series can be attached to.
+  Future<List<DocumentTypeRecord>> documentTypes() async => _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/document-framework/document-types?page_size=100',
+        ),
+        DocumentTypeRecord.fromJson,
+      );
+
   /// What the next number would look like, without consuming it.
   Future<String> previewNumber(String ruleId) async {
     final Json response = await request(

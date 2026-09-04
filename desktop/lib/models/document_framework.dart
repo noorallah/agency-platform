@@ -167,6 +167,30 @@ class DocumentTimelineSnapshot {
 /// The rule behind every `SI-2026-2027-000008` in the system. It had endpoints
 /// and no screen, so "what will the next invoice be called" was a question
 /// only the database could answer.
+/// A kind of document a numbering series can be attached to.
+///
+/// The series is what a firm names its own documents; the type is the
+/// platform's definition of what kind of document it is. Only the first is
+/// editable from the firm's side, which is why this model carries nothing but
+/// what a picker needs.
+class DocumentTypeRecord {
+  const DocumentTypeRecord({
+    required this.id,
+    required this.code,
+    required this.name,
+  });
+
+  final String id;
+  final String code;
+  final String name;
+
+  factory DocumentTypeRecord.fromJson(Json json) => DocumentTypeRecord(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+      );
+}
+
 class NumberingRule {
   const NumberingRule({
     required this.id,
