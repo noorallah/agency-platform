@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import (
     financial_year_label as build_financial_year_label,
 )
@@ -371,6 +375,11 @@ class DocumentFrameworkService:
         self, firm_id: UUID, data: DocumentNumberingRuleCreate, actor_id: UUID
     ) -> DocumentNumberingRule:
         self._assert_unique_numbering_rule(firm_id, data.document_type_id, data.code)
+        self._assert_a_reset_shows_its_year(
+            auto_reset=data.auto_reset,
+            include_financial_year=data.include_financial_year,
+            format_pattern=data.format_pattern,
+        )
         row = DocumentNumberingRule(
             firm_id=firm_id,
             **data.model_dump(),
@@ -440,7 +449,19 @@ class DocumentFrameworkService:
             "name": row.name,
             "next_sequence": row.next_sequence,
         }
-        for field, value in data.model_dump(exclude_unset=True).items():
+        values = data.model_dump(exclude_unset=True)
+        # Judged on what the rule will be, not on what the request mentions.
+        # This update is partial, so a caller turning the year off says
+        # nothing about `auto_reset` and the collision would be assembled from
+        # one stored field and one sent one.
+        self._assert_a_reset_shows_its_year(
+            auto_reset=values.get("auto_reset", row.auto_reset),
+            include_financial_year=values.get(
+                "include_financial_year", row.include_financial_year
+            ),
+            format_pattern=values.get("format_pattern", row.format_pattern),
+        )
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -542,6 +563,7 @@ class DocumentFrameworkService:
         # differently for the same rule and date.
         label = self._year_label(firm_id, on, financial_year_label)
         scope_signature = self._scope_signature(
+            rule,
             financial_year_label=label,
             branch_code=branch_code,
             company_code=company_code,
@@ -688,6 +710,54 @@ class DocumentFrameworkService:
         if existing is not None:
             raise ConflictError("A document state with this code already exists.")
 
+    @staticmethod
+    def _assert_a_reset_shows_its_year(
+        *,
+        auto_reset: bool,
+        include_financial_year: bool,
+        format_pattern: str | None,
+    ) -> None:
+        """Refuse a rule whose counter restarts behind a number that hides it.
+
+        A counter that resets each financial year issues `000001` again every
+        April. If the number does not say which year it belongs to, that is
+        the same number twice, and the per-firm uniqueness key on every
+        document table rejects the second one -- so the firm cannot raise its
+        first document of the new year and nothing on screen explains why.
+
+        Refused when the rule is configured rather than when April arrives.
+        `include_financial_year` defaults to False, so this is the shape a
+        rule takes when nobody thinks about it, not an unusual one.
+
+        A `format_pattern` overrides the flags entirely, so it is checked for
+        the placeholder instead.
+
+        Raises:
+            ValidationError: If the rule would issue a number twice.
+
+        """
+        if not auto_reset:
+            return
+        if format_pattern:
+            if "{financial_year}" in format_pattern:
+                return
+            raise ValidationError(
+                "This rule restarts its numbering every financial year, so its "
+                "format pattern has to contain {financial_year} -- without it "
+                "the first document of each new year repeats a number the "
+                "firm has already issued. Add the placeholder, or turn off "
+                "'restart numbering each financial year'."
+            )
+        if include_financial_year:
+            return
+        raise ValidationError(
+            "This rule restarts its numbering every financial year, so the "
+            "number has to include the year -- without it the first document "
+            "of each new year repeats a number the firm has already issued. "
+            "Switch on 'include financial year', or turn off 'restart "
+            "numbering each financial year'."
+        )
+
     def _assert_unique_numbering_rule(
         self,
         firm_id: UUID,
@@ -721,6 +791,7 @@ class DocumentFrameworkService:
         if manual_number is not None and rule.manual_allowed:
             return manual_number.strip()
         scope_signature = self._scope_signature(
+            rule,
             financial_year_label=financial_year_label,
             branch_code=branch_code,
             company_code=company_code,
@@ -764,15 +835,33 @@ class DocumentFrameworkService:
 
     def _scope_signature(
         self,
+        rule: DocumentNumberingRule,
         *,
         financial_year_label: str | None,
         branch_code: str | None,
         company_code: str | None,
         document_date: date,
     ) -> str:
+        """Return the key this rule counts against.
+
+        A counter exists per signature, so what goes in here is exactly what
+        makes the sequence restart. The financial year is in it only when the
+        rule asks for that: `auto_reset` was stored, returned by the API and
+        rendered by the desktop while **nothing read it**, so every rule reset
+        every April whatever a firm had configured -- a flag the engine
+        records has to change an outcome.
+
+        With `auto_reset` off there is one continuous series for the life of
+        the rule, which is what a firm that numbers its invoices straight
+        through wants and could not previously have.
+        """
         return "|".join(
             [
-                financial_year_label or str(document_date.year),
+                (
+                    (financial_year_label or str(document_date.year))
+                    if rule.auto_reset
+                    else ""
+                ),
                 branch_code or "",
                 company_code or "",
             ]
