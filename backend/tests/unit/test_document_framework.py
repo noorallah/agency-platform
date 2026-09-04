@@ -2,13 +2,15 @@
 
 import importlib
 from datetime import date
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentNumberingRule,
@@ -18,6 +20,7 @@ from app.document_framework.models import (
 from app.document_framework.schemas import (
     DocumentLifecycleEventCreate,
     DocumentNumberingRuleCreate,
+    DocumentNumberingRuleUpdate,
     DocumentStateCreate,
     DocumentTypeCreate,
 )
@@ -290,3 +293,167 @@ def test_a_preview_shows_the_number_the_document_would_actually_get() -> None:
 
     assert preview == "PO-2025-2026-000001"
     assert reserved == preview
+
+
+def _numbering_setup() -> tuple[DocumentFrameworkService, UUID, UUID, UUID]:
+    """Build a firm with a document type, ready for a numbering rule."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    service = DocumentFrameworkService(session)
+    document_type = service.create_type(
+        firm.id,
+        DocumentTypeCreate(code="NUMBERED", name="Numbered"),
+        actor_id,
+    )
+    return service, firm.id, document_type.id, actor_id
+
+
+def test_a_rule_that_resets_yearly_must_show_the_year() -> None:
+    """Otherwise 1 April repeats a number the firm has already issued.
+
+    The scope signature carried the financial year unconditionally, so every
+    rule reset each April -- while `include_financial_year` defaults to
+    **False**, which makes the colliding shape the one a rule takes when
+    nobody thinks about it. `PRB-000001` in March and `PRB-000001` again in
+    April, and the per-firm uniqueness key on every document table rejects the
+    second one: the firm cannot raise its first document of the new year, and
+    nothing on screen says why.
+
+    Refused when the rule is configured, which is the only moment anybody is
+    in a position to fix it.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+
+    with pytest.raises(ValidationError, match="has to include the year"):
+        service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate(
+                document_type_id=type_id,
+                code="HIDDEN",
+                name="Hides the year",
+                prefix="PRB",
+                include_financial_year=False,
+            ),
+            actor_id,
+        )
+
+
+def test_a_format_pattern_is_checked_for_the_placeholder_instead() -> None:
+    """A pattern overrides the flags, so the flags cannot answer for it."""
+    service, firm_id, type_id, actor_id = _numbering_setup()
+
+    with pytest.raises(ValidationError, match="format pattern"):
+        service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate(
+                document_type_id=type_id,
+                code="PATTERNED",
+                name="Patterned",
+                include_financial_year=True,
+                format_pattern="{prefix}{separator}{sequence}",
+            ),
+            actor_id,
+        )
+
+    accepted = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="PATTERNED_OK",
+            name="Patterned, with the year",
+            prefix="INV",
+            include_financial_year=False,
+            format_pattern="{prefix}{separator}{financial_year}{separator}{sequence}",
+        ),
+        actor_id,
+    )
+    assert accepted.format_pattern is not None
+
+
+def test_turning_the_reset_off_gives_one_continuous_series() -> None:
+    """`auto_reset` was stored, returned, rendered -- and read by nothing.
+
+    Every rule reset every April whatever a firm had configured, which is the
+    defect this repo records from the tax review: a flag the engine records
+    has to change an outcome. With the reset off there is one series for the
+    life of the rule, which is what a firm numbering straight through wants
+    and could not previously have had.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+    rule = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="CONTINUOUS",
+            name="Straight through",
+            prefix="SEQ",
+            include_financial_year=False,
+            auto_reset=False,
+        ),
+        actor_id,
+    )
+
+    def reserve(label: str, on: date) -> str:
+        return service.reserve_number(
+            rule.id,
+            firm_id=firm_id,
+            document_date=on,
+            financial_year_label=label,
+            actor_id=actor_id,
+        )
+
+    assert reserve("2025-2026", date(2026, 3, 30)) == "SEQ-000001"
+    assert reserve("2025-2026", date(2026, 3, 31)) == "SEQ-000002"
+    # Across the year boundary the count carries on rather than restarting.
+    assert reserve("2026-2027", date(2026, 4, 1)) == "SEQ-000003"
+    assert reserve("2026-2027", date(2026, 4, 2)) == "SEQ-000004"
+
+
+def test_a_partial_update_is_judged_on_what_the_rule_will_be() -> None:
+    """The collision can be assembled from one stored field and one sent one.
+
+    The update is partial, so a caller switching the year off says nothing
+    about `auto_reset`. Reading the request alone would let that through and
+    leave the rule in exactly the state creation refuses.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+    rule = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="EDITED",
+            name="Edited",
+            prefix="EDT",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="has to include the year"):
+        service.update_numbering_rule(
+            firm_id,
+            rule.id,
+            DocumentNumberingRuleUpdate(
+                document_type_id=type_id,
+                code="EDITED",
+                name="Edited",
+                include_financial_year=False,
+            ),
+            actor_id,
+        )
+
+    # Turning the reset off in the same edit is accepted, because then there
+    # is no reset for the year to be missing from.
+    service.update_numbering_rule(
+        firm_id,
+        rule.id,
+        DocumentNumberingRuleUpdate(
+            document_type_id=type_id,
+            code="EDITED",
+            name="Edited",
+            include_financial_year=False,
+            auto_reset=False,
+        ),
+        actor_id,
+    )
