@@ -20,6 +20,7 @@ from app.core.security.authorization import (
     require_permission,
     require_platform_admin,
 )
+from app.identity.models import UserTemplate
 from app.identity.schemas import (
     ChangePasswordRequest,
     IdentifierList,
@@ -39,6 +40,10 @@ from app.identity.schemas import (
     UserPreferencesResponse,
     UserPreferencesUpdate,
     UserResponse,
+    UserTemplateApply,
+    UserTemplateCreate,
+    UserTemplateResponse,
+    UserTemplateUpdate,
     UserUpdate,
 )
 from app.identity.services import IdentityService
@@ -390,7 +395,14 @@ def set_user_firms(
 
 @router.get("/roles", response_model=PaginatedResponse[RoleResponse], tags=["Roles"])
 def list_roles(
-    principal: PlatformPrincipal,
+    # `ROLE_VIEW`, not the platform designation. This was the only one of the
+    # four role endpoints gated on the designation -- `get_role`, `create_role`
+    # and `update_role` all take the permission -- and the only one of the
+    # three identity lists, beside `list_users` and `list_permissions`. So
+    # `ROLE_VIEW` was seeded, granted to `FIRM_ADMIN`, honoured everywhere
+    # except the one place a firm administrator would start, and the firm
+    # filtering below was written for a caller who could never reach it.
+    principal: RoleViewPrincipal,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -434,6 +446,165 @@ def create_role(
                 data, _actor_id(principal), _firm_scope(principal)
             )
         )
+    )
+
+
+def _template_response(template: UserTemplate) -> UserTemplateResponse:
+    """Render a template with the roles it bundles.
+
+    The codes travel beside the ids because the screen offering a template
+    shows what it does, and a list of UUIDs says nothing to anybody.
+    """
+    live = [row for row in template.template_roles if not row.is_deleted]
+    return UserTemplateResponse(
+        id=template.id,
+        code=template.code,
+        name=template.name,
+        description=template.description,
+        firm_id=template.firm_id,
+        is_active=template.is_active,
+        is_system=template.is_system,
+        role_ids=[row.role_id for row in live],
+        role_codes=sorted(row.role.code for row in live if row.role is not None),
+    )
+
+
+@router.get(
+    "/user-templates",
+    response_model=PaginatedResponse[UserTemplateResponse],
+    tags=["User templates"],
+)
+def list_user_templates(
+    principal: RoleViewPrincipal,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
+    search: str | None = None,
+    sort_by: Literal["code", "name", "created_at"] = "code",
+    sort_direction: Literal["asc", "desc"] = "asc",
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> PaginatedResponse[UserTemplateResponse]:
+    """List the job templates this caller may offer."""
+    params = PaginationParams(page=page, page_size=page_size)
+    rows, total = _service(db, settings).list_user_templates(
+        params.page,
+        params.page_size,
+        search,
+        sort_by,
+        sort_direction == "desc",
+        _firm_scope(principal),
+    )
+    return PaginatedResponse(
+        data=[_template_response(item) for item in rows],
+        pagination=params.metadata(total),
+    )
+
+
+@router.post(
+    "/user-templates",
+    response_model=ApiResponse[UserTemplateResponse],
+    status_code=status.HTTP_201_CREATED,
+    tags=["User templates"],
+)
+def create_user_template(
+    data: UserTemplateCreate,
+    principal: RoleCreatePrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserTemplateResponse]:
+    """Create a job template for this scope."""
+    return ApiResponse(
+        data=_template_response(
+            _service(db, settings).create_user_template(
+                data, _actor_id(principal), _firm_scope(principal)
+            )
+        )
+    )
+
+
+@router.get(
+    "/user-templates/{template_id}",
+    response_model=ApiResponse[UserTemplateResponse],
+    tags=["User templates"],
+)
+def get_user_template(
+    template_id: UUID,
+    principal: RoleViewPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserTemplateResponse]:
+    """Retrieve one job template."""
+    return ApiResponse(
+        data=_template_response(
+            _service(db, settings).get_user_template(
+                template_id, _firm_scope(principal)
+            )
+        )
+    )
+
+
+@router.patch(
+    "/user-templates/{template_id}",
+    response_model=ApiResponse[UserTemplateResponse],
+    tags=["User templates"],
+)
+def update_user_template(
+    template_id: UUID,
+    data: UserTemplateUpdate,
+    principal: RoleUpdatePrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserTemplateResponse]:
+    """Update a job template."""
+    return ApiResponse(
+        data=_template_response(
+            _service(db, settings).update_user_template(
+                template_id, data, _actor_id(principal), _firm_scope(principal)
+            )
+        )
+    )
+
+
+@router.delete(
+    "/user-templates/{template_id}",
+    response_model=ApiResponse[None],
+    tags=["User templates"],
+)
+def delete_user_template(
+    template_id: UUID,
+    principal: RoleDeletePrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[None]:
+    """Retire a job template, leaving every user it created untouched."""
+    _service(db, settings).delete_user_template(
+        template_id, _actor_id(principal), _firm_scope(principal)
+    )
+    return ApiResponse(data=None, message="The template was retired.")
+
+
+@router.post(
+    "/users/{user_id}/apply-template",
+    response_model=ApiResponse[list[UUID]],
+    tags=["User templates"],
+)
+def apply_user_template(
+    user_id: UUID,
+    data: UserTemplateApply,
+    principal: UserRoleAssignmentPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[list[UUID]]:
+    """Give a user the roles a template bundles.
+
+    What they hold afterwards is an ordinary role set, editable in the ordinary
+    way: a template is where an administrator starts, not somewhere they stay.
+    """
+    return ApiResponse(
+        data=_service(db, settings).apply_user_template(
+            user_id, data.template_id, _actor_id(principal), _firm_scope(principal)
+        ),
+        message="The template was applied.",
     )
 
 

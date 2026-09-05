@@ -83,6 +83,11 @@ def _is_platform_path(path: str) -> bool:
         "/api/v1/firms",
         "/api/v1/dashboard",
         "/api/v1/me",
+        # `users`, `roles` and `firms` live only in the platform schema, so
+        # a template -- which is a bundle of role ids, scoped to a firm id --
+        # has nowhere else it could live. A tenant session would resolve none
+        # of the three.
+        "/api/v1/user-templates",
         # Error reports are operational telemetry for whoever maintains the
         # product, so they live in one place rather than scattered across firm
         # stores. `firm_id` is recorded as data, not used as routing.

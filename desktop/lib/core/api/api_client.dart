@@ -286,6 +286,30 @@ class ApiClient {
       _list('/api/v1/roles', Role.fromJson, page, search,
           sortBy: sortBy, descending: descending);
 
+  /// Lists the job templates this caller may offer.
+  ///
+  /// A firm sees the platform's eleven **and** its own. Platform-owned like
+  /// `/roles` and `/users`, so it resolves against the platform schema.
+  Future<PagedResult<UserTemplate>> userTemplates({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) =>
+      _list('/api/v1/user-templates', UserTemplate.fromJson, page, search,
+          pageSize: pageSize, sortBy: sortBy, descending: descending);
+
+
+  /// Gives a user the roles a template bundles.
+  ///
+  /// What they hold afterwards is an ordinary role set, editable in the
+  /// ordinary way -- a template is where an administrator starts, not
+  /// somewhere the user stays.
+  Future<void> applyUserTemplate(String userId, String templateId) =>
+      request('POST', '/api/v1/users/$userId/apply-template',
+          body: {'template_id': templateId});
+
   /// Lists permissions, honouring a caller-chosen page size.
   ///
   /// `pageSize` is an extra optional named parameter, so this still satisfies
