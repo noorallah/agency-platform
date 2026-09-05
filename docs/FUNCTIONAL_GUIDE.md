@@ -49,18 +49,18 @@ nothing about a document stops it happening here.
 | | 9 | Products, attributes, batch and serial | ✅ |
 | | 10 | Customers, groups and credit policy | ✅ |
 | | 11 | Vendors | ☐ |
-| | 12 | Territory, routes and beats | ☐ |
+| | 12 | Territory, routes and beats | ✅ |
 | | 13 | Price lists and discount rules | ✅ |
 | | 14 | Promotions and coupons | ✅ |
 | **C — Buying** | 15 | Purchase order → receipt → invoice → return | ✅ |
 | **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ✅ |
 | | 17 | Proforma invoices | ☐ |
 | | 18 | Credit notes | ☐ |
-| **E — Money** | 19 | Receipts, payments and refunds | ☐ |
-| | 20 | Loyalty and cashback | ☐ |
-| | 21 | Commission, rules and payouts | ☐ |
-| | 22 | Sales targets | ☐ |
-| | 23 | Journals, ledgers and financial reports | ☐ |
+| **E — Money** | 19 | Receipts, payments and refunds | ✅ |
+| | 20 | Loyalty and cashback | ✅ |
+| | 21 | Commission, rules and payouts | ✅ |
+| | 22 | Sales targets | ✅ |
+| | 23 | Journals, ledgers and financial reports | ✅ |
 | **F — Compliance** | 24 | Tax collected at source | ☐ |
 | | 25 | GST returns | ☐ |
 | | 26 | E-invoicing and e-way bills | ☐ |
@@ -1508,6 +1508,87 @@ refusal carries the same sentence.
 
 ---
 
+# 12. Territory, routes and beats
+
+## What it does
+
+Who calls on which shop, when. A firm-configurable hierarchy of places, the
+rounds a salesman walks, and the plan that turns a round into today's call
+list.
+
+## The hierarchy is the firm's own
+
+`sales_hierarchy_levels` defines the levels; the demo firms run **Region →
+Territory → Route**. A node becomes a **route** when it has a
+`territory_route_profile`, which carries the working days the round is walked.
+
+## Configure first
+
+Hierarchy levels, then nodes, then a route profile on the leaves, then customer
+and salesman assignments.
+
+## The three keys on a customer assignment
+
+`territory_customer_assignments` carries the customer, the route, and a
+`visit_sequence` — the shop's position on the round.
+
+**`PUT /{id}/customers` replaces the whole list**, with position in the list as
+the sequence, so membership and order travel together. Omitting `is_primary`
+means *leave it alone*: sending it back would demote the round somebody chose
+and collide with the one-primary-per-shop key.
+
+## How a beat plan becomes a call list
+
+Three conditions decide whether a plan calls anybody, and **all three must
+hold**:
+
+1. the recurrence hits that date (weekly, fortnightly, monthly),
+2. the route's effective window is in force on that date, and
+3. **the route works that weekday**.
+
+The call list returns **every** plan with an `occurs` flag and a `reason`, not
+just the due ones — so a plan that does not fire says why rather than
+disappearing.
+
+A plan may name its own stops in `sales_beat_plan_customer_stops`, which is
+**additive**: a plan listing none falls back to the customers on its territory
+in `visit_sequence` order. That is the ordinary case and needs no rows at all.
+
+## Tables
+
+`sales_hierarchy_configs` · `sales_hierarchy_levels` · `sales_territories` ·
+`sales_route_types` · `territory_route_profiles` · `territory_working_days` ·
+`territory_customer_assignments` · `territory_salesman_assignments` ·
+`sales_beat_plans` · `sales_beat_plan_customer_stops`
+
+## Rules that bite
+
+1. **A partial unique index cannot be `DEFERRABLE`, so a swap must release
+   before it reassigns.** `UQ_territory_customer_assignments_sequence_active`
+   keeps two shops off one stop number, and PostgreSQL checks it per statement
+   — so reassigning row by row collided the moment two rows exchanged values,
+   which is exactly what dragging one stop above another does. `set_customers`
+   clears the numbers it is about to hand out, flushes, then writes them, and
+   clears **only** the ones actually moving.
+2. **A screen that replaces a whole list must prove it read that list first.**
+   Both territory screens clear the pane **before** the read rather than after
+   it succeeds, and refuse to save until the pane provably holds the selected
+   route — without that, a failed read left the previous route's shops on
+   screen and one Save wrote them over a different round.
+3. **A route's effective window is enforced**, judged on the document's own
+   date. It decides both whether a beat plan calls the round and whether a
+   document may be tagged with it.
+4. **A salesman must cover the customer's territory.** `_validated_salesman`
+   refuses anybody who does not — and until the demo put salespeople on rounds,
+   *every* attempt to name a salesman was refused on every customer of every
+   firm, which is how three `select(User)` defects survived months of green
+   tests.
+5. **`TERRITORY` is deliberately ungated.** Only AGENCY and WHOLESALE enable
+   the feature, so enforcing it would take routes and beats away from PHARMACY,
+   FOOD and RETAIL. The seeded assignment looks more wrong than the code does.
+
+---
+
 # 13. Price lists and the discount chain
 
 ## What it does
@@ -1969,3 +2050,299 @@ invoice must state existed only in a prunable log.
 7. **Credit limits warn, and block only if a firm asks.** A `credit_limit` of
    zero means unset, not "no credit".
 
+---
+
+# 19. Receipts, payments and refunds
+
+## What it does
+
+Money in and money out, through **one** document. A receipt from a customer and
+a payment to a vendor differ only in signs.
+
+`settlements.journal_entry_id` is **NOT NULL**, because the defect this module
+exists to close is a settlement that never reached the ledger.
+
+## Workflow
+
+| Step | Permission | Result |
+| --- | --- | --- |
+| Record a receipt | `RECEIPT_CREATE` | Posts cash and clears the receivable |
+| Record a payment | `PAYMENT_CREATE` | Posts the payable and the money out |
+| Allocate an advance | `RECEIPT_CREATE` | Decides which invoice a credit belongs to |
+| Reverse | `RECEIPT_CREATE` | A mirror journal cancels it |
+
+## How a receipt splits
+
+A receipt of 500 against an outstanding 300 splits **when it is recorded**:
+`min(amount, outstanding)` comes off the balance and the excess becomes an
+unapplied advance.
+
+**Applying that advance later posts no journal.** The receipt already debited
+cash and credited receivables, and the invoice already debited receivables; the
+allocation only decides which invoice the credit belongs to, and a journal
+would count the money twice.
+
+**Only the part that became an advance moves the balance.** Posting
+`ADVANCE_APPLY` for the whole allocation double-counts — the first version did,
+and a deposit taken while the customer already owed something (the ordinary
+case) was refused outright with *"exceeds unapplied advance"*.
+`_advance_part_of` reads the split off the receipt's own receivable row and
+subtracts what earlier allocations used, or the last of an advance is stranded
+for ever.
+
+## Reversal
+
+A settlement is **reversed, never edited or deleted**. A mirror journal cancels
+it, the allocations stop clearing invoices but still record what they had
+cleared, and the customer's balances go back **by the deltas stored on the
+original row** — never recomputed, because only that row remembers the split.
+
+## Tables
+
+`settlements` · `settlement_allocations`
+
+What an invoice still owes is derived from `settlement_allocations`, **never
+stored on the invoice**.
+
+## Rules that bite
+
+1. **`CustomerService.post_receivable_transaction` moves a balance without
+   writing a journal.** It is the older, lower-level path, and the two books
+   drift by every rupee recorded through it. Record money through
+   `/api/v1/receipts` and `/api/v1/payments`.
+2. **`settlements.sales_order_id` is a note, not a ring-fence.** Cancelling the
+   order does not make the deposit vanish.
+3. **The direction check is `SettlementDirection.RECEIPT`, not `"IN"`.** The
+   first TCS version compared against a string the column never holds, so it
+   collected nothing anywhere and only the tests said so.
+
+---
+
+# 20. Loyalty and cashback
+
+## What it does
+
+One ledger for every movement of credit a customer holds. What a firm calls the
+scheme — points, cashback — is a matter of the conversion rate, not of the
+model.
+
+## The design turns on the tax
+
+**A redemption settles the bill; it does not discount it.** The supply is worth
+what it is worth and the full GST is charged. Treating it as a discount would
+reduce the taxable value and so the tax collected — a decision about tax, and
+not one this module makes quietly.
+
+## What each movement does
+
+| Kind | Points | Journal |
+| --- | --- | --- |
+| `EARNED` | + | `Dr Loyalty Expense / Cr Loyalty Payable` |
+| `REDEEMED` | − | `Dr Loyalty Payable / Cr Accounts Receivable`, **and** a `LOYALTY` receivable row |
+| `EXPIRED` | − | `Dr Loyalty Payable / Cr Loyalty Expense` for the share that lapsed |
+| `ADJUSTED` | ± | **Nothing** — it corrects a count, not a transaction |
+| `REVERSED` | ± | Mirrors what it reverses |
+
+**Points cost the firm money when earned, not when spent**, so a scheme's cost
+lands in the month it was incurred.
+
+**Redeeming needs both legs.** The journal alone moves the control account
+while the customer's own balance stays put, so the two books drift by every
+redemption — `verify_sample_data.py` caught that within minutes of the seed
+running.
+
+## Expiry
+
+A sweep, not a background job, and it **names the entry it takes**, so it can
+be run twice safely.
+
+**Points expire out of what is left of a batch.** Spending is allocated
+**oldest batch first**, so a customer with one lapsing batch and one fresh one,
+who spent the older one's worth, keeps the fresh one in full. `expire` wrote
+back the *whole* earned entry until 2026-09-03, so a batch already spent lapsed
+a second time and left customers on **negative points** — the balance is a sum
+over the ledger with no floor, and the sweep was the only way below zero.
+
+`expiry_months` NULL means points **never expire**. Zero would mean they expire
+the day they are earned.
+
+## Tables
+
+`loyalty_entries` · `loyalty_settings`
+
+The balance is **the sum of the ledger and never a column**.
+
+## Rules that bite
+
+1. **A redemption is refused rather than trimmed.** More than the balance is an
+   error, not a smaller redemption.
+2. **`redeem` holds the customer with `with_for_update`.** It reads a *sum* and
+   then inserts, so no row is updated and no version can conflict — two
+   requests that both read before either commits would both pass.
+3. **`expire` takes an `actor_id`**, because a journal with no author is one
+   nobody can ask about.
+
+---
+
+# 21. Commission, rules and payouts
+
+## What it does
+
+What a salesman earns, and the document that pays it. A rule is an arrangement
+that outlives any one year — which is why commission rules are **not** cleared
+by a history reset.
+
+## A rule is four decisions, not one rate
+
+| Decision | Values | Note |
+| --- | --- | --- |
+| `basis` | `COLLECTED` / `INVOICED` | A rule pays on **one** of them |
+| `measure` | `VALUE` / `MARGIN` | Margin pays on the money less what the goods cost |
+| `rate_type` | `PERCENT` / `PER_UNIT` | PER_UNIT multiplies **quantity** and ignores slabs |
+| `slab_mode` | `MARGINAL` / `WHOLE_AMOUNT` | Declared, never inferred — they pay very differently |
+
+A rule with **slabs ignores `percentage` entirely**, so never show that column
+beside a ladder. A ladder must start at zero, meet exactly, and be open-ended
+only at the top.
+
+`minimum_amount` earns **nothing at all** below it and pays on **all** of it
+above — deliberately not a zero-percent bottom slab, which pays from the first
+rupee once the ladder is climbed and is a different deal.
+
+`bonus_percentage` is paid only when the salesman's targets over the period
+were met, and is added **before** the cap so a firm's ceiling still holds.
+
+`max_commission_amount` is applied **after** the ladder, so it caps what was
+earned rather than what was sold.
+
+## Six rungs of specificity
+
+A rule may name a product or a category, making it a statement about **lines**
+rather than about the document. Resolved per line:
+
+1. the person's own **product** rule
+2. the person's own **category** rule
+3. the person's own **unscoped** rule
+4. the firm-wide product rule
+5. the firm-wide category rule
+6. the firm-wide unscoped rule
+
+**Whose rule it is outranks what it is about** — otherwise a firm-wide rule
+naming a product would override a rate somebody negotiated.
+
+**An unscoped rule must keep measuring exactly the document**: the report
+apportions each invoice's `grand_total` across its lines with the same
+`apportion` the bill discount uses, so the shares sum to the invoice. Deriving
+a share from the line's own `net_amount` would drift by whatever the header
+carries.
+
+## The payout
+
+`DRAFT` → `APPROVED` → `PAID`, or `CANCELLED`.
+
+**The report is read once, at accrual, and never again.** It walks live
+documents, so re-reading would answer differently after a settlement is
+reversed or a rate corrected — and the journal posted at approval would then
+disagree with the record beside it.
+
+Approval posts `Dr COMMISSION_EXPENSE / Cr COMMISSION_PAYABLE`; payment posts
+`Dr COMMISSION_PAYABLE / Cr` the money account. Two purposes, because an
+approved payout is a liability that outlives the month it was earned in.
+
+**`COMMISSION_PAY` is separate from `COMMISSION_MANAGE`** and not granted to
+`SALES_MANAGER`: whoever states a debt must not be the one who moves the cash.
+
+## Tables
+
+`commission_rules` · `commission_rule_slabs` · `commission_payouts`
+
+## Rules that bite
+
+1. **One live payout per person per overlapping period, held by the database.**
+   `_assert_period_is_free` selects and `accrue` inserts with nothing between
+   them, so two requests that both check before either commits both passed —
+   leaving one salesman holding two live payouts for one month, which pays the
+   same collections twice. `UQ_commission_payouts_period_active` is the guard.
+2. **A journal reference is unique**, so the accrual, the payment and the
+   reversal need distinct ones (`...`, `...-PAY`, `...-REV`) or an approved
+   payout can never be paid.
+3. **NULL cost is not zero.** An invoice raised straight off an order has no
+   dispatch behind it, so nothing moved and nothing was costed — and zero would
+   say the goods were free, which on a margin rule pays commission on the whole
+   sale price. Such a line contributes nothing.
+4. **A sale below cost earns nothing, not a negative.** Clawing it back off
+   other sales is an arrangement nobody asked for.
+5. **Commission is measured on the document total, which includes tax.**
+   Whether that is right is an open question for the owner and deliberately not
+   changed, because changing it moves every payout.
+
+---
+
+# 22. Sales targets
+
+## What it does
+
+What a firm expects a salesman to sell over a period, and how it went. Small,
+and it exists mostly to answer one question for commission: were the targets
+met?
+
+**Targets over a window are judged taken together** — the achievements summed
+against the targets summed. Requiring every month makes an annual bonus
+unearnable; requiring one makes it unmissable.
+
+**Somebody with no target reports `target_met: null`, not false**, and earns no
+bonus: nobody set them a number, so there is nothing they failed.
+
+`sales_targets` · permissions `SALES_TARGET_VIEW` / `SALES_TARGET_MANAGE`.
+
+Seeded targets are **reset with the history**, because a target derived from
+what was sold would otherwise be measured against sales that no longer exist.
+
+---
+
+# 23. Journals, ledgers and financial reports
+
+## What it does
+
+The books. A chart of accounts, financial years and periods, the journal every
+posting module writes to, and the statements read off it.
+
+## Automatic posting is built
+
+**Eleven modules post** through `DocumentPostingService`: `delivery_note`,
+`sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`,
+`purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and
+`commission`.
+
+Which account each leg lands in is per firm, in `firm_control_accounts`, keyed
+by purpose — `ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`,
+`PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`,
+`TCS_PAYABLE` and the rest, 24 in all.
+
+The predecessor guessed accounts by name and was removed on 2026-08-09; see git
+history for its rules.
+
+## Configure first
+
+A financial year with its periods, a chart of accounts, and a control account
+for every purpose the firm's modules will post to. **A document that cannot
+find its control account is refused rather than posted to a guess.**
+
+## Rules that bite
+
+1. **A ledger leg facing stock is valued from the movement; a leg facing a
+   counterparty is valued from the document.** Every forward posting already
+   did this; all three reversals broke it and were fixed on 2026-08-22.
+2. **`reverse_entry` copies the source module and id onto the mirror**, so a
+   lookup filtering only on POSTED finds the mirror next time and reverses the
+   reversal. Match `reversal_of_id IS NULL`.
+3. **A closed period refuses a posting**, which is what makes it a close.
+4. **Cost and profit centres exist and are used by nothing.**
+   `ledger_accounts.requires_cost_center` is a flag no account sets.
+
+## Tables
+
+`financial_years` · `accounting_periods` · `account_groups` ·
+`ledger_accounts` · `ledger_balances` · `journal_types` · `journal_entries` ·
+`journal_lines` · `gl_postings` · `voucher_types` · `firm_control_accounts` ·
+`cost_centers` · `profit_centers` · `customer_ledgers` · `vendor_ledgers`
