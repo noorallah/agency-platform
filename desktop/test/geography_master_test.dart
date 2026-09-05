@@ -27,7 +27,9 @@ String _accessToken(Map<String, dynamic> claims) =>
 PermissionService _permissions({bool platformAdmin = false}) =>
     PermissionService()
       ..applyAccessToken(_accessToken({
-        'roles': <String>[if (platformAdmin) 'platform_admin' else 'user'],
+        'roles': const <String>['user'],
+        // Its own claim now: a role code cannot confer the designation.
+        'platform_admin': platformAdmin,
         'permissions': <String>['TERRITORY_VIEW'],
       }));
 

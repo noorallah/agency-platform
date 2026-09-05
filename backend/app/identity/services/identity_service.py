@@ -52,6 +52,7 @@ from app.identity.system_seed import (
     HIDDEN_SYSTEM_ROLE_CODES,
     PLATFORM_PERMISSION_CODES,
     PLATFORM_ROLE_CODES,
+    SYSTEM_ROLE_CODES,
 )
 
 _PROFILE_FIELDS = (
@@ -564,6 +565,7 @@ class IdentityService:
         """Create a custom role; system classification cannot be client supplied."""
         if self._session.scalar(select(Role.id).where(Role.code == data.code)):
             raise ConflictError("A role with this code already exists.")
+        self._assert_code_is_not_reserved(data.code)
         role = Role(
             **data.model_dump(),
             is_system=False,
@@ -1028,8 +1030,14 @@ class IdentityService:
             )
         )
         is_platform_admin = self._is_platform_admin(user.id)
-        if is_platform_admin:
-            roles.append("platform_admin")
+        # Deliberately **not** appended to `roles`. It used to be, as the
+        # lowercase string `"platform_admin"` -- while genuine role codes are
+        # uppercase -- so a designation and a role code shared one list.
+        # `RoleCreate.code` requires `^[a-z0-9._-]+$`, so `platform_admin` was
+        # a spellable code: a firm administrator holding `ROLE_CREATE` and
+        # `ROLE_ASSIGN` could create that role, assign it to themselves, and
+        # sign in as a platform administrator. It is its own claim now, and
+        # nothing a user can name reaches it.
         if is_platform_admin:
             permissions = list(
                 self._session.scalars(
@@ -1102,6 +1110,7 @@ class IdentityService:
                 )
         claims = {
             "roles": roles,
+            "platform_admin": is_platform_admin,
             "permissions": permissions,
             "firm_permissions": firm_permissions,
             "authorization_version": user.authorization_version,
@@ -1387,6 +1396,28 @@ class IdentityService:
                 existing.deleted_at = now
                 existing.deleted_by = actor_id
                 existing.updated_by = actor_id
+
+    #: Names a role may not take. The platform designation is no longer
+    #: carried in the `roles` claim, so spelling it is already harmless -- this
+    #: is the second lock, because a role that merely *looks* like a
+    #: designation is a trap for whoever reads a token next. The seeded codes
+    #: are reserved for the same reason: a custom `firm_admin` beside the
+    #: system `FIRM_ADMIN` is a support call waiting to happen.
+    _RESERVED_ROLE_CODES = frozenset(
+        {"platform_admin"} | {code.lower() for code in SYSTEM_ROLE_CODES}
+    )
+
+    def _assert_code_is_not_reserved(self, code: str) -> None:
+        """Refuse a role code that impersonates a designation or a system role.
+
+        Raises:
+            BusinessRuleError: If the code is reserved.
+
+        """
+        if code.strip().lower() in self._RESERVED_ROLE_CODES:
+            raise BusinessRuleError(
+                f"'{code}' is reserved. Choose a different role code."
+            )
 
     def _is_platform_admin(self, user_id: UUID) -> bool:
         return (

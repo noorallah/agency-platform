@@ -207,14 +207,14 @@ def test_a_platform_administrator_may_read_any_firm_s_directory() -> None:
 
     admin = Principal(
         subject=uuid4(),
-        roles=frozenset({"platform_admin"}),
+        roles=frozenset(),
         permissions=frozenset(),
         claims=TokenClaims(
             sub=str(uuid4()),
             type=TokenType.ACCESS,
             iat=1,
             exp=4_102_444_800,
-            roles=["platform_admin"],
+            platform_admin=True,
         ),
     )
     scope = _scope(admin, session, firm.id)

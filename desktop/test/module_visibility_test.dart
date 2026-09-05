@@ -17,14 +17,19 @@ import 'package:flutter_test/flutter_test.dart';
 /// refuses, on the page the app lands on.
 PermissionService _service({
   List<String> permissions = const [],
-  List<String> roles = const [],
+  bool platformAdmin = false,
   String firm = 'firm-1',
 }) {
   final String payload = base64Url.encode(
     utf8.encode(
       jsonEncode({
         'permissions': <String>[],
-        'roles': roles,
+        'roles': const <String>[],
+        // Its own claim. It used to be the lowercase string `platform_admin`
+        // inside `roles`, which a firm admin could spell as a custom role
+        // code and become one -- so a fixture that still derived it from that
+        // list would be testing a shape the application no longer issues.
+        'platform_admin': platformAdmin,
         'firm_permissions': {firm: permissions},
       }),
     ),
@@ -70,7 +75,7 @@ void main() {
       final ModuleVisibility view = ModuleVisibility(
         permissions: _service(
           permissions: _everyGatedCode().toList(),
-          roles: ['platform_admin'],
+          platformAdmin: true,
         ),
       );
 
@@ -115,7 +120,6 @@ void main() {
       // permission gate says yes. Only the platform-admin gate says no.
       final PermissionService firmAdmin = _service(
         permissions: ['USER_VIEW', 'ROLE_VIEW', 'PERMISSION_VIEW'],
-        roles: ['firm_admin'],
       );
       final ModuleDefinition dashboard =
           ModuleCatalog.byId(AppModule.dashboard);
@@ -138,7 +142,7 @@ void main() {
   group('the business profile and the workflow stages', () {
     PermissionService everything() => _service(
           permissions: _everyGatedCode().toList(),
-          roles: ['platform_admin'],
+          platformAdmin: true,
         );
 
     test('null active modules shows everything', () {
@@ -188,7 +192,7 @@ void main() {
       final ModuleVisibility admin = ModuleVisibility(
         permissions: _service(
           permissions: _everyGatedCode().toList(),
-          roles: ['platform_admin'],
+          platformAdmin: true,
         ),
       );
       final ModuleDefinition administration =
