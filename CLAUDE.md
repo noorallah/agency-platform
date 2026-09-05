@@ -32,7 +32,7 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-09-05 `pytest` is **green (1,127 unit + 37 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-09-05 `pytest` is **green (1,131 unit + 44 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
@@ -240,9 +240,31 @@ in any store, and asking that question found four defects in one day on
 
 ## Testing
 
-Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 37 tests and is described above; this line said it was empty long after it stopped being true.
+**Run what the change can break, not everything.** The full backend suite is
+1,131 unit tests and takes about six minutes; the desktop suite is 1,077 and
+takes two. Running both after a one-line fix is most of the cost of the fix.
+While iterating, run the module's own test file plus any guard that reads the
+thing you touched -- a router edit wants that module's tests and
+`test_identity_hardening.py`; a change to `module_catalog.dart` wants
+`test_search_navigation_targets.py`, `business_module_gating_test.dart` and
+`configuration_screens_test.dart`, all three of which parse it; a widget edit
+wants `flutter analyze` on the changed files and that screen's test. Seconds,
+not minutes.
 
-Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,074)** and `flutter analyze` is clean as of 2026-09-05.
+**The full suites and tree-wide `ruff` / `black` / `mypy` run once, before a
+PR merges** -- not per edit. Per-file linting is instant and is what to use in
+between. A documentation-only change needs neither suite.
+
+**Say which one you ran.** "Identity tests and the document-framework tests
+pass" is honest; "tests pass" after running two files implies coverage that was
+not taken. The full desktop suite has earned its place at merge time -- it
+caught a toolbar overflow that only appears at the 800x600 test window, in no
+file a reasonable person would have called impacted -- so a targeted run is a
+speed choice while iterating, never a claim that the narrow set was sufficient.
+
+Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 44 tests and is described above; this line said it was empty long after it stopped being true.
+
+Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,077)** and `flutter analyze` is clean as of 2026-09-05.
 
 ## Repository conventions and traps
 
