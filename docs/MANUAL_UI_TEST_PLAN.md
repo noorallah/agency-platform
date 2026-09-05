@@ -405,6 +405,38 @@ the platform's. Sign in as `whole01.admin`.
 
 ---
 
+## 18. Hiring like an existing person
+
+The other half of section 17, and the more common one: an administrator
+usually has a person in mind rather than a written-down job. Sign in as
+`whole01.admin`.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 18.1 | Administration → Users → pick somebody with roles → **Hire like this person** | A dialog naming them, saying the new user gets the same roles and firms and **none** of their personal details, password or history. |
+| 18.2 | Press Create with the form empty | Refused, field by field. Nothing is created. |
+| 18.3 | Type a name, an email with no `@`, a password → Create | "That is not an email." |
+| 18.4 | Fill it in properly → Create | Created. The message names both people. |
+| 18.5 | Open the new user | Same roles as the source. **Blank** mobile, employee code, department, joining date. |
+| 18.6 | Sign in as the new user with the password you typed | Forced to change it. A password somebody else chose is not a password. |
+| 18.7 | Change the new user's roles, then re-open the source | The source is unchanged. A clone is a starting point, not a link. |
+| 18.8 | As `whole01.sales1`, open the users grid | No **Hire like this person**. It needs `ROLE_ASSIGN`, `ROLE_VIEW` and `USER_CREATE` — copying access is granting access. |
+
+## 19. Setting a firm up from the platform side
+
+Sign in as `superadmin@agency.local` (tier 2). This is the flow a platform
+operator uses when a new firm is created.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 19.1 | Administration → User Templates → New | An **Offered to** picker appears, which a firm administrator does not see. |
+| 19.2 | Create a template with **Offered to** set to one firm | Created. Origin shows that firm. |
+| 19.3 | Sign in as `whole01.admin` and open User Templates | The template from 19.2 is **not** listed, unless you chose WHOLE01. Before this, a template written for one firm was offered to every firm. |
+| 19.4 | As the platform user, create one with **Offered to** left blank | Offered to every firm — which is right for a job every firm has, and is why the field says so. |
+| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with `firm_id` naming a different firm | `422`, "You can only act within your own firm." Refused, not silently redirected. |
+
+---
+
 ---
 
 # Part 4 — Known gaps

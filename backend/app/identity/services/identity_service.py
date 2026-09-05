@@ -5,7 +5,7 @@ from hashlib import sha256
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -45,6 +45,7 @@ from app.identity.schemas.api import (
     RoleCreate,
     RoleUpdate,
     TokenResponse,
+    UserCloneRequest,
     UserCreate,
     UserFirmAssignment,
     UserPreferencesUpdate,
@@ -686,6 +687,144 @@ class IdentityService:
         """Return one visible role."""
         return self._get_role(role_id, firm_scope)
 
+    def clone_user(
+        self,
+        source_id: UUID,
+        data: UserCloneRequest,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> User:
+        """Hire somebody to do what an existing person does.
+
+        A template is a job somebody wrote down; this is the job somebody is
+        already doing, which is the more common thing an administrator has to
+        hand. Both end in an ordinary role set they may edit.
+
+        **Only access is copied.** The new user is built from scratch and given
+        the source's roles and firm memberships; every personal thing --
+        mobile, employee code, joining date, photo, password, login history,
+        password history, audit trail -- is not copied, because it belongs to
+        the person rather than the job. That is the whole reason this is not
+        "duplicate the row": a row copy carries all of it, and carries it
+        silently.
+
+        **The platform designation is never copied.** It lives in
+        `platform_admins` and is deliberately unreachable from anything a role
+        can express; cloning a platform administrator gives you their roles and
+        not their designation, or this method would be a way to mint one.
+
+        Args:
+            source_id: The person whose access to copy.
+            data: The new person's own details.
+            actor_id: Who is doing the hiring.
+            firm_scope: The caller's firm, or None for a platform caller.
+
+        Returns:
+            The new user.
+
+        """
+        target = self._target_firm(firm_scope, data.firm_id)
+        source = self._get_user(source_id, target)
+        clone = self.create_user(
+            UserCreate(
+                email=data.email,
+                full_name=data.full_name,
+                password=data.password,
+                is_active=True,
+                # A password somebody else chose is not a password. The clone
+                # picks their own on first sign-in.
+                force_password_change=True,
+            ),
+            actor_id,
+            target,
+        )
+        role_ids = self._roles_held_by(source.id, target)
+        if role_ids:
+            self.set_user_roles(clone.id, role_ids, actor_id, target)
+        # A platform caller is not creating inside any firm, so the clone would
+        # otherwise land nowhere. Copy where the source works.
+        if target is None:
+            self._copy_memberships(source.id, clone.id, actor_id)
+        record_audit(
+            self._session,
+            action="user.cloned",
+            entity_type="user",
+            entity_id=clone.id,
+            actor_id=actor_id,
+            firm_id=target,
+            # Which person's access this copied. Without it the trail says a
+            # user was created and nothing about where their access came
+            # from, which is the one question anybody reviewing it will ask.
+            after_data={"source_user_id": str(source.id)},
+        )
+        self._session.commit()
+        return clone
+
+    def _roles_held_by(self, user_id: UUID, firm_scope: UUID | None) -> list[UUID]:
+        """Return the roles a user holds, as the given scope sees them.
+
+        A firm caller copies what the source holds **in their firm** -- the
+        firm-scoped rows plus the unscoped firm roles that reach every firm.
+        Anything belonging to another firm is invisible to them and stays that
+        way. A platform caller copies every role the source holds.
+        """
+        conditions = [
+            UserRole.user_id == user_id,
+            UserRole.is_deleted.is_(False),
+            Role.is_deleted.is_(False),
+            Role.is_active.is_(True),
+        ]
+        if firm_scope is not None:
+            conditions.append(
+                or_(
+                    UserRole.firm_id == firm_scope,
+                    and_(
+                        UserRole.firm_id.is_(None),
+                        Role.code.in_(FIRM_ROLE_CODES),
+                    ),
+                )
+            )
+        return list(
+            self._session.scalars(
+                select(UserRole.role_id)
+                .join(Role, Role.id == UserRole.role_id)
+                .where(*conditions)
+                .distinct()
+            )
+        )
+
+    def _copy_memberships(
+        self, source_id: UUID, clone_id: UUID, actor_id: UUID
+    ) -> None:
+        """Put the clone in the same firms as the source.
+
+        `is_primary` is not copied: it is a preference about where somebody
+        lands when they sign in, and the first membership is as good an answer
+        for a new person as any. Copying it would also collide with
+        `UQ_user_firms_active_primary` if the source had none.
+        """
+        memberships = list(
+            self._session.scalars(
+                select(UserFirm).where(
+                    UserFirm.user_id == source_id,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                )
+            )
+        )
+        for index, membership in enumerate(memberships):
+            self._session.add(
+                UserFirm(
+                    user_id=clone_id,
+                    firm_id=membership.firm_id,
+                    is_primary=index == 0,
+                    is_active=True,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        self._session.flush()
+
     # ------------------------------------------------------------------
     # User templates -- a named bundle of roles for one job
     # ------------------------------------------------------------------
@@ -758,16 +897,20 @@ class IdentityService:
             ConflictError: If the code is already taken in this scope.
 
         """
+        owner = self._target_firm(firm_scope, data.firm_id)
         code = data.code.strip().lower()
-        if self._user_template_code_taken(code, firm_scope):
+        if self._user_template_code_taken(code, owner):
             raise ConflictError("A template with this code already exists.")
-        self._assert_roles_are_assignable(data.role_ids, firm_scope)
+        # Against the firm that will own it, not the caller's scope. A
+        # platform operator writing a template for one firm must not be able
+        # to bundle a role that firm could never assign.
+        self._assert_roles_are_assignable(data.role_ids, owner)
         template = UserTemplate(
             code=code,
             name=data.name,
             description=data.description,
             is_active=data.is_active,
-            firm_id=firm_scope,
+            firm_id=owner,
             is_system=False,
             created_by=actor_id,
             updated_by=actor_id,
@@ -781,7 +924,7 @@ class IdentityService:
             entity_type="user_template",
             entity_id=template.id,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=owner,
         )
         self._session.commit()
         return template
@@ -861,6 +1004,7 @@ class IdentityService:
         template_id: UUID,
         actor_id: UUID,
         firm_scope: UUID | None = None,
+        firm_id: UUID | None = None,
     ) -> list[UUID]:
         """Give a user the roles a template bundles, and return them.
 
@@ -874,7 +1018,8 @@ class IdentityService:
             BusinessRuleError: If the template is inactive.
 
         """
-        template = self._get_user_template(template_id, firm_scope)
+        target = self._target_firm(firm_scope, firm_id)
+        template = self._get_user_template(template_id, target)
         if not template.is_active:
             raise BusinessRuleError("This template is no longer offered.")
         role_ids = [
@@ -883,17 +1028,48 @@ class IdentityService:
         # Through the ordinary path, so the firm-scope check that refuses a
         # platform or cross-firm role applies here too and there is one
         # implementation of it rather than two.
-        self.set_user_roles(user_id, role_ids, actor_id, firm_scope)
+        self.set_user_roles(user_id, role_ids, actor_id, target)
         record_audit(
             self._session,
             action="user_template.applied",
             entity_type="user",
             entity_id=user_id,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=target,
         )
         self._session.commit()
         return role_ids
+
+    def _target_firm(self, firm_scope: UUID | None, named: UUID | None) -> UUID | None:
+        """Resolve which firm a request is about.
+
+        A firm-scoped caller gets their own firm whatever they send: naming a
+        different one is refused rather than ignored, because silently writing
+        it somewhere else is how the business-profile assignments came to
+        report success while changing nothing.
+
+        A platform caller gets the firm they named. Naming none keeps what a
+        platform caller has always meant -- platform-wide for a template,
+        global for a role assignment -- so nothing that worked before changes.
+
+        Args:
+            firm_scope: The caller's own scope, or None for a platform caller.
+            named: The firm named on the request.
+
+        Returns:
+            The firm to act in, or None for platform-wide.
+
+        Raises:
+            BusinessRuleError: If a firm caller named a different firm.
+
+        """
+        if firm_scope is None:
+            if named is not None:
+                self._ensure_identifiers(Firm, [named])
+            return named
+        if named is not None and named != firm_scope:
+            raise BusinessRuleError("You can only act within your own firm.")
+        return firm_scope
 
     def _get_user_template(
         self, template_id: UUID, firm_scope: UUID | None = None

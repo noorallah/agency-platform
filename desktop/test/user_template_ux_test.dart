@@ -18,6 +18,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/administration/apply_template_dialog.dart';
+import 'package:agency_desktop/ui/administration/clone_user_dialog.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/module_visibility.dart';
 import 'package:flutter/material.dart';
@@ -254,6 +255,105 @@ void main() {
         view.tabIds(ModuleCatalog.byId(AppModule.administration)),
         isNot(contains('user-templates')),
       );
+    });
+  });
+
+  group('hiring like an existing person', () {
+    Future<List<CloneUserDetails?>> open(WidgetTester tester) async {
+      final List<CloneUserDetails?> got = <CloneUserDetails?>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async => got.add(
+                  await askForCloneDetails(context, sourceName: 'Asha'),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return got;
+    }
+
+    testWidgets('says what does and does not cross over', (tester) async {
+      // The distinction the whole feature rests on, and the one thing an
+      // administrator pressing this will want to know before they do.
+      await open(tester);
+
+      expect(find.textContaining('same roles and firms'), findsOneWidget);
+      expect(find.textContaining('none of their personal details'),
+          findsOneWidget);
+      expect(find.textContaining('Asha'), findsOneWidget);
+    });
+
+    testWidgets('says the password is temporary', (tester) async {
+      // A password somebody else chose is not a password. The server forces a
+      // change; saying so here stops it being handed over as permanent.
+      await open(tester);
+
+      expect(
+        find.textContaining('change it when they first sign in'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('refuses to create somebody with no name or email',
+        (tester) async {
+      final List<CloneUserDetails?> got = await open(tester);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(got, isEmpty, reason: 'the dialog should still be open');
+      expect(find.text('Give the new person a name.'), findsOneWidget);
+      expect(find.text('An email is required.'), findsOneWidget);
+    });
+
+    testWidgets('an address with no @ is not an email', (tester) async {
+      await open(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Full name'), 'New Hire');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Email'), 'not-an-email');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Initial password'), 'Str0ng!');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('That is not an email.'), findsOneWidget);
+    });
+
+    testWidgets('a complete form returns the three fields', (tester) async {
+      final List<CloneUserDetails?> got = await open(tester);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Full name'), '  New Hire  ');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Email'), ' new@example.com ');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Initial password'), 'Str0ng!');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(got.single?.fullName, 'New Hire');
+      expect(got.single?.email, 'new@example.com');
+      // Trimmed, because a stray space in an email is a support call and a
+      // stray space in a password is a lockout.
+      expect(got.single?.password, 'Str0ng!');
+    });
+
+    testWidgets('a dismissal creates nobody', (tester) async {
+      final List<CloneUserDetails?> got = await open(tester);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(got, [isNull]);
     });
   });
 }

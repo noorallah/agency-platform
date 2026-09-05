@@ -201,6 +201,37 @@ class UserTemplateCreate(ApiSchema):
     description: str | None = None
     role_ids: list[UUID] = Field(min_length=1)
     is_active: bool = True
+    #: Which firm this job belongs to. Only a platform caller may name one --
+    #: a firm administrator always gets their own, whatever they send.
+    #:
+    #: It exists because a platform operator setting a firm up wants that
+    #: firm's templates, and had no way to say so: their scope resolves to
+    #: null, which means **offered to every firm**. So a "Kitchen Staff"
+    #: template written while setting up a restaurant was silently published
+    #: to the wholesaler and the pharmacy too. Null still means platform-wide,
+    #: which is the right default for the eleven seeded ones and a deliberate
+    #: choice for anything else.
+    firm_id: UUID | None = None
+
+
+class UserCloneRequest(ApiSchema):
+    """Hire somebody to do what an existing person does.
+
+    A template is a job somebody wrote down; this is the job somebody is
+    already doing. Both end in an ordinary role set the administrator may
+    edit -- what differs is where the answer comes from.
+
+    Only the three fields below cross over. Everything else a user carries --
+    their mobile number, employee code, joining date, photo, password, login
+    history, password history and audit trail -- is theirs, and a new person
+    starts without it.
+    """
+
+    email: str = Field(max_length=320)
+    full_name: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=256)
+    #: Which firm's access to copy. Only a platform caller may name one.
+    firm_id: UUID | None = None
 
 
 class UserTemplateUpdate(ApiSchema):
@@ -233,9 +264,13 @@ class UserTemplateResponse(ApiSchema):
 
 
 class UserTemplateApply(ApiSchema):
-    """Which template to give a user."""
+    """Which template to give a user, and in whose books."""
 
     template_id: UUID
+    #: Which firm the roles are granted in. Only a platform caller may name
+    #: one; theirs resolve globally without it, which grants the job in every
+    #: firm the person belongs to rather than the one being set up.
+    firm_id: UUID | None = None
 
 
 class PermissionCreate(ApiSchema):

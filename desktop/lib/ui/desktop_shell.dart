@@ -73,6 +73,7 @@ import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
 import 'workspace/enterprise_sidebar.dart';
 import 'administration/apply_template_dialog.dart';
+import 'administration/clone_user_dialog.dart';
 import 'workspace/desktop_framework.dart';
 
 /// What each Administration screen is for, where the module's own sentence is
@@ -2874,6 +2875,31 @@ ResourceDefinition<Firm> firmDefinition(
       },
     );
 
+/// Hire somebody to do what an existing person does.
+///
+/// The other half of the template story, and the more common one: an
+/// administrator usually has a person in mind rather than a written-down job.
+/// Both end in an ordinary role set they may edit afterwards.
+Future<String> _cloneUser(
+  BuildContext context,
+  ApiClient api,
+  PlatformUser source,
+) async {
+  final CloneUserDetails? details = await askForCloneDetails(
+    context,
+    sourceName: source.fullName.isEmpty ? source.email : source.fullName,
+  );
+  if (details == null) return '';
+  final PlatformUser clone = await api.cloneUser(
+    source.id,
+    email: details.email,
+    fullName: details.fullName,
+    password: details.password,
+  );
+  return '${clone.fullName} was created with the same access as '
+      '${source.fullName}, and must change their password on first sign-in.';
+}
+
 /// Hire somebody into a named job.
 ///
 /// Returns the sentence the workspace shows afterwards. It names both the job
@@ -2921,7 +2947,18 @@ ResourceDefinition<PlatformUser> _userDefinition(
       id: (user) => user.id,
       load: api.users,
       customActions: [
-        if (context != null)
+        if (context != null) ...<ResourceAction<PlatformUser>>[
+          ResourceAction<PlatformUser>(
+            label: 'Hire like this person',
+            icon: Icons.copy_all_outlined,
+            // Same privilege as applying a template, and for the same reason:
+            // both end in somebody holding a set of roles. `USER_CREATE`
+            // alone must not reach it, or an administrator who may open
+            // accounts but not grant access could copy access instead.
+            isVisible: (_) => permissions
+                .hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW', 'USER_CREATE']),
+            onInvoke: (user) => _cloneUser(context, api, user),
+          ),
           ResourceAction<PlatformUser>(
             label: 'Apply job template',
             icon: Icons.assignment_ind_outlined,
@@ -2932,6 +2969,7 @@ ResourceDefinition<PlatformUser> _userDefinition(
                 permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
             onInvoke: (user) => _applyTemplate(context, api, user),
           ),
+        ],
       ],
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
@@ -3342,21 +3380,21 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
           delete: const ['ROLE_DELETE'],
         );
       },
-      fields: const [
-        FieldSpec(
+      fields: [
+        const FieldSpec(
           key: 'code',
           label: 'Template code',
           required: true,
           readOnlyWhenEditing: true,
           helperText: 'Lower case, digits, dots, dashes. Unique in this firm.',
         ),
-        FieldSpec(key: 'name', label: 'Job name', required: true),
-        FieldSpec(
+        const FieldSpec(key: 'name', label: 'Job name', required: true),
+        const FieldSpec(
           key: 'description',
           label: 'What this job does',
           multiline: true,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'role_ids',
           label: 'Roles',
           required: true,
@@ -3366,7 +3404,22 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
           optionsResource: 'roles',
           section: 'Roles',
         ),
-        FieldSpec(key: 'is_active', label: 'Offered', boolean: true),
+        const FieldSpec(key: 'is_active', label: 'Offered', boolean: true),
+        // Only a platform administrator may write a job for a firm other than
+        // their own, and only they see this. Left blank the template is
+        // offered to **every** firm, which is right for a job every firm has
+        // and wrong for one firm's own -- so it says so rather than leaving
+        // the reader to find out from the Origin column afterwards.
+        if (permissions.isPlatformAdmin)
+          const FieldSpec(
+            key: 'firm_id',
+            label: 'Offered to',
+            helperText: 'Leave blank to offer this job to every firm.',
+            optionsResource: 'firms',
+            singleSelection: true,
+            createOnly: true,
+            section: 'General',
+          ),
       ],
       initialValues: (template) => template == null
           ? {'is_active': true}
@@ -3376,6 +3429,7 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
               'description': template.description,
               'is_active': template.isActive,
               'role_ids': template.roleIds.join(','),
+              'firm_id': template.firmId ?? '',
             },
       // `code` only when creating: it is the key, and the server treats an
       // absent field as "leave alone" on update.
@@ -3385,6 +3439,10 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
         'description': values['description'],
         'is_active': values['is_active'],
         'role_ids': _ids(values['role_ids']),
+        // Create only: a template's firm is its identity, and the server
+        // refuses a firm caller who names one at all. Blank means every firm.
+        if (isCreating && permissions.isPlatformAdmin)
+          'firm_id': _blankToNull(values['firm_id']),
       },
       // PATCH, so an omitted field means leave alone -- the server dumps with
       // `exclude_unset=True` and a full dump would empty the bundle on a
