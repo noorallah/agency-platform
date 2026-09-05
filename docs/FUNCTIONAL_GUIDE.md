@@ -47,11 +47,11 @@ nothing about a document stops it happening here.
 | | 7 | Units and packaging | ☐ |
 | | 8 | Tax setup | ☐ |
 | | 9 | Products, attributes, batch and serial | ☐ |
-| | 10 | Customers, groups and credit policy | ☐ |
+| | 10 | Customers, groups and credit policy | ✅ |
 | | 11 | Vendors | ☐ |
 | | 12 | Territory, routes and beats | ☐ |
-| | 13 | Price lists and discount rules | ☐ |
-| | 14 | Promotions and coupons | ☐ |
+| | 13 | Price lists and discount rules | ✅ |
+| | 14 | Promotions and coupons | ✅ |
 | **C — Buying** | 15 | Purchase order → receipt → invoice → return | ✅ |
 | **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ✅ |
 | | 17 | Proforma invoices | ☐ |
@@ -1117,6 +1117,301 @@ Modules 6–28 in the table above. Each gets the same six parts.
 
 ---
 
+# 10. Customers, groups and credit policy
+
+## What it does
+
+Who the firm sells to, what they owe, what they have been promised, and how far
+they are allowed to go. Four things live here that look like one: the customer
+record, their **commercial segment**, their **receivable ledger**, and the
+firm's **credit policy**.
+
+## Configure first
+
+| Needs | Why |
+| --- | --- |
+| Geography masters | An address names real places, not free text |
+| A chart of accounts and an open period | An opening balance **posts**, and is refused if it cannot |
+| Customer groups (optional) | The last tier of the discount chain |
+
+## Workflow
+
+| Step | Permission | Result |
+| --- | --- | --- |
+| Create | `CUSTOMER_CREATE` | A customer, optionally with an opening balance |
+| Edit | `CUSTOMER_UPDATE` | Partial: what is not sent is left alone |
+| Import | `CUSTOMER_IMPORT` | Staged, and committed **once** |
+| Credit policy | `CUSTOMER_MANAGE_SETTINGS` | The firm's rule, not one customer's |
+
+`CUSTOMER_MANAGE_SETTINGS` is deliberately **not** granted to `SALES_MANAGER`.
+The role the limit constrains must not be able to switch it off.
+
+## The receivable ledger
+
+Every movement of what a customer owes is a row in
+`customer_receivable_transactions`, typed:
+
+| Type | Raises or lowers | Note |
+| --- | --- | --- |
+| `OPENING_BALANCE` | raises | Posts `Dr Accounts Receivable / Cr Opening Balance Equity` |
+| `INVOICE` | raises | |
+| `RECEIPT` | lowers | Splits into balance and advance when it overpays |
+| `ADVANCE_RECEIPT` | — | Money held against nothing yet |
+| `ADVANCE_APPLY` | lowers | **Posts no journal** — the money already moved |
+| `CREDIT_NOTE` | lowers | |
+| `REFUND` | raises | |
+| `TCS` | **raises** | The buyer owes it *on top of* what they just paid |
+| `LOYALTY` | lowers | Credit already owed, spent — the firm has been paid |
+
+**A statement recomputes its running balance in date order.** The stored
+`outstanding_after` is a snapshot taken in the order things were *recorded*; a
+statement is read in the order things were *dated*. Money arriving against last
+month's bill is recorded after it and dated before it, so the stored figure
+shows a balance that never existed on any day.
+
+**An ageing row reconciles against the account and says how.** The bills and
+the balance are not the same number — a credit note reduces the account and
+sits on no invoice, while TCS raises it without being billed. The report shows
+`total_outstanding − unapplied_credits + charges_not_billed` and that equals the
+balance exactly.
+
+## Credit policy
+
+Per firm, in `credit_control_settings`: `enforcement` is `OFF`, `WARN` or
+`BLOCK`, with a warn and a block percentage. A firm with **no row warns at 80%
+and never blocks**, which is why shipping this stopped nobody trading.
+
+Checked at two points, both where credit is committed: **sales order approval**
+and **sales invoice approval**. Exposure is
+`current_outstanding − unapplied_advance + the document being saved`.
+
+`GET /customers/{id}/credit-status?amount=` answers before a document is saved,
+rather than reporting the breach after.
+
+**A `credit_limit` of zero means unset, not "no credit".**
+
+**The desktop warns and never blocks.** A client that blocked on its own would
+enforce a rule the firm may not have chosen, and could be bypassed by any other
+client. It also stays silent when the server would refuse anyway, because the
+refusal carries the same sentence.
+
+## Tables
+
+`customers` · `customer_addresses` · `customer_contacts` ·
+`customer_attribute_values` · `customer_groups` ·
+`customer_receivable_transactions` · `credit_control_settings`
+
+## Rules that bite
+
+1. **An update is partial, and it has to be.** `addresses` and `contacts` are
+   **replaced**, not merged, so reconciling a collection the caller never sent
+   soft-deleted every row in it. Both are guarded on `model_fields_set` now,
+   and `opening_balance` is read from the dumped values with the row as its
+   fallback — reading it off the model made an omission mean zero, which the
+   balance-reset guard then acted on.
+2. **The place keys are the truth; the text is derived from them.** `city`,
+   `state`, `country` and `postal_code` are NOT NULL and every report reads
+   them, so a row whose `city` says one thing and whose `city_id` says another
+   leaves nothing to say which a report should believe.
+3. **`customer_type` is a legal classification** — INDIVIDUAL or BUSINESS.
+   Hanging a price or an offer on it was never possible; `customer_groups` is
+   the firm's own segmentation.
+4. **Deleting a group somebody is in is refused in the service.**
+   `ondelete="RESTRICT"` is not a guard on a soft-deleted table — a retired
+   group would otherwise stay on every customer's record while vanishing from
+   every list.
+5. **Import stages and commits once.** Looping over a committing create meant a
+   batch whose fifth row clashed returned 409 with the first four already
+   written, and the corrected file then failed on those four as duplicates.
+
+---
+
+# 13. Price lists and the discount chain
+
+## What it does
+
+What a customer pays off a product, before any offer is applied. A price list
+is a **ladder of quantity breaks**, scoped to one customer, one territory, or
+the whole firm, and effective-dated.
+
+## Configure first
+
+Products, and customers or territories if the list is to be scoped. Nothing
+else — a firm with no price list simply resolves the tier below.
+
+## How a rate is found
+
+`PriceListResolver` is built **once per document**, not per line: the lists
+that could apply depend on the customer, the territory and the date, none of
+which change between lines.
+
+Then `rate_for(product, quantity)` takes the **highest break at or below** the
+line's quantity. Breaks of 0, 50 and 200 price a line of 120 at the 50.
+
+**A more specific list replaces the ladder rather than merging into it.** A
+customer's own arrangement *is* the arrangement, not an amendment to the
+firm-wide one — merging would silently give them breaks nobody agreed with
+them.
+
+**`None` is not zero.** A product no list mentions falls through to the
+customer's blanket rate; a product a list deliberately puts at **zero** does
+not.
+
+## Where it sits in the chain
+
+Fourth of six. Below anything typed and below a promotion, above the customer's
+standing rate and their segment's:
+
+```
+explicit amount → explicit percent → promotion → PRICE LIST →
+customer's standing rate → customer group rate
+```
+
+**A promotion outranks it**, which is the thing to remember when a list appears
+not to work. An unconditional offer means the list is never consulted at all.
+
+## Tables
+
+`price_lists` · `price_list_items`
+
+The unique key is `(list, product, min_quantity)`. It was `(list, product)`
+until quantity breaks existed, which meant a list could hold only one row per
+product — the whole limitation the ladder removes.
+
+## Rules that bite
+
+1. **No line editor may prefill the discount box.** Filling it turns an
+   inherited arrangement into an override, and a literal `0` refuses every
+   arrangement. The quotation editor filled it with the customer's standing
+   rate — so **no price list could reach a quotation raised from the desktop at
+   all**, from the day price lists shipped.
+2. **A list outside its effective window does not apply**, judged on the
+   document's date.
+3. **Rank on an explicit `case`, never on NULL ordering.** PostgreSQL sorts
+   NULLs first in `DESC` and SQLite last, so a firm-wide rule outranked a
+   product's own factor in production while the unit suite saw the right
+   answer.
+
+---
+
+# 14. Promotions and coupons
+
+## What it does
+
+Offers the firm is running: what they give, who qualifies, whether they stack,
+and what each one has cost. Modelled on `app/tax` — a rule, typed condition
+rows, action rows and an execution log — with one deliberate difference.
+
+**Promotions stack; tax does not.** The tax engine breaks at the first match.
+The promotion engine applies **every** matching offer in `priority ASC, code
+ASC, version_number DESC, created_at ASC` order, until one with
+`allow_stacking = false` is applied, which ends evaluation.
+
+## What an offer can give
+
+| Action | Parameters | What it changes |
+| --- | --- | --- |
+| `LINE_DISCOUNT_PERCENT` / `_AMOUNT` | percent / amount | The line's resolved discount |
+| `BILL_DISCOUNT_PERCENT` / `_AMOUNT` | percent / amount | The document's bill discount, then apportioned |
+| `FREE_QUANTITY` | buy, free | More of **the same** product — adjusts the line |
+| `FREE_PRODUCT` | product, quantity | A **different** product — **emits a new line** |
+| `FREE_SHIPPING` | none | Sets `freight_amount` to nothing |
+
+`FREE_PRODUCT` emits a line because there is no line to adjust. The gift is
+appended **before anything is priced**, so it flows through conversion, tax and
+totals exactly as a typed line does — and it sets `discount_percent` to an
+**explicit zero**, because silence would let the customer's standing rate
+resolve and a bill for nothing would print a discount percentage.
+
+`FREE_SHIPPING` takes no parameter: a partial waiver is `BILL_DISCOUNT_AMOUNT`,
+which already exists. It waives the charge whole or not at all, so two offers
+cannot waive it twice.
+
+## What an offer can ask about
+
+`customer_id` · `customer_group_id` · `branch_id` · `territory_id` ·
+`route_id` · `salesman_id` · `product_id` · `product_category_id` ·
+`product_type` · `line_quantity` · `line_gross` · `document_gross` ·
+`transaction_type` · `transaction_date`
+
+Every one is satisfiable by a document that actually exists. The tax module's
+lesson is that **a scope filter nothing satisfies never fires** — tax rules can
+be scoped by country, no document sends one, so country-scoped rules never
+matched anything.
+
+## Stacking, precisely
+
+**Percentages compound on what is left, never add on the gross.** Two stacked
+10% offers take 19%, not 20%. That is the retail meaning, and it is also the
+only basis on which stacked benefits cannot exceed the line — which matters,
+because `resolve_line_discount` refuses a discount above the line and a
+promotion configuration must not be able to make a document unsaveable.
+
+**A stacking engine must collapse to one live version per `version_group_id`.**
+Superseding leaves the predecessor ACTIVE, and tax survives that only by
+stopping at the first match. Copying its query verbatim hands the customer the
+same offer twice.
+
+## Claims
+
+`promotion_redemptions` has three states and they are not the same fact:
+
+| State | When | Counts against a limit |
+| --- | --- | --- |
+| `PENDING` | The document is priced | **No** |
+| `CLAIMED` | The document is **approved**, under a row lock | **Yes** |
+| `REVERSED` | The document is cancelled | No |
+
+Booking at approval rather than while pricing is load-bearing: pricing runs on
+the caller's session and **must never commit**, so a counter incremented there
+would either publish a half-written order or count a draft nobody approved.
+
+Two behaviours follow, both deliberate. An offer already exhausted is **not
+quoted at all**, so nobody is promised a price the approval would refuse. And
+two documents priced while it still had room race at approval, where the loser
+is **refused by name** rather than silently repriced.
+
+## Coupons
+
+A coupon is a way of *reaching* an offer, not a second kind of one — the
+benefit, the conditions and the stacking rule stay on the promotion.
+`sales_orders.coupon_code` sits on the order rather than the quotation, because
+the order is what gets approved.
+
+**An unrecognised code leaves the order saveable and simply gives nothing.** A
+typo in a field that gives money away must not refuse a sale.
+
+## Tables
+
+`promotions` · `promotion_conditions` · `promotion_actions` ·
+`promotion_coupons` · `promotion_redemptions` · `promotion_execution_logs`
+
+`version_number` is the published revision; `version` is the concurrency
+counter and must not be reused for it.
+
+`promotion_execution_logs` grows fastest of anything here — one row holding
+three JSON documents per document line — and is pruned by
+`scripts/purge_retention.py`.
+
+## Rules that bite
+
+1. **An offer's identity is its `version_group_id`, not the row.** An ACTIVE
+   promotion is superseded rather than edited, so anything identifying it by
+   row id breaks the moment somebody changes it — and changing it is the
+   routine act, because there is no other way. Three checks did: a coupon was
+   orphaned by any edit, `max_redemptions` reset to zero so an exhausted
+   campaign came back to life, and retiring an offer left its codes live and
+   pointing at nothing.
+2. **`evaluate` never commits.** The `/simulate` endpoint owns that.
+3. **A line somebody priced by hand is skipped, and the trace says so.** A log
+   reporting a benefit the line never received is a lie told to the person
+   asking why the price is what it is.
+4. **A blanket offer switches off every tier beneath it.** Not a small
+   discount — a decision that no price list, standing rate or segment rate will
+   ever be consulted. Nothing in the engine can tell the firm did not mean it.
+
+---
+
 # 15. Buying — purchase order to payment
 
 ## What it does
@@ -1391,3 +1686,4 @@ invoice must state existed only in a prunable log.
    `Session.commit()` commits the outermost transaction.
 7. **Credit limits warn, and block only if a firm asks.** A `credit_limit` of
    zero means unset, not "no credit".
+
