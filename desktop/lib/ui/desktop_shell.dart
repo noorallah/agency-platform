@@ -70,6 +70,7 @@ import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
+import 'workspace/module_visibility.dart';
 import 'workspace/enterprise_sidebar.dart';
 import 'workspace/desktop_framework.dart';
 
@@ -312,51 +313,17 @@ class _DesktopShellState extends State<DesktopShell> {
     return visible.isEmpty ? AppModule.dashboard : visible.first.id;
   }
 
-  bool _canAccess(
-    List<String> permissions, {
-    bool requiresAny = false,
-  }) =>
-      widget.permissions.canUseModule(permissions, requiresAny: requiresAny);
+  /// The rules, as one addressable object rather than a chain of closures
+  /// over private fields. See `module_visibility.dart` -- pulling them out is
+  /// what made them testable.
+  ModuleVisibility get _visibility => ModuleVisibility(
+        permissions: widget.permissions,
+        activeBusinessModules: _activeBusinessModuleCodes,
+        salesStages: _salesStages,
+      );
 
-  List<ModuleDefinition> get _visibleModules => ModuleCatalog.modules
-      // Platform-admin modules first: a permission list cannot express that
-      // gate, and a firm role satisfying one of its codes was enough to be
-      // offered a screen the server refuses.
-      .where(
-        (module) =>
-            !module.requiresPlatformAdmin || widget.permissions.isPlatformAdmin,
-      )
-      .where(
-        (module) => _canAccess(
-          module.requiredPermissions,
-          requiresAny: module.requiresAnyPermission,
-        ),
-      )
-      .where(_isEnabledByBusinessProfile)
-      .where(_isTypedByThisFirm)
-      .toList();
+  List<ModuleDefinition> get _visibleModules => _visibility.modules;
 
-  bool _isEnabledByBusinessProfile(ModuleDefinition module) {
-    final Set<String>? configured = _activeBusinessModuleCodes;
-    if (configured == null) {
-      return true;
-    }
-    final String? code = ModuleCatalog.businessModuleCode(module.id);
-    return code == null || configured.contains(code);
-  }
-
-  /// Hide the screens for stages this firm does not fill in by hand.
-  ///
-  /// All four sales documents share the single business module code `SALES`,
-  /// so this cannot be expressed through the business profile -- it is its own
-  /// predicate. Sales returns are never hidden: a counter sale still comes
-  /// back, and a return is the only correct way to undo one.
-  bool _isTypedByThisFirm(ModuleDefinition module) => switch (module.id) {
-        AppModule.quotations => _salesStages.quotationStage,
-        AppModule.salesOrders => _salesStages.salesOrderStage,
-        AppModule.deliveryNotes => _salesStages.deliveryNoteStage,
-        _ => true,
-      };
 
 
   @override
@@ -1055,20 +1022,13 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Tab ids the current user can access within [module], used to filter the
   /// unified sidebar's sub-navigation tree (see
   /// `ModuleCatalog.navigationChildren`).
-  Set<String> _visibleTabIds(ModuleDefinition module) => module.tabs
-      .where((tab) => tab.available)
-      .where(
-        (tab) => _canAccess(
-          tab.requiredPermissions.isEmpty
-              ? module.requiredPermissions
-              : tab.requiredPermissions,
-          requiresAny: tab.requiredPermissions.isEmpty
-              ? module.requiresAnyPermission
-              : tab.requiresAnyPermission,
-        ),
-      )
-      .map((tab) => tab.id)
-      .toSet();
+  /// The same rules the modules go through, so a tab cannot outlive its
+  /// module. This was a second, weaker copy: it applied `available` and
+  /// permissions but neither the platform-admin gate, the business profile
+  /// nor the workflow stages -- harmless only because the one platform-admin
+  /// module has no tabs.
+  Set<String> _visibleTabIds(ModuleDefinition module) =>
+      _visibility.tabIds(module);
 
   Widget _navigationPanel(
     List<ModuleDefinition> modules,
