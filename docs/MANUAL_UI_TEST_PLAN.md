@@ -358,6 +358,53 @@ refuses, not merely that the button is hidden.
 | 15.5 | TCS settings | Not offered. |
 | 15.6 **(HTTP)** | Call each of the above endpoints directly with this user's token | `403` every time. A hidden button is not a control. |
 
+## 16. Who a user is — the four tiers
+
+New on 2026-09-05 (#235–#237). There are four kinds of user and they are not
+interchangeable:
+
+| Tier | Who | Reaches |
+| --- | --- | --- |
+| 1 | Platform operator (`PLATFORM` scope) | Creates firms and their people, provisions storage, sets a firm up until it works. **Refused a firm's books.** |
+| 2 | All-firms super user (`ALL_FIRMS` scope) | Everything, in every firm, without needing a membership. |
+| 3 | Firm administrator (`FIRM_ADMIN`) | Everything inside their own firm, including its users and their access. |
+| 4 | Firm staff | The modules their job needs. |
+
+`platform-admin@agency.local`, `master.ops@agency.local` and
+`superadmin@agency.local` are all **tier 2** — the migration left every existing
+designation exactly as it was. There is no seeded tier-1 account; 16.1 makes
+one, because the tier cannot be tested without one.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 16.1 **(SQL)** | `UPDATE platform.platform_admins SET scope = 'PLATFORM' WHERE user_id = (SELECT id FROM platform.users WHERE email = 'superadmin@agency.local');` then sign out and back in | Necessary setup. Put it back to `ALL_FIRMS` when you are done, or that account loses every firm. |
+| 16.2 | As that user: Dashboard, Administration → Users, Roles, Firms | All offered. Running the platform is their job. |
+| 16.3 | As that user: Sales, Purchases, Finance, Inventory in the sidebar | **Not offered.** Their token carries 33 permission codes, none operational. |
+| 16.4 **(HTTP)** | `GET /api/v1/customers` with their token and `X-Firm-ID` | `403`. Not by a rule of its own — they are simply not exempt from the membership check. |
+| 16.5 | Sign in as `master.ops@agency.local` (tier 2) and switch between firms | Unchanged from before. Every firm, no membership needed. |
+| 16.6 | Put 16.1 back to `ALL_FIRMS` | Housekeeping. Do not skip it. |
+
+## 17. User templates — hiring by naming the job
+
+Eleven platform templates are seeded. A firm may add its own; it may not edit
+the platform's. Sign in as `whole01.admin`.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 17.1 | Administration → User Templates | 11 rows. Each names its roles — Counter Sales shows `BILLING_EXECUTIVE, CASHIER`. Origin reads **Platform**. |
+| 17.2 | Select a platform template → Edit / Retire | Both disabled. It is offered to every firm, so no one firm may change it. |
+| 17.3 | New → code `night-counter`, name `Night Counter`, pick one or two roles → Save | Created. Origin reads **This firm**. |
+| 17.4 | Edit it, change only the **name**, save | The roles are unchanged. An edit that says nothing about the bundle must not empty it. |
+| 17.5 | Administration → Users → select a user → **Apply job template** | A picker listing each job with the roles beside it, and a line saying the person's roles are **replaced** and editable afterwards. |
+| 17.6 | Choose Counter Sales → Apply | Their roles become exactly `BILLING_EXECUTIVE` and `CASHIER`. |
+| 17.7 | Edit that user's roles by hand afterwards | Works normally. A template is where you start, not where you stay — nothing on the user records which template they came from. |
+| 17.8 | Retire `night-counter`, then re-open the user from 17.6 | The user is untouched. Retiring is a decision about future hires. |
+| 17.9 | Sign in as `whole01.sales1` → Administration | No User Templates tab. It needs `ROLE_VIEW`. |
+| 17.10 **(HTTP)** | `POST /api/v1/user-templates` with `role_ids` naming the `PLATFORM_ADMIN` role, using `whole01.admin`'s token | `422`, "A template cannot bundle platform or cross-firm roles." That role carries every permission code. |
+| 17.11 | Administration → **Roles** as `whole01.admin` | Lists the twelve firm roles and any of this firm's own. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. This list was platform-admin-only until #237. |
+
+---
+
 ---
 
 # Part 4 — Known gaps
