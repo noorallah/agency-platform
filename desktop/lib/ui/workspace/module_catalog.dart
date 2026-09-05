@@ -137,6 +137,13 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['PERMISSION_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'user-templates',
+          label: 'User Templates',
+          // `ROLE_VIEW`, because a template is a bundle of roles and the
+          // screen is useless without the role list beside it.
+          requiredPermissions: ['ROLE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'user-firms',
           label: 'User-Firm Assignments',
           requiredPermissions: ['USER_VIEW', 'USER_UPDATE', 'FIRM_VIEW'],
@@ -916,6 +923,12 @@ abstract final class ModuleCatalog {
           label: 'Permissions',
           path: 'permissions',
           icon: Icons.key_outlined,
+        ),
+      if (visibleTabIds.contains('user-templates'))
+        const WorkspaceNavigationNode(
+          label: 'User Templates',
+          path: 'user-templates',
+          icon: Icons.assignment_ind_outlined,
         ),
       if (visibleTabIds.contains('user-firms'))
         const WorkspaceNavigationNode(

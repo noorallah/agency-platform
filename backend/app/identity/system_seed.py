@@ -3,7 +3,13 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.identity.models import Permission, Role, RolePermission
+from app.identity.models import (
+    Permission,
+    Role,
+    RolePermission,
+    UserTemplate,
+    UserTemplateRole,
+)
 
 SYSTEM_ROLE_CODES = (
     "PLATFORM_ADMIN",
@@ -484,6 +490,88 @@ ROLE_PERMISSION_CODES = {
 }
 
 
+#: Platform-provided job templates: a name a firm already uses, and the roles
+#: that job needs. `firm_id` is NULL, so every firm is offered them.
+#:
+#: These exist because a firm administrator hiring a counter clerk should not
+#: have to reassemble a permission set from twelve roles and remember which. A
+#: template is where they **start** -- what the new user holds afterwards is an
+#: ordinary role set they are free to edit.
+#:
+#: Most jobs are one role, and that is not a redundancy: the value is the name.
+#: "Counter Sales" is a job a firm has; `CASHIER` plus `BILLING_EXECUTIVE` is a
+#: permission decision somebody has to make correctly, once, rather than on
+#: every hire.
+SYSTEM_USER_TEMPLATES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    (
+        "firm-administrator",
+        "Firm Administrator",
+        "Runs the firm: its people, their access, and every module.",
+        ("FIRM_ADMIN",),
+    ),
+    (
+        "firm-manager",
+        "Firm Manager",
+        "Every operational module, without administering the firm's users.",
+        ("FIRM_MANAGER",),
+    ),
+    (
+        "counter-sales",
+        "Counter Sales",
+        "Takes payment and raises the bill at the counter.",
+        ("CASHIER", "BILLING_EXECUTIVE"),
+    ),
+    (
+        "field-sales",
+        "Field Sales",
+        "Works a beat: customers, quotations and orders on their round.",
+        ("SALES_EXECUTIVE",),
+    ),
+    (
+        "sales-manager",
+        "Sales Manager",
+        "Owns the sales team, its territories and its customers.",
+        ("SALES_MANAGER",),
+    ),
+    (
+        "warehouse",
+        "Warehouse",
+        "Receives, stores, picks and dispatches stock.",
+        ("INVENTORY_MANAGER",),
+    ),
+    (
+        "purchasing",
+        "Purchasing",
+        "Raises orders on vendors and receives against them.",
+        ("PURCHASE_EXECUTIVE",),
+    ),
+    (
+        "purchase-manager",
+        "Purchase Manager",
+        "Approves purchasing and owns the vendor masters.",
+        ("PURCHASE_MANAGER",),
+    ),
+    (
+        "accounts",
+        "Accounts",
+        "Keeps the books: the ledger, the periods and the reports.",
+        ("ACCOUNTANT",),
+    ),
+    (
+        "customer-support",
+        "Customer Support",
+        "Answers for customers: their orders, their bills, their balances.",
+        ("CUSTOMER_SUPPORT",),
+    ),
+    (
+        "read-only",
+        "Read Only",
+        "Sees everything the firm does and changes none of it.",
+        ("VIEWER",),
+    ),
+)
+
+
 def seed_system_rbac(session: Session) -> None:
     """Create or restore initial system RBAC records without altering custom data."""
     roles = _seed_roles(session)
@@ -507,6 +595,7 @@ def seed_system_rbac(session: Session) -> None:
                 assignment.is_deleted = False
                 assignment.deleted_at = None
                 assignment.deleted_by = None
+    _seed_user_templates(session, roles)
 
 
 def _seed_roles(session: Session) -> dict[str, Role]:
@@ -561,3 +650,43 @@ def _seed_permissions(session: Session) -> dict[str, Permission]:
 def _display_name(code: str) -> str:
     """Convert a system code into a readable initial display name."""
     return code.replace("_", " ").title()
+
+
+def _seed_user_templates(session: Session, roles: dict[str, Role]) -> None:
+    """Create the platform job templates, and restore any that were retired.
+
+    Idempotent and additive, like the rest of this seeder. An existing
+    template's **bundle** is reconciled but its name and description are left
+    alone: those are what a firm reads, and a platform upgrade quietly renaming
+    a template somebody has been using for a year is worse than a stale name.
+    """
+    existing = {
+        template.code: template
+        for template in session.scalars(
+            select(UserTemplate).where(UserTemplate.firm_id.is_(None))
+        )
+    }
+    for code, name, description, role_codes in SYSTEM_USER_TEMPLATES:
+        template = existing.get(code)
+        if template is None:
+            template = UserTemplate(
+                code=code,
+                name=name,
+                description=description,
+                firm_id=None,
+                is_active=True,
+                is_system=True,
+            )
+            session.add(template)
+            session.flush()
+        elif template.is_deleted:
+            template.is_deleted = False
+            template.deleted_at = None
+            template.deleted_by = None
+        wanted = {roles[role_code].id for role_code in role_codes}
+        held = {row.role_id: row for row in template.template_roles}
+        for role_id, row in held.items():
+            if role_id in wanted and row.is_deleted:
+                row.is_deleted, row.deleted_at, row.deleted_by = False, None, None
+        for role_id in wanted - set(held):
+            session.add(UserTemplateRole(template_id=template.id, role_id=role_id))

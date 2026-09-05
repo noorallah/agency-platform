@@ -193,6 +193,51 @@ class RoleResponse(ApiSchema):
     firm_id: UUID | None
 
 
+class UserTemplateCreate(ApiSchema):
+    """A named bundle of roles for one job."""
+
+    code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9._-]+$")
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    role_ids: list[UUID] = Field(min_length=1)
+    is_active: bool = True
+
+
+class UserTemplateUpdate(ApiSchema):
+    """Mutable template details.
+
+    Every field is optional and the service dumps with `exclude_unset=True`, so
+    absent means leave alone. `role_ids` in particular replaces the bundle
+    rather than merging into it, which is only safe because an omission is
+    distinguishable from an empty list.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    role_ids: list[UUID] | None = Field(default=None, min_length=1)
+    is_active: bool | None = None
+
+
+class UserTemplateResponse(ApiSchema):
+    """A template and the roles it bundles."""
+
+    id: UUID
+    code: str
+    name: str
+    description: str | None
+    firm_id: UUID | None
+    is_active: bool
+    is_system: bool
+    role_ids: list[UUID]
+    role_codes: list[str]
+
+
+class UserTemplateApply(ApiSchema):
+    """Which template to give a user."""
+
+    template_id: UUID
+
+
 class PermissionCreate(ApiSchema):
     """Details for a permission capability."""
 

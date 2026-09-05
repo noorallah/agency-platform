@@ -304,6 +304,43 @@ class Role {
       };
 }
 
+/// A named bundle of roles for one job.
+///
+/// A firm administrator hires by naming the job -- "Counter Sales" -- rather
+/// than reassembling a permission set from twelve roles and remembering which.
+/// `firmId` null means platform-provided and offered to every firm; those are
+/// `isSystem` and cannot be edited here.
+class UserTemplate {
+  const UserTemplate({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.description,
+    required this.firmId,
+    required this.isActive,
+    required this.isSystem,
+    required this.roleIds,
+    required this.roleCodes,
+  });
+
+  final String id, code, name, description;
+  final String? firmId;
+  final bool isActive, isSystem;
+  final List<String> roleIds, roleCodes;
+
+  factory UserTemplate.fromJson(Json json) => UserTemplate(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        firmId: json['firm_id'] == null ? null : stringValue(json['firm_id']),
+        isActive: boolValue(json['is_active'], fallback: true),
+        isSystem: boolValue(json['is_system']),
+        roleIds: stringList(json['role_ids']),
+        roleCodes: stringList(json['role_codes']),
+      );
+}
+
 class Permission {
   const Permission({
     required this.id,

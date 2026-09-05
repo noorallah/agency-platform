@@ -72,6 +72,7 @@ import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
 import 'workspace/enterprise_sidebar.dart';
+import 'administration/apply_template_dialog.dart';
 import 'workspace/desktop_framework.dart';
 
 /// What each Administration screen is for, where the module's own sentence is
@@ -83,6 +84,7 @@ import 'workspace/desktop_framework.dart';
 const Map<String, String> _administrationDescriptions = {
   'users': 'Provision interactive users and control their access.',
   'roles': 'Group permissions into the roles users are assigned.',
+  'user-templates': 'Name a job once, and hire into it without reassembling its access every time.',
   'permissions': 'Manage platform permissions and access capabilities.',
   'user-firms': 'Control which firms each user may work in.',
   'business-profiles':
@@ -1426,6 +1428,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
           'users',
           'roles',
           'permissions',
+          'user-templates',
           'user-firms',
           'business-profiles',
           'feature-management',
@@ -1464,6 +1467,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.api,
             widget.permissions,
             showFrame: false,
+            context: context,
           ),
         ),
       'roles' => ResourceManagementPage<Role>(
@@ -1477,6 +1481,14 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'permissions' => ResourceManagementPage<Permission>(
           api: widget.api,
           definition: permissionDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+          ),
+        ),
+      'user-templates' => ResourceManagementPage<UserTemplate>(
+          api: widget.api,
+          definition: _userTemplateDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -2862,10 +2874,36 @@ ResourceDefinition<Firm> firmDefinition(
       },
     );
 
+/// Hire somebody into a named job.
+///
+/// Returns the sentence the workspace shows afterwards. It names both the job
+/// and the roles, because "Applied Counter Sales" does not tell whoever pressed
+/// the button what the person can now do -- and that is the only question worth
+/// asking straight after pressing it.
+Future<String> _applyTemplate(
+  BuildContext context,
+  ApiClient api,
+  PlatformUser user,
+) async {
+  final UserTemplate? chosen = await pickUserTemplate(
+    context,
+    api,
+    personName: user.fullName.isEmpty ? user.email : user.fullName,
+  );
+  if (chosen == null) return '';
+  await api.applyUserTemplate(user.id, chosen.id);
+  final String roles =
+      chosen.roleCodes.isEmpty ? 'no roles' : chosen.roleCodes.join(', ');
+  return '${user.fullName} now holds $roles, from ${chosen.name}.';
+}
+
 ResourceDefinition<PlatformUser> _userDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
+  // Only for the template picker, which is a dialog and therefore needs one.
+  // Optional so the definition is still constructible without a tree.
+  BuildContext? context,
 }) =>
     ResourceDefinition(
       title: 'Users',
@@ -2882,6 +2920,19 @@ ResourceDefinition<PlatformUser> _userDefinition(
       ],
       id: (user) => user.id,
       load: api.users,
+      customActions: [
+        if (context != null)
+          ResourceAction<PlatformUser>(
+            label: 'Apply job template',
+            icon: Icons.assignment_ind_outlined,
+            // Giving somebody a role is the privilege this needs -- a template
+            // is a bundle of roles and nothing more, so it must not be
+            // reachable by anybody who could not assign them one at a time.
+            isVisible: (_) =>
+                permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
+            onInvoke: (user) => _applyTemplate(context, api, user),
+          ),
+      ],
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
         action,
@@ -3230,6 +3281,117 @@ ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
         values['primary_firm_id'].toString(),
       ),
     );
+
+/// A named bundle of roles for one job.
+///
+/// The platform's eleven are `isSystem` and read-only here -- a firm sees them,
+/// uses them, and cannot edit them. A firm's own are fully editable.
+///
+/// There is no "clone this user" here on purpose. Cloning a user carries
+/// everything a user has -- an email, a password, memberships, an audit trail,
+/// a login history -- and the clone quietly inherits whatever was edited after
+/// the template was written. A bundle carries only what the job needs.
+ResourceDefinition<UserTemplate> _userTemplateDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  bool showFrame = true,
+}) =>
+    ResourceDefinition(
+      title: 'User Templates',
+      resource: 'user-templates',
+      showFrame: showFrame,
+      description:
+          'Name a job once, and hire into it without reassembling its access.',
+      dialogSubtitle: (template) => <String>[
+        '${template.code} — ${template.name}',
+        template.isSystem ? 'Provided by the platform' : "This firm's own",
+      ].join('  ·  '),
+      headers: const ['Code', 'Name', 'Roles', 'Origin', 'Status'],
+      sortFields: const ['code', 'name', null, null, null],
+      cells: (template) => [
+        template.code,
+        template.name,
+        // The whole point of the row: what the job actually gets.
+        template.roleCodes.isEmpty ? '—' : template.roleCodes.join(', '),
+        template.isSystem ? 'Platform' : 'This firm',
+        template.isActive ? 'Active' : 'Inactive',
+      ],
+      id: (template) => template.id,
+      load: api.userTemplates,
+      // A platform template is offered to every firm, so no single firm may
+      // edit or retire it. The server refuses both; saying so on the row is
+      // what stops somebody trying.
+      canEdit: (template) => !template.isSystem,
+      // Two gates, and they answer different questions. The permission gate
+      // asks whether this user may edit templates at all; the row gate asks
+      // whether *this* template is theirs to edit. The server refuses a
+      // platform one either way -- disabling the button is what stops somebody
+      // filling in a form that was never going to save.
+      canUseAction: (action, selected) {
+        final bool platformOwned = selected?.isSystem ?? false;
+        if (platformOwned &&
+            (action == ToolbarAction.edit || action == ToolbarAction.delete)) {
+          return false;
+        }
+        return _canUseResourceAction(
+          permissions,
+          action,
+          view: const ['ROLE_VIEW'],
+          create: const ['ROLE_CREATE', 'ROLE_VIEW'],
+          update: const ['ROLE_UPDATE', 'ROLE_VIEW'],
+          delete: const ['ROLE_DELETE'],
+        );
+      },
+      fields: const [
+        FieldSpec(
+          key: 'code',
+          label: 'Template code',
+          required: true,
+          readOnlyWhenEditing: true,
+          helperText: 'Lower case, digits, dots, dashes. Unique in this firm.',
+        ),
+        FieldSpec(key: 'name', label: 'Job name', required: true),
+        FieldSpec(
+          key: 'description',
+          label: 'What this job does',
+          multiline: true,
+        ),
+        FieldSpec(
+          key: 'role_ids',
+          label: 'Roles',
+          required: true,
+          helperText:
+              'What somebody hired into this job starts with. They can be '
+              'edited afterwards like any other user.',
+          optionsResource: 'roles',
+          section: 'Roles',
+        ),
+        FieldSpec(key: 'is_active', label: 'Offered', boolean: true),
+      ],
+      initialValues: (template) => template == null
+          ? {'is_active': true}
+          : {
+              'code': template.code,
+              'name': template.name,
+              'description': template.description,
+              'is_active': template.isActive,
+              'role_ids': template.roleIds.join(','),
+            },
+      // `code` only when creating: it is the key, and the server treats an
+      // absent field as "leave alone" on update.
+      payload: (values, isCreating) => {
+        if (isCreating) 'code': values['code'],
+        'name': values['name'],
+        'description': values['description'],
+        'is_active': values['is_active'],
+        'role_ids': _ids(values['role_ids']),
+      },
+      // PATCH, so an omitted field means leave alone -- the server dumps with
+      // `exclude_unset=True` and a full dump would empty the bundle on a
+      // rename.
+      partialUpdate: true,
+    );
+
 
 ResourceDefinition<Role> _roleDefinition(
   ApiClient api,

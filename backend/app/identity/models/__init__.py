@@ -12,6 +12,8 @@ from app.identity.models.identity import (
     UserFirm,
     UserPreferences,
     UserRole,
+    UserTemplate,
+    UserTemplateRole,
 )
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "UserFirm",
     "UserPreferences",
     "UserRole",
+    "UserTemplate",
+    "UserTemplateRole",
 ]

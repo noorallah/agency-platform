@@ -152,6 +152,91 @@ class Role(BaseEntity):
     )
 
 
+class UserTemplate(BaseEntity):
+    """A named bundle of roles for one job, so a firm hires by naming the job.
+
+    A firm administrator setting up a new counter clerk should not have to
+    reassemble a permission set from twelve roles and remember which. The
+    template is that decision, made once and given a name the firm uses.
+
+    Deliberately a **role bundle and not a dormant user row**. Cloning a user
+    carries everything a user has -- an email, a password, memberships, an
+    audit trail, a login history -- and the clone quietly inherits any of it
+    that was edited after the template was written. A bundle carries only what
+    the job needs, and applying one is a plain `set_user_roles` call whose
+    result the administrator is then free to edit: a template is where you
+    start, not a thing you stay inside.
+
+    `firm_id` NULL means platform-provided and offered to every firm. A firm's
+    own templates are visible only to it.
+    """
+
+    __tablename__ = "user_templates"
+    __table_args__ = (
+        Index("IX_user_templates_firm_id", "firm_id"),
+        # Codes are unique among live rows, per scope. Two indexes rather than
+        # one on `(firm_id, code)`, because PostgreSQL treats NULLs as
+        # distinct -- so a single key would let the platform hold ten
+        # templates all called `counter-sales`.
+        Index(
+            "UQ_user_templates_platform_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("firm_id IS NULL AND is_deleted = false"),
+            sqlite_where=text("firm_id IS NULL AND is_deleted = 0"),
+        ),
+        Index(
+            "UQ_user_templates_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("firm_id IS NOT NULL AND is_deleted = false"),
+            sqlite_where=text("firm_id IS NOT NULL AND is_deleted = 0"),
+        ),
+    )
+
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    firm_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("firms.id", ondelete="RESTRICT")
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    is_system: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    template_roles: Mapped[list["UserTemplateRole"]] = relationship(
+        back_populates="template", cascade="all, delete-orphan"
+    )
+
+
+class UserTemplateRole(BaseEntity):
+    """One role in a template's bundle."""
+
+    __tablename__ = "user_template_roles"
+    __table_args__ = (
+        Index("IX_user_template_roles_template_id", "template_id"),
+        UniqueConstraint(
+            "template_id", "role_id", name="UQ_user_template_roles_template_role"
+        ),
+    )
+
+    template_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("user_templates.id"), nullable=False
+    )
+    role_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("roles.id", ondelete="RESTRICT"), nullable=False
+    )
+    template: Mapped[UserTemplate] = relationship(back_populates="template_roles")
+    #: One-way. `Role` needs no collection of the templates naming it -- the
+    #: question "which templates use this role" has no caller, and a cascade
+    #: from that side would make deleting a role reach into templates.
+    role: Mapped["Role"] = relationship()
+
+
 class Permission(BaseEntity):
     """Represent one configurable capability granted through roles."""
 

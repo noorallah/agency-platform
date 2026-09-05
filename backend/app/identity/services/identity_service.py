@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.audit.services import record_audit
 from app.core.config.settings import Settings
@@ -35,6 +36,8 @@ from app.identity.models import (
     UserFirm,
     UserPreferences,
     UserRole,
+    UserTemplate,
+    UserTemplateRole,
 )
 from app.identity.schemas.api import (
     PermissionCreate,
@@ -45,6 +48,8 @@ from app.identity.schemas.api import (
     UserCreate,
     UserFirmAssignment,
     UserPreferencesUpdate,
+    UserTemplateCreate,
+    UserTemplateUpdate,
     UserUpdate,
 )
 from app.identity.system_seed import (
@@ -680,6 +685,313 @@ class IdentityService:
     def get_role(self, role_id: UUID, firm_scope: UUID | None = None) -> Role:
         """Return one visible role."""
         return self._get_role(role_id, firm_scope)
+
+    # ------------------------------------------------------------------
+    # User templates -- a named bundle of roles for one job
+    # ------------------------------------------------------------------
+
+    def list_user_templates(
+        self,
+        page: int,
+        page_size: int,
+        search: str | None,
+        sort_by: str,
+        descending: bool,
+        firm_scope: UUID | None = None,
+    ) -> tuple[list[UserTemplate], int]:
+        """Return the templates this caller may offer, paginated.
+
+        A firm sees the platform's templates **and** its own. A platform caller
+        sees every template, which is what makes a support conversation about
+        "the template we built for FOOD01" possible at all.
+        """
+        columns = {
+            "code": UserTemplate.code,
+            "name": UserTemplate.name,
+            "created_at": UserTemplate.created_at,
+        }
+        conditions: list[ColumnElement[bool]] = [UserTemplate.is_deleted.is_(False)]
+        if firm_scope is not None:
+            conditions.append(
+                or_(
+                    UserTemplate.firm_id == firm_scope,
+                    UserTemplate.firm_id.is_(None),
+                )
+            )
+        if search:
+            needle = f"%{search.strip()}%"
+            conditions.append(
+                or_(UserTemplate.code.ilike(needle), UserTemplate.name.ilike(needle))
+            )
+        statement = select(UserTemplate).where(*conditions)
+        count = select(func.count()).select_from(UserTemplate).where(*conditions)
+        ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()
+        rows = list(
+            self._session.scalars(
+                statement.order_by(ordering)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
+        )
+        return rows, int(self._session.scalar(count) or 0)
+
+    def get_user_template(
+        self, template_id: UUID, firm_scope: UUID | None = None
+    ) -> UserTemplate:
+        """Return one visible template."""
+        return self._get_user_template(template_id, firm_scope)
+
+    def create_user_template(
+        self,
+        data: UserTemplateCreate,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> UserTemplate:
+        """Create a template, refusing a bundle its own scope could not apply.
+
+        The roles are validated **here** rather than only at apply time. A
+        template naming a role the firm cannot assign is one that fails on
+        whoever tries to use it, weeks later, with nothing on screen to say the
+        template was wrong rather than their permissions.
+
+        Raises:
+            ConflictError: If the code is already taken in this scope.
+
+        """
+        code = data.code.strip().lower()
+        if self._user_template_code_taken(code, firm_scope):
+            raise ConflictError("A template with this code already exists.")
+        self._assert_roles_are_assignable(data.role_ids, firm_scope)
+        template = UserTemplate(
+            code=code,
+            name=data.name,
+            description=data.description,
+            is_active=data.is_active,
+            firm_id=firm_scope,
+            is_system=False,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(template)
+        self._session.flush()
+        self._set_template_roles(template, data.role_ids, actor_id)
+        record_audit(
+            self._session,
+            action="user_template.created",
+            entity_type="user_template",
+            entity_id=template.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+        )
+        self._session.commit()
+        return template
+
+    def update_user_template(
+        self,
+        template_id: UUID,
+        data: UserTemplateUpdate,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> UserTemplate:
+        """Update a template.
+
+        Dumps with `exclude_unset=True`, so an omitted field is left alone and
+        an explicit null still clears. `role_ids` **replaces** the bundle, and
+        that is only safe because the two are distinguishable.
+
+        Raises:
+            BusinessRuleError: If the template is platform-provided.
+
+        """
+        template = self._get_user_template(template_id, firm_scope)
+        if template.is_system:
+            raise BusinessRuleError("Platform templates cannot be edited.")
+        values = data.model_dump(exclude_unset=True)
+        role_ids = values.pop("role_ids", None)
+        for field, value in values.items():
+            setattr(template, field, value)
+        if role_ids is not None:
+            self._assert_roles_are_assignable(role_ids, firm_scope)
+            self._set_template_roles(template, role_ids, actor_id)
+        template.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="user_template.updated",
+            entity_type="user_template",
+            entity_id=template.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+        )
+        self._session.commit()
+        return template
+
+    def delete_user_template(
+        self, template_id: UUID, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> None:
+        """Soft delete a template.
+
+        Nothing is taken away from anybody: a template is where a user started,
+        not something they stay inside, so retiring one leaves every user it
+        ever created exactly as they are.
+
+        Raises:
+            BusinessRuleError: If the template is platform-provided.
+
+        """
+        template = self._get_user_template(template_id, firm_scope)
+        if template.is_system:
+            raise BusinessRuleError("Platform templates cannot be deleted.")
+        template.is_deleted = True
+        template.deleted_at = utc_now()
+        template.deleted_by = actor_id
+        template.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="user_template.deleted",
+            entity_type="user_template",
+            entity_id=template.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+        )
+        self._session.commit()
+
+    def apply_user_template(
+        self,
+        user_id: UUID,
+        template_id: UUID,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> list[UUID]:
+        """Give a user the roles a template bundles, and return them.
+
+        A plain `set_user_roles`, deliberately: the template decides where the
+        administrator **starts**, and everything after that is an ordinary role
+        edit on an ordinary user. Nothing records that a template was used --
+        the audit row does, and the user does not, because a user who has since
+        been edited is no longer described by the template they came from.
+
+        Raises:
+            BusinessRuleError: If the template is inactive.
+
+        """
+        template = self._get_user_template(template_id, firm_scope)
+        if not template.is_active:
+            raise BusinessRuleError("This template is no longer offered.")
+        role_ids = [
+            row.role_id for row in template.template_roles if not row.is_deleted
+        ]
+        # Through the ordinary path, so the firm-scope check that refuses a
+        # platform or cross-firm role applies here too and there is one
+        # implementation of it rather than two.
+        self.set_user_roles(user_id, role_ids, actor_id, firm_scope)
+        record_audit(
+            self._session,
+            action="user_template.applied",
+            entity_type="user",
+            entity_id=user_id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+        )
+        self._session.commit()
+        return role_ids
+
+    def _get_user_template(
+        self, template_id: UUID, firm_scope: UUID | None = None
+    ) -> UserTemplate:
+        """Return a visible template.
+
+        Raises:
+            NotFoundError: If it does not exist or is out of this caller's scope.
+
+        """
+        conditions: list[ColumnElement[bool]] = [
+            UserTemplate.id == template_id,
+            UserTemplate.is_deleted.is_(False),
+        ]
+        if firm_scope is not None:
+            conditions.append(
+                or_(
+                    UserTemplate.firm_id == firm_scope,
+                    UserTemplate.firm_id.is_(None),
+                )
+            )
+        template = self._session.scalar(select(UserTemplate).where(*conditions))
+        if template is None:
+            raise ResourceNotFoundError("The template was not found.")
+        return template
+
+    def _user_template_code_taken(self, code: str, firm_scope: UUID | None) -> bool:
+        """Return whether a live template in this scope already holds the code."""
+        scope = (
+            UserTemplate.firm_id.is_(None)
+            if firm_scope is None
+            else UserTemplate.firm_id == firm_scope
+        )
+        return (
+            self._session.scalar(
+                select(UserTemplate.id).where(
+                    UserTemplate.code == code,
+                    UserTemplate.is_deleted.is_(False),
+                    scope,
+                )
+            )
+            is not None
+        )
+
+    def _assert_roles_are_assignable(
+        self, role_ids: list[UUID], firm_scope: UUID | None
+    ) -> None:
+        """Refuse a bundle naming a role this scope could never apply.
+
+        The same condition `set_user_roles` enforces. A firm's template must
+        not be able to name `PLATFORM_ADMIN`: that role carries every seeded
+        permission code, so bundling it would hand a firm administrator the
+        whole catalogue in their own firm through a template rather than
+        through a role assignment.
+
+        Raises:
+            BusinessRuleError: If any role is out of scope.
+
+        """
+        self._ensure_identifiers(Role, role_ids)
+        if firm_scope is None:
+            return
+        allowed = self._session.scalar(
+            select(func.count())
+            .select_from(Role)
+            .where(
+                Role.id.in_(role_ids),
+                Role.is_deleted.is_(False),
+                or_(Role.firm_id == firm_scope, Role.code.in_(FIRM_ROLE_CODES)),
+            )
+        )
+        if int(allowed or 0) != len(set(role_ids)):
+            raise BusinessRuleError(
+                "A template cannot bundle platform or cross-firm roles."
+            )
+
+    def _set_template_roles(
+        self, template: UserTemplate, role_ids: list[UUID], actor_id: UUID
+    ) -> None:
+        """Replace a template's bundle."""
+        wanted = list(dict.fromkeys(role_ids))
+        existing = {row.role_id: row for row in template.template_roles}
+        for role_id, row in existing.items():
+            row.is_deleted = role_id not in wanted
+            if row.is_deleted:
+                row.deleted_at = utc_now()
+                row.deleted_by = actor_id
+            else:
+                row.deleted_at, row.deleted_by = None, None
+            row.updated_by = actor_id
+        for role_id in wanted:
+            if role_id not in existing:
+                template.template_roles.append(
+                    UserTemplateRole(
+                        role_id=role_id, created_by=actor_id, updated_by=actor_id
+                    )
+                )
+        self._session.flush()
 
     def create_permission(self, data: PermissionCreate, actor_id: UUID) -> Permission:
         """Create a permission capability."""
