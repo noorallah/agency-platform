@@ -43,10 +43,10 @@ nothing about a document stops it happening here.
 | | 3 | Document numbering and lifecycle | ✅ |
 | | 4 | Financial year and chart of accounts | ✅ |
 | **B — Masters** | 5 | Branches and warehouses | ✅ |
-| | 6 | Geography | ☐ |
-| | 7 | Units and packaging | ☐ |
-| | 8 | Tax setup | ☐ |
-| | 9 | Products, attributes, batch and serial | ☐ |
+| | 6 | Geography | ✅ |
+| | 7 | Units and packaging | ✅ |
+| | 8 | Tax setup | ✅ |
+| | 9 | Products, attributes, batch and serial | ✅ |
 | | 10 | Customers, groups and credit policy | ✅ |
 | | 11 | Vendors | ☐ |
 | | 12 | Territory, routes and beats | ☐ |
@@ -1114,6 +1114,288 @@ platform has.
 
 Modules 6–28 in the table above. Each gets the same six parts.
 
+
+---
+
+# 6. Geography
+
+## What it does
+
+One set of place masters that every address-carrying module names, so a city
+means the same thing to a customer, a vendor, a branch and a warehouse.
+
+```
+geo_countries → geo_states → geo_districts → geo_cities
+                                          → geo_postal_codes → geo_localities
+```
+
+Per firm store. Each of the four modules carries the same six keys, and
+`GeoAreaPicker` is the **one** control that fills them — use it rather than a
+fifth copy of the cascade.
+
+## Configure first
+
+Nothing. The masters are seeded, and a firm can add to them.
+
+## Workflow
+
+Administration › Geography masters. Add a country, then its states, then
+districts, then cities. A postal code hangs off a city; a locality off a postal
+code.
+
+## Rules that bite
+
+1. **Customers are the odd one out, and the reason there is a migration.**
+   They had free text and no keys where the other three had keys and no form.
+   `20260816_0094` added the keys beside the text and backfilled only
+   unambiguous matches.
+2. **The keys are the truth; the text is derived from them.** `city`, `state`,
+   `country` and `postal_code` are NOT NULL and every report reads them, so a
+   row whose `city` says one thing and whose `city_id` says another leaves
+   nothing to say which a report should believe. `CustomerService._apply_place`
+   derives the text from the keys. An address naming no place keeps the text it
+   was given.
+3. **`ondelete="RESTRICT"` is not a guard here.** Every foreign key into the six
+   tables is RESTRICT, which reads like protection — but these tables are
+   soft-deleted, and a soft delete never reaches the database's referential
+   check. A "deleted" city would stay wired to every branch naming it and
+   simply vanish from the list. The refusal lives in the service, and it looks
+   at the level below **and** at everything outside the module: addresses,
+   branches, warehouses, route profiles.
+4. **Two traps live in the picker itself**, both found by testing rather than
+   by reading. A stored id that is not in the loaded list must stay as an item
+   of its own, or `DropdownButtonFormField` asserts and the form saves as
+   blank. And a rung must be loaded from the **new** selection rather than from
+   `widget.value`, which the parent has not rebuilt yet in the frame the choice
+   was made — choosing a country loaded no states at all, and shipped that way
+   because the first two screens' tests only ever chose one rung.
+
+---
+
+# 7. Units and packaging
+
+## What it does
+
+A product is bought in one unit, held in another and sold in a third. This
+module holds the units, the factors between them, and the packaging hierarchy a
+scanner reads.
+
+## The seven slots a product carries
+
+| Slot | What it is for |
+| --- | --- |
+| `base_uom_id` | The unit everything converts through |
+| `inventory_uom_id` | What the shelf is counted in |
+| `purchase_uom_id` | What a purchase order is written in |
+| `sales_uom_id` | What a sales document is written in |
+| `minimum_sales_uom_id` | The smallest a customer may buy |
+| `default_receiving_uom_id` | What a goods receipt defaults to |
+| `default_dispatch_uom_id` | What a delivery note defaults to |
+
+## Configure first
+
+UOM groups and their units, then conversion rules. A product with no factor
+between its purchase and inventory units cannot be received.
+
+## How a factor is found
+
+Effective-dated rules, resolved in a stated order: **the product's own rule
+before the firm-wide one**, ranked explicitly rather than by NULL sort.
+
+**Eight document modules call `convert_quantity` per line** — purchase, goods
+receipt, purchase invoice, purchase return, sales order, delivery note, sales
+invoice, sales return — plus `inventory`. They take a `factor = 1`
+short-circuit only when the units match.
+
+`quotation` deliberately does not convert: it moves no stock, and the
+conversion happens when it becomes an order, because `convert_quotation` builds
+that order through `SalesOrderService.create_order`.
+
+## Packaging and barcodes
+
+`product_packaging_levels` describes a carton holding a strip holding a piece,
+each level carrying its own `barcode`, `gtin`, `ean` and `upc`.
+`GET /barcode-lookup` resolves a code across all four columns and then the
+product's own barcode, and answers with the product **and how many base units
+one scan is**.
+
+## Tables
+
+`uoms` · `uom_groups` · `uom_group_units` · `uom_conversion_rules` ·
+`packaging_types` · `product_packaging_levels` · `uom_industry_templates` ·
+`business_profile_uom_defaults` · `uom_attribute_values`
+
+## Rules that bite
+
+1. **Never let NULL ordering pick a row.** PostgreSQL sorts NULLs first in
+   `DESC`, SQLite last — so `ORDER BY product_id DESC` made a firm-wide rule
+   outrank a product's own factor **in production** while the unit suite saw
+   the right answer. Rank on `case((col.is_(None), 1), else_=0)`.
+2. **A conversion rule's revision is `version_number`, not `version`.**
+   `version` is the concurrency counter, and `uom.ConversionRule` was renamed
+   in `20260809_0055` after the ORM was found moving the revision on every
+   save. The rename also found a second copy of the resolver in `app/inventory`
+   matching a line's stored revision against the *counter*, which agreed only
+   until somebody edited a rule.
+3. **A packaging level's barcode columns were read by nothing** until
+   `/barcode-lookup` shipped — the framework documentation described a scanner
+   that had no implementation behind it.
+
+---
+
+# 8. Tax setup
+
+## What it does
+
+What a document is taxed, decided by rules rather than by a rate on a product.
+Systems hold components, components make profiles, and rules choose which
+profile applies to a given line of a given document.
+
+## The shape
+
+| Layer | What it is |
+| --- | --- |
+| `tax_systems` | GST, VAT — a country's regime |
+| `tax_components` | CGST, SGST, IGST, CESS — what gets charged |
+| `tax_profiles` | A named bundle of components with effective-dated rates |
+| `tax_rules` | Which profile applies, given the document |
+
+## Configure first
+
+A country mapped to a tax system, then components, then at least one profile,
+then a rule that reaches it. A product carries `tax_profile_group_code` — not a
+profile — and the rule matches on it.
+
+## How a rate is chosen
+
+ACTIVE rules ordered `priority ASC, code ASC, version_number DESC`, and **the
+first match wins and evaluation stops**. This is the opposite of promotions,
+which stack.
+
+**Rules attach to the transaction, never to the product.** The product
+contributes `tax_profile_group_code`, `product_category_id` and `product_type`
+to the matching context; everything else comes from the document.
+
+## `simulate` is the calculation, not a preview
+
+All the transactional modules call `TaxRuleService.simulate` once per line
+while building a document, on their own session — so **it must never commit**.
+The `/simulate` endpoint owns that.
+
+It also derives `country_id` from the applied profile's tax system and
+`business_profile_id` from the firm's assignment, because no document sends
+either and rules scoped that way would otherwise never match.
+
+**`total_tax_amount` is only what the counterparty is billed.** Tax
+`included_in_price` and tax under `REVERSE_CHARGE` are reported separately in
+`inclusive_tax_amount` and `reverse_charge_tax_amount`, and must not be added
+to a document total.
+
+## Tables
+
+`tax_systems` · `tax_components` · `tax_profiles` · `tax_profile_components` ·
+`tax_country_mappings` · `tax_rules` · `tax_rule_conditions` ·
+`tax_rule_actions` · `tax_rule_execution_logs` · `tax_settings` ·
+`tax_profile_attribute_values` · `tax_migration_mappings`
+
+`tax_rule_execution_logs` grows fastest of anything in the platform — one row
+holding three JSON documents per document line — and is pruned per firm store
+by `scripts/purge_retention.py`.
+
+## Rules that bite
+
+1. **A flag the engine records has to change an outcome.**
+   `included_in_price` and `REVERSE_CHARGE` were stored, returned in the
+   response and read by nobody, so configuring either silently produced wrong
+   money.
+2. **A scope filter must be satisfiable by the callers that actually exist.**
+   Rules can be scoped by country; no document sends one; country-scoped rules
+   therefore never fired until `simulate` began deriving it.
+3. **A product seeded before its firm had a tax profile keeps a NULL
+   `tax_profile_group_code`**, matches no rule, and is **billed with no tax at
+   all**. WHOLE01's toothpaste did exactly that for two financial years —
+   37,105 of supplies — and nothing said so until a GST return reported a
+   nil-rated row nobody had asked for.
+4. **A rule is superseded, not edited**, and carries `version_number`. A
+   document priced in March must still be explicable in September.
+
+---
+
+# 9. Products, attributes, batch and serial
+
+## What it does
+
+What the firm buys and sells, what industry-specific facts it records about
+each, and — where the industry needs it — which physical batch or serial each
+unit came from.
+
+## Configure first
+
+UOM groups and conversion rules, a product category, and a tax profile group.
+A product saved without a factor between its units cannot be received.
+
+## Custom fields, not columns
+
+A module gains industry-specific fields through `AttributeService`, **never** by
+adding columns. An `AttributeDefinition` targets an `entity_type` and is
+optionally scoped to one business profile, so a pharmacy firm carries fields a
+food firm does not.
+
+**The catalogue is shared; value storage is per module.** Each module owns a
+small table extending `AttributeValueBase` — `product_attribute_values` is the
+reference — keeping a real foreign key to the owning record and its own
+indexes.
+
+**Values live in typed columns** (`value_text`, `value_number`, `value_date`,
+`value_boolean`) so list filters and reports can index and query them. A
+`products.category_attribute_values` JSON blob existed until 2026-08-09 and
+could not be filtered.
+
+Read attributes for a list of records with `values_for_many`, **never per row**.
+
+## Tracking flags
+
+`track_batch` · `track_expiry` · `track_lot` · `track_serial` ·
+`track_manufacturing_date` · `track_warranty` · `require_batch_on_receipt` ·
+`require_batch_on_issue` · `require_serial_on_receipt` ·
+`require_serial_on_issue` · `allow_negative_stock` · `allow_fraction` ·
+`allow_decimal`
+
+Several are gated by the business profile: setting `track_expiry` on a firm
+whose profile does not enable `EXPIRY_TRACKING` is refused **when the field is
+populated**, not when the endpoint is called — blank and unchanged always pass,
+so a firm cannot be stopped from creating a product because it does not scan
+barcodes.
+
+## Batch, lot and serial
+
+`batches` records a physical intake — a number, a manufacturing date, an
+expiry. A traced product may only be **issued from a batch**, and dispatch
+takes the batch nearest expiry first.
+
+**No demo firm serialises.** `serial_numbers` and `lots` hold no rows in any
+store, so that half of the module runs on unit tests alone.
+
+## Tables
+
+`products` · `product_categories` · `product_attribute_values` ·
+`product_media` · `batches` · `lots` · `serial_numbers`
+
+## Rules that bite
+
+1. **No attribute is mandatory for every firm.** `20260801_0011` seeded four
+   attributes with `mandatory = True` and no scope, which asked a pharmacy for
+   an IMEI and an electronics distributor for an expiry date — and
+   `AttributeService` refuses the write, so it **blocked product creation on
+   any freshly-migrated database**. `20260815_0087` clears it. Where an
+   attribute really is required, say so in `category_attribute_rules`, scoped
+   to a business profile and a category.
+2. **A master field added later never reaches a store already seeded.** The
+   batch flags were the first instance, the HSN code the second,
+   `tax_profile_group_code` the third. Expect another every time a master gains
+   a field the demo needs.
+3. **`ondelete="RESTRICT"` will not stop a soft delete.** The refusal has to
+   live in the service.
 
 ---
 
