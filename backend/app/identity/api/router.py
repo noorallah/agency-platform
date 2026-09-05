@@ -88,6 +88,30 @@ def _actor_id(principal: Principal) -> UUID:
     return principal.subject
 
 
+def _firms_the_caller_may_staff(principal: Principal) -> frozenset[UUID] | None:
+    """Return the firms this caller may put people into, or None for all.
+
+    A platform administrator whose designation reaches every firm gets None,
+    which is what they have always had. Everybody else gets the firms where
+    they themselves hold `USER_CREATE` -- **not** the firms they merely belong
+    to. Somebody who is an administrator in one firm and a sales executive in
+    another must not be able to staff the second, and mere membership cannot
+    tell those apart.
+
+    Read from the token's own `firm_permissions` map, which is the same answer
+    the desktop resolves its menus from. It cannot go stale behind a role
+    change: `set_user_roles` bumps `authorization_version`, and
+    `get_current_principal` refuses a token whose version has moved.
+    """
+    if principal.may_act_in_any_firm:
+        return None
+    return frozenset(
+        firm_id
+        for firm_id, codes in principal.firm_permissions.items()
+        if "USER_CREATE" in codes
+    )
+
+
 def _firm_scope(principal: Principal) -> UUID | None:
     """Return tenant scope for firm principals and global scope for platform admins."""
     return None if principal.is_platform_admin else principal.firm_id
@@ -383,13 +407,23 @@ def list_user_firms(
 def set_user_firms(
     user_id: UUID,
     data: UserFirmAssignments,
-    principal: PlatformPrincipal,
+    # `USER_UPDATE`, not the platform designation. It was the designation, on
+    # the reasoning that which firms a person belongs to is a cross-firm fact
+    # -- true, and it does not follow that only a platform administrator may
+    # touch it. An administrator of two firms putting a new hire in both is
+    # the ordinary case, and they were refused. The cross-firm part is handled
+    # by reach instead: they may name only firms they themselves may staff,
+    # and memberships outside that are carried through untouched.
+    principal: UserUpdatePrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
-    """Replace a user's active/primary firm memberships."""
+    """Set a user's memberships among the firms this caller may staff."""
     rows = _service(db, settings).set_user_firms(
-        user_id, data.assignments, _actor_id(principal)
+        user_id,
+        data.assignments,
+        _actor_id(principal),
+        _firms_the_caller_may_staff(principal),
     )
     return ApiResponse(data=[UserFirmResponse.model_validate(row) for row in rows])
 

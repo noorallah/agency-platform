@@ -1464,7 +1464,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
     final Widget content = switch (tabId) {
       'users' => ResourceManagementPage<PlatformUser>(
           api: widget.api,
-          definition: _userDefinition(
+          definition: userDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -2923,15 +2923,25 @@ Future<String> _applyTemplate(
   return '${user.fullName} now holds $roles, from ${chosen.name}.';
 }
 
-ResourceDefinition<PlatformUser> _userDefinition(
+/// The users grid, public so a test can ask what it offers.
+///
+/// `permissionDefinition` beside it is public for the same reason. No test in
+/// the desktop suite instantiates `DesktopShell`, so a private definition is
+/// one nothing can interrogate -- which is how the New-user gate came to
+/// demand `FIRM_VIEW`, a code `FIRM_ADMIN` can never hold, and hide the button
+/// from the only role whose job it is.
+ResourceDefinition<PlatformUser> userDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
   // Only for the template picker, which is a dialog and therefore needs one.
   // Optional so the definition is still constructible without a tree.
   BuildContext? context,
-}) =>
-    ResourceDefinition(
+}) {
+  // `/firms` lists every firm on the platform and only a platform
+  // administrator may read it. A firm administrator gets their own.
+  final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
+  return ResourceDefinition(
       title: 'Users',
       resource: 'users',
       showFrame: showFrame,
@@ -2975,23 +2985,28 @@ ResourceDefinition<PlatformUser> _userDefinition(
         permissions,
         action,
         view: const ['USER_VIEW'],
+        // `FIRM_VIEW` used to be in both lists, and `FIRM_ADMIN` does not
+        // hold it -- it is a platform code, one of the set a firm
+        // administrator may not even grant. So the single role whose whole job
+        // is running a firm's people was refused the New and Edit buttons on
+        // the users grid: it holds all four codes that matter and failed on a
+        // fifth it can never be given. The firm picker below is why it was
+        // listed, and that is solved where the problem is.
         create: const [
           'USER_CREATE',
           'ROLE_ASSIGN',
           'ROLE_VIEW',
           'USER_UPDATE',
-          'FIRM_VIEW',
         ],
         update: const [
           'USER_UPDATE',
           'ROLE_ASSIGN',
           'ROLE_VIEW',
-          'FIRM_VIEW',
         ],
         delete: const ['USER_DELETE'],
       ),
-      fields: const [
-        FieldSpec(
+      fields: [
+        const FieldSpec(
           key: 'email',
           label: 'Username (Email)',
           required: true,
@@ -3000,29 +3015,29 @@ ResourceDefinition<PlatformUser> _userDefinition(
           section: 'General Information',
           sectionIcon: Icons.badge_outlined,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'full_name',
           label: 'Full name',
           required: true,
           section: 'General Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'personal_mobile',
           label: 'Mobile',
           section: 'General Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'alternate_mobile',
           label: 'Alternate mobile',
           section: 'General Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'profile_photo_url',
           label: 'Profile photo URL',
           helperText: 'Link to a hosted photo.',
           section: 'General Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'is_active',
           label: 'Status (Active)',
           boolean: true,
@@ -3032,7 +3047,13 @@ ResourceDefinition<PlatformUser> _userDefinition(
           key: 'firm_ids',
           label: 'Firms',
           helperText: 'Select one or more firms.',
-          optionsResource: 'firms',
+          // `/firms` is platform-only, so a firm administrator opening this
+          // form got an empty picker and a failed load. `/me/firms` is the
+          // honest source for them -- and the most they may assign anyway:
+          // the server refuses a firm they do not hold `USER_CREATE` in, and
+          // carries the person's other memberships through untouched rather
+          // than replacing them.
+          optionsResource: firmOptions,
           section: 'Organization',
           sectionIcon: Icons.apartment_outlined,
         ),
@@ -3040,11 +3061,11 @@ ResourceDefinition<PlatformUser> _userDefinition(
           key: 'primary_firm_id',
           label: 'Primary firm',
           helperText: 'Optional; must also be selected above.',
-          optionsResource: 'firms',
+          optionsResource: firmOptions,
           singleSelection: true,
           section: 'Organization',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'password',
           label: 'Initial password',
           requiredOnCreate: true,
@@ -3052,136 +3073,136 @@ ResourceDefinition<PlatformUser> _userDefinition(
           section: 'Security',
           sectionIcon: Icons.lock_outline,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'force_password_change',
           label: 'Require password change',
           boolean: true,
           createOnly: true,
           section: 'Security',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'role_ids',
           label: 'Roles',
           helperText: 'Select one or more roles.',
           optionsResource: 'roles',
           section: 'Security',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'expires_at',
           label: 'Expires at',
           helperText: 'Optional ISO timestamp.',
           section: 'Security',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'unlock',
           label: 'Clear login lock (Account Lock)',
           boolean: true,
           editOnly: true,
           section: 'Security',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'personal_email',
           label: 'Personal email',
           section: 'Contact Information',
           sectionIcon: Icons.contact_mail_outlined,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'office_email',
           label: 'Office email',
           section: 'Contact Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'emergency_contact_name',
           label: 'Emergency contact name',
           section: 'Contact Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'emergency_mobile',
           label: 'Emergency contact mobile',
           section: 'Contact Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'emergency_relationship',
           label: 'Relationship',
           section: 'Contact Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'profile_addresses',
           label: 'Addresses',
           kind: FieldKind.addressList,
           section: 'Address',
           sectionIcon: Icons.location_on_outlined,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'employee_code',
           label: 'Employee code',
           section: 'Employment',
           sectionIcon: Icons.work_outline,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'joining_date',
           label: 'Joining date',
           kind: FieldKind.date,
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'leaving_date',
           label: 'Leaving date',
           kind: FieldKind.date,
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'department',
           label: 'Department',
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'designation',
           label: 'Designation',
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'reporting_manager',
           label: 'Reporting manager',
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'employment_type',
           label: 'Employment type',
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'cost_center',
           label: 'Cost center',
           section: 'Employment',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'profile_documents',
           label: 'Documents',
           kind: FieldKind.documentList,
           section: 'Documents',
           sectionIcon: Icons.folder_outlined,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'created_at',
           label: 'Created on',
           alwaysReadOnly: true,
           section: 'Audit Information',
           sectionIcon: Icons.history_outlined,
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'updated_at',
           label: 'Last modified on',
           alwaysReadOnly: true,
           section: 'Audit Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'last_login_at',
           label: 'Last login',
           alwaysReadOnly: true,
           section: 'Audit Information',
         ),
-        FieldSpec(
+        const FieldSpec(
           key: 'failed_login_attempts',
           label: 'Failed login attempts',
           alwaysReadOnly: true,
@@ -3258,6 +3279,8 @@ ResourceDefinition<PlatformUser> _userDefinition(
         );
       },
     );
+}
+
 
 ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
   ApiClient api,

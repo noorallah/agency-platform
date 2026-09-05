@@ -1403,10 +1403,41 @@ class IdentityService:
         self._session.commit()
 
     def set_user_firms(
-        self, user_id: UUID, assignments: list[UserFirmAssignment], actor_id: UUID
+        self,
+        user_id: UUID,
+        assignments: list[UserFirmAssignment],
+        actor_id: UUID,
+        allowed_firm_ids: frozenset[UUID] | None = None,
     ) -> list[UserFirm]:
-        """Replace firm memberships while enforcing a single active primary firm."""
+        """Replace firm memberships while enforcing a single active primary firm.
+
+        `allowed_firm_ids` is the reach of the caller: the firms they may put
+        people into. None means every firm, which is what a platform
+        administrator has always had, so their behaviour is unchanged.
+
+        For anybody else this **merges rather than replaces**. The method's own
+        last loop soft-deletes every membership the request did not name, which
+        is right when the caller can see them all and destructive when they
+        cannot: a firm administrator saving a user's membership of their own
+        firm would otherwise silently remove that person from every other firm
+        on the platform. Memberships outside the caller's reach are carried
+        through untouched, so what they save is what they could see.
+
+        Args:
+            user_id: The person whose memberships to set.
+            assignments: The memberships being asked for.
+            actor_id: Who is asking.
+            allowed_firm_ids: The firms the caller may staff, or None for all.
+
+        Returns:
+            The resulting memberships.
+
+        """
         user = self._get_user_for_update(user_id)
+        if allowed_firm_ids is not None:
+            assignments = self._merged_within_reach(
+                user.id, assignments, allowed_firm_ids
+            )
         firm_ids = [item.firm_id for item in assignments]
         if len(firm_ids) != len(set(firm_ids)):
             raise BusinessRuleError("A firm can only be assigned once.")
@@ -1476,6 +1507,76 @@ class IdentityService:
         self._revoke_user_tokens(user.id)
         self._session.commit()
         return result
+
+    def _merged_within_reach(
+        self,
+        user_id: UUID,
+        assignments: list[UserFirmAssignment],
+        allowed_firm_ids: frozenset[UUID],
+    ) -> list[UserFirmAssignment]:
+        """Combine what a scoped caller asked for with what they cannot see.
+
+        Two rules, and the second is the one worth knowing.
+
+        A firm they may not staff cannot be named at all -- refused by name
+        rather than dropped, because a request that silently does less than it
+        said is how somebody comes to believe a user was added.
+
+        And **a scoped caller does not move the primary firm.** It is one flag
+        across every firm a person belongs to, held by
+        `UQ_user_firms_active_primary`, so setting it here would either collide
+        with a primary in a firm this caller cannot see or quietly demote it.
+        The existing primary is preserved; only where the person has none at
+        all does the first membership take it, so a new hire still lands
+        somewhere when they sign in.
+
+        Raises:
+            BusinessRuleError: If a firm outside the caller's reach is named.
+
+        """
+        named = {item.firm_id for item in assignments}
+        beyond = named - allowed_firm_ids
+        if beyond:
+            raise BusinessRuleError("You can only assign firms you administer.")
+        existing = list(
+            self._session.scalars(
+                select(UserFirm).where(
+                    UserFirm.user_id == user_id,
+                    UserFirm.is_deleted.is_(False),
+                )
+            )
+        )
+        untouched = [
+            UserFirmAssignment(
+                firm_id=row.firm_id,
+                is_primary=row.is_primary,
+                is_active=row.is_active,
+            )
+            for row in existing
+            if row.firm_id not in allowed_firm_ids
+        ]
+        held_primary = next(
+            (row.firm_id for row in existing if row.is_active and row.is_primary),
+            None,
+        )
+        combined = untouched + [
+            UserFirmAssignment(
+                firm_id=item.firm_id,
+                is_primary=item.firm_id == held_primary,
+                is_active=item.is_active,
+            )
+            for item in assignments
+        ]
+        if held_primary is None or not any(
+            item.is_primary and item.is_active for item in combined
+        ):
+            for index, item in enumerate(combined):
+                if item.is_active:
+                    combined[index] = UserFirmAssignment(
+                        firm_id=item.firm_id, is_primary=True, is_active=True
+                    )
+                    break
+        return combined
 
     def list_user_firms(self, user_id: UUID) -> list[UserFirm]:
         """Return visible firm memberships for one visible user."""
