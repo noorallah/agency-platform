@@ -503,6 +503,55 @@ void main() {
       expect(api.deleted, ['r-1']);
     });
   });
+
+  group('the dashboard is offered only to whoever can open it', () {
+    PermissionService withRoles(List<String> perms, List<String> roles) {
+      final String payload = base64Url.encode(
+        utf8.encode(jsonEncode({'permissions': perms, 'roles': roles})),
+      );
+      return PermissionService()..applyAccessToken('h.$payload.s');
+    }
+
+    // FIRM_ADMIN's real seeded codes, three of which the Dashboard used to
+    // accept. `FIRM_VIEW` is deliberately absent -- that role does not hold it.
+    const List<String> firmAdmin = [
+      'USER_VIEW',
+      'ROLE_VIEW',
+      'PERMISSION_VIEW',
+      'CUSTOMER_VIEW',
+    ];
+
+    ModuleDefinition dashboard() => ModuleCatalog.modules
+        .firstWhere((module) => module.id == AppModule.dashboard);
+
+    test('it is marked as needing a platform administrator', () {
+      // `/api/v1/dashboard` is gated on `require_platform_admin()`, which no
+      // permission list can express: platform admins pass permission checks by
+      // short-circuit rather than by holding codes, so any list a firm role
+      // satisfies lets that role through.
+      expect(dashboard().requiresPlatformAdmin, isTrue);
+    });
+
+    test('a firm administrator satisfies its permission list anyway', () {
+      // The reason the old gate failed. Three of the four codes are held by
+      // FIRM_ADMIN, and the list is `requiresAny`, so the permission check
+      // alone would still offer the tab.
+      final PermissionService permissions = withRoles(firmAdmin, ['firm_admin']);
+      expect(
+        permissions.canUseModule(
+          dashboard().requiredPermissions,
+          requiresAny: dashboard().requiresAnyPermission,
+        ),
+        isTrue,
+        reason: 'so the permission list cannot be what hides it',
+      );
+      expect(permissions.isPlatformAdmin, isFalse);
+    });
+
+    test('a platform administrator is recognised', () {
+      expect(withRoles(firmAdmin, ['platform_admin']).isPlatformAdmin, isTrue);
+    });
+  });
 }
 
 List<String> _paths(List<WorkspaceNavigationNode> nodes) => [

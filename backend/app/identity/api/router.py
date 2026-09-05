@@ -54,9 +54,6 @@ UserRoleAssignmentPrincipal = Annotated[
 UserRoleReadPrincipal = Annotated[
     Principal, Depends(require_any_permission("USER_VIEW", "ROLE_VIEW"))
 ]
-UserFirmAssignmentPrincipal = Annotated[
-    Principal, Depends(require_permission("USER_UPDATE", "FIRM_VIEW"))
-]
 RoleViewPrincipal = Annotated[Principal, Depends(require_permission("ROLE_VIEW"))]
 RoleCreatePrincipal = Annotated[Principal, Depends(require_permission("ROLE_CREATE"))]
 RoleUpdatePrincipal = Annotated[Principal, Depends(require_permission("ROLE_UPDATE"))]
@@ -69,15 +66,6 @@ RolePermissionReadPrincipal = Annotated[
 ]
 PermissionViewPrincipal = Annotated[
     Principal, Depends(require_permission("PERMISSION_VIEW"))
-]
-PermissionCreatePrincipal = Annotated[
-    Principal, Depends(require_permission("PERMISSION_CREATE"))
-]
-PermissionUpdatePrincipal = Annotated[
-    Principal, Depends(require_permission("PERMISSION_UPDATE"))
-]
-PermissionDeletePrincipal = Annotated[
-    Principal, Depends(require_permission("PERMISSION_DELETE"))
 ]
 PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
@@ -579,7 +567,17 @@ def list_permissions(
 )
 def create_permission(
     data: PermissionCreate,
-    principal: PermissionViewPrincipal,
+    # Platform admin, matching `update_permission` and `delete_permission`.
+    # This took `PermissionViewPrincipal` -- so the weakest gate in the file
+    # created rows in the platform-wide permission catalogue while the two
+    # endpoints that merely edit them required a platform administrator.
+    #
+    # Not exploitable when it was found: `PERMISSION_VIEW` and
+    # `PERMISSION_CREATE` are held by the same three roles. It would have
+    # become so the first time somebody granted "let them see the catalogue"
+    # without meaning "let them add to it", which is a reasonable thing to
+    # want and would have opened this silently.
+    principal: PlatformPrincipal,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
