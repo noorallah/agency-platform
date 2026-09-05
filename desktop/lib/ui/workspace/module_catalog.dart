@@ -58,6 +58,7 @@ class ModuleDefinition {
     this.tabs = const [],
     this.requiredPermissions = const [],
     this.requiresAnyPermission = false,
+    this.requiresPlatformAdmin = false,
   });
 
   final AppModule id;
@@ -68,6 +69,20 @@ class ModuleDefinition {
   final List<ModuleTabDefinition> tabs;
   final List<String> requiredPermissions;
   final bool requiresAnyPermission;
+
+  /// Whether only a platform administrator may open this module.
+  ///
+  /// Some endpoints are gated on `require_platform_admin()` rather than on a
+  /// permission code, and **a permission list cannot express that**. Naming
+  /// codes only platform admins hold is not an option either: they pass every
+  /// permission check by short-circuit rather than by holding codes, so any
+  /// list a firm role happens to satisfy lets that role through.
+  ///
+  /// The Dashboard was gated on *any* of `FIRM_VIEW`, `USER_VIEW`,
+  /// `ROLE_VIEW`, `PERMISSION_VIEW`, and `FIRM_ADMIN` holds three of the four
+  /// -- so a firm's own administrator was shown a screen that answered "you
+  /// are not authorized" on the page the app lands on.
+  final bool requiresPlatformAdmin;
 }
 
 abstract final class ModuleCatalog {
@@ -78,6 +93,11 @@ abstract final class ModuleCatalog {
       icon: Icons.space_dashboard_outlined,
       description: 'Platform administration at a glance.',
       workspaceTemplate: WorkspaceTemplateType.dashboard,
+      // `/api/v1/dashboard` counts firms, users, roles and permissions across
+      // the whole platform and is gated on `require_platform_admin()`. The
+      // permission list stays for the counts the page renders -- each is
+      // hidden from a caller without its code -- but it is no longer what
+      // decides whether the tab is offered at all.
       requiredPermissions: [
         'FIRM_VIEW',
         'USER_VIEW',
@@ -85,6 +105,7 @@ abstract final class ModuleCatalog {
         'PERMISSION_VIEW'
       ],
       requiresAnyPermission: true,
+      requiresPlatformAdmin: true,
     ),
     ModuleDefinition(
       id: AppModule.administration,

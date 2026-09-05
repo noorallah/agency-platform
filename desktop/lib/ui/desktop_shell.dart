@@ -207,6 +207,13 @@ class _DesktopShellState extends State<DesktopShell> {
       onPersist: widget.session.saveLastWorkspace,
     )..addListener(_routeChanged);
     _refreshBusinessModules();
+    // Both server-driven filters, not just one. `_refreshSalesStages` was
+    // called only from `_sessionChanged`, so between signing in and the first
+    // firm-context change the Quotations, Sales Orders and Delivery Notes
+    // modules were offered to **every** firm -- including one that had
+    // switched those stages off. `_salesStages` defaults to the whole chain,
+    // so the wrong answer was the permissive one.
+    _refreshSalesStages();
     unawaited(_probeHealth());
     _healthTimer = Timer.periodic(_healthInterval, (_) => _probeHealth());
   }
@@ -292,8 +299,18 @@ class _DesktopShellState extends State<DesktopShell> {
 
   AppModule _routeModule() => AppModule.values.firstWhere(
         (module) => module.name == _router.current.module,
-        orElse: () => AppModule.dashboard,
+        // The first module this user can actually open, not the Dashboard.
+        // Falling back to a platform-admin screen is how a firm's own
+        // administrator landed on "you are not authorized" without choosing
+        // to go there.
+        orElse: _defaultModule,
       );
+
+  /// Where somebody lands when no route says otherwise.
+  AppModule _defaultModule() {
+    final List<ModuleDefinition> visible = _visibleModules;
+    return visible.isEmpty ? AppModule.dashboard : visible.first.id;
+  }
 
   bool _canAccess(
     List<String> permissions, {
@@ -302,6 +319,13 @@ class _DesktopShellState extends State<DesktopShell> {
       widget.permissions.canUseModule(permissions, requiresAny: requiresAny);
 
   List<ModuleDefinition> get _visibleModules => ModuleCatalog.modules
+      // Platform-admin modules first: a permission list cannot express that
+      // gate, and a firm role satisfying one of its codes was enough to be
+      // offered a screen the server refuses.
+      .where(
+        (module) =>
+            !module.requiresPlatformAdmin || widget.permissions.isPlatformAdmin,
+      )
       .where(
         (module) => _canAccess(
           module.requiredPermissions,
