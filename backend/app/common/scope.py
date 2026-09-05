@@ -77,7 +77,8 @@ def optional_firm_scope(
     """Resolve firm scope, allowing requests that carry no firm at all.
 
     A supplied firm is always validated: it must be active, and unless the caller
-    is a platform administrator they must hold an active membership in it.
+    is an `ALL_FIRMS` platform administrator they must hold an active membership
+    in it.
     Requests with no ``X-Firm-ID`` resolve to a null scope so platform-wide
     surfaces keep working; callers are responsible for restricting what a null
     scope may read.
@@ -108,7 +109,14 @@ def optional_firm_scope(
     )
     if firm is None:
         raise AuthorizationError("The selected firm is inactive or unavailable.")
-    if principal.is_platform_admin:
+    # The membership exemption, and it belongs to `ALL_FIRMS` alone. A
+    # `PLATFORM` administrator falls through to the ordinary check below --
+    # not refused by a rule of its own, simply not exempted, so they are
+    # whatever their `UserFirm` rows and roles make them and nothing more.
+    # This is the one gate that decides it: every firm-owned router composes
+    # `required_firm_scope`, so refusing here refuses the whole firm-owned
+    # surface and nothing else.
+    if principal.may_act_in_any_firm:
         return FirmScope(principal=principal, firm_id=x_firm_id)
     if not isinstance(principal.subject, UUID):
         raise AuthorizationError("An authorized active firm is required.")

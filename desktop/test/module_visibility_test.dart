@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 PermissionService _service({
   List<String> permissions = const [],
   bool platformAdmin = false,
+  String? platformScope,
   String firm = 'firm-1',
 }) {
   final String payload = base64Url.encode(
@@ -30,6 +31,7 @@ PermissionService _service({
         // code and become one -- so a fixture that still derived it from that
         // list would be testing a shape the application no longer issues.
         'platform_admin': platformAdmin,
+        'platform_admin_scope': platformScope,
         'firm_permissions': {firm: permissions},
       }),
     ),
@@ -76,6 +78,7 @@ void main() {
         permissions: _service(
           permissions: _everyGatedCode().toList(),
           platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
         ),
       );
 
@@ -139,18 +142,100 @@ void main() {
     });
   });
 
+  group('the two reaches of a platform designation', () {
+    // The backend has two: one who runs the platform, and one who may also act
+    // inside every firm's books. The first is refused firm-owned routes
+    // outright, so a screen offering them an operational module would be
+    // offering one that answers 403 on its first request.
+    //
+    // Nothing in `ModuleVisibility` asks about the reach, and that is the
+    // point: a `PLATFORM` token carries only the 33 platform permission codes,
+    // so the operational modules fall out through the ordinary permission
+    // gate. This group pins that it really does fall out, because the
+    // alternative -- a fourth gate -- is a rule that has to be remembered.
+    const List<String> platformOperator = [
+      'FIRM_CREATE',
+      'FIRM_VIEW',
+      'USER_VIEW',
+      'USER_CREATE',
+      'ROLE_VIEW',
+      'ROLE_ASSIGN',
+      'PERMISSION_VIEW',
+      'SETTINGS_VIEW',
+      'AUDIT_LOG_VIEW',
+    ];
+
+    test('a platform operator is offered the platform, not the books', () {
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: _service(
+          permissions: platformOperator,
+          platformAdmin: true,
+          platformScope: 'PLATFORM',
+        ),
+      );
+      final Set<String> shown =
+          view.modules.map((module) => module.label).toSet();
+
+      // Theirs: the platform surface, including the dashboard that only a
+      // designation opens.
+      expect(shown, contains('Dashboard'));
+      expect(shown, contains('Administration'));
+      // Not theirs: a firm's own books.
+      expect(shown, isNot(contains('Sales')));
+      expect(shown, isNot(contains('Purchases')));
+      expect(shown, isNot(contains('Finance')));
+      expect(shown, isNot(contains('Inventory')));
+    });
+
+    test('the two reaches are told apart, and an old token keeps its own', () {
+      expect(
+        _service(
+                permissions: const [],
+                platformAdmin: true,
+                platformScope: 'PLATFORM')
+            .mayActInAnyFirm,
+        isFalse,
+      );
+      expect(
+        _service(
+                permissions: const [],
+                platformAdmin: true,
+                platformScope: 'ALL_FIRMS')
+            .mayActInAnyFirm,
+        isTrue,
+      );
+      // Minted before the scope existed, for somebody who by definition had
+      // every firm. Reading its absence as the narrow value would strip a live
+      // session of screens it legitimately had.
+      expect(
+        _service(permissions: const [], platformAdmin: true).mayActInAnyFirm,
+        isTrue,
+      );
+      // And an unrecognised value grants the narrow one, as on the server.
+      expect(
+        _service(
+                permissions: const [],
+                platformAdmin: true,
+                platformScope: 'EVERYTHING')
+            .mayActInAnyFirm,
+        isFalse,
+      );
+      expect(_service(permissions: const []).platformAdminScope, isNull);
+    });
+  });
+
   group('the business profile and the workflow stages', () {
     PermissionService everything() => _service(
           permissions: _everyGatedCode().toList(),
           platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
         );
 
     test('null active modules shows everything', () {
       // A failed fetch must not empty the sidebar. Hiding a firm's whole
       // application because one request timed out is worse than briefly
       // offering a module it has switched off.
-      final ModuleVisibility view =
-          ModuleVisibility(permissions: everything());
+      final ModuleVisibility view = ModuleVisibility(permissions: everything());
       expect(view.modules.length, ModuleCatalog.modules.length);
     });
 
@@ -193,6 +278,7 @@ void main() {
         permissions: _service(
           permissions: _everyGatedCode().toList(),
           platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
         ),
       );
       final ModuleDefinition administration =
@@ -225,8 +311,10 @@ void main() {
         permissions: _service(permissions: _salesExecutive),
       );
       for (final ModuleDefinition module in ModuleCatalog.modules) {
-        expect(() => view.denial(module), returnsNormally, reason: module.label);
-        expect(() => view.tabIds(module), returnsNormally, reason: module.label);
+        expect(() => view.denial(module), returnsNormally,
+            reason: module.label);
+        expect(() => view.tabIds(module), returnsNormally,
+            reason: module.label);
       }
     });
   });

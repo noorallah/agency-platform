@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.config.settings import Settings
-from app.core.enums import TokenType
+from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import (
     AuthenticationError,
     BusinessRuleError,
@@ -50,6 +50,7 @@ from app.identity.schemas.api import (
 from app.identity.system_seed import (
     FIRM_ROLE_CODES,
     HIDDEN_SYSTEM_ROLE_CODES,
+    PLATFORM_OPERATOR_PERMISSION_CODES,
     PLATFORM_PERMISSION_CODES,
     PLATFORM_ROLE_CODES,
     SYSTEM_ROLE_CODES,
@@ -1029,7 +1030,13 @@ class IdentityService:
                 )
             )
         )
-        is_platform_admin = self._is_platform_admin(user.id)
+        admin_scope = self._platform_admin_scope(user.id)
+        is_platform_admin = admin_scope is not None
+        #: Whether the designation carries the two bypasses -- the permission
+        #: short-circuit and the firm-membership exemption. A `PLATFORM`
+        #: administrator keeps neither: they run the platform, and a firm's
+        #: books are the firm's business.
+        acts_in_every_firm = admin_scope is PlatformAdminScope.ALL_FIRMS
         # Deliberately **not** appended to `roles`. It used to be, as the
         # lowercase string `"platform_admin"` -- while genuine role codes are
         # uppercase -- so a designation and a role code shared one list.
@@ -1039,14 +1046,22 @@ class IdentityService:
         # sign in as a platform administrator. It is its own claim now, and
         # nothing a user can name reaches it.
         if is_platform_admin:
-            permissions = list(
-                self._session.scalars(
-                    select(Permission.code).where(
-                        Permission.is_deleted.is_(False),
-                        Permission.is_active.is_(True),
-                    )
-                )
+            # A platform administrator holds no role rows, so the codes are
+            # stuffed in rather than resolved. For a `PLATFORM` one that set
+            # has to be narrowed here as well as at the two gates: the global
+            # `permissions` claim is checked directly by `has_permission`, so
+            # a stuffed operational code would pass every firm permission
+            # check the moment they held a genuine membership -- tier 2 by the
+            # back door, through a claim rather than a bypass.
+            codes = select(Permission.code).where(
+                Permission.is_deleted.is_(False),
+                Permission.is_active.is_(True),
             )
+            if not acts_in_every_firm:
+                codes = codes.where(
+                    Permission.code.in_(PLATFORM_OPERATOR_PERMISSION_CODES)
+                )
+            permissions = list(self._session.scalars(codes))
         else:
             permissions = list(
                 self._session.scalars(
@@ -1072,7 +1087,10 @@ class IdentityService:
                 )
             )
         firm_permissions: dict[str, list[str]] = {}
-        if not is_platform_admin:
+        # Computed for a `PLATFORM` administrator too. They have no exemption,
+        # so if they hold a real membership they act there as whatever their
+        # roles make them -- and the desktop needs the map to know it.
+        if not acts_in_every_firm:
             memberships = list(
                 self._session.scalars(
                     select(UserFirm.firm_id).where(
@@ -1111,6 +1129,7 @@ class IdentityService:
         claims = {
             "roles": roles,
             "platform_admin": is_platform_admin,
+            "platform_admin_scope": admin_scope.value if admin_scope else None,
             "permissions": permissions,
             "firm_permissions": firm_permissions,
             "authorization_version": user.authorization_version,
@@ -1420,15 +1439,27 @@ class IdentityService:
             )
 
     def _is_platform_admin(self, user_id: UUID) -> bool:
-        return (
-            self._session.scalar(
-                select(PlatformAdmin.id).where(
-                    PlatformAdmin.user_id == user_id,
-                    PlatformAdmin.is_deleted.is_(False),
-                )
+        return self._platform_admin_scope(user_id) is not None
+
+    def _platform_admin_scope(self, user_id: UUID) -> PlatformAdminScope | None:
+        """Return how far this user's platform designation reaches, or None.
+
+        An unreadable stored value resolves to `PLATFORM`, the narrow one. A
+        column holding something nobody recognises is a reason to grant less,
+        never more.
+        """
+        stored = self._session.scalar(
+            select(PlatformAdmin.scope).where(
+                PlatformAdmin.user_id == user_id,
+                PlatformAdmin.is_deleted.is_(False),
             )
-            is not None
         )
+        if stored is None:
+            return None
+        try:
+            return PlatformAdminScope(stored)
+        except ValueError:
+            return PlatformAdminScope.PLATFORM
 
 
 def _hash_token(token: str) -> str:

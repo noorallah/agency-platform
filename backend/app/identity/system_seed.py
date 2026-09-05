@@ -324,6 +324,25 @@ PLATFORM_PERMISSION_CODES = frozenset(
     for group in ("platform", "firm", "system_administration", "high_risk")
     for code in PERMISSION_GROUPS[group]
 )
+#: What a `PLATFORM`-scoped administrator holds: run the platform, and set a
+#: firm up until it works. Deliberately **not** `PLATFORM_PERMISSION_CODES`,
+#: which is a different question -- that set is what a firm administrator may
+#: not *grant*, and it is wrong here in both directions. It omits `user`,
+#: `role` and `permission`, which are the operator's whole job; and it includes
+#: `high_risk`, which is `VOID_INVOICE` and `EDIT_POSTED_TRANSACTION` on a
+#: firm's posted books -- the one thing this tier exists not to touch.
+PLATFORM_OPERATOR_PERMISSION_CODES = frozenset(
+    code
+    for group in (
+        "platform",
+        "firm",
+        "system_administration",
+        "user",
+        "role",
+        "permission",
+    )
+    for code in PERMISSION_GROUPS[group]
+)
 
 
 def _codes(*groups: str) -> frozenset[str]:
