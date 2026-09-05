@@ -251,9 +251,17 @@ thing you touched -- a router edit wants that module's tests and
 wants `flutter analyze` on the changed files and that screen's test. Seconds,
 not minutes.
 
-**The full suites and tree-wide `ruff` / `black` / `mypy` run once, before a
-PR merges** -- not per edit. Per-file linting is instant and is what to use in
-between. A documentation-only change needs neither suite.
+**The full suites and tree-wide `ruff` / `black` / `mypy` run on two
+occasions, not per edit: once a day, and before a commit is merged.** Per-file
+linting is instant and is what to use in between. A documentation-only change
+needs neither suite.
+
+The daily run is the safety net for the days when several small changes each
+looked safely targeted; the merge run is the gate. To know whether today's has
+happened, ask git rather than memory -- `git log -1 --format=%cd --date=short`
+on the last merge to `main` is the day the suites last had to pass. If that
+date is not today and you are about to start a batch of work, run them first,
+so a failure belongs to yesterday's change rather than to yours.
 
 **Say which one you ran.** "Identity tests and the document-framework tests
 pass" is honest; "tests pass" after running two files implies coverage that was
