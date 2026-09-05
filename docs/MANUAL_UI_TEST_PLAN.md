@@ -1,794 +1,400 @@
 # Manual UI test plan
 
-Scripted manual tests for the Flutter desktop client against a real backend.
-Written to exercise the things automated tests cannot: a human switching firms,
-two machines pointing at one server, and the behaviour a low-specification
-Windows box actually gives you.
+Scripted manual tests for the Flutter desktop client against a real backend,
+**organised by module** so a session can take one module at a time and stop
+cleanly at the end of it.
 
-Every case is written from the code as it stands on 2026-08-16. Where a case
-covers something **not yet built** it says so and is not executable — those are
-drafted so the feature arrives with its tests rather than after them.
+Rewritten on **2026-09-05** against the running application. The previous
+version was written on 2026-08-16, before promotions, loyalty, credit notes,
+proformas, TCS, GST returns, e-invoicing, customer groups and price-list
+ladders existed, and its section numbers had begun to collide.
+
+**Every case names the seeded data it needs** — which login, which firm, which
+customer code, which document number. You should never have to hunt for "a
+customer with a standing discount"; the case says it is `WHOLE01C01`.
 
 A case that needs a request the desktop cannot make is marked **(HTTP)** and
-gives the `curl`. Those are still manual tests — they check a guarantee the
-server owes, and marking them keeps the plan honest about what clicking can and
-cannot prove.
+gives the `curl`. Those are still manual tests: they check a guarantee the
+server owes, and marking them keeps the plan honest about what clicking can
+and cannot prove.
+
+A case marked **(GAP)** covers something deliberately not built. It is there so
+you do not report it as a defect — see §14.
 
 ---
 
-## 1. Before you start
+# Part 1 — Before you start
 
-### 1.1 What the test environment already gives you
+## 1.1 Bring the environment up
 
-The seeded environment covers all three storage modes, which is the hard part
-of this application. Do not rebuild it unless a case says to.
+From `backend/`:
 
-| Firm | Storage mode | Where its data lives |
-| --- | --- | --- |
-| `WHOLE01` | `SCHEMA` | schema `wholesale_hub` in `agency_platform` |
-| `FOOD01` | `SHARED` | schema `firm_shared` in `agency_platform` |
-| `MEDI01` | `SHARED` | schema `firm_shared` in `agency_platform` |
-| `ELEC01` | `DATABASE` | schema `electrolink_ops` in a **separate database**, `agency_electrolink` |
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_all_stores.py --dry-run   # what is where
+.\.venv\Scripts\python.exe scripts\migrate_all_stores.py --yes       # bring all to head
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+Never `alembic upgrade head` on its own — it advances one schema and this
+demo has four stores.
+
+If the data looks wrong or empty, reseed **one firm at a time** so a run fits
+inside a coffee:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\seed_multi_firm_demo.py --firm WHOLE01
+.\.venv\Scripts\python.exe scripts\verify_sample_data.py
+```
+
+`verify_sample_data.py` must end **"Every store holds together"**. If it does
+not, stop and read what it says before testing anything else — every number on
+every screen below is derived from those books.
+
+From `desktop/`:
+
+```powershell
+flutter run -d windows --dart-define=API_BASE_URL=http://localhost:8000
+```
+
+## 1.2 The firms, and why there are four
+
+| Firm | Storage mode | Where its data lives | Business profile |
+| --- | --- | --- | --- |
+| `WHOLE01` | `SCHEMA` | schema `wholesale_hub` in `agency_platform` | WHOLESALE |
+| `FOOD01` | `SHARED` | schema `firm_shared` in `agency_platform` | FOOD |
+| `MEDI01` | `SHARED` | schema `firm_shared` in `agency_platform` | PHARMACY |
+| `ELEC01` | `DATABASE` | schema `electrolink_ops` in a **separate database** | ELECTRONICS |
 
 `FOOD01` and `MEDI01` sharing one schema is the important pair: their rows sit
-in the same physical tables, separated only by `firm_id`. Most isolation
-defects show up there first.
+in the same physical tables, separated only by `firm_id`. Isolation defects
+show up there first. `ELEC01` is the other end — a different database
+entirely.
 
-### 1.2 Accounts
+**The four firms trade identically on purpose.** Each has 32 purchase orders,
+30 goods receipts, 58 sales orders, 58 delivery notes and 49 invoices across
+three financial years. A count that differs between firms is a signal worth
+chasing. The one known exception is e-invoicing: `WHOLE01` reads `IRN 13` where
+its siblings read 17, because it carries a hand-made customer with no GST
+number whose invoices are correctly refused.
+
+## 1.3 Accounts
 
 | Login | Password | Firms | Use it for |
 | --- | --- | --- | --- |
 | `master.ops@agency.local` | `DemoAdmin@12345` | all 4 | firm switching, cross-firm isolation |
-| `whole01.admin@agency.local` | `DemoAdmin@12345` | WHOLE01 only | single-firm behaviour, SCHEMA mode |
-| `food01.admin@agency.local` | `DemoAdmin@12345` | FOOD01 only | SHARED mode |
-| `medi01.admin@agency.local` | `DemoAdmin@12345` | MEDI01 only | SHARED mode, the other half of the pair |
-| `elec01.admin@agency.local` | `DemoAdmin@12345` | ELEC01 only | DATABASE mode |
-| `platform-admin@agency.local` | see `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` in `backend/config/.env` | **none** | platform administration, and the "admin is not exempt" cases |
+| `whole01.admin@agency.local` | `DemoAdmin@12345` | WHOLE01 | single-firm behaviour, SCHEMA mode |
+| `whole01.sales1@agency.local` | `DemoAdmin@12345` | WHOLE01 | **an operational role** — use it for every "should be refused" case |
+| `whole01.sales2@agency.local` | `DemoAdmin@12345` | WHOLE01 | the second salesman, for commission |
+| `food01.admin@agency.local` | `DemoAdmin@12345` | FOOD01 | SHARED mode |
+| `medi01.admin@agency.local` | `DemoAdmin@12345` | MEDI01 | SHARED mode, the other half of the pair |
+| `elec01.admin@agency.local` | `DemoAdmin@12345` | ELEC01 | DATABASE mode |
 
-The four firm admins hold `FIRM_ADMIN`. To test permission behaviour you will
-need users with narrower roles — see §7.1.
+`platform-admin@agency.local` is **not** in this list. It must change its
+password on first use and every platform-admin route refuses it until then.
+Rotating it invalidates the value in `config/.env`. Use `master.ops` instead.
 
-### 1.3 Recording a result
+## 1.4 The seeded data every case refers to (WHOLE01)
 
-For each case record: **date, tester, build, firm under test, PASS/FAIL, and
-for a failure the exact on-screen message plus the `requestId` from the error**.
-Every API error response carries a `requestId`; quoting it lets a developer find
-the exact request in the server log. A failure report without it usually costs a
-round trip.
+**Customers**
 
----
+| Code | Name | Standing discount | Segment | Own price list |
+| --- | --- | ---: | --- | --- |
+| `WHOLE01C01` | Vijaya Super Stores | 7.5% | Retailer (1.75%) | — |
+| `WHOLE01C02` | Anand Agencies | — | Wholesaler (3.25%) | `NEGOTIATED`, 9.25% |
+| `WHOLE01C03` | Classic Departmental Stores | — | Retailer (1.75%) | — |
+| `OB-REV2` | Revise Check 2 | 7.5% | — | — |
 
-## 2. Installation and first run
+`OB-REV2` was created by hand during testing. It has **no GST number**, which
+is why four of this firm's invoices cannot be e-registered. Leave it alone; it
+is useful precisely because it is the odd one.
 
-> **The installer is `install\install.bat` (or `install\install.ps1`).**
-> Run `install.bat -DryRun` first: it reports every step and changes nothing.
->
-> 2.2 and 2.5 were verified on a developer machine on 2026-08-14. **2.1, 2.3 and
-> 2.4 can only be answered on a machine that has never had the toolchain**, and
-> that has not been done — a developer box passes 2.1 because of what is already
-> on it.
+**Products** — `DETER1K` Detergent Powder 1kg · `SHAMP180` Shampoo Bottle
+180ml · `TOOTH150` Toothpaste 150g.
 
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 2.1 | Clean install on a machine with nothing installed | Run `install.bat -InstallPrerequisites -WithDemoData` on a Windows box with no Python, no PostgreSQL, no Flutter | Everything needed is fetched and installed; the UI opens at the login screen without any further prompt |
-| 2.1b | Clean install, prerequisites refused | Run `install.bat` (no `-InstallPrerequisites`) on the same box | Stops before changing anything, naming what is missing and the exact `winget install` command for it |
-| 2.2 | Re-run on an already-installed machine | Run the installer a second time | It detects what is present, does not reinstall or duplicate, and still ends at a working UI. **`config\.env` must be untouched** — check the JWT key is the same |
-| 2.3 | Install with no internet | Disconnect, run the installer | It fails with one clear message naming what it could not fetch — not a stack trace, and not a half-installed state |
-| 2.3b | Half a TLS configuration | Run with `-CertFile` and no `-KeyFile` | Refused before anything is changed. It must not fall back to plain HTTP |
-| 2.4 | Install on the minimum supported machine | Use the lowest specification you intend to support | Install completes; note wall-clock time and peak RAM. Record them: they are the number that decides whether the requirement is met |
-| 2.5 | Manual install per `CLAUDE.md` | Follow the backend and desktop commands | Backend serves `/health`; `flutter run -d windows` opens the login screen |
+**Promotions** — `BULK5` (two revisions, line quantity ≥ 25, 5% then 7.5%) ·
+`BIGORDER` (document ≥ 4,500, ₹200 off the bill, **does not stack**) ·
+`CLEARANCE` (line quantity ≥ 40, 1%) · `WELCOME` (2.5%, **needs a coupon**).
+Coupons `WELCOME10` (used) and `WELCOME10B` (never presented).
 
-**When the installer is built, it must be tested on a machine that has never had
-the developer toolchain on it.** An installer tested only on a developer's
-machine passes because of what is already there.
+**Price list `STANDING`** — firm-wide, on `DETER1K` only, with breaks at 0 →
+2%, 15 → 4.25%, 18 → 6.75%.
 
----
+**Territories** — `WHOLE01-RGN` Chennai Region → `WHOLE01-T-N` / `WHOLE01-T-S`
+zones → routes `WHOLE01-R-N1`, `WHOLE01-R-N2`, `WHOLE01-R-S1`.
 
-## 3. Connecting the UI to the backend
+**Beat plans** — `WHOLE01-BP-R1-MON`, `-R1-WED`, `-R1-FRI` (weekly),
+`WHOLE01-BP-COLL` (alternate Tuesdays), `WHOLE01-BP-MTH` (second Tuesday).
 
-This section carries the requirement that the UI runs on a different machine
-from the backend. **Read 3.3 before planning that deployment.**
+## 1.5 Recording a result
 
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 3.1 | Same machine, default | Launch the client with the backend on the same box | Connects; login screen loads |
-| 3.2 | Change the server address in the UI | Open application settings, set the server URL, save | Accepted, persisted, and used after restart |
-| 3.3 | **Remote backend over plain HTTP on the LAN** | Start the backend with `-BindHost 0.0.0.0`, set the URL to `http://<server-lan-ip>:8000` | **Accepted.** This is the supported LAN deployment — see the note below for what it costs |
-| 3.3b | Plain HTTP to a public address | Set the URL to `http://erp.example.com` | **Refused**, and the message says passwords would cross in clear text |
-| 3.4 | Remote backend over HTTPS | Set the URL to `https://<server-host>` with a certificate the client trusts | Connects and works exactly as local |
-| 3.5 | Remote backend, untrusted certificate | Point at an HTTPS server with a self-signed certificate the machine does not trust | Fails with a certificate error, not a blank screen or a hang |
-| 3.6 | Server unreachable | Point at a host that is down | A clear "cannot reach the server" message; the app stays usable enough to correct the address |
-| 3.7 | Server address with credentials or query | Try `https://user:pass@host` or `https://host?x=1` | Refused — the client rejects user-info, query and fragment in the server URL |
-| 3.8 | Two UIs, one backend | Run the client on two machines against the same server, log in as different users | Both work; neither sees the other's session |
-| 3.9 | Two UIs, same user | Log in as the same user on two machines | Both work. Note what happens when one changes a record the other is viewing — see §9 |
-
-> ### Both transports are supported, and the firm chooses
->
-> Decided on 2026-08-14. `normalizeServerUrl` in
-> `desktop/lib/core/preferences/desktop_preferences_service.dart` accepts
-> `https://` anywhere and `http://` to an address on the client's own network —
-> loopback, `10.x`, `172.16-31.x`, `192.168.x`, `169.254.x`, the IPv6 local
-> ranges, a hostname with no dots, or a `.local` / `.lan` / `.internal` suffix.
-> Plain HTTP to a public address is refused.
->
-> **What plain HTTP costs.** On that network the login password and every record
-> are readable by anything else on the wire. A firm running its own switch can
-> reasonably accept that. On a network it does not control — a shared office
-> building, anything with guest wifi — serve TLS instead:
->
-> ```powershell
-> powershell -ExecutionPolicy Bypass -File scripts\start_backend.ps1 `
->   -BindHost 0.0.0.0 -CertFile C:\certs\erp.crt -KeyFile C:\certs\erp.key -NoReload
-> ```
->
-> Every client machine has to trust that certificate. A self-signed one means
-> installing it in each Windows trust store, which is the installer's job.
-> **3.5 is still expected to fail** — an untrusted certificate must produce a
-> certificate error, and turning verification off is not the fix.
->
-> The boundaries are covered by `desktop/test/server_url_rule_test.dart`, so
-> changing what counts as "your own network" changes a test that says why.
+For each case write **pass**, **fail** or **blocked**, and for a failure the
+smallest thing that reproduces it. A screenshot taken from inside the app
+(Help → Report a problem) carries the request id, which joins it to the
+server-side traceback — that is worth far more than a photograph of the
+screen.
 
 ---
 
-## 4. Login, session and logout
+# Part 2 — Module by module
 
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 4.1 | Valid login | Log in as `whole01.admin` | Lands on the workspace with the firm shown in the shell |
-| 4.2 | Wrong password | Enter a bad password | Rejected with a generic message. It must **not** say whether the email exists |
-| 4.3 | Unknown email | Log in with an address that does not exist | Same generic message and comparable response time as 4.2 |
-| 4.4 | Bootstrap admin first login | Log in as `platform-admin` | Forced to change the password before anything else |
-| 4.5 | Password persistence | Log in, close the app, reopen | Not asked for the password again (the refresh token is in the Windows credential vault); the password itself is never stored |
-| 4.6 | Session survives a token expiry | Stay logged in until the access token expires, then act | The client refreshes once automatically and the action succeeds — no visible interruption |
-| 4.7 | Refresh token revoked | Log out on machine A, then act on machine B with the same account | B is returned to the login screen cleanly, not left in a broken half-session |
-| 4.8 | Logout clears the vault | Log out, reopen the app | Login required |
-| 4.9 | Backend restarted mid-session | Restart the backend while logged in, then act | The action either succeeds or fails with a clear message; the client does not need reinstalling |
+Work down. Each module is self-contained; the order follows how a distribution
+firm actually operates, so later modules can use what earlier ones produced.
+
+## 2. Login, session and firm context
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 2.1 | Log in as `master.ops`, no firm chosen | Only platform screens are reachable. Firm-owned lists say a firm must be chosen, not "no records". |
+| 2.2 | Choose WHOLE01, then ELEC01, from the firm switcher | Every open list reloads. No row from the previous firm survives the switch. |
+| 2.3 | Log in as `whole01.admin` | The firm switcher offers WHOLE01 only. |
+| 2.4 | Leave the app idle past the access-token lifetime, then click anything | It refreshes silently and the action completes. You should not be asked to log in again. |
+| 2.5 | Log out, then press Back | No cached screen is reachable. |
+| 2.6 | Log in with a wrong password three times | Each refusal takes about as long as a correct one. A wrong address and a wrong password should not feel different. |
+
+## 3. Firm isolation — the core of this application
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 3.1 | As `master.ops` in FOOD01, note the customer count. Switch to MEDI01 | A different set. **These two share one schema** — if a FOOD01 customer appears here, stop and report it. |
+| 3.2 | Create a customer `ISO-TEST` in FOOD01 | It does not appear in MEDI01, WHOLE01 or ELEC01. |
+| 3.3 | Open a WHOLE01 sales invoice, copy its number. Switch to ELEC01 and search for it | Not found. Different database entirely. |
+| 3.4 | In ELEC01, open Reports → any report | Rows are ELEC01's. Cross-check one figure against the ELEC01 workspace. |
+| 3.5 | As `whole01.admin`, try to reach another firm's data by any route the UI offers | There is none. |
+| 3.6 **(HTTP)** | Call a firm-owned endpoint with `X-Firm-ID` set to a firm you are not a member of | `403`, not an empty list. An empty list would look like "no data" and hide the hole. |
+
+## 4. Masters — customers
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 4.1 | Open `WHOLE01C01`, change only the phone number, save | Addresses, contacts, credit limit, payment terms and the 7.5% standing discount are all **unchanged**. This is the defect that shipped twice; check each one. |
+| 4.2 | Reopen and confirm the outstanding balance | Unchanged by the edit. |
+| 4.3 | On a new customer, use the place picker: choose country, then state, then district, then city | Each rung loads after the one above. Choosing a country must load states immediately, not after a second click. |
+| 4.4 | Save, reopen | The place is still there, and the text fields (city, state, country) agree with the chosen ids. |
+| 4.5 | Customers → Settings (needs `CUSTOMER_MANAGE_SETTINGS`) | The credit policy dialog opens. As `whole01.sales1` the action is not offered. |
+| 4.6 | Set a credit limit of ₹1 on `WHOLE01C03`, then raise and approve a sales order for more | A warning names the exposure. It does **not** block — the demo firms are in warn mode. |
+| 4.7 | Customer → Statement | The running balance is in date order and ends at the customer's current balance. |
+| 4.8 | Customer → Ageing | The buckets sum to total outstanding, and the reconciliation line explains any gap between the bills and the account. |
+| 4.9 | Assign `WHOLE01C03` to the Wholesaler group, save, reopen | The group holds. |
+| 4.10 | Try to delete the `RETAILER` group while a customer is in it | Refused, naming the customer. |
+
+## 5. Masters — vendors, products, branches, warehouses
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 5.1 | Open a vendor, change one field, save | Addresses, contacts, bank accounts, tax details, attachments and notes all survive. |
+| 5.2 | Vendors → Categories, and → Types | Both lists load and both can be added to. (These returned nothing at all until the route order was fixed.) |
+| 5.3 | Put a category and a type on a vendor, save, reopen | Both held. |
+| 5.4 | Products → open `DETER1K` | Its UOM slots, tax profile group and category are populated. |
+| 5.5 | Product → custom fields | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. |
+| 5.6 | Branches → rename one, save | Street lines, city, default flag and GST registration all survive. |
+| 5.7 | Warehouses → rename one, save | The ten capability flags survive. |
+| 5.8 | Branches → Import, with a file whose fifth row duplicates an existing code | **Nothing** is imported. The dialog says so. Correct the file and re-import — all rows go in. |
+| 5.9 | Branches → Export, Warehouses → Export | A file downloads. (Both were unreachable until the route order was fixed.) |
+| 5.10 | Packaging levels on a product, then scan a carton barcode | The scan resolves to the product and says how many base units it holds. |
+
+## 6. Configuration
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 6.1 | Settings → Numbering series, as `whole01.admin` | New series, Edit and Retire are offered. As `whole01.sales1`, none are. |
+| 6.2 | Edit a series | **Next number is read-only**, with the reason. Only a new series may say where its counter starts. |
+| 6.3 | On a new series, switch off "include the financial year" while "restart each financial year" is on | The form says it would repeat a number in April. Saving anyway is refused by the server with the same sentence. |
+| 6.4 | Preview next on the sales invoice series | Matches the pattern, e.g. `SI-2026-2027-000010`. |
+| 6.5 | Administration → Business profiles → features | Toggling a feature the firm does not implement is refused. The six roadmap features cannot be switched on at all. |
+| 6.6 | Administration → Category attribute rules | A rule can be added; a product missing that attribute is then refused, naming it. |
+| 6.7 | Tax → rules, simulate | The simulator answers with the components and the matched rule. |
+| 6.8 | UOM → conversion rules | A product's own rule outranks the firm-wide one. |
+
+## 7. Buying — order to payment
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 7.1 | Purchase orders → New, one line, save as draft | Draft. |
+| 7.2 | Try Approve straight from draft | Refused: "Submit the order first." |
+| 7.3 | Submit, then Approve | Approved. |
+| 7.4 | Edit the approved order | The approval is withdrawn and it returns to draft, recorded on the timeline. |
+| 7.5 | Receive part of it (Goods receipt → New from the order), complete the receipt | The order reads **PARTIALLY_RECEIVED**. Stock rises. |
+| 7.6 | Receive the rest | The order reads **RECEIVED**. |
+| 7.7 | Cancel a completed receipt | Stock falls and the journal reverses. Run `verify_sample_data.py` — all five checks still pass. This is the case that put a store 2,287.42 out. |
+| 7.8 | Raise a purchase invoice against a receipt and approve it, then try to cancel the receipt | Refused: the invoice already cleared the accrual. A purchase return is the way. |
+| 7.9 | Purchase return → mark a line damaged, complete it | Stock falls, the journal reverses, and the line appears in Reports → Purchase returns → Damaged. |
+| 7.10 | Reports → Purchase → all six | Register 32 rows, Pending 2, Overdue 2, and by-vendor / by-buyer / by-product all populated. |
+| 7.11 | Payments → record a payment against a purchase invoice | The vendor balance falls and a journal entry exists. |
+
+## 8. Stock
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 8.1 | Inventory → Stock summary, by warehouse and by product | Figures agree with the stock ledger. |
+| 8.2 | Inventory → Ledger for `DETER1K` | Every movement has a document behind it. |
+| 8.3 | Transfer stock between warehouses | Both sides move; the total is unchanged. |
+| 8.4 | Physical count → post a count with a difference | The adjustment posts to the ledger. |
+| 8.5 | In MEDI01 or FOOD01, dispatch a batch-tracked product | The batch nearest expiry is taken first. |
+| 8.6 | Batches → expiry dashboard | Expiring batches are listed with days remaining. |
+| 8.7 | Try to dispatch more than is available | Refused, naming the shortfall. |
+| 8.8 **(GAP)** | Serial numbers | No demo firm serialises. The screens work; there is no seeded data behind them. |
+
+## 9. Selling — quotation to cash
+
+Do this whole section in order; each step feeds the next.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 9.1 | Quotations → New for `WHOLE01C01`, one line of `DETER1K` qty 12, **leave the discount box empty** | Saves. The line resolves 2% from the `STANDING` price list. |
+| 9.2 | Change the quantity to 18 | The rate becomes **6.75%** — the ladder took the highest break at or below 18, not the first one above zero. |
+| 9.3 | Same line for `WHOLE01C02` | **9.25%** — that shop's own list replaces the firm-wide ladder rather than amending it. |
+| 9.4 | Set the quantity to 30 | **5% or 7.5%** — `BULK5` applies, and a promotion outranks the price list. |
+| 9.5 | Type `0` into the discount box | The line takes **nothing**. Zero is a refusal of every arrangement, not a silence. |
+| 9.6 | Send the quotation, then Accept, then Convert | A sales order is created, numbered in its own series. Converting twice is refused, naming the order. |
+| 9.7 | On the order, add coupon `WELCOME10` | An extra 2.5% compounds onto what is left. `WELCOME10B` gives nothing until presented. |
+| 9.8 | Type a nonsense coupon code | The order still saves and simply gives nothing. A typo must not refuse a sale. |
+| 9.9 | Approve the order | Stock is reserved. The promotion claim moves from pending to claimed. |
+| 9.10 | Put the order on hold, then try to dispatch | Refused, naming the hold. The stock **stays reserved**. |
+| 9.11 | Release the hold | The order returns to the status it had, not to "approved". |
+| 9.12 | Delivery note → New from the order, dispatch part of it | Order reads **PARTIALLY_DELIVERED**. Stock leaves. Cost of goods sold posts. |
+| 9.13 | Check the note's line rate against the order's | **Identical.** The note ships the deal the order struck; it must not re-read the customer's current rate. |
+| 9.14 | Dispatch the rest | Order reads **DELIVERED**. |
+| 9.15 | Sales invoice → New, bill the delivery note | The billable quantity is what was **charged**, not what left the warehouse. If the note gave a unit free, you cannot bill for it. |
+| 9.16 | Approve the invoice | Revenue, receivable and output tax post. The customer balance rises. |
+| 9.17 | Print the invoice | Both parties' GSTINs, HSN codes, the CGST/SGST split, the HSN-wise summary, the amount in words, and two labelled copies. |
+| 9.18 | Receipts → collect part of it | Balance falls by what was collected. The rest stays outstanding. |
+| 9.19 | Collect more than is owed | The excess becomes an unapplied advance, not a negative balance. |
+| 9.20 | Receipts → Allocate the advance to another invoice | **No journal is posted** — the money already moved. Only the part that became an advance moves the balance. |
+| 9.21 | Reverse the receipt | Balance and advance both go back to exactly where they were. |
+| 9.22 | Sales return against the invoice, complete it | Stock returns, the credit note posts, the customer balance falls. |
+| 9.23 | Credit note → New naming an invoice **line**, approve | Tax is reversed at the rate that line was charged, not at a profile rate. |
+| 9.24 | Try to credit more than the line was worth | Refused, naming the cap. |
+| 9.25 | Proforma → raise one from an approved order, issue it | **Nothing posts.** No journal, no receivable. Its number is a `PI-` series, not the invoice series. |
+| 9.26 | Edit the order the proforma came from | The proforma is unchanged — its lines are a snapshot. |
+
+## 10. Pricing, promotions and incentives
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 10.1 | Price lists → open `STANDING` | Three breaks on `DETER1K`: 0 / 15 / 18. |
+| 10.2 | Add a break at 25 and re-price a line of 30 | `BULK5` still wins — a promotion outranks a price list. Remove the promotion's window to see the list take effect. |
+| 10.3 | Promotions → open `BULK5` | **Two revisions.** Editing an active promotion supersedes it rather than changing it. |
+| 10.4 | Reports → Promotions → Performance | `BULK5` shows **one row** with 34 claims, not two rows of 14 and 20. |
+| 10.5 | Reports → Promotions → Coupons | `WELCOME10` has claims; `WELCOME10B` has none. Both are listed. |
+| 10.6 | Reports → Promotions → Claims | Each claim names its document and customer. |
+| 10.7 | Raise an order large enough for `BIGORDER` | `BIGORDER` applies and `CLEARANCE` does **not** — a non-stacking offer ends evaluation. |
+| 10.8 | Loyalty → a customer's balance and movements | The balance is the sum of the ledger. |
+| 10.9 | Redeem points against an invoice | The bill is **settled**, not discounted — the full GST is still charged. |
+| 10.10 | Try to redeem more than the balance | Refused outright, not trimmed. |
+| 10.11 | Loyalty → Expiring report | Points shown are what is left of each batch after spending, oldest first. |
+| 10.12 | Commission → report over the whole history, and divide commission by the collected amount | The first salesman comes out at a rate that is **neither** of the two that govern them — a blend of 15% of the **margin** on their scoped product and 4% of the *value* of everything else. It read **6.07%** on 2026-09-05; the figure moves whenever the data is reseeded, so check the shape rather than the number. |
+| 10.13 | The second salesman | Exactly **2.00%** — the bottom band of their ladder, and a round number precisely because a ladder's floor is. |
+| 10.14 | Accrue a payout, approve it, pay it | Three distinct journal references. An approved payout can be paid; the accrual cannot be paid twice. |
+| 10.15 | As `whole01.sales1`, try to approve or pay a payout | Refused. Whoever states a debt must not move the cash. |
+
+## 11. Territory, routes and beats
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 11.1 | Territories → the hierarchy | Region → zone → route, three routes under two zones. |
+| 11.2 | Open route `WHOLE01-R-N1` → working days | Monday, Wednesday, Friday. |
+| 11.3 | Call lists → pick a Monday | `WHOLE01-BP-R1-MON` is due with its stops. The Friday plan is listed and **not** due, with a reason. |
+| 11.4 | Pick the second Tuesday of a month | The weekly, the fortnightly and the monthly plan are all due. |
+| 11.5 | Route → customers, drag one shop above another, save | Both stop numbers change. No collision. |
+| 11.6 | Open a route, let the shop list load, then save without changing anything | The list is unchanged. (This screen **replaces** the whole list, so it must prove it read it first.) |
+| 11.7 | Assign a salesman who does not cover a customer's territory | Refused, naming the reason. |
+
+## 12. Compliance
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 12.1 | GST returns → GSTR-1 for a month with invoices | B2B, B2CS and CDNR sections populate. No row has a blank place of supply. |
+| 12.2 | Cancel an invoice, re-read GSTR-1 | It drops out. The return is derived on every read, never stored. |
+| 12.3 | GST returns → GSTR-3B | Aggregated from the documents, and it reconciles with GSTR-1. |
+| 12.4 | E-invoicing → registrations | 13 for WHOLE01, every one **SANDBOX** with an `SBX…` reference. |
+| 12.5 | Register an invoice for `OB-REV2` | Refused **locally**, naming the missing GST number — not a numeric code from a portal. |
+| 12.6 | Raise an e-way bill against a registered invoice | Succeeds. Against an unregistered one, refused. |
+| 12.7 | TCS → settings | Disabled by default. |
+| 12.8 | Enable TCS, then collect a receipt | Tax is charged on the **receipt**, on the excess over the threshold only, and posts to `TCS_PAYABLE`. |
+
+## 13. Finance, reports and platform
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 13.1 | Finance → Chart of accounts | Loads and can be added to. |
+| 13.2 | Finance → Trial balance | Balances. |
+| 13.3 | Finance → P&L and Balance sheet | Both render and agree with the trial balance. |
+| 13.4 | Finance → Journal entries, filter by source module | Eleven modules post: delivery note, sales invoice, sales return, credit note, goods receipt, purchase invoice, purchase return, settlements, loyalty, TCS, commission. |
+| 13.5 | Finance → Accounting periods → close one, then try to post into it | Refused. |
+| 13.6 | Reports workspace → open **every** report in the list | Each renders. A report that errors is a defect; a report that is legitimately empty should say so rather than showing a blank grid. There are 56 as of 2026-09-05; `report_catalog.dart` is the list. |
+| 13.7 | Ctrl+K from inside a firm, search anything | Results across modules. **No 503.** |
+| 13.8 | Audit logs, with a firm chosen | That firm's trail. Without a firm and with platform authority, the platform trail. |
+| 13.9 | Administration → Users, Roles, Permissions | All load. A role's permissions can be changed; a system role cannot. |
+| 13.10 | Help → Report a problem, from a screen that has errored | The report carries the request id and joins to the server-side traceback under Diagnostics. |
 
 ---
 
-## 5. Multi-firm access — the core of this plan
+# Part 3 — Cross-cutting
 
-### 5.1 Firm switching
+## 14. Concurrency and two machines
 
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 5.1.1 | Switch between all four firms | As `master.ops`, use **Switch firm** to visit WHOLE01 → FOOD01 → MEDI01 → ELEC01 | Each switch succeeds; the shell header shows the firm you switched to |
-| 5.1.2 | Data changes with the firm | Note the customer list in WHOLE01, switch to FOOD01, look again | A completely different list. No row from one firm appears under the other |
-| 5.1.3 | Switching survives a restart | Switch to ELEC01, close the app, reopen | Either the same firm is still active, or you are asked to choose — **never** silently active in a different firm |
-| 5.1.4 | Single-firm user has no switcher | Log in as `food01.admin` | Either no firm switcher, or one offering only FOOD01 |
-| 5.1.5 | Switch with unsaved work | Start editing a document, switch firm without saving | You are warned, or the edit is discarded cleanly. The edit must **not** be saved into the firm you switched to |
-| 5.1.6 | Rapid switching | Switch firm several times quickly | No stale data. Every list matches the firm currently shown |
+Run these with two clients pointed at one server, or two windows.
 
-### 5.2 Isolation between firms sharing one schema (FOOD01 / MEDI01)
+| # | Case | Expected |
+| --- | --- | --- |
+| 14.1 | Open the same customer on both, save on A, then save on B | B is refused with a conflict message, and **keeps what was typed**. |
+| 14.2 | The same for a sales order, a product and a price list | Same behaviour. |
+| 14.3 | Save a record twice with no change in between | Accepted both times. An unchanged save must not move the version. |
+| 14.4 | Approve the same sales order on both clients at once | One succeeds; the other is refused by name. |
+| 14.5 | Both approve documents claiming the last redemption of an offer | The loser is **refused**, not silently repriced. |
+| 14.6 | Two clients accrue a commission payout for one salesman and period | One succeeds; the other is refused by name, not with a 500. |
 
-**This pair matters most.** Both live in `firm_shared`; their rows are in the
-same tables and only `firm_id` separates them.
+## 15. Permissions
 
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 5.2.1 | Create in one, absent in the other | Create customer `ISO-TEST-1` in FOOD01. Switch to MEDI01, search for it | Not found |
-| 5.2.2 | Same code in both firms | Create a customer with code `DUP-01` in FOOD01, then the same code in MEDI01 | Both succeed. Codes are unique per firm, not globally |
-| 5.2.3 | Direct access by id | Note a FOOD01 customer's id from its URL or detail screen; switch to MEDI01 and try to open that id | Not found — not "access denied" leaking that it exists, and certainly not the record |
-| 5.2.4 | Search does not cross firms | Search a term that matches records in both | Only the active firm's rows |
-| 5.2.5 | Reports do not cross firms | Open any summary or report in FOOD01, compare with MEDI01 | Totals differ and correspond to each firm's own data |
-| 5.2.7 | **Global search works at all from inside a firm** | Sign in as any firm admin, pick a firm, press **Ctrl+K** and search anything | Results. Until 2026-08-16 every query answered 503 — `users`, `roles`, `permissions` and `firms` live only in the platform schema and were read on the firm's session, and one failing entity aborted the whole search |
-| 5.2.8 | Platform records are found from inside a firm | With a firm selected, Ctrl+K and search a user's name, then a role name | Both found, alongside firm-owned records. Reaching the platform store is the fix; quietly dropping those entities would look the same on 5.2.7 alone |
-| 5.2.6 | Platform admin sees no merged list | As `platform-admin`, open a firm-owned screen with no firm selected | Refused or empty — **not** every firm's rows in one list. This was a real defect in global search; verify it stays fixed |
+Use `whole01.sales1` for every refusal case. The point is that the **server**
+refuses, not merely that the button is hidden.
 
-### 5.3 Isolation across storage modes
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 5.3.1 | SCHEMA mode works end to end | In WHOLE01 create a customer, a product, and a sales order | All succeed and appear in WHOLE01 only |
-| 5.3.2 | DATABASE mode works end to end | Repeat in ELEC01, whose data is in a different database | Identical behaviour. Slower is acceptable; different behaviour is not |
-| 5.3.3 | Dedicated firm is invisible to shared | Create `ISO-ELEC-1` in ELEC01, then search every other firm | Not found anywhere |
-| 5.3.4 | The separate database really is separate | Ask an admin to stop or block `agency_electrolink` only | ELEC01 shows a clear error; **WHOLE01, FOOD01 and MEDI01 keep working** |
-| 5.3.5 | Attachments and documents follow the firm | Create a document with an attachment in each mode | Each is retrievable in its own firm and nowhere else |
-
-### 5.4 User–firm membership combinations
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 5.4.1 | User with no firms | Log in as `platform-admin` | Platform screens work; firm-owned screens ask for a firm or are hidden. No crash |
-| 5.4.2 | User with one firm | `food01.admin` | Goes straight to FOOD01 |
-| 5.4.3 | User with several firms | `master.ops` | Asked to choose, or defaults to their primary firm — and the shell says which |
-| 5.4.4 | Membership removed while logged in | With `master.ops` logged in and active in FOOD01, have an admin deactivate that membership; then act in FOOD01 | Refused with a clear message. The user must not keep working in a firm they were removed from |
-| 5.4.5 | Membership added while logged in | Grant a new firm to a logged-in user | It appears in the switcher — after a refresh or re-login is acceptable; document which |
-| 5.4.6 | Deactivated user | Deactivate a user who is logged in, then have them act | Refused; returned to login |
-| 5.4.7 | Different roles per firm | Give a user `FIRM_ADMIN` in one firm and a read-only role in another; switch between them | Permissions change with the firm. Buttons available in one are absent in the other |
+| # | Case | Expected |
+| --- | --- | --- |
+| 15.1 | Numbering series | Read-only. No New / Edit / Retire. |
+| 15.2 | Customer credit settings | Not offered. The role the limit constrains must not be able to switch it off. |
+| 15.3 | Commission → approve or pay a payout | Not offered, and refused if forced. |
+| 15.4 | Credit note → approve | Not offered. Drafting is bookkeeping; approving reverses a declared tax. |
+| 15.5 | TCS settings | Not offered. |
+| 15.6 **(HTTP)** | Call each of the above endpoints directly with this user's token | `403` every time. A hidden button is not a control. |
 
 ---
 
-## 6. Business profile features
+# Part 4 — Known gaps
 
-Feature gating went live on 2026-08-10 and **changes what the UI is allowed to
-submit**. Testers will meet these refusals and must not file them as bugs
-without checking the firm's profile first.
+Do **not** raise these as defects. They are deliberate, and each is recorded in
+`docs/MODULE_STATUS.md` with what is blocking it.
 
-Nine features are enforced: `BATCH_TRACKING`, `SERIAL_NUMBER`,
-`EXPIRY_TRACKING`, `MANUFACTURING_DATE`, `SHELF_LIFE`, `WARRANTY`, `BARCODE`,
-`QR_CODE`, `DRUG_LICENSE`, `VEHICLE_TRACKING` and `ATTACHMENTS`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 6.1 | A feature the firm has | In WHOLE01 (profile enables `BARCODE`) save a product with a barcode | Saved |
-| 6.2 | A feature the firm lacks | In WHOLE01 (profile does **not** enable `EXPIRY_TRACKING`) create a batch **with** an expiry date | Refused, naming the feature and the field |
-| 6.3 | The record without the field | Same firm, create the same batch **without** an expiry date | **Succeeds.** The feature governs the field, not the record. If the whole batch is refused, that is a bug |
-| 6.4 | Clearing a gated field | On a record that already has a gated value, clear it and save | Allowed. Turning a feature off must never freeze existing records |
-| 6.5 | Document with no attachments | In a firm without `ATTACHMENTS`, save a document attaching nothing | Succeeds. Being refused here is a bug — it was one, and was fixed |
-| 6.6 | Existing attachments still readable | In a firm without `ATTACHMENTS`, open a document that already has files | Files listed and downloadable |
-| 6.7 | Roadmap features are not switchable | As platform admin, try to enable `RECIPE_MANAGEMENT`, `COMMISSION`, `IMEI`, `PRESCRIPTION_REQUIRED`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS` or `PROJECT_MANAGEMENT` on a profile | Refused. Nothing implements them |
-| 6.8 | **UX gap to assess, not a pass/fail** | Note whether the UI *hides* fields the firm's profile disables, or lets you type and then refuses on save | Record what happens. Today the backend refuses; the desktop does not pre-hide. Decide whether that is acceptable |
+| Area | State |
+| --- | --- |
+| Emailing a document | Not built. The PDF exists; there is no SMTP client or mail configuration. Deferred by the owner. |
+| Licensing | Not built. A permission and a role exist and are unused. Deferred by the owner. |
+| Serial numbers | Built, but no demo firm serialises — screens work, no seeded data. |
+| Packaging levels | Built, no seeded rows. |
+| Cost and profit centres | Present in finance, used by nothing. |
+| Shortened sales chains | A firm can be configured to type fewer than four documents; no demo firm is. |
+| Credit **blocking** | Built. Every demo firm is in **warn** mode, so blocking is not exercised. |
+| `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Declared as roadmap features and refused if switched on. |
 
 ---
 
-## 7. Permissions and roles
+## Appendix — driving the API by hand
 
-### 7.1 Setting up
-
-Most cases need users narrower than `FIRM_ADMIN`. As a firm admin, create one
-user per role you want to exercise — `SALES_EXECUTIVE`, `ACCOUNTANT`,
-`VIEWER`, `CASHIER` are the informative ones.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 7.2 | Read-only user | Log in as a `VIEWER` | Lists load. Create, edit and delete are absent or disabled — **not** present and failing on click |
-| 7.3 | Menu matches permission | Compare the module list for `VIEWER` and `FIRM_ADMIN` | The viewer sees fewer modules |
-| 7.4 | Hidden is not the same as safe | Note a URL or action a `VIEWER` cannot see; attempt it directly if the UI allows | Refused by the server. Menu filtering is cosmetic and must not be the only guard |
-| 7.5 | Credit policy is not editable by sales | As a `SALES_MANAGER`, open the customers workspace, **Settings** | The credit policy is visible but read-only, with a line naming the missing permission |
-| 7.6 | Credit policy is editable by an accountant | Repeat as `ACCOUNTANT` | Editable and saveable |
-| 7.7 | Platform admin is not exempt from firm scope | As `platform-admin` with no firm selected, open a firm-owned screen | Refused. Platform authority does not bypass firm context |
-| 7.8 | Permission change takes effect | Change a logged-in user's role | The change applies after a refresh or re-login; document which |
-
----
-
-## 8. Business behaviour worth checking by hand
-
-These are drawn from defects that actually occurred. Each is cheap to check and
-each was, at some point, wrong.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.1 | Interstate tax is IGST | Raise a sales invoice where the customer's state differs from the branch's | A single IGST line, **not** CGST + SGST. Two lines here is a filing error |
-| 8.2 | Local tax is CGST + SGST | Same, with the customer in the same state | Two lines |
-| 8.3 | Tax-inclusive pricing | Use a tax profile marked inclusive | The tax is shown but **not added on top** of the price |
-| 8.4 | Stock ledger opens | Open the stock ledger for a product that has moved | It loads. This screen used to error for any firm that had ever moved stock |
-| 8.5 | Expiry dashboard agrees with itself | In a firm with expiry tracking, compare the expired **count** with the expired **list** | They match |
-| 8.6 | Delivery-by-route report | Open the delivery note report grouped by route, with a route set on a note | It loads and names the route. It used to crash |
-| 8.7 | Tax rules filtered by transaction type | Open tax rules, filter by transaction type | Results returned. This was a 500 until 2026-08-10 |
-| 8.8 | Credit limit warns | Approve a sales order taking a customer past 80% of their credit limit | A warning appears **and the order is still approved** |
-| 8.9 | Credit limit blocks only if configured | Set the firm's credit policy to Block, then exceed the limit | Now refused, naming the customer and the percentage |
-| 8.10 | Import is all or nothing | Import a branch file where one row duplicates an earlier row's code | Refused, **nothing** imported, and the message says so. Then fix the file and re-import: it must succeed |
-| 8.11 | Document totals | Create a document with discounts, charges and round-off | Header totals equal the sum of the lines. Check to the last paisa |
-| 8.12 | Editing a document keeps its links | Edit an approved-then-reopened document's lines and save | Downstream documents still reference the right lines |
-| 8.13 | Audit trail is per firm | Make a change in FOOD01, then open the audit log in MEDI01 | The FOOD01 change is **not** there. Each firm has its own trail |
-| 8.14 | Receive goods against an order | Goods Receipts → **New Receipt**, choose an approved order, accept the quantities, save | A draft GRN. Stock has **not** moved yet — completing it is what posts stock |
-| 8.15 | A part-received order defaults to what is left | Complete a receipt for part of an order, then raise a second receipt against the same order | The second receipt defaults to the outstanding quantity, not the full order. Saving the full order again is refused for over-receipt |
-| 8.16 | The batch on the carton reaches the shelf | Receive a line with a batch number, then complete it | A batch of that number exists under Batches, holding what was received. The stock row is that batch's, not the product's |
-| 8.17 | A batch-tracked product refuses a blank batch | Receive a product whose profile requires a batch on receipt, leaving the batch number empty | Refused **before** the round trip, naming the line. Completing it server-side is refused too |
-| 8.18 | Deliver against an order | Delivery Notes → **New Note**, choose an approved order, save | A draft note. Stock has **not** moved — dispatching it is what moves it |
-| 8.19 | A line defaults to what is reserved | Compare the Delivering box with the line's ordered and reserved figures | It matches **reserved**, not ordered. Delivering more than is reserved is refused at dispatch |
-| 8.20 | The batch preview matches what ships | Note which batches a line says it will ship from, then dispatch it and open the stock ledger | The dispatch came off those batches, earliest expiry first |
-| 8.21 | An unapproved order cannot ship | Open a note for an order with nothing reserved | The line says so and Save is refused. It must not offer to ship stock nobody committed |
-| 8.22 | Return goods to a supplier | Purchase Returns → **New Return**, choose a completed receipt, save | A draft return. Approving **and** completing it is what takes the stock off |
-| 8.23 | The batch is chosen, not typed | Open a return line for a batch-tracked product | A dropdown of that product's registered batches showing what each holds, defaulting to the batch the receipt brought in. There must be **no** free-text batch box |
-| 8.24 | The return comes off the named batch | Complete a return for a batch, then open Batches | That batch holds less by exactly the returned quantity. The stock ledger names it on the RETURN row |
-| 8.25 | The whole loop balances | Receive 20 on a batch, deliver 5, return 5 | The batch holds 10, and the ledger shows GOODS_RECEIPT +20, DISPATCH −5, RETURN −5 all naming it |
-| 8.26 | Approving an order holds a batch | Approve a sales order for a batch-tracked product, then open the stock ledger | A RESERVE naming the batch nearest expiry. It must **not** land on a row holding nothing |
-| 8.27 | Nothing goes negative from a reservation | After 8.26, check the product's stock rows | No row has a negative available quantity. That was the symptom of reserving the product instead of the batch |
-| 8.28 | Opening stock can name its batch | Post an opening stock document with a batch number on a line | The batch appears under Batches holding that quantity, and the stock row is that batch's |
-| 8.29 | Day-one stock obeys the receipt rule | Post opening stock for a product that requires a batch on receipt, leaving the number blank | Refused, naming the product. The rule is not only for goods receipts |
-
-### 8.30–8.34 Importing sales returns and quotations
-
-**These are API cases.** Both modules import over HTTP and neither workspace has
-an import button, so drive them with `curl` — see `.claude/skills/run-app` for
-the token. They are here rather than left to the unit suite because 8.10 is the
-case this project has been bitten by twice, and these are the two newest imports.
-
-The batch is `POST /api/v1/{sales-returns,quotations}/import` with
-`format=json` and `payload={"records":[...]}` as form fields, up to 500 records.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.30 | A quotation batch lands whole | Import two valid quotations in one call | 201 with both, each carrying **its own** document number. The list count rises by exactly two |
-| 8.31 | A refused batch leaves nothing | Import two quotations giving both the **same** explicit `quotation_number` | **409**, and the quotation count is **unchanged**. Not 500: a duplicate number is a conflict the caller can fix, and half a file must never land |
-| 8.32 | The corrected file then works | Fix 8.31's file to use distinct numbers and re-import | 201. This is the half of 8.10 that actually matters — a partial import makes the corrected file fail on its own earlier rows |
-| 8.33 | A sales return batch is refused whole | Import two returns against one delivery note where the second returns far more than was dispatched | **422** naming the quantity, and the sales-return count is **unchanged** |
-| 8.34 | A return batch sees its own earlier rows | Import two returns of 1 unit each against the same delivery note line | Both accepted. The second must count the first's claim — they are staged on one transaction, so an over-return split across a batch is still caught |
-
-### 8.35–8.37 Exporting
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.35 | Sales return export | `GET /api/v1/sales-returns/export` | CSV: a header row plus one row per return, carrying the number, dates, customer, branch, warehouse, status, returned quantity and total |
-| 8.36 | Quotation export names what lapsed | `GET /api/v1/quotations/export` with one live and one expired quotation, **both still `DRAFT`** | An `is_expired` column reading `false` and `true`. The `status` column reads `DRAFT` for both — which is the point: expiry is derived from `valid_until`, so status alone cannot answer it |
-| 8.37 | Export respects the firm | Export quotations as `food01.admin`, then as `medi01.admin` | Each sees only its own. These two share one schema, so this is the isolation case that matters |
-
-### 8.40–8.46 Quotations
-
-The module shipped without manual cases. These are the ones worth a human,
-because most of them are about what a quotation **does not** do and about lines
-quietly disappearing — neither shows up as an error message.
-
-Sales → Quotations, as `whole01.admin`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.40 | A quotation commits nothing | Create and send a quotation for a stocked product, then open the stock ledger and the customer's account | **No** reservation, no movement, no change to what the customer owes, no journal. Everything the firm promises happens at conversion, on the order |
-| 8.41 | More than one line | **New Quotation**, fill the first line, press **Add line**, fill the second, save | Both lines are on the saved quotation, numbered 1 and 2. The form wrote a single line until 2026-08-15 — a quotation for two products could not be raised from the desktop at all |
-| 8.42 | Each line shows its own total | With two lines of different value, read the per-line figures and the offer total | Each line shows what it contributes; the total is their sum. One total alone does not say which line was mistyped |
-| 8.43 | Removing a line takes its own numbers | Enter three lines with distinct quantities, remove the **middle** one, save | The saved quotation holds the first and third lines **with their own quantities and prices**, renumbered 1 and 2. If the third row inherits the second's numbers, the editor is keeping its fields in lists indexed by position |
-| 8.44 | The only line cannot be removed | On a quotation with one line, look at that line's remove control | Disabled, and its tooltip says a quotation needs at least one line. It must not let the save fail instead |
-| 8.45 | Revising keeps the whole offer | Create a two-line quotation, reopen it with **Revise**, change nothing, save | **Both** lines survive. This is the case to run twice: the update replaces the whole line collection with what is sent, so seeding only the first line is a silent deletion — no error, no warning, one line simply gone |
-| 8.46 | A discount comes back as it was quoted | Put 10% on a line, save, then reopen with **Revise** | The field reads 10, not 0. Only the resulting **amount** was parsed before, so a revision re-sent the line at full price |
-
-Expiry is derived from `valid_until` rather than stored, so 8.45 and 8.46 need a
-quotation that has **not** lapsed — an expired one cannot be sent, accepted or
-converted, and the workspace badges `EXPIRED` separately from the status because
-`SENT` reads identically the day before and the day after.
-
-### 8.90–8.99 Discounts, free goods and what a bill says
-
-Everything in this block shipped on 2026-08-23. Most of it is arithmetic a
-screen shows and a person has to agree with, which is exactly what a manual
-pass is for.
-
-Sales → Customers and Sales → Quotations, as `whole01.admin` unless stated.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.90 | A customer's standing discount fills a line in | Customers → open one → **Financial** → set **Default discount %** to 10 → save. Then Quotations → **New Quotation** → choose that customer | Each line's **Discount %** reads 10, with a helper saying it is the customer's rate. The quoted total is 10% below the gross |
-| 8.91 | Typing over the standing rate wins | On that line, type `0` into Discount % | The line is charged in full and the helper stops offering the rate. Nothing sends 10 — an explicit zero is an instruction, not silence |
-| 8.92 | The discount reaches the bill, not just the offer | Convert that quotation to an order, dispatch it, raise the invoice, approve it | The **invoice** carries the same 10%. Until this date the percentage was stored on the invoice line and never applied — a 10% order was billed at full price with `10` sitting on the line as a lie |
-| 8.93 | An edit to the customer does not rewrite an old bill | After 8.92, change the customer's default to 25%, then open the approved invoice | It still reads 10%. An invoice inherits from the line it bills rather than re-reading the customer: a price agreed in March must not change in August |
-| 8.94 | A discount on the whole offer | New Quotation, two lines, put 10 into **Discount on the whole offer %** | The total drops 10% **of what the lines already discounted to**, not of the gross. Each line carries its own share, and the shares add up to the figure on the header |
-| 8.95 | The bill discount reduces the tax | Raise an invoice with a bill discount against a customer with a GST profile | Tax is charged on the reduced value. If tax is unchanged, the discount is being subtracted after tax — which is what a purchase order does and what sales deliberately does not |
-| 8.96 | Goods given away | On a quotation line, put 1 into **Free**, quantity 10 | The line is worth 10 × price, not 11 — free goods are outside the gross and outside the tax base. The printed document reads `10 + 1 free` |
-| 8.97 | A price comes from the product | Products → give a product a **selling price** and an **MRP**. Then New Quotation → choose it | The **Unit price** box is filled in, with a helper reading what it lists at and its MRP. Choose a different product and an untouched price follows; type your own and it survives the change |
-| 8.98 | A discount larger than the line | Type a discount amount above the line's value | Refused, saying a discount cannot exceed the line amount. Before this date four documents produced a negative taxable value, which the tax code read as zero tax while the negative flowed into the total |
-| 8.99 | A rate above a hundred | Type 500 into any Discount % | Refused by the form before it is sent, naming the limit |
-
-### 8.100–8.107 Billing from the desktop
-
-Until 2026-08-23 a firm using only the desktop could quote, order and dispatch
-and then had **no way to raise an invoice**. These cases are about the screen
-that closed that.
-
-Sales → Sales Invoices, as `whole01.admin`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.100 | Raising a bill | Dispatch a delivery note, then **New Invoice** | The note appears in the picker with its customer and date. Quantities default to what is left to bill. Saving creates a **DRAFT** |
-| 8.101 | Only what is still billable is offered | Bill a note in full, then open **New Invoice** again | That note is gone from the list. It is the server that works this out — a client cannot know how much of a line earlier invoices already took |
-| 8.102 | Part-billing | Bill 2 of a 4-unit line, then open **New Invoice** again | The same note is offered with **2** remaining, and says how much is already billed |
-| 8.103 | Billing more than is left | Type a quantity above the remainder | Refused before it is sent, naming what is left |
-| 8.104 | Correcting a draft | Select a **DRAFT** invoice → **Edit** → change a quantity → Save | It saves. **Edit is disabled on an approved invoice** — once approved the journal is posted and the customer owes the money, so a correction is a cancellation and a fresh bill |
-| 8.105 | Two people editing one draft | Open the same draft in two places, save in one, then save in the other | The second is refused, saying the record changed. Sending the whole line collection means a lost race costs every line somebody entered |
-| 8.106 | Billing an order nothing shipped against | Approve a sales order and raise **no** delivery note, then **New Invoice** | The order is offered. Now raise a delivery note against it and look again — **the order is withdrawn from the list**. Offering both would let the same goods be billed twice, and no guard would catch it |
-| 8.107 | Nothing to bill | Bill everything, then **New Invoice** | It explains that nothing is waiting to be billed, rather than showing an empty form |
-
-### 8.110–8.115 An order follows its deliveries, and documents print
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.110 | Part-delivering moves the order | Approve an order for 10, dispatch 4 | The order reads **PARTIALLY_DELIVERED**. Dispatch the remaining 6 and it reads **DELIVERED**. Before this date both a finished order and an untouched one read APPROVED |
-| 8.111 | A second delivery is still allowed | After 8.110's first dispatch, raise another delivery note against the same order | It is allowed. The gate compared the order's status against the *delivery note's* enum, which agreed only because both spell APPROVED the same — writing the new status would have refused every second delivery |
-| 8.112 | The challan that travels | Delivery Notes → select one → **Print challan** | A PDF titled **DELIVERY CHALLAN**, naming consignee, the order it is against, the vehicle and driver if recorded, and three copies. It states the value of the goods and carries **no** reverse-charge line and no HSN-wise tax summary — it is not a tax invoice |
-| 8.113 | The offer, as a document | Quotations → select one → **Print** | A PDF titled **QUOTATION** carrying **Prices stand until**, which no other document has |
-| 8.114 | The credit note | Sales Returns → select one → **Print credit note** | A PDF titled **CREDIT NOTE** naming the reason, and stating the tax **component by component** — CGST and SGST, not just a total |
-| 8.115 | Print settings per document | Beside each Print button, open the settings dialog | Copies, letterhead and terms are per **document type**: changing the invoice's copies must not change the challan's |
-
-### 8.120–8.123 Packaging and a scanned code
-
-Sales → UOM & Packaging → **Packaging Levels**, as `whole01.admin`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.120 | Recording what a product ships in | Choose a product → **Add level** → name it CARTON, base units 120, barcode `8901234567906` | It saves and appears in the grid. These four endpoints existed since the module was written with no screen calling them |
-| 8.121 | A scanned code says what it is | Type that barcode into **Scan or type a code** → **Look up** | It answers with the product and **one scan is 120 base units**. Nothing read those barcodes before — the framework doc claimed a scanner could and nothing implemented it |
-| 8.122 | A code two things carry | Give a second product's level the same barcode, then look it up | Refused, saying how many carry it. A scanner that silently picked one would put the wrong stock on a document |
-| 8.123 | A code nobody carries | Look up any unused number | Refused, naming the code — the next thing anybody does is re-scan |
-
-### 8.130 By-salesman reports
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.130 | A report that names a salesman | Tag a sales order and a delivery note with a salesman, then open the by-salesman reports for both — **as `elec01.admin`, whose firm is a dedicated database** | Both list the salesman by name. This is the case that matters on ELEC01 specifically: `users` lives only in the platform schema, and both reports read it on the firm's own session until 2026-08-23. Untagged documents hid it — the reports answered fine until one document carried a salesman, then both returned "The database is temporarily unavailable" |
-
-### 8.140–8.146 Price lists — a rate off the product price
-
-Sales → **Price Lists**, as `elec01.admin`. Needs `PRICE_LIST_VIEW`; the
-buttons need `PRICE_LIST_MANAGE`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.140 | Agreeing one with everybody | **New price list** → code `PL001`, name it, leave **Applies to** on Everyone → **Add product**, pick one, 10 → Save | It saves and the grid says **Everyone** under *Applies to*, with the window read as "from <date>" |
-| 8.141 | Agreeing one with a shop | Another list, **Applies to → One customer**, choose one, 15% on the same product | Saves; the grid names the customer rather than saying "One customer" |
-| 8.142 | The rate reaches a document | Quotations → new quotation for that customer → add the same product, quantity 10, and **type no discount** | The line discounts at **15%** — the shop's own list beats the firm-wide one |
-| 8.143 | Silence versus zero | On the same line type `0` into Discount % | The line discounts at nothing. Typing zero is a refusal of the arrangement; saying nothing takes it |
-| 8.144 | It is a rate, not a price | Read the dialog's opening sentence and the column headers | Both say percentage. Somebody expecting to type a price will otherwise type one into a discount column |
-| 8.145 | Two scopes at once cannot be asked for | Look at **Applies to** | One segmented choice, not two pickers — the server refuses a list scoped to a customer *and* a territory |
-| 8.146 | Withdrawing one | Select a list → right-click → **Delete** | It goes, and the message says documents already priced under it are unchanged — the rate is stored on the line |
-
-### 8.150–8.156 Commission on money collected
-
-Sales → **Commission**, as `elec01.admin`. Needs `COMMISSION_VIEW`; the write
-controls need `COMMISSION_MANAGE`.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.150 | A rate for somebody who has never had one | **Rates** → **Add rule** → open **Applies to** | The firm's own people are listed, not just people already carrying a rule. Until 2026-08-23 the picker was built from the rules on screen, so a new salesman could never be given a rate from here |
-| 8.151 | Recording it | Choose a person, 4%, in force from the first of the year → Save | It saves; the grid shows *4%* and the window |
-| 8.152 | The firm-wide default | **Add rule**, leave **Applies to** on Everyone, 2% → Save | Saves as **Everyone (default)** — what anybody with no rule of their own earns |
-| 8.153 | Two rates over the same days | Add a second rule for the same person overlapping the first | Refused, in the server's own words |
-| 8.154 | Money collected, not money billed | Approve a sales invoice, then record a **receipt** against part of it → **Collected**, period covering today | Only the part collected appears. An unpaid invoice earns nothing |
-| 8.155 | The bucket that belongs to nobody | Read the row for invoices carrying no salesman | Named **Unassigned**, with its collected figure — and **zero commission**. It is a reconciliation line: a default is what a *person* with no rule earns, not a rate on money that named nobody. On a seeded store every invoice is untagged, so paying it out inflated the firm's whole liability |
-| 8.156 | A reversed receipt pays nobody | Reverse that receipt, reload the report | The collection and the commission both go |
-
-### 8.80–8.84 A purchase order is submitted, then approved
-
-Built on 2026-08-16, after testing found the Open Orders tab permanently
-empty. Until then `cancel` and `close` were the only real transitions on a
-purchase order — every other status came from whatever the creator typed on
-the form, so `SUBMITTED` could not be produced by anything a user did.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.80 | A draft can be submitted | Purchases → **New**, save a draft, select it | A **Submit** button appears. Pressing it moves the order to SUBMITTED |
-| 8.81 | Approval needs a submission first | On a **draft**, look for Approve | There is none. Over HTTP, `POST /purchases/{id}/approve` on a draft is refused with "Submit the order first" — an approval anyone can skip is not a control point |
-| 8.82 | A submitted order can be approved | Select the submitted order | An **Approve** button appears; pressing it moves the order to APPROVED |
-| 8.83 | Approving needs the approve right | Sign in as a user with `PURCHASE_UPDATE` but not `PURCHASE_APPROVE` | Submit is offered, Approve is not. The person who raises an order need not be the one who commits the firm to it |
-| 8.84 | The Open Orders tab finally has something | After 8.80, open **Open Orders** | The submitted order is listed. That tab filters on SUBMITTED and was empty for every firm before this |
-
-Each step writes a history row, a lifecycle event and an audit entry — check
-the order's history shows `DRAFT->SUBMITTED` and `SUBMITTED->APPROVED`.
-
-### 8.70–8.72 A branch or warehouse can say what type it is
-
-Raised from testing on 2026-08-16: the New Branch form had no type field, so
-the Branch Types and Warehouse Types screens were lists you could curate and
-never apply. Every branch and warehouse in the demo carried no type.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.70 | The field is there and offers the firm's types | Masters → Branches → **New**, look at the form | A **Branch Type** dropdown listing the types defined under Branch Types, plus **None**. Same on the warehouse form |
-| 8.71 | The choice is saved | Pick a type, save, reopen the record | The type is still selected. Set it back to **None**, save, reopen — it is cleared, not left on the old value |
-| 8.72 | A firm with no types can still save | Delete or ignore all types, then create a branch | The dropdown says "None defined — add one under Branch Types" and the branch saves. A type is optional; being unable to classify must never block creating a branch |
-
-### 8.73–8.79 A branch or warehouse can say where it is — and keeps it
-
-Built on 2026-08-16. `branches` and `warehouses` carry six geography keys and
-two street lines and **no free-text city at all**, so the masters are the only
-way to record a place — and no screen ever set one. Worse, the update dumped
-its whole write model and assigned every field, while the form hardcoded
-`is_default: false`, `gst_registration: false` and all ten warehouse capability
-flags. **One rename cleared the address, the city, the default flag and the GST
-registration.**
-
-8.75 is the case that matters. Run it on a record you have just given an
-address to, not on a blank one, or it passes for the wrong reason.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.73 | The address form is there | Masters → Branches → edit a branch | An **Address** section: two street lines and a Country → State → District → City → Pin code → Locality ladder. Same on the warehouse form |
-| 8.74 | The place is saved and comes back | Fill the ladder down to a pin code, save, reopen | Every rung is still chosen. Each rung stays disabled until its parent is picked, and changing the City clears Pin code and Locality — anything below a changed rung stops meaning anything |
-| 8.75 | **A rename keeps the address** | Give a branch an address, tick **Default branch** and **GST registered**, save. Now change only its **name** and save again. Reopen | Address, place, Default and GST are all exactly as they were. Until this was fixed the rename cleared every one of them |
-| 8.76 | The warehouse keeps its capabilities | Tick **Cold storage**, **Hazardous storage** and **Loading dock** on a warehouse, save, then rename it and reopen | All three still ticked. Ten flags were reset by every save |
-| 8.77 | A new warehouse starts sensibly | Masters → Warehouses → **New** | **Receiving area** and **Dispatch area** are ticked, nothing else. Those two were the only honest part of the old hardcoding |
-| 8.78 | Clearing really clears | Empty **Address line 2** on a record that has one, save, reopen | Line 2 is empty and **line 1 is untouched**. Absent means leave alone; sending a field empty means clear it, and the two must stay different |
-| 8.79 | The taller dialogs still fit | Run at 1366×768 and open both forms | They scroll internally. No clipped content, no overflow stripe. The address ladder made both taller than the screen leaves room for |
-
-### 8.90–8.94 A vendor save keeps what it cannot show
-
-Built on 2026-08-16. The vendor dialog sent all six child collections as empty
-lists and the API replaces rather than merges, so correcting a phone number
-destroyed the vendor's addresses, contacts, bank accounts, tax details,
-attachments and notes. One seeded vendor had already lost its address that way.
-
-**Run 8.90 on a vendor that has contacts and bank details**, not a fresh one.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.90 | **An edit keeps the other tabs** | Open a vendor with contacts and banking, change its **name** only, save, reopen and look at every tab | Contacts, Banking, Tax, Attachments and Notes all still there. This is the defect |
-| 8.91 | A vendor address can name its city | Vendors → edit → **Addresses** → add or edit an address, choose a place from the ladder, save, reopen | The place comes back. `vendor_addresses` has no text city column at all, so this is the only way to say where a vendor is |
-| 8.92 | Primary is exclusive | Add a second address and tick **Primary** on it | The first one unticks itself. The form applies the rule rather than letting the save be refused for it |
-| 8.93 | An existing address keeps its identity | Edit an existing address's street line and save | It is the same row updated, not a new one — check the address count did not grow |
-| 8.94 | A firm with no Places can still save | Use a firm whose geography masters are empty | The dropdowns are empty with a hint pointing at Sales → Places, **and the vendor still saves**. Reference data nobody has filled in must not block a write |
-
-### 8.100–8.109 Territory, routes and beat plans
-
-Built across 2026-08-15/16 (PR #86) and never given manual cases until now. See
-`docs/TERRITORY_FRAMEWORK.md` for what the pieces mean. Run these on `WHOLE01`,
-whose seeded layout is `WHOLE01C02→S1`, `WHOLE01C03→N1`, `OB-REV2→N1`,
-`WHOLE01C01→N2`.
-
-**Restore anything you change.** These screens replace whole lists rather than
-merging, so a test left half-finished looks exactly like a defect next time.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.100 | A round can be defined | Sales → Territories → **New**, give it a route type and a parent | It is created and appears under its parent. A node becomes a *route* by carrying a route type |
-| 8.101 | Shops go on the round in an order | Open a route, assign customers, drag one stop above another, save, reopen | The order held. Dragging used to answer 409: the stop-number key is checked per statement, so a swap collided until the numbers being moved are released first |
-| 8.102 | **A failed read cannot overwrite the round** | Open a route with shops, then trigger a read failure (stop the backend, click another route, restart) | The pane is **empty**, not showing the previous route's shops, and Save is refused until it has provably read the route on screen. `PUT /{id}/customers` replaces the whole list, so the pane *is* the record |
-| 8.103 | A shop's stop number survives a save that says nothing about order | Re-save a route without touching the order | The sequence is unchanged. Only rows actually moving are renumbered |
-| 8.104 | The working days decide the call | Give a route working days of Mon only, point a Tuesday beat plan at it, open the call list for that Tuesday | It does **not** occur, and it says why. Working days were recorded and read only to display themselves back |
-| 8.105 | The effective window is judged on the document's date | Set a route's Runs until to yesterday, then tag a document dated today with it | Refused. Back-date the document inside the window and it is accepted |
-| 8.106 | A call list for a date | Sales → Territories → **Call list**, pick a date | The shops the plan calls that day, in stop order, naming the route and the salesperson |
-| 8.107 | Assign by area | Route Builder → search by pin code or street, select shops, assign to a route, order them | The selection assigns and the order sticks. This is the screen for building a round from geography rather than from a list |
-| 8.108 | The hierarchy settings are enforced | Turn on each of the four settings (multi-route per salesman, multi-salesman per route, leaf-only customers, max nodes per parent) and breach each in turn | Each refusal names the rule it broke. All four were stored and checked nowhere |
-| 8.109 | A customer shows the rounds that call them | Open a customer who is on two routes | Both routes listed with this customer's stop number on each. Exactly one is primary — see §12 |
-
-### 8.123–126 Cancelling a receipt puts the ledger back too
-
-Added 2026-08-18. Until then cancelling a completed goods receipt took the
-stock back off and left the journal posted, so the general ledger's inventory
-balance drifted above the warehouse by the value of every cancelled receipt.
-Nothing in the desktop showed it; it was found by driving the API and reading
-the journals.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.123 | Stock and ledger move together | Receive an order in full, complete the receipt, note the stock figure and the journal | `Dr Inventory / Cr Goods Received Not Invoiced`, at cost and excluding tax |
-| 8.124 | **Cancelling reverses both** | Cancel that receipt | Stock returns to what it was **and** a second journal appears — the original reads REVERSED, the mirror POSTED, and every account nets to zero across the pair |
-| 8.125 | Cancelling twice changes nothing further | Cancel the same receipt again | Still exactly two journal entries. The mirror carries the same source ids as the original, so a careless lookup would reverse the reversal |
-| 8.126 | **An invoiced receipt is refused** | Receive, complete, raise and approve a purchase invoice against it, then cancel the receipt | 422 naming the invoice. Stock unchanged, still one journal. Cancel the invoice first, or raise a purchase return — a return credits the supplier, which cancelling the receipt never could |
-
-### 8.117–122 An edit cannot rewrite an order's status
-
-Added 2026-08-18, after driving the API and finding three ways the approval
-step could be bypassed. All three were invisible from the desktop, so these
-cases are worth running against the API as well as the screen.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.117 | **Editing an approved order withdraws approval** | Approve an order, then Edit it | A warning first: *"Editing withdraws the approval."* Accept it, change the quantity, save | The order reads **DRAFT** and its History shows `approval_withdrawn`. It must be submitted and approved again |
-| 8.118 | Backing out of that warning changes nothing | Same, but choose Cancel | The editor does not open and the order is still APPROVED |
-| 8.119 | A received order cannot be edited | Receive part of an order, then select it | **Edit is disabled.** Through the API the same edit answers 422 naming the receipts |
-| 8.120 | Cancelled and closed orders cannot be edited | Select one of each | Edit is disabled for both |
-| 8.121 | **Goods cannot be received against an unapproved order** | Via the API, POST a goods receipt against a DRAFT order | 422 — *"goods can only be received against an approved order."* Before this it was accepted, and completing it posted stock and posted to the ledger |
-| 8.122 | A submitted order keeps its status when edited | Submit an order, edit it, save | Still **SUBMITTED**. Only approval is withdrawn by an edit; nothing else moves |
-
-### 8.110–116 Submit and Approve from inside the open order
-
-Added 2026-08-18. The action used to be reachable only from the workspace
-toolbar, against the selected row, so approving meant closing the document you
-were reading. Both routes now exist and must stay in agreement.
-
-Run as `whole01.admin@agency.local`, which holds every purchase permission, and
-once more as a user with `PURCHASE_VIEW` only.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.110 | The buttons are in the open document | Purchases → Purchase Orders → double-click a **draft** | The dialog toolbar shows **Submit** enabled and **Approve** greyed, beside Save. The panel under the header reads *"Submit this draft to send it for approval."* |
-| 8.111 | **Acting does not close the document** | Click **Submit** | The dialog stays open. The status becomes SUBMITTED, Submit greys, Approve lights up, the message changes to *"Approve this order to commit the firm to it."*, and the **History** tab has gained an entry |
-| 8.112 | And again for approval | Click **Approve** | APPROVED, both greyed, *"No approval step is outstanding."*, History gains a second entry |
-| 8.113 | The grid behind is not left stale — and is not lied to | Close the dialog | The row reads APPROVED and is still selected. There is **no** "Purchase order updated." message: nothing was edited. Editing and saving normally must still show it |
-| 8.114 | Permission hides, status disables | Sign in with `PURCHASE_VIEW` only and open any order | Neither button is present at all — not greyed. A submitted order reads *"Waiting for someone who holds purchase approval."* |
-| 8.115 | A new order offers neither | Purchases → **New** | No Submit, no Approve, and *"Save the order before it can be sent for approval."* There is nothing on the server to act on yet |
-| 8.116 | Both routes still work, and agree | Approve one order from the grid toolbar and another from inside the dialog | Both reach APPROVED. Approving an order somebody else already approved shows the server's refusal in the dialog's **banner**, and the dialog stays usable |
-
-### 8.60–8.63 Sub-tabs load their own data
-
-Reported from testing on 2026-08-15 and fixed the same day. Every module whose
-sub-tabs are served by one page class was affected — clicking a sub-tab kept
-the previous tab's `State`, so nothing was fetched and the grid showed "no
-records" until Refresh. Worth re-running after any change to those pages.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.60 | Every UOM sub-tab loads on the first click | Administration → UOM & Packaging → click **Units**, **UOM Groups**, **Packaging Types**, **Conversion Rules**, **Industry Templates** in turn | Each shows its own rows on arrival. **No Refresh.** This is the case that was reported |
-| 8.61 | A search does not follow you | Type a term in the search box on Units, then switch to Packaging Types | The box is empty and the grid unfiltered. On Tax the same case matters more: the search there is sent to the server, so a stale term silently filters the next tab |
-| 8.62 | A selection does not follow you | Purchases → tick some rows on **Draft Orders**, then switch to **Open Orders** | Nothing is selected, and the bulk-action bar is gone. A selection that survived could put a bulk close or cancel through against orders that are no longer on screen |
-| 8.63 | The two type lists are not each other | Masters → Branches → **Warehouse Types**, then **Branch Types** | Each shows its own list. They share one field internally, so this pair showed the wrong list rather than an empty one |
-
-### 8.55–8.59 A customer address names a real place
-
-Built on 2026-08-16. `customer_addresses` held city, area, district, state and
-postal code as plain strings with no link to the geography masters, so "Parrys"
-and "Parry's Corner" never grouped and the Route Builder's pin-code search was a
-string match. Vendors, branches and warehouses had the keys and no form;
-customers had the text and no keys, which is why they needed a migration
-(`20260816_0094`).
-
-**The keys are the truth and the free text is derived from them.** That is what
-8.56 checks, and it is the case most likely to look like a bug if you have not
-read this: choosing a place *overwrites* what you typed.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.55 | The ladder is on the address | Customers → edit → **Address** | Below the existing fields, a **Place** section: Country → State → District → City → Pin code → Locality, each rung loading only after its parent is chosen |
-| 8.56 | **Choosing a place rewrites the text** | Type nonsense in City, then choose a real City from the ladder | The City field changes to the master's name. The server derives these columns from the keys, so a form still showing your typing would be showing something it is not about to save |
-| 8.57 | The place survives a save | Choose down to a pin code, save, reopen | Every rung is still chosen, and the text matches it |
-| 8.58 | An address with no place still saves | Leave the whole ladder on **None** and save | Accepted, with the text exactly as typed. Every client written before these columns did this, and a firm with no Places must still be able to record an address |
-| 8.59 | Existing addresses were matched, not invented | Open a seeded customer in `WHOLE01`, then one in `FOOD01` | WHOLE01's are filled down to the pin code; FOOD01's name only a country. That is correct — FOOD01's only state master is "Andera Pradesh" while its addresses are in Telangana, and the migration fills nothing it is not sure of |
-
-**(HTTP)** The refusal that has no screen: send an address whose rungs do not
-belong together — a district id under a different state — and the save is
-refused naming the level. The picker cannot produce that combination, but
-another client can.
-
-### 8.50–8.54 Editing a customer who has traded
-
-**Run these on a seeded firm, not a fresh one.** They are about a customer with
-history behind them, and on a customer created five minutes ago every one of
-them passes for the wrong reason. `WHOLE01` after a demo seed is the right
-subject: pick the customer with the largest outstanding.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 8.50 | An edit keeps what the customer owes | Note the customer's outstanding, edit an unrelated field — a phone number will do — and save. Re-open them | The outstanding is **exactly** what it was. Until 2026-08-15 it was reset to the opening balance, so every invoice, receipt and credit note since was discarded by an edit nobody thought was financial |
-| 8.51 | The books agree afterwards | Run `scripts/verify_sample_data.py` after 8.50 | Every store holds together. If it reports "customers owe X against receivable account Y ... a balance moved without a journal", 8.50 has regressed — that is the exact wording this defect produced |
-| 8.52 | The edit is not refused | Save the same customer twice in a row | Both succeed. It answered 409 "This record changed since you loaded it" for any customer whose opening balance had posted, with nobody else touching the record |
-| 8.53 | An opening balance still cannot be rewritten after trading | Edit the customer and change the **opening balance** | Refused, saying it cannot change after receivable activity exists. That guard is what makes 8.50 safe: the balances are only ever recomputed where there is nothing else to lose |
-| 8.54 | A new customer's opening balance still reaches the ledger | Create a customer with an opening balance of 25,000, then open the trial balance | Trade Receivables and Opening Balance Equity have each moved by 25,000. Delete the customer and both move back |
-
----
-
-## 9. Concurrency and two-machine cases
-
-**Read this before running 9.1.** The precondition that makes a concurrent edit
-refusable is `If-Match`, and it is **opt-in**: a request that omits it is
-accepted, so existing clients keep working. The server publishes the version to
-send back as an `ETag` on every response that returns one versioned record, and
-refuses a write aimed at a superseded version.
-
-**The desktop sends it** on customers, vendors, products, branches, warehouses
-and quotations, as of 2026-08-15. The version rides in the response body as
-well as the ETag header — a list carries many records and a header carries one,
-and this client edits from list rows — so the save carries the version of the
-record the user opened.
-
-**What the refusal says depends on where the editor saves from**, and 9.1c is
-the case that checks it:
-
-- **Customers and products** save from **inside** the dialog, so a refusal
-  leaves the form on screen still holding every keystroke. The message says so.
-- **Vendors, branches, warehouses and quotations** close the dialog and save
-  after, so the typing is already gone. Those say the changes were **not
-  saved** — claiming otherwise would be a lie the user acts on.
-
-**Screens that still save last-one-wins**: UOM, tax, batches and serials,
-territories, inventory, opening stock, physical counts, document types and
-business profiles. 9.1e is the control case for those.
-
-| ID | Case | Steps | Expected |
-| --- | --- | --- | --- |
-| 9.1 | Two users edit one customer | Open the same customer on two machines, save on A, then save on B | **B is refused**, and the message says somebody else saved it, that B's changes are still in the form and have not been sent, and to copy anything needed before closing |
-| 9.1c | The refusal tells the truth about the typing | Run 9.1 on a **customer** (saves inside the dialog), then on a **vendor** (dialog closes first) | The customer message says the changes are **still here and have not been sent**; the vendor message says they were **not saved**. Neither should claim the other |
-| 9.1e | The same race where the header is not sent yet | Repeat 9.1 on **UOM units** or **territories** | B **succeeds and overwrites A**, silently. That is still the behaviour on the screens listed above — record it, do not file it |
-| 9.1a | The precondition the server owes **(HTTP)** | `GET /api/v1/customers/{id}` and note the `ETag`. `PUT` the same customer twice, sending `If-Match: <that etag>` both times | The first `PUT` returns 200 with a **new** `ETag`; the second is refused **409** with "This record changed since you loaded it" |
-| 9.1b | The published version is the one that works **(HTTP)** | Repeat 9.1a's second `PUT`, this time sending the `ETag` the first `PUT` returned | 200. A client that echoes the header it was last given is never wrongly refused — it must not compute the next version itself |
-| 9.1c | No precondition is still accepted **(HTTP)** | `PUT` the same customer with no `If-Match`, then again with `If-Match: *` | Both 200. `*` means "any version", which is the same as sending nothing |
-| 9.1d | A malformed precondition is rejected, not ignored **(HTTP)** | `PUT` with `If-Match: banana` | 422. Silently ignoring it would give a client the protection it asked for in name only |
-| 9.2 | Reload after a conflict **(HTTP)** | Continue 9.1a: `GET` the customer again, take the new `ETag`, and `PUT` with it | Succeeds |
-| 9.3 | Same document, two approvals | Approve the same order on both machines at once | One succeeds, one is refused clearly. Never approved twice, never double stock movement |
-| 9.4 | Stock race | Two machines dispatch the same stock simultaneously | Stock never goes negative without an explicit allowance |
-| 9.5 | List refresh | Create a record on A; refresh the same list on B | It appears |
-
-The six endpoints carrying an `ETag` are the `GET` and `PUT` pair for firms,
-purchase orders, sales orders, delivery notes, goods receipts and customers.
-9.1a–9.2 are written against customers because that update replaces the whole
-address and contact collection, so the loser of a race does not merge badly —
-they lose every row they entered.
+For the **(HTTP)** cases. See `.claude/skills/run-app` for the full recipe.
 
 ```bash
-# 9.1a, against the seeded WHOLE01 firm. See .claude/skills/run-app for $TOKEN.
-ETAG=$(curl -s -D - -o /dev/null "$BASE/api/v1/customers/$ID" \
-  -H "Authorization: Bearer $TOKEN" -H "X-Firm-ID: $FIRM" \
-  | grep -i '^etag' | cut -d' ' -f2 | tr -d '\r')
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"whole01.sales1@agency.local","password":"DemoAdmin@12345"}' \
+  | python -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
 
-curl -s -o /dev/null -w '%{http_code}\n' -X PUT "$BASE/api/v1/customers/$ID" \
+FIRM=<the WHOLE01 id from GET /api/v1/firms>
+
+curl -s -w "\nHTTP %{http_code}\n" -X POST \
+  http://localhost:8000/api/v1/document-framework/numbering-rules \
   -H "Authorization: Bearer $TOKEN" -H "X-Firm-ID: $FIRM" \
-  -H "Content-Type: application/json" -H "If-Match: $ETAG" -d @customer.json
-# first call 200, same command again 409
+  -H "Content-Type: application/json" -d '{...}'
 ```
 
----
-
-## 10. Licence feature
-
-> **Status: not implemented.** A `LICENSE_MANAGE` permission, a `LICENSE_ADMIN`
-> role and a `license_error` error code exist; nothing uses them. There is no
-> licence model, endpoint or screen.
->
-> These cases are drafted so the feature is specified before it is written. They
-> are **not executable today** and must not be reported as failures.
-
-Questions to settle before building it — each changes the test cases:
-
-1. What is licensed: the installation, the firm, the user, or a module?
-2. What happens at expiry — read-only, blocked writes, or a grace period?
-3. Does it need to phone home, or is it an offline key? Offline suits a
-   low-specification on-premises Windows box with no guaranteed internet.
-4. Who may see and enter a licence key — platform admin only, or a firm admin?
-5. How is it stored so a determined user cannot simply edit it?
-
-| ID | Case (draft) | Expected |
-| --- | --- | --- |
-| 10.1 | Fresh install with no licence | Behaviour is defined and clearly communicated — trial, read-only, or blocked. Not a crash and not silent full access |
-| 10.2 | Enter a valid key | Accepted; the UI shows what is licensed and until when |
-| 10.3 | Enter an invalid or corrupted key | Refused with a clear message; prior state unchanged |
-| 10.4 | Key for a different installation | Refused |
-| 10.5 | Expired licence | The behaviour chosen in question 2, applied consistently — and reads should stay possible so a firm can always get its data out |
-| 10.6 | Expiry approaching | Warned in advance, with enough notice to act |
-| 10.7 | Limit reached (firms or users, if licensed that way) | Refused when adding one more, naming the limit |
-| 10.8 | Clock moved backwards | Moving the machine clock back does not extend the licence |
-| 10.9 | Licence with no internet | Works offline if the design says it should |
-| 10.10 | Two UIs, one licensed backend | Both clients see the same licence state |
-
----
-
-## 11. Low-specification Windows behaviour
-
-The target is a low-configuration Windows machine, so these are requirements,
-not niceties. Record numbers, not impressions.
-
-| ID | Case | Measure |
-| --- | --- | --- |
-| 11.1 | Cold start | Time from launching the client to the login screen |
-| 11.2 | Login to workspace | Time from submitting credentials to a usable workspace |
-| 11.3 | Large list | Open a list with several thousand rows; time the first page and scrolling |
-| 11.4 | Memory | Peak RAM of the client after 30 minutes of ordinary use |
-| 11.5 | Backend memory | Peak RAM of the backend with several clients connected |
-| 11.6 | Smallest supported screen | Run at 1366×768 and visit every screen | No horizontal scrolling of the page, no clipped content, no overflow stripes |
-| 11.7 | Slow network | Add latency between UI and backend | The UI stays responsive and shows progress rather than freezing |
-| 11.8 | Client machine sleeps | Sleep and wake the client machine | The session recovers or asks for login cleanly |
-
----
-
-## 12. Things that look like bugs and are not
-
-Give this section to anyone testing for the first time.
-
-- **A refusal naming a business-profile feature** (§6) is the gate working. Check
-  the firm's profile before reporting.
-- **A 403 rather than a validation error** on a gated field is deliberate: the
-  payload is fine, the firm is not entitled to that field.
-- **FOOD01 and MEDI01 sharing a schema** is by design. They must not share
-  *data*; sharing tables is expected.
-- **An audit log that does not show another firm's activity** is correct. Trails
-  are per firm store; no single screen shows everything.
-- **A credit warning that still lets the document through** is correct unless the
-  firm's policy is set to Block.
-- **`platform-admin` unable to open firm screens without choosing a firm** is
-  correct.
-- **Sales → Call Lists showing "Not today" for every plan** usually means the
-  date is simply not the weekday the plan runs on. The screen opens on today;
-  step it with the arrows.
-- **A beat plan reporting "The route is not in force on this date"** is the
-  route's effective window, not a broken plan. Check Runs from / Runs until on
-  the territory editor.
-- **Sales → Places being read-only** is correct for a firm login. Geography is
-  shared reference data; only a platform administrator writes it.
-- **"On no route yet" returning nothing** in WHOLE01 is correct — the seeder
-  places every customer on a round. Create a customer to see the filter work.
-- **The same shop appearing on two routes** is expected. A distributor calls one
-  outlet on a sales beat and a collection round; only one of them is primary,
-  and that is the one a sale is filed under.
-- **A place dropdown reading "Currently set (not listed)"** is the record
-  pointing at a place that is no longer offered — retired, or on a rung whose
-  parent has changed. It is kept deliberately: dropping it would make the form
-  save as blank and quietly lose a value nobody could see. Pick a new place, or
-  leave it alone.
-- **A place dropdown that is empty with a hint about Sales → Places** means the
-  firm's geography masters have nothing at that rung, not that the form is
-  broken. The record must still save — reference data nobody has filled in is a
-  configuration gap, not a refusal.
-- **A rung that will not open until the one above it is chosen** is intended.
-  The list is loaded per parent; a flat list of every locality in the country is
-  not a dropdown anybody can use.
-
----
-
-## 13. Reporting
-
-A useful report has: the case ID, what you did, what you expected, what happened,
-the exact message, the `requestId`, the firm and its storage mode, the account
-and its role, and whether it reproduces.
-
-The firm's storage mode matters more than testers expect. A defect that appears
-only in `DATABASE` mode, or only for the two firms sharing a schema, is a
-different defect from one that appears everywhere — and that detail has been the
-fastest route to the cause more than once in this codebase.
+Every response carries a `requestId`. Quote it when reporting anything — it
+joins the screen to the server log.

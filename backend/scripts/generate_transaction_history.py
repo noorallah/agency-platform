@@ -1667,9 +1667,41 @@ class HistoryBuilder:
             )
             .order_by(Product.code.asc())
         )
-        if product is not None and not any(
-            rule.product_id == product.id for rule in existing
+        scoped = (
+            next(
+                (rule for rule in existing if rule.product_id == product.id),
+                None,
+            )
+            if product is not None
+            else None
+        )
+        if scoped is not None and (
+            scoped.measure != CommissionMeasureEnum.MARGIN.value
+            and scoped.percentage == Decimal("6")
+            and scoped.salesman_id == with_rate
         ):
+            # The seeder's own earlier row, from before this rule paid on
+            # margin. Commission rules survive `--reset` on purpose -- an
+            # arrangement outlives a year -- so the guard below would keep
+            # skipping the corrected rule for ever, and no store would ever
+            # exercise a margin measure. Corrected in place rather than
+            # superseded: two live rules over one person's days are refused,
+            # and this is demo data being brought up to date rather than a
+            # firm renegotiating.
+            #
+            # Narrow on purpose. Only a rule that still carries the exact
+            # shape this script used to write is touched; anything a person
+            # set is left alone.
+            scoped.percentage = Decimal("15")
+            scoped.measure = CommissionMeasureEnum.MARGIN.value
+            scoped.updated_by = ACTOR
+            self._session.commit()
+            self._tally.skipped.append(
+                "incentives: the product-scoped rule was corrected to pay on "
+                "margin -- it predated that change and `--reset` does not "
+                "clear commission rules"
+            )
+        elif product is not None and scoped is None:
             service.create_rule(
                 CommissionRuleCreate(
                     salesman_id=with_rate,

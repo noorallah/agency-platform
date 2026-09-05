@@ -281,10 +281,12 @@ floor and a target bonus for the other -- because the module is about
 precedence and a demo where everybody earns the same shows none of it.
 
 Reading WHOLE01's report over the whole history is the quickest check that the
-precedence is alive: one salesman comes out at **3.17%**, which is neither of
+precedence is alive: one salesman comes out at a rate that is neither of
 the two rates that govern them and could only be a blend of 4% of *value* on
-most lines and 15% of *margin* on the scoped product. The other comes out at
-around **1.34%**, off the bottom band of their ladder. One target is met and
+most lines and 15% of *margin* on the scoped product. It read **6.07%** on 2026-09-05, and it moves whenever the data is
+reseeded -- read the shape rather than the figure. The other comes out at
+exactly **2.00%**, the bottom band of their ladder, round precisely
+because a floor is. One target is met and
 one missed, so both states appear on screen.
 
 That first figure was 5.06% until 2026-09-03, when the scoped rule was changed
