@@ -31,8 +31,10 @@ settle a document, and it names the one step that has no screen.
 
 ## The order
 
-Re-measured 2026-09-03 against a tree that has grown: **38 business modules**,
-**657 endpoints**, 126 migrations.
+Re-measured 2026-09-05: **39 business modules**, **672 endpoints**, 126
+migrations. Re-derive these rather than trusting them -- the counts in
+`CLAUDE.md` were found to have drifted by a third on 2026-09-05, and
+nothing about a document stops it happening here.
 
 | Phase | # | Module | Done |
 | --- | ---: | --- | --- |
@@ -50,8 +52,8 @@ Re-measured 2026-09-03 against a tree that has grown: **38 business modules**,
 | | 12 | Territory, routes and beats | ☐ |
 | | 13 | Price lists and discount rules | ☐ |
 | | 14 | Promotions and coupons | ☐ |
-| **C — Buying** | 15 | Purchase order → receipt → invoice → return | ☐ |
-| **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ☐ |
+| **C — Buying** | 15 | Purchase order → receipt → invoice → return | ✅ |
+| **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ✅ |
 | | 17 | Proforma invoices | ☐ |
 | | 18 | Credit notes | ☐ |
 | **E — Money** | 19 | Receipts, payments and refunds | ☐ |
@@ -1111,3 +1113,281 @@ platform has.
 # Still to write
 
 Modules 6–28 in the table above. Each gets the same six parts.
+
+
+---
+
+# 15. Buying — purchase order to payment
+
+## What it does
+
+Four documents move goods from a supplier onto the shelf and the money out of
+the bank. Only three of the transitions reach outside their own module;
+everything else is paperwork and status, and knowing which is which is most of
+understanding this chain.
+
+| Document | What it changes outside itself |
+| --- | --- |
+| Purchase order | Nothing. It records an intention. |
+| **Goods receipt** | **Posts stock, and posts to the ledger** |
+| **Purchase invoice** | **Posts the payable and the input tax** |
+| **Purchase return** | **Takes stock back off, and reverses its journal** |
+
+## Configure first
+
+| Needs | Why | What breaks without it |
+| --- | --- | --- |
+| A branch and a warehouse | Every line lands somewhere | The order cannot be saved |
+| A vendor | Who is supplying | Same |
+| A product with its UOM slots | The order is in purchase units, the shelf in inventory units | Conversion fails on the line |
+| A tax profile on the product's group | The line has to be taxed | The document totals with no tax and nobody is told |
+| An open accounting period | The receipt posts into it | The receipt completes and the posting is refused |
+| Numbering series for all four | Each takes its own number | The first document of the kind fails |
+
+## Workflow
+
+### A. Raise and approve the order
+
+| Step | Who | Result |
+| --- | --- | --- |
+| Create | `PURCHASE_CREATE` | `DRAFT` |
+| Submit | `PURCHASE_UPDATE` | `SUBMITTED` |
+| Approve | `PURCHASE_APPROVE` | `APPROVED` |
+
+**Approval cannot be skipped.** `approve` on a draft is refused with *"Submit
+the order first"*, and a receipt is refused against anything that is not
+`APPROVED`, `PARTIALLY_RECEIVED` or `RECEIVED`. Until 2026-08-18 a draft could
+be received against and the receipt completed — which posts stock and posts to
+the ledger — so the approval step was bypassable by any client that did not
+filter its own picker.
+
+**Editing an approved order withdraws the approval** and returns it to `DRAFT`,
+recorded on the timeline as `purchase.approval_withdrawn`. Editing a received
+one is refused outright: its lines are what stock was posted at.
+
+`PARTIALLY_ORDERED` and `ORDERED` are declared and **no order header ever
+takes either**. A header only moves through `DRAFT`, `SUBMITTED`,
+`APPROVED`, `PARTIALLY_RECEIVED`, `RECEIVED`, `CANCELLED` and `CLOSED`.
+Worth knowing before reading the code: `PurchaseOrderStatus.ORDERED` **is**
+assigned — to `purchase_order_lines.status`, which is a different column
+sharing the same enum. A grep for the name finds it and looks like a
+contradiction.
+
+### B. Receive the goods
+
+Completing a goods receipt posts stock and the ledger, and moves the order:
+`_resync_order_status` writes `PARTIALLY_RECEIVED` and `RECEIVED` as receipts
+complete, and walks it back as they are cancelled. It is **derived by summing
+the completed receipts**, not incremented — an incrementing counter and a
+reversal are two chances to disagree.
+
+**Cancelling a completed receipt reverses both the stock and the journal**, and
+the journal follows the stock: it credits inventory with what the movement
+actually removed, at the moving average, and books the difference from the
+receipt price to `PURCHASE_PRICE_VARIANCE`. Mirroring the original entry
+instead credited inventory with a number no movement ever removed, and put a
+seeded store 2,287.42 out in a single cancellation.
+
+### C. Bill it
+
+Approving a purchase invoice posts the payable, the input tax and the
+inventory clearing. **After that the receipt can no longer be cancelled** — the
+invoice already cleared the accrual, and a purchase return is the way.
+
+### D. Send goods back
+
+Completing a purchase return takes stock off and reverses the payable, the
+input tax and the inventory credit. Cancelling that return takes its journal
+back off too. Until 2026-08-22 it reversed the stock and left the payable
+standing — the same defect `goods_receipt` carried until 2026-08-18, in its
+mirror, which nobody thought to look for.
+
+A line can be flagged **damaged**, **expired** or **scrap**, and the damaged
+and expired reports filter on exactly those flags.
+
+## How to use it
+
+Purchases workspace. New → lines → Submit → Approve. Receive from the order's
+own dialog; bill from the receipt; return from the receipt.
+
+Six reports: register, orders not yet received, overdue, and by supplier, by
+buyer and by product.
+
+## Tables
+
+`purchase_orders` · `purchase_order_lines` · `purchase_order_history` ·
+`purchase_notes` · `purchase_attachments` · `purchase_delivery_schedules`
+`goods_receipts` · `goods_receipt_lines` · `_notes` · `_attachments`
+`purchase_invoices` · `_lines` · `_sources` · `_accounting_events` · `_notes` ·
+`_attachments`
+`purchase_returns` · `_lines` · `_sources` · `_accounting_events` · `_notes` ·
+`_attachments`
+
+Lines are reconciled on their **line number**, not deleted and re-inserted.
+Downstream documents record `source_document_line_id` as a bare UUID with no
+foreign key, so re-inserting lines silently leaves those references dangling.
+
+## Rules that bite
+
+1. **A status is not writable through the update body.** `update_order` read
+   `data.status` until 2026-08-18, and the write schema defaults it to `DRAFT`
+   — so a client that said nothing about the status silently reset an approved
+   order, and a partially-received one that nothing could then move back.
+2. **An invoiced receipt cannot be cancelled.** The refusal names the invoice.
+3. **A reversal is valued from the movement, never from the document.** Goods
+   arrive at one average and leave at another; mirroring an entry across that
+   gap is what puts a store out.
+4. **`reverse_entry` copies the source module and id onto the mirror it
+   posts**, so a lookup filtering only on `POSTED` finds the mirror next time
+   and reverses the reversal. Match `reversal_of_id IS NULL`.
+5. **A traced product may only be issued from a batch**, so a return of one has
+   to name the batch going back.
+6. **A purchase return line must name a warehouse** — it does not fall back to
+   the header's, where `sales_return` does. Such a return could be raised and
+   approved and then never completed.
+
+---
+
+# 16. Selling — quotation to cash
+
+## What it does
+
+Five documents take an offer to money in the bank. The chain is longer than the
+buying one and the rules are subtler, because a price agreed at one step must
+survive to the next.
+
+| Document | What it changes outside itself |
+| --- | --- |
+| Quotation | Nothing. It commits nothing and reserves nothing. |
+| Sales order | **Reserves stock**; claims any promotion at approval |
+| **Delivery note** | **Moves stock, and posts cost of goods sold** |
+| **Sales invoice** | **Posts revenue, receivable and output tax** |
+| **Sales return** | **Takes stock back, credits the customer** |
+| Receipt | **Posts cash and clears the receivable** |
+
+**A firm chooses which of the first three its people type**, per stage, in
+`sales_workflow_settings`. A firm with no row types all four.
+`SalesChainService` raises whatever is switched off by driving the same
+services a person would, so **the documents are real**: stock still leaves at
+dispatch and cost of goods sold still belongs to the delivery note.
+
+## Configure first
+
+Everything the buying chain needs, plus a customer, and — if the firm uses them
+— price lists, customer groups, promotions and a loyalty scheme. None of those
+is required; all of them change the price.
+
+## The price, and how it survives the chain
+
+This is the part worth reading twice. **A line discount is resolved in one
+place**, `resolve_line_discount`, and six tiers are ranked:
+
+| Rank | Tier | Where it comes from |
+| ---: | --- | --- |
+| 1 | An explicit **amount** | Typed on the line |
+| 2 | An explicit **percentage** | Typed on the line |
+| 3 | A **promotion** | The offers in force on the document's date |
+| 4 | A **price list** | The customer's own, else the territory's, else the firm's |
+| 5 | The customer's **standing rate** | `customers.default_discount_percent` |
+| 6 | Their **segment's** rate | `customer_groups.default_discount_percent` |
+
+Three things follow that surprise people.
+
+**`None` and `0` are different answers.** Saying nothing takes whatever
+arrangement applies; sending zero refuses every one of them for this line. That
+is why no line editor prefills the discount box: filling it turns an inherited
+arrangement into an override, and a literal `0` turns it off.
+
+**A blanket offer switches off every tier beneath it.** An unconditional
+promotion is not a small discount — it is a decision that no price list, no
+standing rate and no segment rate will ever be consulted. Nothing in the engine
+can tell that the firm did not mean it.
+
+**A downstream document inherits, it does not re-resolve.** The delivery note
+ships the order line's price; the invoice bills the note's. Re-deciding one
+document later is how an agreement gets quietly rewritten — an offer that
+expires between the order and the invoice must not change the bill.
+
+## Workflow
+
+### A. Offer
+
+Quotation: `DRAFT` → `SENT` → `ACCEPTED` → `CONVERTED`, or `DECLINED`.
+Expiry is derived from `valid_until` and nothing writes an `EXPIRED` status.
+An expired quotation cannot be accepted or converted. Converting twice is
+refused by name.
+
+### B. Order
+
+`DRAFT` → `APPROVED` → `PARTIALLY_DELIVERED` → `DELIVERED`.
+
+Approval reserves stock, claims any promotion under a row lock, and checks the
+credit policy. **A hold is a flag, not a status** — an order that is
+`PARTIALLY_DELIVERED` can be held, and releasing it must put it back where it
+was, so nothing is overwritten and nothing has to be restored. **The stock
+stays reserved** while held: holding says "not yet", not "never".
+
+### C. Dispatch
+
+The delivery note moves stock and posts cost of goods sold, and moves the
+order — derived by summing the notes that have left the warehouse.
+
+A note line carries **two quantities and they are not interchangeable**:
+`current_delivery_quantity` is what the customer is charged for, and
+`delivered_quantity` is that plus free goods converted into inventory units.
+The second is right for stock, because all of it left. **Only the first is a
+billing cap.**
+
+### D. Bill
+
+`DRAFT` → `APPROVED`. Approval posts revenue net of discount, the receivable
+and the output tax, and snapshots what the goods cost onto
+`sales_invoice_lines.cost_amount` for any margin-based commission.
+
+### E. Money
+
+A receipt splits when it is recorded: `min(amount, outstanding)` comes off the
+balance and the excess becomes an unapplied advance. Allocating that advance
+later **posts no journal** — the money already moved; only the part that became
+an advance moves the balance.
+
+Reversing a settlement puts the balances back **by the deltas stored on the
+original row**, never recomputed: a receipt of 500 against an outstanding 300
+splits into 300 and 200, and only that row remembers the split.
+
+## How to use it
+
+Sales workspace, one tab per document. The invoice can be raised from the
+billable-notes picker; the order carries deposits and promotion claims in its
+own dialog.
+
+## Tables
+
+`sales_quotations` · `_lines` · `_notes` · `_attachments`
+`sales_orders` · `_lines` · `_notes` · `_attachments` · `sales_workflow_settings`
+`delivery_notes` · `_lines` · `_notes` · `_attachments`
+`sales_invoices` · `_lines` · `_line_taxes` · `_sources` · `_accounting_events`
+`sales_returns` · `_lines` · `_line_taxes` · `_sources`
+
+`sales_invoice_line_taxes` is what makes a printed tax invoice possible: a line
+kept a single `tax_amount` until 2026-08-22, so the CGST/SGST split a tax
+invoice must state existed only in a prunable log.
+
+## Rules that bite
+
+1. **A bill charges for what was sold, not for what left the warehouse.** A
+   note dispatching 12 with 1 free had all 12 billed and offered a thirteenth.
+2. **A gift line is owed until an invoice line references it**, counted in rows
+   and never in quantity — zero minus zero is zero however often it is stated.
+3. **A discount on the whole document reaches the lines, and therefore the
+   tax.** It is apportioned across the lines in proportion to what each is
+   worth *after* its own discount, stored on the line, and the rounding
+   residual goes to the largest line so the shares sum exactly.
+4. **Freight is inside the taxable value**; `additional_charges` is outside it.
+5. **A credit note reverses tax on the base the invoice taxed** — charges and
+   freight included.
+6. **A chain of committing services is not a transaction.** Compose the
+   `stage_*` methods and commit once; `begin_nested` does not help, because
+   `Session.commit()` commits the outermost transaction.
+7. **Credit limits warn, and block only if a firm asks.** A `credit_limit` of
+   zero means unset, not "no credit".
