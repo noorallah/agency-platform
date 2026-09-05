@@ -437,6 +437,26 @@ operator uses when a new firm is created.
 
 ---
 
+## 20. A firm administrator creating users
+
+The button that was not there. `FIRM_ADMIN` holds `USER_CREATE`, `USER_UPDATE`,
+`ROLE_ASSIGN` and `ROLE_VIEW` — everything running a firm's people needs — and
+the New-user gate also demanded `FIRM_VIEW`, which is a platform code the role
+can never be given. Sign in as `whole01.admin`.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 20.1 | Administration → Users | **New** and **Edit** are offered. Before this they were not, for any firm administrator. |
+| 20.2 | New → fill in name, email, password → Save | Created, and already a member of WHOLE01 — a firm administrator's new user lands in their own firm. |
+| 20.3 | Open the form again and look at **Firms** | Lists the firms *you* belong to. It read `/api/v1/firms`, which is platform-only, so it used to come back empty with a failed load. |
+| 20.4 | Sign in as `superadmin@agency.local` and open the same form | **Firms** lists every firm. Same field, different source. |
+| 20.5 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms` naming ELEC01 | `422`, "You can only assign firms you administer." Refused by name, not silently dropped. |
+| 20.6 **(HTTP)** | As `superadmin`, put a user in **both** WHOLE01 and ELEC01. Then as `whole01.admin`, save that user with WHOLE01 only. Re-read as `superadmin` | **Both** memberships survive. The endpoint replaces for a platform caller and merges for a scoped one — otherwise a firm administrator correcting their own firm would remove the person from every other firm on the platform. |
+| 20.7 | As `whole01.admin`, set a user's primary firm to something else | The primary does not move. It is one flag across every firm somebody belongs to, so a caller who can see only some of them must not set it. |
+| 20.8 | Follow `docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end | Create a user, apply **Counter Sales**, sign in as them: Sales and Inventory offered, Finance and Administration not. |
+
+---
+
 ---
 
 # Part 4 — Known gaps

@@ -21,6 +21,16 @@ the roles it may bundle.
 This pins the set rather than forbidding it. A platform-only route is a
 deliberate act; the point is that adding one is a decision somebody made on
 purpose, and this test is where they say so.
+
+`PUT /api/v1/users/{user_id}/firms` came **off** the list on 2026-09-06, which
+is the other thing this file is for. Its reason read "which firms a person
+belongs to is a cross-firm fact, so not a decision any single firm's
+administrator can make" -- true in its first half and a non-sequitur in its
+second. An administrator of two firms putting a new hire in both is the
+ordinary case and was refused outright. The cross-firm part is handled by
+reach now: `_firms_the_caller_may_staff` limits them to firms where they hold
+`USER_CREATE`, and memberships outside that are carried through untouched
+rather than replaced.
 """
 
 # ruff: noqa: D103
@@ -84,9 +94,6 @@ _EXPECTED = frozenset(
         ("GET", "/api/v1/firms/{firm_id}"),
         ("PUT", "/api/v1/firms/{firm_id}"),
         ("POST", "/api/v1/firms/{firm_id}/provision"),
-        # Which firms a person belongs to -- a cross-firm fact, so not a
-        # decision any single firm's administrator can make.
-        ("PUT", "/api/v1/users/{user_id}/firms"),
         # The capability catalogue roles are built from. Roles are
         # configurable per firm; the capabilities are not.
         ("POST", "/api/v1/permissions"),

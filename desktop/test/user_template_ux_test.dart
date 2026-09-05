@@ -19,13 +19,27 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/administration/apply_template_dialog.dart';
 import 'package:agency_desktop/ui/administration/clone_user_dialog.dart';
+import 'package:agency_desktop/ui/desktop_shell.dart';
+import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/workspace_components.dart';
 import 'package:agency_desktop/ui/workspace/module_visibility.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _token(Map<String, dynamic> claims) =>
     'h.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.s';
+
+/// A token carrying the platform designation at its wider reach.
+PermissionService _platformAdmin() => PermissionService()
+  ..applyAccessToken(
+    _token({
+      'permissions': const <String>[],
+      'roles': const <String>[],
+      'platform_admin': true,
+      'platform_admin_scope': 'ALL_FIRMS',
+    }),
+  );
 
 PermissionService _permissions(List<String> codes) => PermissionService()
   ..applyAccessToken(
@@ -126,7 +140,10 @@ void main() {
       // A template chosen by name alone is a permission decision made blind.
       final _Api api = _Api(templates: [
         _template(),
-        _template(id: 't-2', code: 'warehouse', name: 'Warehouse',
+        _template(
+            id: 't-2',
+            code: 'warehouse',
+            name: 'Warehouse',
             roleCodes: const ['INVENTORY_MANAGER']),
       ]);
 
@@ -356,4 +373,79 @@ void main() {
       expect(got, [isNull]);
     });
   });
+
+  group('a firm administrator can create a user', () {
+    // `FIRM_ADMIN`'s real seeded codes. `FIRM_VIEW` is deliberately absent --
+    // it is a platform code, one of the set a firm administrator may not even
+    // grant -- and the New-user gate used to demand it, so the single role
+    // whose whole job is running a firm's people was refused the button.
+    const List<String> firmAdmin = [
+      'USER_VIEW',
+      'USER_CREATE',
+      'USER_UPDATE',
+      'USER_DELETE',
+      'ROLE_VIEW',
+      'ROLE_ASSIGN',
+    ];
+
+    test('the gate asks for nothing a firm administrator cannot hold', () {
+      final PermissionService permissions = _permissions(firmAdmin);
+
+      // The four the role actually holds are enough.
+      expect(
+        permissions.canUseAction(
+          const ['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW', 'USER_UPDATE'],
+        ),
+        isTrue,
+      );
+      // And the fifth is what used to hide the button.
+      expect(permissions.hasPermission('FIRM_VIEW'), isFalse);
+    });
+
+    testWidgets('New and Edit are offered on the users grid', (tester) async {
+      // Driven through the definition the shell actually builds, so a gate
+      // that regains `FIRM_VIEW` fails here rather than on somebody's screen.
+      final ResourceDefinition<PlatformUser> definition =
+          userDefinition(_UsersApi(), _permissions(firmAdmin));
+
+      expect(definition.canUseAction, isNotNull);
+      expect(
+        definition.canUseAction!(ToolbarAction.newItem, null),
+        isTrue,
+        reason: 'a firm administrator must be able to create a user',
+      );
+      expect(definition.canUseAction!(ToolbarAction.edit, null), isTrue);
+    });
+
+    test('the firm picker reads their own firms, not the platform list', () {
+      // `/firms` lists every firm on the platform and only a platform
+      // administrator may read it, so a firm administrator opening the form
+      // got an empty picker and a failed load.
+      final ResourceDefinition<PlatformUser> forFirmAdmin =
+          userDefinition(_UsersApi(), _permissions(firmAdmin));
+      final FieldSpec firms =
+          forFirmAdmin.fields.firstWhere((field) => field.key == 'firm_ids');
+
+      expect(firms.optionsResource, 'me/firms');
+
+      final ResourceDefinition<PlatformUser> forPlatform =
+          userDefinition(_UsersApi(), _platformAdmin());
+      expect(
+        forPlatform.fields
+            .firstWhere((field) => field.key == 'firm_ids')
+            .optionsResource,
+        'firms',
+      );
+    });
+  });
+}
+
+class _UsersApi extends ApiClient {
+  _UsersApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
 }
