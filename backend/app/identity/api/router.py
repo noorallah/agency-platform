@@ -34,6 +34,7 @@ from app.identity.schemas import (
     RoleResponse,
     RoleUpdate,
     TokenResponse,
+    UserCloneRequest,
     UserCreate,
     UserFirmAssignments,
     UserFirmResponse,
@@ -584,6 +585,41 @@ def delete_user_template(
 
 
 @router.post(
+    "/users/{user_id}/clone",
+    response_model=ApiResponse[UserResponse],
+    status_code=status.HTTP_201_CREATED,
+    tags=["User templates"],
+)
+def clone_user(
+    user_id: UUID,
+    data: UserCloneRequest,
+    principal: UserRoleAssignmentPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserResponse]:
+    """Hire somebody to do what an existing person does.
+
+    A template is a job somebody wrote down; this is the job somebody is
+    already doing. Only access is copied -- the new person starts without the
+    source's mobile number, employee code, joining date, photo, password,
+    login history or audit trail, because those belong to the person and not
+    to the job.
+
+    Gated on `ROLE_ASSIGN`, which is exactly what it does: give somebody a set
+    of roles. `USER_CREATE` alone must not reach it, or an administrator who
+    may open accounts but not grant access could copy access instead.
+    """
+    return ApiResponse(
+        data=UserResponse.model_validate(
+            _service(db, settings).clone_user(
+                user_id, data, _actor_id(principal), _firm_scope(principal)
+            )
+        ),
+        message="The new user was created with the same access.",
+    )
+
+
+@router.post(
     "/users/{user_id}/apply-template",
     response_model=ApiResponse[list[UUID]],
     tags=["User templates"],
@@ -602,7 +638,11 @@ def apply_user_template(
     """
     return ApiResponse(
         data=_service(db, settings).apply_user_template(
-            user_id, data.template_id, _actor_id(principal), _firm_scope(principal)
+            user_id,
+            data.template_id,
+            _actor_id(principal),
+            _firm_scope(principal),
+            data.firm_id,
         ),
         message="The template was applied.",
     )

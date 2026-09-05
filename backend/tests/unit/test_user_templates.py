@@ -35,9 +35,10 @@ from app.core.exceptions import (
     ResourceNotFoundError,
 )
 from app.firms.models import Firm
-from app.identity.models import Role, User, UserFirm, UserRole
+from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
 from app.identity.schemas.api import (
     RoleCreate,
+    UserCloneRequest,
     UserCreate,
     UserTemplateCreate,
     UserTemplateUpdate,
@@ -483,3 +484,309 @@ def test_a_firm_admin_can_list_the_roles_a_template_may_bundle() -> None:
     assert "night-desk" in codes
     assert {"CASHIER", "SALES_EXECUTIVE", "ACCOUNTANT"} <= codes
     assert not codes & {"PLATFORM_ADMIN", "SUPPORT_ADMIN", "LICENSE_ADMIN"}
+
+
+# --------------------------------------------------------------------------
+# Setting a firm up from the platform side
+# --------------------------------------------------------------------------
+
+
+def test_a_platform_caller_can_write_a_template_for_one_firm() -> None:
+    """The gap that made "define the templates while creating the firm" fail.
+
+    A platform caller's scope resolves to null, which means **offered to every
+    firm** -- so a "Kitchen Staff" template written while setting up a
+    restaurant was silently published to the wholesaler and the pharmacy too.
+    Driven against a running server before the fix: `firm_id` came back null
+    even though `X-Firm-ID` named a firm.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+
+    template = service.create_user_template(
+        UserTemplateCreate(
+            code="kitchen",
+            name="Kitchen Staff",
+            role_ids=[_role_id(session, "CASHIER")],
+            firm_id=one.id,
+        ),
+        ACTOR,
+        None,
+    )
+
+    assert template.firm_id == one.id
+    offered_to_one = {
+        row.code
+        for row in service.list_user_templates(1, 50, None, "code", False, one.id)[0]
+    }
+    offered_to_two = {
+        row.code
+        for row in service.list_user_templates(1, 50, None, "code", False, two.id)[0]
+    }
+    assert "kitchen" in offered_to_one
+    assert "kitchen" not in offered_to_two
+
+
+def test_a_platform_caller_naming_no_firm_still_writes_a_platform_template() -> None:
+    """The old meaning is kept, so nothing that worked before changes."""
+    service, session = _service()
+
+    template = service.create_user_template(
+        UserTemplateCreate(
+            code="everyone", name="Everyone", role_ids=[_role_id(session, "VIEWER")]
+        ),
+        ACTOR,
+        None,
+    )
+
+    assert template.firm_id is None
+
+
+def test_a_firm_caller_cannot_write_into_another_firm() -> None:
+    """Refused rather than ignored.
+
+    Silently writing it somewhere else is how the business-profile assignment
+    endpoints came to report success while changing nothing.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+
+    with pytest.raises(BusinessRuleError):
+        service.create_user_template(
+            UserTemplateCreate(
+                code="theirs",
+                name="Theirs",
+                role_ids=[_role_id(session, "CASHIER")],
+                firm_id=two.id,
+            ),
+            ACTOR,
+            one.id,
+        )
+
+
+def test_a_platform_caller_grants_a_job_inside_the_firm_they_name() -> None:
+    """Without a firm their roles land globally, which is every firm at once."""
+    service, session = _service()
+    firm = _firm(session, "F1")
+    person = _user(service, session, "clerk@example.com", firm)
+    rows, _ = service.list_user_templates(1, 50, "counter", "code", False, None)
+
+    service.apply_user_template(person.id, rows[0].id, ACTOR, None, firm.id)
+
+    assert _codes_held(session, person.id, firm.id) == {"CASHIER", "BILLING_EXECUTIVE"}
+    assert _codes_held(session, person.id, None) == set()
+
+
+# --------------------------------------------------------------------------
+# Cloning a user
+# --------------------------------------------------------------------------
+
+
+def test_cloning_copies_the_access_and_none_of_the_person() -> None:
+    """The distinction the whole feature rests on.
+
+    A row copy carries an email, a password, a mobile number, an employee
+    code, a joining date, a photo, a login history and an audit trail -- and
+    carries them silently. Only access crosses over.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    source = _user(service, session, "asha@example.com", firm)
+    source.personal_mobile = "9876543210"
+    source.employee_code = "EMP-0001"
+    source.department = "Counter"
+    session.commit()
+    rows, _ = service.list_user_templates(1, 50, "counter", "code", False, firm.id)
+    service.apply_user_template(source.id, rows[0].id, ACTOR, firm.id)
+
+    clone = service.clone_user(
+        source.id,
+        UserCloneRequest(
+            email="new.hire@example.com",
+            full_name="New Hire",
+            password=PASSWORD,
+        ),
+        ACTOR,
+        firm.id,
+    )
+
+    # The access.
+    assert _codes_held(session, clone.id, firm.id) == {"CASHIER", "BILLING_EXECUTIVE"}
+    # And none of the person.
+    assert clone.email == "new.hire@example.com"
+    assert clone.full_name == "New Hire"
+    assert clone.personal_mobile is None
+    assert clone.employee_code is None
+    assert clone.department is None
+    # A password somebody else chose is not a password.
+    assert clone.force_password_change is True
+    # The source is untouched.
+    assert source.employee_code == "EMP-0001"
+
+
+def test_cloning_a_platform_administrator_does_not_mint_one() -> None:
+    """The escalation shape, in the place it would be easiest to reopen.
+
+    The designation lives in `platform_admins` and is deliberately unreachable
+    from anything a role can express -- see
+    `test_a_role_cannot_spell_the_platform_designation`. A clone that copied
+    the row would mint one from `ROLE_ASSIGN` alone.
+
+    Two locks, and the first was already there: `_get_user` excludes platform
+    administrators from firm-scoped administration, so a firm administrator
+    cannot reach one to clone in the first place. The second is that even a
+    platform caller, who can, copies roles and not the designation.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    source = _user(service, session, "boss@example.com", firm)
+    session.add(PlatformAdmin(user_id=source.id, created_by=ACTOR, updated_by=ACTOR))
+    session.commit()
+
+    # A firm administrator cannot even see them.
+    with pytest.raises(ResourceNotFoundError):
+        service.clone_user(
+            source.id,
+            UserCloneRequest(
+                email="nope@example.com", full_name="Nope", password=PASSWORD
+            ),
+            ACTOR,
+            firm.id,
+        )
+
+    # A platform caller can, and gets their roles and nothing else.
+    clone = service.clone_user(
+        source.id,
+        UserCloneRequest(
+            email="not.boss@example.com", full_name="Not Boss", password=PASSWORD
+        ),
+        ACTOR,
+        None,
+    )
+
+    designation = session.scalar(
+        select(PlatformAdmin).where(PlatformAdmin.user_id == clone.id)
+    )
+    assert designation is None
+
+
+def test_a_firm_admin_copies_only_what_they_can_see() -> None:
+    """Another firm's roles are invisible to them and stay that way."""
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    source = _user(service, session, "shared@example.com", one)
+    session.add(
+        UserFirm(
+            user_id=source.id,
+            firm_id=two.id,
+            is_primary=False,
+            is_active=True,
+            created_by=ACTOR,
+            updated_by=ACTOR,
+        )
+    )
+    session.commit()
+    service.set_user_roles(source.id, [_role_id(session, "CASHIER")], ACTOR, one.id)
+    service.set_user_roles(source.id, [_role_id(session, "ACCOUNTANT")], ACTOR, two.id)
+
+    clone = service.clone_user(
+        source.id,
+        UserCloneRequest(
+            email="one.only@example.com", full_name="One Only", password=PASSWORD
+        ),
+        ACTOR,
+        one.id,
+    )
+
+    assert _codes_held(session, clone.id, one.id) == {"CASHIER"}
+    assert _codes_held(session, clone.id, two.id) == set()
+
+
+def test_a_platform_caller_cloning_puts_the_clone_in_the_same_firms() -> None:
+    """They create inside no firm, so the clone would otherwise land nowhere."""
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    source = _user(service, session, "travels@example.com", one)
+    session.add(
+        UserFirm(
+            user_id=source.id,
+            firm_id=two.id,
+            is_primary=False,
+            is_active=True,
+            created_by=ACTOR,
+            updated_by=ACTOR,
+        )
+    )
+    session.commit()
+
+    clone = service.clone_user(
+        source.id,
+        UserCloneRequest(
+            email="also.travels@example.com",
+            full_name="Also Travels",
+            password=PASSWORD,
+        ),
+        ACTOR,
+        None,
+    )
+
+    firms = set(
+        session.scalars(
+            select(UserFirm.firm_id).where(
+                UserFirm.user_id == clone.id, UserFirm.is_active.is_(True)
+            )
+        )
+    )
+    assert firms == {one.id, two.id}
+    # Exactly one primary, or `UQ_user_firms_active_primary` would refuse it.
+    primaries = list(
+        session.scalars(
+            select(UserFirm.id).where(
+                UserFirm.user_id == clone.id,
+                UserFirm.is_primary.is_(True),
+                UserFirm.is_active.is_(True),
+            )
+        )
+    )
+    assert len(primaries) == 1
+
+
+def test_a_firm_admin_cannot_clone_somebody_outside_their_firm() -> None:
+    """Somebody they cannot see is somebody they cannot copy."""
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    stranger = _user(service, session, "stranger@example.com", two)
+
+    with pytest.raises(ResourceNotFoundError):
+        service.clone_user(
+            stranger.id,
+            UserCloneRequest(
+                email="copy@example.com", full_name="Copy", password=PASSWORD
+            ),
+            ACTOR,
+            one.id,
+        )
+
+
+def test_the_clone_can_be_edited_like_any_other_user() -> None:
+    """It is a starting point, not a link. Nothing binds the two afterwards."""
+    service, session = _service()
+    firm = _firm(session, "F1")
+    source = _user(service, session, "asha@example.com", firm)
+    service.set_user_roles(source.id, [_role_id(session, "CASHIER")], ACTOR, firm.id)
+    clone = service.clone_user(
+        source.id,
+        UserCloneRequest(
+            email="new.hire@example.com", full_name="New Hire", password=PASSWORD
+        ),
+        ACTOR,
+        firm.id,
+    )
+
+    service.set_user_roles(
+        clone.id, [_role_id(session, "SALES_EXECUTIVE")], ACTOR, firm.id
+    )
+
+    assert _codes_held(session, clone.id, firm.id) == {"SALES_EXECUTIVE"}
+    # And the source is unaffected, which a shared row would not be.
+    assert _codes_held(session, source.id, firm.id) == {"CASHIER"}

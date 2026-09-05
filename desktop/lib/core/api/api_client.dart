@@ -301,6 +301,27 @@ class ApiClient {
           pageSize: pageSize, sortBy: sortBy, descending: descending);
 
 
+  /// Hires somebody to do what an existing person does.
+  ///
+  /// Only access crosses over. The new person starts without the source's
+  /// mobile number, employee code, joining date, photo, password, login
+  /// history or audit trail -- those belong to the person, not to the job.
+  Future<PlatformUser> cloneUser(
+    String sourceId, {
+    required String email,
+    required String fullName,
+    required String password,
+  }) async =>
+      PlatformUser.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/users/$sourceId/clone',
+        body: {
+          'email': email,
+          'full_name': fullName,
+          'password': password,
+        },
+      )));
+
   /// Gives a user the roles a template bundles.
   ///
   /// What they hold afterwards is an ordinary role set, editable in the
