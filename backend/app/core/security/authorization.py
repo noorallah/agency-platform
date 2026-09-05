@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.dependencies import get_platform_db
-from app.core.enums import TokenType
+from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.security.jwt import JwtService, TokenClaims
 from app.core.utils.dates import utc_now
@@ -47,9 +47,44 @@ class Principal:
         extra = self.claims.model_extra or {}
         return extra.get("platform_admin") is True
 
+    @property
+    def platform_admin_scope(self) -> PlatformAdminScope | None:
+        """Return how far the platform designation reaches, or None without one.
+
+        An **absent** claim on a principal that does hold the designation
+        reads as `ALL_FIRMS`. That combination can only be a token minted
+        before the scope existed, for somebody who by definition already had
+        every firm -- so the alternative is demoting live administrators
+        mid-session, which is a worse failure than an unchanged one for the
+        few minutes an access token lives. An unrecognised value reads as
+        `PLATFORM`, the narrow one, for the reason the service does.
+        """
+        if not self.is_platform_admin:
+            return None
+        raw = (self.claims.model_extra or {}).get("platform_admin_scope")
+        if raw is None:
+            return PlatformAdminScope.ALL_FIRMS
+        try:
+            return PlatformAdminScope(str(raw))
+        except ValueError:
+            return PlatformAdminScope.PLATFORM
+
+    @property
+    def may_act_in_any_firm(self) -> bool:
+        """Return whether the designation carries the firm bypasses.
+
+        The two bypasses -- this permission short-circuit and the membership
+        exemption in `app/common/scope.py` -- are what make a platform
+        administrator able to act inside a firm's books. A `PLATFORM`-scoped
+        one holds neither, so a firm-owned route treats them as any other
+        user: refused unless they hold a genuine membership, and then only
+        with the permissions their roles actually grant.
+        """
+        return self.platform_admin_scope is PlatformAdminScope.ALL_FIRMS
+
     def has_permission(self, permission: str) -> bool:
         """Check global or selected-firm permission grants."""
-        if self.is_platform_admin or permission in self.permissions:
+        if self.may_act_in_any_firm or permission in self.permissions:
             return True
         return self.firm_id is not None and permission in self.firm_permissions.get(
             self.firm_id, frozenset()

@@ -8,8 +8,24 @@ import 'package:flutter/foundation.dart';
 /// permissions carried by firm-independent roles, plus the permissions the user
 /// holds **in the active firm**. Merging every firm's grants together would show
 /// a user actions they only hold elsewhere, and the API would then reject them.
+/// How far a platform administrator's designation reaches.
+///
+/// The backend has two: one who **runs the platform** -- creating firms, their
+/// people and their settings -- and one who may additionally act inside every
+/// firm's books. The first is refused firm-owned routes outright, so offering
+/// them a firm switcher or an operational module would be offering a screen
+/// that answers 403 on its first request.
+enum PlatformAdminScope {
+  /// Platform operations only. Firm-owned routes refuse them.
+  platform,
+
+  /// Every firm, without needing a membership in any of them.
+  allFirms,
+}
+
 class PermissionService extends ChangeNotifier {
   bool _platformAdmin = false;
+  PlatformAdminScope? _platformScope;
   Set<String> _global = const {};
   Map<String, Set<String>> _byFirm = const {};
   String? _activeFirmId;
@@ -45,6 +61,19 @@ class PermissionService extends ChangeNotifier {
     // required to be lowercase -- so anybody who could create and assign a
     // role could name one `platform_admin` and be treated as one.
     _platformAdmin = claims?['platform_admin'] == true;
+    // An absent scope on a token that *does* carry the designation can only be
+    // one minted before the scope existed, for somebody who by definition had
+    // every firm. Reading it as the narrow value would strip a live session of
+    // screens it legitimately had.
+    _platformScope = !_platformAdmin
+        ? null
+        : switch (claims?['platform_admin_scope']) {
+            'PLATFORM' => PlatformAdminScope.platform,
+            null => PlatformAdminScope.allFirms,
+            'ALL_FIRMS' => PlatformAdminScope.allFirms,
+            // Anything unrecognised grants the narrow one, as on the server.
+            _ => PlatformAdminScope.platform,
+          };
     _activeFirmId = activeFirmId;
     _recompute();
   }
@@ -74,6 +103,16 @@ class PermissionService extends ChangeNotifier {
   /// itself and by no permission code at all. Without this a screen has no
   /// honest way to tell whether to offer those actions.
   bool get isPlatformAdmin => _platformAdmin;
+
+  /// How far that designation reaches, or null without one.
+  PlatformAdminScope? get platformAdminScope => _platformScope;
+
+  /// Whether the caller may act inside a firm's books without a membership.
+  ///
+  /// This is what the backend's two bypasses are keyed on, so it is what a
+  /// screen should ask before offering a firm-owned action to somebody with no
+  /// `firm_permissions` entry for the firm on screen.
+  bool get mayActInAnyFirm => _platformScope == PlatformAdminScope.allFirms;
 
   bool hasPermission(String permission) => _effective.contains(permission);
 

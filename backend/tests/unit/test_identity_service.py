@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config.settings import Environment, Settings
 from app.core.database.base import Base
-from app.core.enums import TokenType
+from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -90,7 +90,7 @@ def test_bootstrap_login_rotates_sentinel_password_and_forces_change() -> None:
     assert session.query(RefreshToken).count() == 1
 
 
-def test_platform_admin_access_tokens_include_all_active_permissions() -> None:
+def test_all_firms_admin_access_tokens_include_all_active_permissions() -> None:
     """Ensure platform-admin designation is sufficient for permission endpoints."""
     session = _session()
     seed_system_rbac(session)
@@ -110,7 +110,11 @@ def test_platform_admin_access_tokens_include_all_active_permissions() -> None:
     session.add_all(
         [
             user,
-            PlatformAdmin(user=user),
+            # `ALL_FIRMS`, stated. The column defaults to the narrow
+            # `PLATFORM`, whose token deliberately carries only the 33
+            # platform codes -- see `test_platform_admin_reach.py`. This test
+            # is about the reach that gets everything.
+            PlatformAdmin(user=user, scope=PlatformAdminScope.ALL_FIRMS.value),
             custom_active,
             custom_inactive,
             custom_deleted,

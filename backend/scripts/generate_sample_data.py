@@ -51,6 +51,7 @@ from app.core.config.settings import Environment, Settings
 from app.core.database.base import Base
 from app.core.database.engine import DatabaseManager
 from app.core.database.entity import BaseEntity
+from app.core.enums import PlatformAdminScope
 from app.core.exceptions import ValidationError
 from app.core.tenancy import DeploymentMode
 from app.core.tenancy.connections import (
@@ -3271,6 +3272,12 @@ def _ensure_superadmin(
         session.add(
             PlatformAdmin(
                 user_id=user.id,
+                # Stated rather than defaulted. This is the development
+                # super administrator, who is expected to reach into every
+                # firm's data; the column's own default is the narrow
+                # `PLATFORM`, so leaving it out would quietly demote the one
+                # account every local script and manual test signs in as.
+                scope=PlatformAdminScope.ALL_FIRMS.value,
                 created_by=SYSTEM_ACTOR_ID,
                 updated_by=SYSTEM_ACTOR_ID,
             )

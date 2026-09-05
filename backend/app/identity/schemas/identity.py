@@ -31,6 +31,8 @@ class PlatformAdminSchema(IdentitySchema):
 
     id: UUID
     user_id: UUID
+    #: How far the designation reaches. See `PlatformAdminScope`.
+    scope: str
 
 
 class RoleSchema(IdentitySchema):

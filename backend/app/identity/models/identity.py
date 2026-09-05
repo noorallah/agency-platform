@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.entity import BaseEntity
 from app.core.database.types import UUIDType
+from app.core.enums import PlatformAdminScope
 
 
 class User(BaseEntity):
@@ -108,6 +109,19 @@ class PlatformAdmin(BaseEntity):
 
     user_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("users.id"), unique=True, nullable=False
+    )
+    #: How far the designation reaches. See `PlatformAdminScope`.
+    #:
+    #: NOT NULL with a Python-side default and **no server default**, the shape
+    #: `einvoice.mode` uses and for the same reason: a server default is one
+    #: migration away from silently handing somebody every firm's books. The
+    #: default is the *narrow* value, so a row written by a route that has not
+    #: thought about reach gets the safe answer; the migration backfills the
+    #: rows that already exist to `ALL_FIRMS`, because that is what they have
+    #: today and demoting a live administrator without being asked would lock
+    #: whoever runs the platform out of it.
+    scope: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=PlatformAdminScope.PLATFORM.value
     )
     user: Mapped[User] = relationship(back_populates="platform_admin")
 
