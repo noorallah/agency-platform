@@ -1,8 +1,11 @@
 """Tests for the platform identity hardening changes."""
 
+import base64
+import json
 import re
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -13,15 +16,23 @@ from sqlalchemy.pool import StaticPool
 from app.common.audit.models import AuditLog
 from app.core.config.settings import Settings
 from app.core.database.base import Base
-from app.core.exceptions import AuthenticationError, ConflictError
+from app.core.exceptions import (
+    AuthenticationError,
+    BusinessRuleError,
+    ConflictError,
+    ValidationError,
+)
+from app.core.security.authorization import Principal
 from app.core.utils.dates import utc_now
 from app.identity.models import (
     LoginHistory,
     PasswordHistory,
     RefreshToken,
+    Role,
     User,
+    UserRole,
 )
-from app.identity.schemas.api import UserCreate
+from app.identity.schemas.api import RoleCreate, UserCreate
 from app.identity.services import IdentityRetentionService, IdentityService
 from app.identity.system_seed import ROLE_PERMISSION_CODES, SYSTEM_PERMISSION_CODES
 
@@ -345,3 +356,82 @@ def test_every_profile_field_is_writable_at_creation() -> None:
 
     assert set(_PROFILE_FIELDS) == set(UserProfileFields.model_fields)
     assert set(_PROFILE_FIELDS) <= set(UserCreate.model_fields)
+
+
+def _claims_of(token: str) -> dict[str, object]:
+    """Decode a JWT payload without verifying it; the test signed it."""
+    payload = token.split(".")[1]
+    padded = payload + "=" * (-len(payload) % 4)
+    decoded: dict[str, object] = json.loads(base64.urlsafe_b64decode(padded))
+    return decoded
+
+
+def test_a_role_cannot_spell_the_platform_designation() -> None:
+    """A role code must not be able to become the platform-admin marker.
+
+    The designation is appended to the `roles` claim as the lowercase string
+    `"platform_admin"`, while genuine role codes are uppercase -- so the two
+    namespaces share one list. `RoleCreate.code` is validated against
+    `^[a-z0-9._-]+$`, which does not merely permit that spelling, it requires
+    lowercase.
+
+    So a firm administrator -- who holds both `ROLE_CREATE` and `ROLE_ASSIGN`
+    -- could create a role called `platform_admin`, assign it to themselves,
+    and sign in as a platform administrator: every check reads the claim as a
+    plain string. That grants all 65 `require_platform_admin()` routes, every
+    permission through the short-circuit in `Principal.has_permission`, and
+    **every firm's data**, because `optional_firm_scope` skips the membership
+    check for a platform admin.
+
+    Two things are asserted, because either alone can be satisfied without
+    closing the hole: the code is refused outright, and -- were one to exist
+    already -- a token issued for it does not carry the designation.
+    """
+    service, session = _service()
+    actor = uuid4()
+    person = _user(service, email="firm.admin@example.com")
+
+    with pytest.raises((BusinessRuleError, ConflictError, ValidationError)):
+        service.create_role(
+            RoleCreate(code="platform_admin", name="Not a designation"),
+            actor_id=actor,
+        )
+
+    # And the claim itself: a role row written by any other route -- a
+    # migration, a fixture, a future endpoint -- must still not confer it.
+    smuggled = Role(
+        code="platform_admin",
+        name="Smuggled",
+        is_active=True,
+        is_system=False,
+        created_by=actor,
+        updated_by=actor,
+    )
+    session.add(smuggled)
+    session.flush()
+    session.add(
+        UserRole(
+            user_id=person.id,
+            role_id=smuggled.id,
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+
+    tokens = service.login(person.email, PASSWORD, client_ip=None, user_agent=None)
+    claims = _claims_of(tokens.access_token)
+    assert (
+        claims.get("platform_admin") is not True
+    ), "a role row must not confer the platform designation"
+
+    principal = Principal(
+        subject=person.id,
+        roles=frozenset(claims.get("roles") or []),
+        permissions=frozenset(claims.get("permissions") or []),
+        claims=SimpleNamespace(model_extra=claims),
+    )
+    assert not principal.is_platform_admin, (
+        "holding a role called `platform_admin` made this principal a "
+        "platform administrator"
+    )

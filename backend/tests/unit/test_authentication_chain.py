@@ -353,15 +353,30 @@ def test_require_permission_needs_all_of_them(settings: Settings) -> None:
         require_permission("CUSTOMER_VIEW", "CUSTOMER_DELETE")(principal)
 
 
-def test_platform_admin_is_a_role_claim_not_a_permission(settings: Settings) -> None:
-    """It is deliberately not configurable, so it cannot be granted by a role edit."""
+def test_platform_admin_is_its_own_claim_not_a_role(settings: Settings) -> None:
+    """It is deliberately not configurable, so it cannot be granted by a role edit.
+
+    That was the stated intent and the implementation did not hold it. The
+    designation was appended to the `roles` claim as the lowercase
+    `"platform_admin"`, and `RoleCreate.code` requires `^[a-z0-9._-]+$` -- so a
+    firm administrator holding `ROLE_CREATE` and `ROLE_ASSIGN` could create a
+    role with exactly that code, assign it to themselves, and sign in as a
+    platform administrator: every check read the claim as a plain string.
+
+    The third assertion is the one that matters, and it is why this test was
+    renamed: a role **called** `platform_admin` must confer nothing.
+    """
     session = _session_factory()()
-    admin = _principal_for(settings, session, roles=["platform_admin"])
+    admin = _principal_for(settings, session, platform_admin=True)
     ordinary = _principal_for(settings, session, roles=["FIRM_ADMIN"])
+    forger = _principal_for(settings, session, roles=["platform_admin"])
 
     assert require_platform_admin()(admin) is admin
     with pytest.raises(AuthorizationError):
         require_platform_admin()(ordinary)
+    with pytest.raises(AuthorizationError):
+        require_platform_admin()(forger)
+    assert not forger.is_platform_admin
 
 
 def test_every_guard_refuses_a_password_change_token(settings: Settings) -> None:
@@ -371,7 +386,8 @@ def test_every_guard_refuses_a_password_change_token(settings: Settings) -> None
         settings,
         session,
         force=True,
-        roles=["platform_admin", "ACCOUNTANT"],
+        roles=["ACCOUNTANT"],
+        platform_admin=True,
         permissions=["CUSTOMER_VIEW"],
     )
 

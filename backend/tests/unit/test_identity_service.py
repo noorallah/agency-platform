@@ -123,7 +123,13 @@ def test_platform_admin_access_tokens_include_all_active_permissions() -> None:
     claims = service._jwt.validate_token(response.access_token)
     extra_claims = claims.model_extra or {}
 
-    assert "platform_admin" in extra_claims["roles"]
+    # The designation is its own claim and is deliberately **not** in
+    # `roles`. It used to be, as the lowercase `"platform_admin"`, and
+    # role codes are required to be lowercase -- so a firm admin holding
+    # `ROLE_CREATE` and `ROLE_ASSIGN` could name a role `platform_admin`
+    # and sign in as one.
+    assert extra_claims["platform_admin"] is True
+    assert "platform_admin" not in extra_claims["roles"]
     assert set(extra_claims["permissions"]) == {
         permission.code
         for permission in session.scalars(

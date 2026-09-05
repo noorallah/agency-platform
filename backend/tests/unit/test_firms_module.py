@@ -56,13 +56,16 @@ def _principal(*, platform_admin: bool = True) -> Principal:
     """Build the platform principal firm administration requires."""
     return Principal(
         subject=_ACTOR,
-        roles=frozenset({"platform_admin"} if platform_admin else {"firm_user"}),
+        roles=frozenset({"firm_user"}),
         permissions=frozenset(),
+        # The designation is its own claim now, never a role code -- a role
+        # called `platform_admin` used to confer it.
         claims=TokenClaims(
             sub=str(_ACTOR),
             type=TokenType.ACCESS,
             iat=1,
             exp=4_102_444_800,
+            platform_admin=platform_admin,
         ),
     )
 
@@ -484,11 +487,12 @@ def test_non_user_principal_cannot_act_as_an_actor() -> None:
     session = _session()
     principal = Principal(
         subject="service-token",
-        roles=frozenset({"platform_admin"}),
+        roles=frozenset(),
         permissions=frozenset(),
         claims=TokenClaims(
             sub="service-token",
             type=TokenType.ACCESS,
+            platform_admin=True,
             iat=1,
             exp=4_102_444_800,
         ),

@@ -36,8 +36,16 @@ class Principal:
 
     @property
     def is_platform_admin(self) -> bool:
-        """Return whether the principal holds the immutable platform designation."""
-        return "platform_admin" in self.roles
+        """Return whether the principal holds the immutable platform designation.
+
+        Read from its own claim, never from `roles`. The designation used to
+        be appended to that list as the lowercase `"platform_admin"`, and role
+        codes are required to be lowercase -- so anybody who could create and
+        assign a role could name one `platform_admin` and become one. The
+        claim is written only by `_issue_tokens`, from a `platform_admins` row.
+        """
+        extra = self.claims.model_extra or {}
+        return extra.get("platform_admin") is True
 
     def has_permission(self, permission: str) -> bool:
         """Check global or selected-firm permission grants."""
@@ -122,7 +130,7 @@ def require_platform_admin() -> Callable[[Principal], Principal]:
         principal: Principal = Depends(get_current_principal),
     ) -> Principal:
         extra_claims = principal.claims.model_extra or {}
-        if "platform_admin" not in principal.roles or bool(
+        if not principal.is_platform_admin or bool(
             extra_claims.get("password_change_required")
         ):
             raise AuthorizationError()

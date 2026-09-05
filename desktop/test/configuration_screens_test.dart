@@ -505,9 +505,24 @@ void main() {
   });
 
   group('the dashboard is offered only to whoever can open it', () {
-    PermissionService withRoles(List<String> perms, List<String> roles) {
+    /// A token of the shape `_issue_tokens` actually mints.
+    ///
+    /// The designation is its **own** claim, deliberately not a member of
+    /// `roles`. It used to be the lowercase string `platform_admin` in that
+    /// list, and role codes are required to be lowercase -- so a firm
+    /// administrator holding `ROLE_CREATE` and `ROLE_ASSIGN` could create a
+    /// role with exactly that code and sign in as a platform administrator.
+    PermissionService token(
+      List<String> perms, {
+      List<String> roles = const [],
+      bool platformAdmin = false,
+    }) {
       final String payload = base64Url.encode(
-        utf8.encode(jsonEncode({'permissions': perms, 'roles': roles})),
+        utf8.encode(jsonEncode({
+          'permissions': perms,
+          'roles': roles,
+          'platform_admin': platformAdmin,
+        })),
       );
       return PermissionService()..applyAccessToken('h.$payload.s');
     }
@@ -536,7 +551,7 @@ void main() {
       // The reason the old gate failed. Three of the four codes are held by
       // FIRM_ADMIN, and the list is `requiresAny`, so the permission check
       // alone would still offer the tab.
-      final PermissionService permissions = withRoles(firmAdmin, ['firm_admin']);
+      final PermissionService permissions = token(firmAdmin, roles: ['FIRM_ADMIN']);
       expect(
         permissions.canUseModule(
           dashboard().requiredPermissions,
@@ -549,7 +564,16 @@ void main() {
     });
 
     test('a platform administrator is recognised', () {
-      expect(withRoles(firmAdmin, ['platform_admin']).isPlatformAdmin, isTrue);
+      expect(
+        token(firmAdmin, platformAdmin: true).isPlatformAdmin,
+        isTrue,
+      );
+      // And the code that used to *be* the designation now confers nothing:
+      // this is the shape of the escalation, asserted from the client side.
+      expect(
+        token(firmAdmin, roles: ['platform_admin']).isPlatformAdmin,
+        isFalse,
+      );
     });
   });
 }

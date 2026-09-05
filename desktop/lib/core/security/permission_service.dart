@@ -9,8 +9,8 @@ import 'package:flutter/foundation.dart';
 /// holds **in the active firm**. Merging every firm's grants together would show
 /// a user actions they only hold elsewhere, and the API would then reject them.
 class PermissionService extends ChangeNotifier {
+  bool _platformAdmin = false;
   Set<String> _global = const {};
-  Set<String> _roles = const {};
   Map<String, Set<String>> _byFirm = const {};
   String? _activeFirmId;
   Set<String> _effective = const {};
@@ -31,7 +31,6 @@ class PermissionService extends ChangeNotifier {
   void applyAccessToken(String? token, {String? activeFirmId}) {
     final Map<String, dynamic>? claims = _decodePayload(token);
     _global = _stringClaims(claims?['permissions']).toSet();
-    _roles = _stringClaims(claims?['roles']).toSet();
 
     final Object? firmClaims = claims?['firm_permissions'];
     final Map<String, Set<String>> byFirm = {};
@@ -41,6 +40,11 @@ class PermissionService extends ChangeNotifier {
       });
     }
     _byFirm = byFirm;
+    // Its own claim, never the `roles` list. The designation used to be
+    // appended there as the lowercase `platform_admin` -- and role codes are
+    // required to be lowercase -- so anybody who could create and assign a
+    // role could name one `platform_admin` and be treated as one.
+    _platformAdmin = claims?['platform_admin'] == true;
     _activeFirmId = activeFirmId;
     _recompute();
   }
@@ -69,7 +73,7 @@ class PermissionService extends ChangeNotifier {
   /// the shared geography masters among them — are guarded by the designation
   /// itself and by no permission code at all. Without this a screen has no
   /// honest way to tell whether to offer those actions.
-  bool get isPlatformAdmin => _roles.contains('platform_admin');
+  bool get isPlatformAdmin => _platformAdmin;
 
   bool hasPermission(String permission) => _effective.contains(permission);
 
