@@ -146,7 +146,12 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'user-firms',
           label: 'User-Firm Assignments',
-          requiredPermissions: ['USER_VIEW', 'USER_UPDATE', 'FIRM_VIEW'],
+          // Not `FIRM_VIEW`. It is a platform code `FIRM_ADMIN` can never
+          // hold, so this tab was invisible to the one role whose job it is
+          // -- and #249 fixed only the *other* half, the definition's
+          // `canUseAction`, leaving the tab itself unreachable. Two gates on
+          // one screen and only one of them moved.
+          requiredPermissions: ['USER_VIEW', 'USER_UPDATE'],
         ),
         ModuleTabDefinition(
           id: 'numbering-series',

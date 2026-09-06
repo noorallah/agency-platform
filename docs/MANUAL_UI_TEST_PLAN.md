@@ -573,7 +573,8 @@ administrator may write both. Sign in as `whole01.admin`.
 | 25.7 | Users → New → set **Job template** to it → Save | The new user holds `night-desk` and nothing else. |
 | 25.8 | Sign in as that user | They can do exactly what you ticked in 25.3, and nothing more. |
 | 25.9 | Edit the role, remove `RECEIPT_CREATE`, and have them sign out and in | Gone for them too. A role is not versioned — editing it changes everybody holding it. |
-| 25.10 | Try to delete `night-desk` while somebody holds it | Refused until they are off it. |
+| 25.10 | Delete `night-desk` while somebody holds it | **It is deleted.** No refusal, no warning. |
+| 25.10a | Have that person sign in again | They no longer have the role's permissions, and nothing on screen says why. Know who is on a role before deleting it. |
 
 > **Tidy up:** 25.2–25.7 leave a role, a template and a user in WHOLE01.
 > Remove them or reseed.

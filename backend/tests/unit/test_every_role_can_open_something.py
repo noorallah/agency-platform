@@ -61,6 +61,38 @@ _PLATFORM_ROLES = frozenset(
 _MODULES_THAT_OPEN_EMPTY: frozenset[tuple[str, str]] = frozenset()
 
 
+#: Tabs on a firm-reachable module that **no** seeded firm role can open.
+#:
+#: Each is deliberate: the business-profile catalogue, the document framework
+#: and the shared geography masters are platform administration that happens
+#: to live under Administration rather than behind `requiresPlatformAdmin`.
+#:
+#: `user-firms` was on this list and should not have been. It demanded
+#: `FIRM_VIEW`, a platform code `FIRM_ADMIN` can never hold, so the one screen
+#: whose whole job is assigning people to firms was invisible to the one role
+#: whose job that is. Worse, #249 fixed the *definition's* `canUseAction` and
+#: left the catalogue entry alone -- two gates on one screen, one of them
+#: moved, and the screen still unreachable. This list exists so the next such
+#: tab fails the build instead of waiting to be noticed on somebody's screen.
+_TABS_NO_FIRM_ROLE_CAN_OPEN = frozenset(
+    {
+        # All six are the business-profile framework, gated on `PLATFORM_VIEW`
+        # -- which industries exist, which features and modules they carry,
+        # and which profile a firm is assigned. That is platform
+        # administration that happens to live under Administration rather
+        # than behind `requiresPlatformAdmin`, so a firm administrator is
+        # correctly refused. `Profile Assignment` additionally asks for
+        # `FIRM_VIEW`.
+        "Business Profiles",
+        "Feature Management",
+        "Module Configuration",
+        "Attribute Definitions",
+        "Mandatory Attributes",
+        "Profile Assignment",
+    }
+)
+
+
 @lru_cache(maxsize=1)
 def _modules() -> tuple[tuple[str, frozenset[str], bool, bool, tuple], ...]:
     """Return (label, codes, any_of, platform_only, tabs) for every module."""
@@ -202,3 +234,45 @@ def test_nobody_lost_a_finance_tab(role: str) -> None:
     ]
 
     assert len(openable) == len(finance[4])
+
+
+@pytest.mark.skipif(not _CATALOG.exists(), reason="desktop tree not present")
+def test_no_tab_is_closed_to_every_firm_role() -> None:
+    """A tab nobody in a firm can open is a screen that will never be seen.
+
+    The module-level check above passes as long as *some* tab opens, so a
+    single dead tab hides inside a module full of live ones. That is exactly
+    where `user-firms` sat: Administration was reachable, eleven of its tabs
+    worked, and the twelfth -- the one for assigning people to firms -- asked
+    for a platform code and was invisible to every firm administrator.
+
+    When this fails, either gate the tab on something a firm role holds, or
+    add it to `_TABS_NO_FIRM_ROLE_CAN_OPEN` with the reason.
+    """
+    firm_roles = {
+        role: ROLE_PERMISSION_CODES[role]
+        for role in SYSTEM_ROLE_CODES
+        if role not in _PLATFORM_ROLES
+    }
+    closed: set[str] = set()
+    for _label, _codes, _any_of, platform_only, tabs in _modules():
+        if platform_only:
+            continue
+        for tab_label, tab_codes, tab_any in tabs:
+            if not any(
+                _passes(tab_codes, tab_any, held) for held in firm_roles.values()
+            ):
+                closed.add(tab_label)
+    unexpected = sorted(closed - _TABS_NO_FIRM_ROLE_CAN_OPEN)
+
+    assert not unexpected, (
+        "no seeded firm role can open these tabs, so nobody in a firm will "
+        "ever see them:\n  "
+        + "\n  ".join(unexpected)
+        + "\n\nGate the tab on a code a firm role holds, or record it in "
+        "`_TABS_NO_FIRM_ROLE_CAN_OPEN` with the reason. Note there are **two** "
+        "gates per tab -- `requiredPermissions` in `module_catalog.dart` and "
+        "`canUseAction` on the definition -- and moving one without the other "
+        "leaves the screen unreachable, which is how `user-firms` survived a "
+        "fix aimed straight at it."
+    )
