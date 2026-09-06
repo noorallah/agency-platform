@@ -1183,6 +1183,78 @@ shell.
 **Estimated as the same size again as printing was**, and most of that is the
 first decision rather than the code.
 
+## 15. A firm cannot be finished without running a script
+
+A firm created through the product accepts masters and lets documents be
+drafted, and then **refuses every posting action** -- approving an invoice,
+completing a goods receipt. `DocumentPostingService` refuses rather than
+guesses, and what it needs is a chart of accounts, a financial year, open
+periods, journal and voucher types, and a mapped control account for each of
+the **24 purposes** in `ControlAccountPurpose`.
+
+**No screen and no endpoint reaches the mapping.** No path in the served
+OpenAPI document contains `control`, and no file under `desktop/lib`
+references one. The only code that writes `firm_control_accounts` is
+`seed_finance_setup` (`app/finance/services/opening_setup.py`), whose only
+callers are `scripts/generate_sample_data.py` and
+`scripts/generate_transaction_history.py` -- both of which also create demo
+trading history, so neither is something to point at a real firm.
+
+The consequence is not a missing convenience. **Creating a firm is a
+first-class product action that cannot be completed in the product**, and the
+refusal it ends in reads as a broken firm rather than as an unfinished setup.
+`scripts/check_firm_readiness.py` reports the gap; it does not close it.
+
+### What already exists
+
+`ControlAccountService` has the whole API surface this needs --
+`mapping(firm_id)`, `resolve(firm_id, purpose)`, `assign(...)` and
+`missing(firm_id, purposes)` -- and `seed_finance_setup` is idempotent over
+groups, accounts and mappings. So this is a router, a screen, and the
+decisions below; it is not new domain logic.
+
+### Four decisions, none of them technical
+
+1. **Does the screen only map, or can it also build the chart?** Mapping is
+   useless on a firm with no accounts, and a brand-new firm has none -- so a
+   screen that only maps leaves the same wall one step further along. Building
+   one means shipping `seed_finance_setup`'s chart as a product default, which
+   is a claim about how a firm's books should look. The alternative is
+   requiring the chart to be entered by hand first, which is real work before
+   the first invoice.
+
+2. **Whose job is it?** Today it is nobody's, because it is nobody's *screen*.
+   A platform administrator sets the firm up, but a firm's chart of accounts is
+   the firm's own business and `FIRM_ADMIN` holds the `accounting` codes. If a
+   firm administrator may map them, this needs a new permission code and a
+   migration; if only the platform may, it belongs beside Provision storage.
+
+3. **May a mapping be changed after documents have posted?** Re-pointing
+   `INVENTORY` leaves every existing journal line on the old account, so the
+   trial balance still balances while two accounts each hold part of one
+   story. Options are to refuse once anything has posted, to allow it with a
+   named warning, or to require a transfer entry.
+
+4. **Is a partially mapped firm allowed to trade?** A firm that never sells on
+   credit arguably does not need `LOYALTY_PAYABLE`. Today all 24 are required
+   in practice because a document that reaches an unmapped purpose is refused
+   at approval -- late, and to the wrong person. Deciding a minimum set, or
+   reporting exactly which purposes a firm's own modules can reach, is the
+   difference between a checklist somebody can finish and one they cannot.
+
+### Sizing
+
+Small once those are answered: a router in `app/finance` over the existing
+service, a `ResourceDefinition` screen with the 24 purposes and an account
+picker per row, and the readiness verdict on it so somebody can see when the
+firm is done. The first decision is most of the work, as with emailing
+documents above.
+
+**Raised 2026-09-06**, after driving firm creation end to end and finding the
+setup could not be completed. Documented meanwhile in section 3b of
+`docs/platform-administration-guide.md`, so the gap is at least visible to
+whoever hits it.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
