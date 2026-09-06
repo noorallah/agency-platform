@@ -299,7 +299,7 @@ since -- consecutive sweeps over the same tree prove nothing twice. Targeted
 runs need no permission and should be constant; say which files you ran.
 
 **Run what the change can break, not everything.** The full backend suite is
-1,239 unit tests and the desktop suite is 1,154. On an **idle** machine they
+1,239 unit tests and the desktop suite is 1,157. On an **idle** machine they
 take **7:19** and **2:26** (measured 2026-09-06); with the dev server and the
 built desktop client running, the same backend suite took **23 minutes** the
 same day and had to be run in quarters to fit inside a ten-minute tool
@@ -335,7 +335,7 @@ speed choice while iterating, never a claim that the narrow set was sufficient.
 
 Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 48 tests and is described above; this line said it was empty long after it stopped being true.
 
-Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,154)** and `flutter analyze` is clean as of 2026-09-06.
+Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,157)** and `flutter analyze` is clean as of 2026-09-06.
 
 ## Repository conventions and traps
 
