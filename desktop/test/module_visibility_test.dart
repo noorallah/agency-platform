@@ -382,9 +382,29 @@ void main() {
       // a firm's own master data, which needs a firm selected -- so creating
       // a firm was reachable only from inside another firm.
       expect(tabs, contains('firms'));
+      // Setting a new firm's business profile. Its codes are platform-only
+      // and `assign_profile_to_firm` takes the designation, so the only
+      // people who may open it are the ones who always start here -- and a
+      // tab defaults to `requiresFirm: true`, so it was hidden in the one
+      // mode its own audience is in. Assigning a new firm's profile meant
+      // entering some *other* firm first, which is also the shape of the
+      // circle: Firms is `requiresFirm: false` so a firm can be created from
+      // platform mode and then not finished from it.
+      expect(tabs, contains('profile-assignment'));
       expect(tabs, isNot(contains('tax-configuration')));
       expect(tabs, isNot(contains('uoms')));
+      // Deliberately still hidden, and not the same case: the profile
+      // *catalogue* lives in every firm's own store, so reading it with no
+      // firm answers 503. Driven against a running server on 2026-09-06 --
+      // `/firm-profile-assignments` answered 200 with no `X-Firm-ID` while
+      // `/profiles`, `/features`, `/modules`, `/attribute-definitions` and
+      // `/category-attribute-rules` all answered 503. Only the assignment
+      // grid names its firm in the URL, so only it belongs here.
       expect(tabs, isNot(contains('business-profiles')));
+      expect(tabs, isNot(contains('feature-management')));
+      expect(tabs, isNot(contains('module-configuration')));
+      expect(tabs, isNot(contains('attribute-definitions')));
+      expect(tabs, isNot(contains('category-attribute-rules')));
     });
 
     test('nobody is left with an empty sidebar', () {

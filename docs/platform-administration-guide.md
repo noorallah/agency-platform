@@ -284,10 +284,27 @@ user". The action is disabled for a retired firm and for a dedicated firm that
 has not been provisioned, since switching into an empty store answers errors
 on every screen.
 
-**Set the business profile**, in **Masters -> Firm Settings**. A firm with no
-assignment resolves to the platform default (GENERIC), so a wholesaler runs
-without the features and modules its profile would enable. Nothing refuses a
-document over this; it simply behaves like a different kind of business.
+**Set the business profile**, in **Administration -> Business Profiles ->
+Profile Assignment** -- and note that this is *not* done from inside the firm.
+The screen names the firm in the URL rather than reading `X-Firm-ID`, so it
+lists every firm and a platform administrator sets any of them from platform
+mode. It is platform-only twice over: the tab wants `FIRM_VIEW` or
+`PLATFORM_VIEW`, neither of which a firm role may hold, and
+`assign_profile_to_firm` takes the designation, so a firm administrator cannot
+do this even with the tab in front of them.
+
+A firm with no assignment resolves to the platform default (GENERIC), so a
+wholesaler runs without the features and modules its profile would enable.
+Nothing refuses a document over this; it simply behaves like a different kind
+of business.
+
+> That tab was **invisible in platform mode** until 2026-09-06:
+> `ModuleTabDefinition.requiresFirm` defaults to true, and this one never said
+> otherwise -- so the only people permitted to open it were the only people
+> who could not see it, and a new firm's profile had to be set from inside
+> some *other* firm. Its five neighbours under Business Profiles still require
+> a firm, correctly: the profile *catalogue* lives in each firm's own store
+> and answers 503 without one, where the assignment grid answers 200.
 
 **Open the books.** Documents post through `DocumentPostingService`, which
 **refuses rather than guesses**, so before anything can be approved the firm

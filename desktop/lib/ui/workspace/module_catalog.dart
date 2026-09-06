@@ -241,6 +241,14 @@ abstract final class ModuleCatalog {
           id: 'profile-assignment',
           label: 'Profile Assignment',
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
+          // Its codes are platform-only and `assign_profile_to_firm` takes the
+          // designation, so the only people allowed to open this were the ones
+          // who always start in platform mode -- where a tab defaulting to
+          // `requiresFirm: true` cannot appear. The screen names the firm in
+          // the URL rather than reading `X-Firm-ID`, so it needs no firm of
+          // its own, and setting a new firm's profile had to be done from
+          // inside some *other* firm.
+          requiresFirm: false,
         ),
         ModuleTabDefinition(
           id: 'tax-configuration',
