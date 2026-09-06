@@ -339,14 +339,15 @@ A tier-1 operator can do all of this and is still refused the firm's books —
 
 ## 7b. Which firm somebody belongs to
 
-Four ways a person ends up in a firm, and it is worth knowing which is which:
+Five ways a person ends up in a firm, and it is worth knowing which is which. The last two are the same act on two screens — assign from the user, or assign from the assignments menu:
 
 | How | What happens |
 | --- | --- |
 | **New** (as a firm admin) | The Firms box opens with **your firm already in it**, so they land there. Clear it and they land in **no** firm, which is allowed. |
 | **Add existing user** | They keep every firm they already had, and gain yours. |
 | **Hire like this person** | They get the same firms as the person you copied, within your reach. |
-| **Edit → Firms** | You set which of *your* firms they are in. |
+| **Users → Edit → Firms** | You set which of *your* firms they are in. |
+| **Administration → User-Firm Assignments** | The same thing on its own screen: pick a person, set their firms. Use this when assigning firms is all you are doing. |
 
 **A user with no firm is allowed.** They can sign in but reach nothing — no
 firm means no firm-owned screen and an empty firm switcher — and they do not
