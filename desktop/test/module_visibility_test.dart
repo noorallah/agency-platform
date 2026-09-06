@@ -5,6 +5,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/sales_invoice.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/module_visibility.dart';
+import 'package:agency_desktop/ui/workspace/workspace_templates.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// What a signed-in user is offered, asked of the rules the shell actually
@@ -73,6 +74,8 @@ const List<String> _salesExecutive = [
 ];
 
 void main() {
+  _navigationLeadsSomewhereTests();
+
   group('the composed module filter', () {
     test('a platform admin is offered every module', () {
       final ModuleVisibility view = ModuleVisibility(
@@ -442,5 +445,62 @@ void main() {
           'the tab strip and the sidebar then disagree.',
     );
     expect(shell.contains('ModuleVisibility.tabsFor('), isTrue);
+  });
+}
+
+/// Every navigation node must lead to a tab that is actually there.
+///
+/// A leaf whose `path` is not in the visible set does not disappear -- the
+/// workspace falls back to `visibleTabs.first`, so selecting it **silently
+/// renders an unrelated screen**. It has happened twice. First `Audit`, which
+/// was unconditional with path `'audit'`, a tab id that does not exist, and
+/// rendered Users. Then `Numbering Series`, unconditional and pointing at a
+/// tab that lives in a firm's own store -- so it survived every firm-context
+/// test and only appeared once platform mode existed, where it again rendered
+/// whatever tab came first.
+///
+/// Both were found by somebody clicking. This asks it mechanically, in both
+/// firm contexts, for every module.
+void _navigationLeadsSomewhereTests() {
+  List<String> pathsOf(List<WorkspaceNavigationNode> nodes) => [
+        for (final WorkspaceNavigationNode node in nodes) ...[
+          if ((node.path ?? '').isNotEmpty) node.path!,
+          ...pathsOf(node.children),
+        ],
+      ];
+
+  group('navigation leads somewhere', () {
+    for (final bool hasActiveFirm in [true, false]) {
+      test('with hasActiveFirm=$hasActiveFirm, no node points at a hidden tab',
+          () {
+        final PermissionService permissions = _service(
+          permissions: _everyGatedCode().toList(),
+          platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
+        );
+        final ModuleVisibility view = ModuleVisibility(
+          permissions: permissions,
+          hasActiveFirm: hasActiveFirm,
+        );
+
+        final Map<AppModule, List<String>> orphans = {};
+        for (final ModuleDefinition module in ModuleCatalog.modules) {
+          final Set<String> visible = view.tabIds(module);
+          final List<String> dead = pathsOf(
+            ModuleCatalog.navigationChildren(module.id, visible),
+          ).where((path) => !visible.contains(path)).toList();
+          if (dead.isNotEmpty) orphans[module.id] = dead;
+        }
+
+        expect(
+          orphans,
+          isEmpty,
+          reason: 'these navigation nodes point at tabs that are not shown, '
+              'so selecting one renders whatever tab happens to be first:\n'
+              '$orphans\n'
+              'Guard the node on visibleTabIds.contains(<tab id>).',
+        );
+      });
+    }
   });
 }
