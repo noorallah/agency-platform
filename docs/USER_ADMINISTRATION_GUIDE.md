@@ -107,6 +107,33 @@ deliberately: a user who has since been edited is no longer described by it.
 
 ---
 
+## 3b. Promoting somebody
+
+The same **Apply job template** action, and it is the tidiest way to move
+somebody between jobs: name the new job and their access follows.
+
+Three things to know.
+
+**It replaces, it does not add.** Applying a template makes its roles the
+person's whole role set for that firm. That is what you want for a promotion —
+somebody moving off the counter should stop holding the counter's roles — but
+anything granted to them **on top of** their old job goes with it. Check what
+they hold before you apply, if that matters.
+
+**Only in the firm you are working in.** Somebody who works in two firms keeps
+their roles in the other one untouched.
+
+**The trail names the job.** Applying a template records the template's code,
+its id and the roles granted, alongside who did it and when — so "moved into
+Sales Manager, by whom, on what date" is answerable later. It records the code
+as well as the id because a template can be retired, and an id alone then
+points at a row nobody can name.
+
+> That record lands in the **platform** audit trail rather than the firm's,
+> because user administration is a platform-path operation. A firm
+> administrator reading their own firm's Audit Logs will not see it; a platform
+> administrator will.
+
 ## 4. Hiring somebody to do what an existing person does
 
 The more common case: you have a person in mind rather than a written-down job.
