@@ -284,10 +284,36 @@ user". The action is disabled for a retired firm and for a dedicated firm that
 has not been provisioned, since switching into an empty store answers errors
 on every screen.
 
-**Set the business profile**, in **Masters -> Firm Settings**. A firm with no
-assignment resolves to the platform default (GENERIC), so a wholesaler runs
-without the features and modules its profile would enable. Nothing refuses a
-document over this; it simply behaves like a different kind of business.
+**Set the business profile**, in **Administration -> Business Profiles ->
+Profile Assignment** -- and note that this is *not* done from inside the firm.
+The screen names the firm in the URL rather than reading `X-Firm-ID`, so it
+lists every firm and a platform administrator sets any of them from platform
+mode. It is platform-only twice over: the tab wants `FIRM_VIEW` or
+`PLATFORM_VIEW`, neither of which a firm role may hold, and
+`assign_profile_to_firm` takes the designation, so a firm administrator cannot
+do this even with the tab in front of them.
+
+A firm with no assignment resolves to the platform default (GENERIC), so a
+wholesaler runs without the features and modules its profile would enable.
+Nothing refuses a document over this; it simply behaves like a different kind
+of business.
+
+> **Select a firm first.** Every tab under Business Profiles needs one, this
+> one included, so in platform mode the group is not offered at all. Open any
+> existing firm and the tab appears; the grid still lists *every* firm, so a
+> brand-new firm's profile is set from inside an established one.
+>
+> The reason is not the permission -- it is where the data lives. The grid and
+> the record both answer 200 with no firm, but the edit dialog's profile
+> dropdown reads `/business-framework/profiles`, and the profile *catalogue*
+> lives in each firm's own store. With no firm the session falls back to the
+> platform schema, where PostgreSQL answers `relation
+> "platform.business_profiles" does not exist` and the user sees "The database
+> is temporarily unavailable". Making the tab firm-free was tried on
+> 2026-09-06 and reverted the same day for exactly that: the grid rendered and
+> the dialog could not be filled in. Moving it needs the dropdown to read the
+> catalogue of the firm being edited, which `FieldSpec.optionsResource` cannot
+> express today.
 
 **Open the books.** Documents post through `DocumentPostingService`, which
 **refuses rather than guesses**, so before anything can be approved the firm

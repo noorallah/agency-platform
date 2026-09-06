@@ -241,6 +241,24 @@ abstract final class ModuleCatalog {
           id: 'profile-assignment',
           label: 'Profile Assignment',
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
+          // Deliberately left needing a firm, though its own two calls do not.
+          // The grid reads `/firm-profile-assignments` and the record reads
+          // `/firms/{id}/profile-assignment`, both of which answer 200 with no
+          // firm -- but the edit dialog's profile dropdown reads
+          // `/business-framework/profiles`, and the profile *catalogue* lives
+          // in each firm's own store. With no firm the session falls back to
+          // the platform schema and PostgreSQL answers `relation
+          // "platform.business_profiles" does not exist`, which reaches the
+          // user as "The database is temporarily unavailable".
+          //
+          // Making the tab visible here was tried on 2026-09-06 and reverted
+          // the same day: the grid rendered and the dialog could not be
+          // filled in, which is worse than a tab that is one click further
+          // away. Selecting any firm makes the whole screen work, and the
+          // grid still lists every firm, so a new firm's profile is set from
+          // inside any existing one. Moving this needs the dropdown to read
+          // the catalogue of the firm being edited -- a per-record options
+          // source, which `FieldSpec.optionsResource` cannot express today.
         ),
         ModuleTabDefinition(
           id: 'tax-configuration',
@@ -1065,150 +1083,176 @@ abstract final class ModuleCatalog {
           path: 'user-audit',
           icon: Icons.history_outlined,
         ),
-      WorkspaceNavigationNode(
-        label: 'Configuration',
-        icon: Icons.tune_outlined,
-        children: [
-          if (hasAny([
-            'business-profiles',
-            'feature-management',
-            'module-configuration',
-            'attribute-definitions',
-            'category-attribute-rules',
-            'profile-assignment',
-          ]))
-            WorkspaceNavigationNode(
-              label: 'Business Profiles',
-              icon: Icons.business_outlined,
-              children: [
-                if (visibleTabIds.contains('business-profiles'))
-                  const WorkspaceNavigationNode(
-                    label: 'Profiles',
-                    path: 'business-profiles',
-                  ),
-                if (visibleTabIds.contains('feature-management'))
-                  const WorkspaceNavigationNode(
-                    label: 'Feature Flags',
-                    path: 'feature-management',
-                  ),
-                if (visibleTabIds.contains('module-configuration'))
-                  const WorkspaceNavigationNode(
-                    label: 'Business Modules',
-                    path: 'module-configuration',
-                  ),
-                if (visibleTabIds.contains('attribute-definitions'))
-                  const WorkspaceNavigationNode(
-                    label: 'Dynamic Attributes',
-                    path: 'attribute-definitions',
-                  ),
-                if (visibleTabIds.contains('category-attribute-rules'))
-                  const WorkspaceNavigationNode(
-                    label: 'Mandatory Attributes',
-                    path: 'category-attribute-rules',
-                  ),
-                if (visibleTabIds.contains('profile-assignment'))
-                  const WorkspaceNavigationNode(
-                    label: 'Profile Assignment',
-                    path: 'profile-assignment',
-                  ),
-              ],
-            ),
-          if (hasAny([
-            'tax-configuration',
-            'tax-rules-page',
-            'tax-rule-simulator',
-            'tax-execution-log',
-            'tax-settings',
-          ]))
-            WorkspaceNavigationNode(
-              label: 'Tax Configuration',
-              icon: Icons.receipt_long_outlined,
-              children: [
-                if (visibleTabIds.contains('tax-configuration'))
-                  const WorkspaceNavigationNode(
-                    label: 'Systems & Profiles',
-                    path: 'tax-configuration',
-                  ),
-                if (visibleTabIds.contains('tax-rules-page'))
-                  const WorkspaceNavigationNode(
-                    label: 'Tax Rules',
-                    path: 'tax-rules-page',
-                  ),
-                if (visibleTabIds.contains('tax-rule-simulator'))
-                  const WorkspaceNavigationNode(
-                    label: 'Rule Simulator',
-                    path: 'tax-rule-simulator',
-                  ),
-                if (visibleTabIds.contains('tax-execution-log'))
-                  const WorkspaceNavigationNode(
-                    label: 'Execution Log',
-                    path: 'tax-execution-log',
-                  ),
-                if (visibleTabIds.contains('tax-settings'))
-                  const WorkspaceNavigationNode(
-                    label: 'Settings',
-                    path: 'tax-settings',
-                  ),
-              ],
-            ),
-          if (hasAny([
-            'uoms',
-            'uom-groups',
-            'packaging-types',
-            'packaging-levels',
-            'conversion-rules',
-            'industry-templates',
-          ]))
-            WorkspaceNavigationNode(
-              label: 'UOM & Packaging',
-              icon: Icons.straighten_outlined,
-              children: [
-                if (visibleTabIds.contains('uoms'))
-                  const WorkspaceNavigationNode(
-                    label: 'Units of Measure',
-                    path: 'uoms',
-                  ),
-                if (visibleTabIds.contains('uom-groups'))
-                  const WorkspaceNavigationNode(
-                    label: 'UOM Groups',
-                    path: 'uom-groups',
-                  ),
-                if (visibleTabIds.contains('packaging-types'))
-                  const WorkspaceNavigationNode(
-                    label: 'Packaging Types',
-                    path: 'packaging-types',
-                  ),
-                if (visibleTabIds.contains('packaging-levels'))
-                  const WorkspaceNavigationNode(
-                    label: 'Packaging Levels',
-                    path: 'packaging-levels',
-                  ),
-                if (visibleTabIds.contains('conversion-rules'))
-                  const WorkspaceNavigationNode(
-                    label: 'Conversion Rules',
-                    path: 'conversion-rules',
-                  ),
-                if (visibleTabIds.contains('industry-templates'))
-                  const WorkspaceNavigationNode(
-                    label: 'Industry Templates',
-                    path: 'industry-templates',
-                  ),
-              ],
-            ),
-          // Gated on the real tab id, like every other leaf. It was
-          // unconditional, so it appeared even when the tab did not -- and
-          // selecting it silently rendered whatever tab happened to be first.
-          // Document numbering lives in each firm's own store, so this is the
-          // one Configuration leaf a platform administrator loses when no firm
-          // is selected, which is when the omission showed.
-          if (visibleTabIds.contains('numbering-series'))
-            const WorkspaceNavigationNode(
-              label: 'Numbering Series',
-              path: 'numbering-series',
-              icon: Icons.confirmation_number_outlined,
-            ),
-        ],
-      ),
+      // Every child below needs a firm, so with none selected this node has
+      // nothing under it -- and it was the only parent in this file without a
+      // guard, so it rendered as a heading that opened nothing. Its eight
+      // siblings all carry one. Same family as #254: a menu entry that leads
+      // nowhere is worse than an absent one, because the reader concludes the
+      // screen is broken rather than that it is elsewhere.
+      if (hasAny([
+        'business-profiles',
+        'feature-management',
+        'module-configuration',
+        'attribute-definitions',
+        'category-attribute-rules',
+        'profile-assignment',
+        'tax-configuration',
+        'tax-rules-page',
+        'tax-rule-simulator',
+        'tax-execution-log',
+        'tax-settings',
+        'uoms',
+        'uom-groups',
+        'packaging-types',
+        'packaging-levels',
+        'conversion-rules',
+        'industry-templates',
+        'numbering-series',
+      ]))
+        WorkspaceNavigationNode(
+          label: 'Configuration',
+          icon: Icons.tune_outlined,
+          children: [
+            if (hasAny([
+              'business-profiles',
+              'feature-management',
+              'module-configuration',
+              'attribute-definitions',
+              'category-attribute-rules',
+              'profile-assignment',
+            ]))
+              WorkspaceNavigationNode(
+                label: 'Business Profiles',
+                icon: Icons.business_outlined,
+                children: [
+                  if (visibleTabIds.contains('business-profiles'))
+                    const WorkspaceNavigationNode(
+                      label: 'Profiles',
+                      path: 'business-profiles',
+                    ),
+                  if (visibleTabIds.contains('feature-management'))
+                    const WorkspaceNavigationNode(
+                      label: 'Feature Flags',
+                      path: 'feature-management',
+                    ),
+                  if (visibleTabIds.contains('module-configuration'))
+                    const WorkspaceNavigationNode(
+                      label: 'Business Modules',
+                      path: 'module-configuration',
+                    ),
+                  if (visibleTabIds.contains('attribute-definitions'))
+                    const WorkspaceNavigationNode(
+                      label: 'Dynamic Attributes',
+                      path: 'attribute-definitions',
+                    ),
+                  if (visibleTabIds.contains('category-attribute-rules'))
+                    const WorkspaceNavigationNode(
+                      label: 'Mandatory Attributes',
+                      path: 'category-attribute-rules',
+                    ),
+                  if (visibleTabIds.contains('profile-assignment'))
+                    const WorkspaceNavigationNode(
+                      label: 'Profile Assignment',
+                      path: 'profile-assignment',
+                    ),
+                ],
+              ),
+            if (hasAny([
+              'tax-configuration',
+              'tax-rules-page',
+              'tax-rule-simulator',
+              'tax-execution-log',
+              'tax-settings',
+            ]))
+              WorkspaceNavigationNode(
+                label: 'Tax Configuration',
+                icon: Icons.receipt_long_outlined,
+                children: [
+                  if (visibleTabIds.contains('tax-configuration'))
+                    const WorkspaceNavigationNode(
+                      label: 'Systems & Profiles',
+                      path: 'tax-configuration',
+                    ),
+                  if (visibleTabIds.contains('tax-rules-page'))
+                    const WorkspaceNavigationNode(
+                      label: 'Tax Rules',
+                      path: 'tax-rules-page',
+                    ),
+                  if (visibleTabIds.contains('tax-rule-simulator'))
+                    const WorkspaceNavigationNode(
+                      label: 'Rule Simulator',
+                      path: 'tax-rule-simulator',
+                    ),
+                  if (visibleTabIds.contains('tax-execution-log'))
+                    const WorkspaceNavigationNode(
+                      label: 'Execution Log',
+                      path: 'tax-execution-log',
+                    ),
+                  if (visibleTabIds.contains('tax-settings'))
+                    const WorkspaceNavigationNode(
+                      label: 'Settings',
+                      path: 'tax-settings',
+                    ),
+                ],
+              ),
+            if (hasAny([
+              'uoms',
+              'uom-groups',
+              'packaging-types',
+              'packaging-levels',
+              'conversion-rules',
+              'industry-templates',
+            ]))
+              WorkspaceNavigationNode(
+                label: 'UOM & Packaging',
+                icon: Icons.straighten_outlined,
+                children: [
+                  if (visibleTabIds.contains('uoms'))
+                    const WorkspaceNavigationNode(
+                      label: 'Units of Measure',
+                      path: 'uoms',
+                    ),
+                  if (visibleTabIds.contains('uom-groups'))
+                    const WorkspaceNavigationNode(
+                      label: 'UOM Groups',
+                      path: 'uom-groups',
+                    ),
+                  if (visibleTabIds.contains('packaging-types'))
+                    const WorkspaceNavigationNode(
+                      label: 'Packaging Types',
+                      path: 'packaging-types',
+                    ),
+                  if (visibleTabIds.contains('packaging-levels'))
+                    const WorkspaceNavigationNode(
+                      label: 'Packaging Levels',
+                      path: 'packaging-levels',
+                    ),
+                  if (visibleTabIds.contains('conversion-rules'))
+                    const WorkspaceNavigationNode(
+                      label: 'Conversion Rules',
+                      path: 'conversion-rules',
+                    ),
+                  if (visibleTabIds.contains('industry-templates'))
+                    const WorkspaceNavigationNode(
+                      label: 'Industry Templates',
+                      path: 'industry-templates',
+                    ),
+                ],
+              ),
+            // Gated on the real tab id, like every other leaf. It was
+            // unconditional, so it appeared even when the tab did not -- and
+            // selecting it silently rendered whatever tab happened to be first.
+            // Document numbering lives in each firm's own store, so this is the
+            // one Configuration leaf a platform administrator loses when no firm
+            // is selected, which is when the omission showed.
+            if (visibleTabIds.contains('numbering-series'))
+              const WorkspaceNavigationNode(
+                label: 'Numbering Series',
+                path: 'numbering-series',
+                icon: Icons.confirmation_number_outlined,
+              ),
+          ],
+        ),
     ];
   }
 

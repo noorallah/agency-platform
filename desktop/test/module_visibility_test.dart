@@ -384,7 +384,25 @@ void main() {
       expect(tabs, contains('firms'));
       expect(tabs, isNot(contains('tax-configuration')));
       expect(tabs, isNot(contains('uoms')));
+      // Every tab under Business Profiles stays hidden with no firm, and
+      // `profile-assignment` is the one that looks like an exception and is
+      // not. Its own two calls answer 200 with no `X-Firm-ID`, so it was
+      // made visible here on 2026-09-06 -- and the edit dialog's profile
+      // dropdown reads `/business-framework/profiles`, which answers 503,
+      // because the catalogue lives in each firm's store. The grid rendered
+      // and could not be used. Reverted the same day: a tab one click away
+      // beats a screen that opens and cannot be filled in.
+      //
+      // Driven against a running server: `/firm-profile-assignments` and
+      // `/firms/{id}/profile-assignment` answered 200 with no firm, while
+      // `/profiles`, `/features`, `/modules`, `/attribute-definitions` and
+      // `/category-attribute-rules` all answered 503.
+      expect(tabs, isNot(contains('profile-assignment')));
       expect(tabs, isNot(contains('business-profiles')));
+      expect(tabs, isNot(contains('feature-management')));
+      expect(tabs, isNot(contains('module-configuration')));
+      expect(tabs, isNot(contains('attribute-definitions')));
+      expect(tabs, isNot(contains('category-attribute-rules')));
     });
 
     test('nobody is left with an empty sidebar', () {
@@ -499,6 +517,54 @@ void _navigationLeadsSomewhereTests() {
               'so selecting one renders whatever tab happens to be first:\n'
               '$orphans\n'
               'Guard the node on visibleTabIds.contains(<tab id>).',
+        );
+      });
+
+      test('with hasActiveFirm=$hasActiveFirm, no heading is empty', () {
+        // The test above walks *leaves*, and a heading carries no path, so an
+        // empty one slips straight through it. Administration's
+        // `Configuration` node was built unconditionally while every one of
+        // its descendants needs a firm -- so with none selected it rendered
+        // as a heading that opened nothing, and it was the only parent in the
+        // catalogue without a guard. Reported from the running client on
+        // 2026-09-06, after the leaf guard above had been green for months.
+        final ModuleVisibility view = ModuleVisibility(
+          permissions: _service(
+            permissions: _everyGatedCode().toList(),
+            platformAdmin: true,
+            platformScope: 'ALL_FIRMS',
+          ),
+          hasActiveFirm: hasActiveFirm,
+        );
+
+        List<String> emptyHeadings(List<WorkspaceNavigationNode> nodes) => [
+              for (final WorkspaceNavigationNode node in nodes) ...[
+                // No path of its own and nothing reachable underneath. Both
+                // halves matter: with its guard removed the node is built with
+                // an *empty* children list, so a check for
+                // `children.isNotEmpty` never fires -- which is how the first
+                // version of this test passed against the very bug it was
+                // written for.
+                if ((node.path ?? '').isEmpty && pathsOf(node.children).isEmpty)
+                  node.label,
+                ...emptyHeadings(node.children),
+              ],
+            ];
+
+        final Map<AppModule, List<String>> dead = {};
+        for (final ModuleDefinition module in ModuleCatalog.modules) {
+          final List<String> empty = emptyHeadings(
+            ModuleCatalog.navigationChildren(module.id, view.tabIds(module)),
+          );
+          if (empty.isNotEmpty) dead[module.id] = empty;
+        }
+
+        expect(
+          dead,
+          isEmpty,
+          reason: 'these navigation headings have no reachable child, so each '
+              'renders as an entry that does nothing when selected: $dead. '
+              'Guard the parent on hasAny([...its tab ids]).',
         );
       });
     }
