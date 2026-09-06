@@ -15,7 +15,7 @@ class HireExistingPerson {
   final String templateId;
 }
 
-/// Find somebody who already has an account and bring them into this firm.
+/// Find a user who already has an account and bring them into this firm.
 ///
 /// The dialog owns its controller and its state. A caller that creates a
 /// controller, awaits `showDialog` and then disposes it disposes it
@@ -127,7 +127,7 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('Add an existing person'),
+      title: const Text('Add existing user'),
       // An AlertDialog gives its content unbounded height, so a stretched
       // Column with no width overflows by tens of thousands of pixels instead
       // of laying out. Both dimensions are bounded on purpose.

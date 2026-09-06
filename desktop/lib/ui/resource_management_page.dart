@@ -112,15 +112,27 @@ class ResourceAction<T> {
     required this.onInvoke,
     this.isVisible,
     this.isEnabled,
+    this.needsSelection = true,
   });
 
   final String label;
   final IconData icon;
 
   /// Runs the action and returns the message to show on success.
-  final Future<String> Function(T item) onInvoke;
+  ///
+  /// The item is null when [needsSelection] is false and nothing is selected.
+  final Future<String> Function(T? item) onInvoke;
   final bool Function(T? item)? isVisible;
   final bool Function(T item)? isEnabled;
+
+  /// Whether this action is about the selected row.
+  ///
+  /// Almost every one is, so the default stands. "Add an existing user" is
+  /// the exception that made this necessary: it is about somebody who is
+  /// **not in the grid**, so demanding a row first asks the user to select an
+  /// unrelated person in order to reach a stranger -- and the button read as
+  /// permanently broken to anybody who had not yet clicked a row.
+  final bool needsSelection;
 }
 
 /// One declarative dropdown filter offered above the grid.
@@ -634,7 +646,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     await _load();
   }
 
-  Future<void> _runCustomAction(ResourceAction<T> action, T item) async {
+  Future<void> _runCustomAction(ResourceAction<T> action, T? item) async {
     setState(() => _loading = true);
     try {
       final String message = await action.onInvoke(item);
@@ -836,9 +848,12 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             Tooltip(
               message: action.label,
               child: OutlinedButton.icon(
-                onPressed: selected != null &&
-                        !_loading &&
-                        (action.isEnabled?.call(selected) ?? true)
+                // An action that does not need a row is live from the moment
+                // the screen opens; one that does still waits for it.
+                onPressed: !_loading &&
+                        (!action.needsSelection ||
+                            (selected != null &&
+                                (action.isEnabled?.call(selected) ?? true)))
                     ? () => _runCustomAction(action, selected)
                     : null,
                 icon: Icon(action.icon, size: 18),

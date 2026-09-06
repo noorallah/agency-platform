@@ -2703,7 +2703,7 @@ ResourceDefinition<Firm> firmDefinition(
           isVisible: (firm) => firm == null || firm.deploymentMode != 'SHARED',
           isEnabled: (firm) =>
               firm.deploymentMode != 'SHARED' && !firm.isStorageReady,
-          onInvoke: (firm) => api.provisionFirmStorage(firm.id),
+          onInvoke: (firm) => api.provisionFirmStorage(firm!.id),
         ),
       ],
       id: (firm) => firm.id,
@@ -2875,7 +2875,7 @@ ResourceDefinition<Firm> firmDefinition(
       },
     );
 
-/// Bring somebody who already has an account into this firm.
+/// Bring a user who already has an account into this firm.
 ///
 /// `list_users` is scoped to the caller's own members, so a firm
 /// administrator cannot find -- or even learn the existence of -- somebody
@@ -2885,7 +2885,7 @@ ResourceDefinition<Firm> firmDefinition(
 /// The membership is **added**, never replaced: the server merges within the
 /// caller's reach, so the firms this administrator cannot see are carried
 /// through untouched.
-Future<String> _addExistingPerson(BuildContext context, ApiClient api) async {
+Future<String> _addExistingUser(BuildContext context, ApiClient api) async {
   final HireExistingPerson? hire = await findPersonToHire(context, api);
   if (hire == null) return '';
   final String firmId = api.activeFirmId?.call() ?? '';
@@ -3010,13 +3010,17 @@ ResourceDefinition<PlatformUser> userDefinition(
     customActions: [
       if (context != null) ...<ResourceAction<PlatformUser>>[
         ResourceAction<PlatformUser>(
-          label: 'Add an existing person',
+          label: 'Add existing user',
           icon: Icons.person_search_outlined,
-          // Visible with no row selected: it is about somebody who is not
-          // in the grid, which is the whole point.
+          // The one action here that is **not** about the selected row: it is
+          // about somebody who is not in the grid at all. Requiring a
+          // selection would ask you to click an unrelated person in order to
+          // reach a stranger, and the button reads as broken until you happen
+          // to do it.
+          needsSelection: false,
           isVisible: (_) => permissions
               .hasAllPermissions(['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW']),
-          onInvoke: (_) => _addExistingPerson(context, api),
+          onInvoke: (_) => _addExistingUser(context, api),
         ),
         ResourceAction<PlatformUser>(
           label: 'Hire like this person',
@@ -3027,7 +3031,7 @@ ResourceDefinition<PlatformUser> userDefinition(
           // accounts but not grant access could copy access instead.
           isVisible: (_) => permissions
               .hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW', 'USER_CREATE']),
-          onInvoke: (user) => _cloneUser(context, api, user),
+          onInvoke: (user) => _cloneUser(context, api, user!),
         ),
         ResourceAction<PlatformUser>(
           label: 'Apply job template',
@@ -3037,7 +3041,7 @@ ResourceDefinition<PlatformUser> userDefinition(
           // reachable by anybody who could not assign them one at a time.
           isVisible: (_) =>
               permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
-          onInvoke: (user) => _applyTemplate(context, api, user),
+          onInvoke: (user) => _applyTemplate(context, api, user!),
         ),
       ],
     ],
@@ -3757,7 +3761,7 @@ ResourceDefinition<BusinessProfileRecord> _businessProfileDefinition(
                 builder: (_) => ProfileUomDefaultsDialog(
                   api: api,
                   permissions: permissions,
-                  profileId: profile.id,
+                  profileId: profile!.id,
                   profileName: profile.name,
                 ),
               );
