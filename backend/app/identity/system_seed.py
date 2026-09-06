@@ -412,9 +412,24 @@ ROLE_PERMISSION_CODES = {
     "SYSTEM_AUDITOR": frozenset(
         {"FIRM_VIEW", "USER_VIEW", "REPORT_VIEW", "AUDIT_LOG_VIEW", "DIAGNOSTICS_VIEW"}
     ),
-    "FIRM_ADMIN": _operational_permissions
-    | _firm_administration
-    | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE"}),
+    "FIRM_ADMIN": _operational_permissions | _firm_administration
+    # Granted directly rather than through a group. All three are in
+    # `PLATFORM_PERMISSION_CODES`, which answers "what may a firm
+    # administrator not *grant*" -- a different question from what they may
+    # hold, and the reason `SETTINGS_VIEW` has always been here.
+    #
+    # `AUDIT_LOG_VIEW` joined them on 2026-09-06. The Settings module is
+    # offered on any of `SETTINGS_VIEW`, `AUDIT_LOG_VIEW` or
+    # `DIAGNOSTICS_VIEW` and both its tabs demand one of the latter two, so a
+    # firm administrator was offered the module and refused every tab in it:
+    # it opened empty. `audit_scope` reads one trail chosen by firm context,
+    # so with `X-Firm-ID` they get **their own firm's** and nothing else.
+    #
+    # `DIAGNOSTICS_VIEW` deliberately stays out: error reports are
+    # operational telemetry for whoever maintains the product, kept in one
+    # place rather than per firm, and `firm_id` on them is data rather than
+    # routing.
+    | frozenset({"SETTINGS_VIEW", "SETTINGS_UPDATE", "AUDIT_LOG_VIEW"}),
     "FIRM_MANAGER": _operational_permissions
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
