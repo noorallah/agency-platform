@@ -129,10 +129,11 @@ Sales Manager, by whom, on what date" is answerable later. It records the code
 as well as the id because a template can be retired, and an id alone then
 points at a row nobody can name.
 
-> That record lands in the **platform** audit trail rather than the firm's,
-> because user administration is a platform-path operation. A firm
-> administrator reading their own firm's Audit Logs will not see it; a platform
-> administrator will.
+The record is *written* to the platform store — user administration is a
+platform-path operation, because users and roles live only there — but the
+firm's Audit Logs screen reads both, so **you see it in your own firm's
+trail**. `Settings → Audit Logs`, newest first, alongside everything else your
+firm did.
 
 ## 4. Hiring somebody to do what an existing person does
 

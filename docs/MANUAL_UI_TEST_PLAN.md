@@ -515,6 +515,9 @@ could read any audit trail at all**.
 | 23.2 | Same user, select WHOLE01 → Settings → Audit Logs | **That firm's** trail, not the platform's. Also 403 in that window. |
 | 23.3 | As `whole01.admin` → Settings | The module opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW`, with both tabs demanding codes the role did not hold. |
 | 23.4 | Read it | WHOLE01's history and nothing else. |
+| 23.4a | Promote somebody (Users → Apply job template), then re-open Settings → Audit Logs **as `whole01.admin`** | The promotion is listed, naming the template. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
+| 23.4b | Check the order around it | Newest first across both stores, not the firm's rows followed by the platform's. |
+| 23.4c | Filter by action `user_template.applied` | The filter reaches both stores. Filtering one and not the other would answer a half-truth. |
 | 23.5 | Look for **Diagnostics** | **Not there.** `DIAGNOSTICS_VIEW` is deliberately withheld — error reports are telemetry for whoever maintains the product, not something a firm owns. |
 | 23.6 **(HTTP)** | `GET /api/v1/audit-logs` with a `whole01.admin` token and **no** `X-Firm-ID` | `403`. Reading the platform trail needs platform authority. |
 | 23.7 | As `whole01.sales1` → Settings | Not offered at all. |

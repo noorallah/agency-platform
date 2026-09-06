@@ -625,6 +625,33 @@ can read them. Stored in `user_preferences` in the platform schema.
 
 ## Where the audit trail of a change lives
 
+**A firm's trail is its own store plus the platform rows carrying its
+`firm_id`.** Most firm-owned mutations are recorded in the firm's own store,
+because `record_audit` runs on whichever session `get_db` resolved. Identity is
+the exception and cannot not be: `users`, `roles` and `user_firms` live only in
+the platform schema, so hiring somebody, editing their roles or applying a job
+template runs on the platform session and is recorded there.
+
+Those rows carry the firm. They were simply in a store the firm cannot read, so
+until 2026-09-06 a firm administrator could not see their own staffing
+decisions. `GET /api/v1/audit-logs` with `X-Firm-ID` now reads both.
+
+The write was left where it is on purpose. A DATABASE-mode firm is a separate
+database, possibly on a separate server, so writing the audit row there would
+be a second transaction — the promotion could commit and its record fail, or
+the reverse. They commit together today, and that is worth more than the row's
+location.
+
+| Reading | Sees |
+| --- | --- |
+| No `X-Firm-ID`, platform designation | The platform trail: firm creation, platform templates, anything belonging to no firm |
+| `X-Firm-ID`, any authorised caller | That firm's own store **and** the platform rows whose `firm_id` is that firm |
+| Anything else | Refused |
+
+One firm never sees another's, and the platform's own unscoped rows
+(`firm_id IS NULL`) are nobody's firm history.
+
+
 **Per store, not central.** Platform administration writes to
 `platform.audit_logs`; a firm-owned change writes to that firm's own store,
 because `record_audit` runs on whichever session `get_db` resolved.
