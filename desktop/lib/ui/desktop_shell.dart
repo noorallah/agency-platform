@@ -74,6 +74,7 @@ import 'workspace/module_visibility.dart';
 import 'workspace/enterprise_sidebar.dart';
 import 'administration/apply_template_dialog.dart';
 import 'administration/clone_user_dialog.dart';
+import 'administration/find_person_dialog.dart';
 import 'workspace/desktop_framework.dart';
 
 /// What each Administration screen is for, where the module's own sentence is
@@ -85,7 +86,8 @@ import 'workspace/desktop_framework.dart';
 const Map<String, String> _administrationDescriptions = {
   'users': 'Provision interactive users and control their access.',
   'roles': 'Group permissions into the roles users are assigned.',
-  'user-templates': 'Name a job once, and hire into it without reassembling its access every time.',
+  'user-templates':
+      'Name a job once, and hire into it without reassembling its access every time.',
   'permissions': 'Manage platform permissions and access capabilities.',
   'user-firms': 'Control which firms each user may work in.',
   'business-profiles':
@@ -326,8 +328,6 @@ class _DesktopShellState extends State<DesktopShell> {
       );
 
   List<ModuleDefinition> get _visibleModules => _visibility.modules;
-
-
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -2875,6 +2875,46 @@ ResourceDefinition<Firm> firmDefinition(
       },
     );
 
+/// Bring somebody who already has an account into this firm.
+///
+/// `list_users` is scoped to the caller's own members, so a firm
+/// administrator cannot find -- or even learn the existence of -- somebody
+/// who already works elsewhere. `GET /users/lookup` is the narrow opening for
+/// that one job, and this is the only screen that uses it.
+///
+/// The membership is **added**, never replaced: the server merges within the
+/// caller's reach, so the firms this administrator cannot see are carried
+/// through untouched.
+Future<String> _addExistingPerson(BuildContext context, ApiClient api) async {
+  final HireExistingPerson? hire = await findPersonToHire(context, api);
+  if (hire == null) return '';
+  final String firmId = api.activeFirmId?.call() ?? '';
+  if (firmId.isEmpty) return 'Select a firm first.';
+
+  // What they already hold **within this caller's reach** -- which after the
+  // disclosure fix is only this firm, so the union is this firm alone. Read
+  // rather than assumed, so a caller who administers two firms keeps both.
+  final Map<String, dynamic> current =
+      await api.userFirmAssignmentValues(hire.person.id);
+  final Set<String> firms = {
+    ..._ids(current['firm_ids']),
+    firmId,
+  };
+  await api.setUserFirms(
+    hire.person.id,
+    firms.toList(),
+    stringValue(current['primary_firm_id']),
+  );
+  if (hire.templateId.isNotEmpty) {
+    await api.applyUserTemplate(hire.person.id, hire.templateId);
+  }
+  final String who =
+      hire.person.fullName.isEmpty ? hire.person.email : hire.person.fullName;
+  return hire.templateId.isEmpty
+      ? '$who was added to this firm. Set their roles to give them access.'
+      : '$who was added to this firm.';
+}
+
 /// Hire somebody to do what an existing person does.
 ///
 /// The other half of the template story, and the more common one: an
@@ -2942,433 +2982,460 @@ ResourceDefinition<PlatformUser> userDefinition(
   // administrator may read it. A firm administrator gets their own.
   final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
   return ResourceDefinition(
-      title: 'Users',
-      resource: 'users',
-      showFrame: showFrame,
-      description: 'Manage platform user accounts and assignments.',
-      headers: const ['Email', 'Name', 'Assignments', 'Status'],
-      sortFields: const ['email', 'full_name', null, null],
-      cells: (user) => [
-        user.email,
-        user.fullName,
-        'Manage in editor',
-        user.isActive ? 'Active' : 'Inactive',
+    title: 'Users',
+    resource: 'users',
+    showFrame: showFrame,
+    description: 'Manage platform user accounts and assignments.',
+    headers: const ['Email', 'Name', 'Assignments', 'Status'],
+    sortFields: const ['email', 'full_name', null, null],
+    cells: (user) => [
+      user.email,
+      user.fullName,
+      'Manage in editor',
+      user.isActive ? 'Active' : 'Inactive',
+    ],
+    id: (user) => user.id,
+    load: api.users,
+    // A user record is platform-wide, so the server refuses to edit or
+    // delete anybody who also works in a firm this caller cannot see --
+    // otherwise one firm could rename or deactivate another firm's staff.
+    // Disabling the button is what stops somebody filling in a form that
+    // was never going to save; the subtitle below says why.
+    canEdit: (user) => !user.belongsToOtherFirms,
+    dialogSubtitle: (user) => user.belongsToOtherFirms
+        ? '${user.fullName} also works in another firm, so their profile is '
+            'managed by a platform administrator. Their roles and job '
+            'template in this firm are still yours to set.'
+        : '${user.fullName} — ${user.email}',
+    customActions: [
+      if (context != null) ...<ResourceAction<PlatformUser>>[
+        ResourceAction<PlatformUser>(
+          label: 'Add an existing person',
+          icon: Icons.person_search_outlined,
+          // Visible with no row selected: it is about somebody who is not
+          // in the grid, which is the whole point.
+          isVisible: (_) => permissions
+              .hasAllPermissions(['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW']),
+          onInvoke: (_) => _addExistingPerson(context, api),
+        ),
+        ResourceAction<PlatformUser>(
+          label: 'Hire like this person',
+          icon: Icons.copy_all_outlined,
+          // Same privilege as applying a template, and for the same reason:
+          // both end in somebody holding a set of roles. `USER_CREATE`
+          // alone must not reach it, or an administrator who may open
+          // accounts but not grant access could copy access instead.
+          isVisible: (_) => permissions
+              .hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW', 'USER_CREATE']),
+          onInvoke: (user) => _cloneUser(context, api, user),
+        ),
+        ResourceAction<PlatformUser>(
+          label: 'Apply job template',
+          icon: Icons.assignment_ind_outlined,
+          // Giving somebody a role is the privilege this needs -- a template
+          // is a bundle of roles and nothing more, so it must not be
+          // reachable by anybody who could not assign them one at a time.
+          isVisible: (_) =>
+              permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
+          onInvoke: (user) => _applyTemplate(context, api, user),
+        ),
       ],
-      id: (user) => user.id,
-      load: api.users,
-      customActions: [
-        if (context != null) ...<ResourceAction<PlatformUser>>[
-          ResourceAction<PlatformUser>(
-            label: 'Hire like this person',
-            icon: Icons.copy_all_outlined,
-            // Same privilege as applying a template, and for the same reason:
-            // both end in somebody holding a set of roles. `USER_CREATE`
-            // alone must not reach it, or an administrator who may open
-            // accounts but not grant access could copy access instead.
-            isVisible: (_) => permissions
-                .hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW', 'USER_CREATE']),
-            onInvoke: (user) => _cloneUser(context, api, user),
-          ),
-          ResourceAction<PlatformUser>(
-            label: 'Apply job template',
-            icon: Icons.assignment_ind_outlined,
-            // Giving somebody a role is the privilege this needs -- a template
-            // is a bundle of roles and nothing more, so it must not be
-            // reachable by anybody who could not assign them one at a time.
-            isVisible: (_) =>
-                permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
-            onInvoke: (user) => _applyTemplate(context, api, user),
-          ),
-        ],
+    ],
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['USER_VIEW'],
+      // `FIRM_VIEW` used to be in both lists, and `FIRM_ADMIN` does not
+      // hold it -- it is a platform code, one of the set a firm
+      // administrator may not even grant. So the single role whose whole job
+      // is running a firm's people was refused the New and Edit buttons on
+      // the users grid: it holds all four codes that matter and failed on a
+      // fifth it can never be given. The firm picker below is why it was
+      // listed, and that is solved where the problem is.
+      create: const [
+        'USER_CREATE',
+        'ROLE_ASSIGN',
+        'ROLE_VIEW',
+        'USER_UPDATE',
       ],
-      canUseAction: (action, _) => _canUseResourceAction(
-        permissions,
-        action,
-        view: const ['USER_VIEW'],
-        // `FIRM_VIEW` used to be in both lists, and `FIRM_ADMIN` does not
-        // hold it -- it is a platform code, one of the set a firm
-        // administrator may not even grant. So the single role whose whole job
-        // is running a firm's people was refused the New and Edit buttons on
-        // the users grid: it holds all four codes that matter and failed on a
-        // fifth it can never be given. The firm picker below is why it was
-        // listed, and that is solved where the problem is.
-        create: const [
-          'USER_CREATE',
-          'ROLE_ASSIGN',
-          'ROLE_VIEW',
-          'USER_UPDATE',
-        ],
-        update: const [
-          'USER_UPDATE',
-          'ROLE_ASSIGN',
-          'ROLE_VIEW',
-        ],
-        delete: const ['USER_DELETE'],
+      update: const [
+        'USER_UPDATE',
+        'ROLE_ASSIGN',
+        'ROLE_VIEW',
+      ],
+      delete: const ['USER_DELETE'],
+    ),
+    fields: [
+      const FieldSpec(
+        key: 'email',
+        label: 'Username (Email)',
+        required: true,
+        readOnlyWhenEditing: true,
+        helperText: 'Used to sign in. This system has no separate username.',
+        section: 'General Information',
+        sectionIcon: Icons.badge_outlined,
       ),
-      fields: [
-        const FieldSpec(
-          key: 'email',
-          label: 'Username (Email)',
-          required: true,
-          readOnlyWhenEditing: true,
-          helperText: 'Used to sign in. This system has no separate username.',
-          section: 'General Information',
-          sectionIcon: Icons.badge_outlined,
-        ),
-        const FieldSpec(
-          key: 'full_name',
-          label: 'Full name',
-          required: true,
-          section: 'General Information',
-        ),
-        const FieldSpec(
-          key: 'personal_mobile',
-          label: 'Mobile',
-          section: 'General Information',
-        ),
-        const FieldSpec(
-          key: 'alternate_mobile',
-          label: 'Alternate mobile',
-          section: 'General Information',
-        ),
-        const FieldSpec(
-          key: 'profile_photo_url',
-          label: 'Profile photo URL',
-          helperText: 'Link to a hosted photo.',
-          section: 'General Information',
-        ),
-        const FieldSpec(
-          key: 'is_active',
-          label: 'Status (Active)',
-          boolean: true,
-          section: 'General Information',
-        ),
-        FieldSpec(
-          key: 'firm_ids',
-          label: 'Firms',
-          helperText: 'Select one or more firms.',
-          // `/firms` is platform-only, so a firm administrator opening this
-          // form got an empty picker and a failed load. `/me/firms` is the
-          // honest source for them -- and the most they may assign anyway:
-          // the server refuses a firm they do not hold `USER_CREATE` in, and
-          // carries the person's other memberships through untouched rather
-          // than replacing them.
-          optionsResource: firmOptions,
-          section: 'Organization',
-          sectionIcon: Icons.apartment_outlined,
-        ),
-        FieldSpec(
-          key: 'primary_firm_id',
-          label: 'Primary firm',
-          helperText: 'Optional; must also be selected above.',
-          optionsResource: firmOptions,
-          singleSelection: true,
-          section: 'Organization',
-        ),
-        const FieldSpec(
-          key: 'password',
-          label: 'Initial password',
-          requiredOnCreate: true,
-          createOnly: true,
-          section: 'Security',
-          sectionIcon: Icons.lock_outline,
-        ),
-        const FieldSpec(
-          key: 'force_password_change',
-          label: 'Require password change',
-          boolean: true,
-          createOnly: true,
-          section: 'Security',
-        ),
-        const FieldSpec(
-          key: 'template_id',
-          label: 'Job template',
-          helperText: 'Name the job and its roles are applied for you. '
-              'Leave blank to pick roles by hand below.',
-          optionsResource: 'user-templates',
-          singleSelection: true,
-          // Create only. Afterwards the person is an ordinary user, and
-          // **Apply job template** on the grid is how a job is re-applied --
-          // a field here would suggest the user stays tied to the template,
-          // which is exactly what a template is not.
-          createOnly: true,
-          section: 'Security',
-        ),
-        const FieldSpec(
-          key: 'role_ids',
-          label: 'Roles',
-          helperText: 'Select one or more roles. '
-              'Ignored when a job template is named above.',
-          optionsResource: 'roles',
-          section: 'Security',
-        ),
-        const FieldSpec(
-          key: 'expires_at',
-          label: 'Expires at',
-          helperText: 'Optional ISO timestamp.',
-          section: 'Security',
-        ),
-        const FieldSpec(
-          key: 'unlock',
-          label: 'Clear login lock (Account Lock)',
-          boolean: true,
-          editOnly: true,
-          section: 'Security',
-        ),
-        const FieldSpec(
-          key: 'personal_email',
-          label: 'Personal email',
-          section: 'Contact Information',
-          sectionIcon: Icons.contact_mail_outlined,
-        ),
-        const FieldSpec(
-          key: 'office_email',
-          label: 'Office email',
-          section: 'Contact Information',
-        ),
-        const FieldSpec(
-          key: 'emergency_contact_name',
-          label: 'Emergency contact name',
-          section: 'Contact Information',
-        ),
-        const FieldSpec(
-          key: 'emergency_mobile',
-          label: 'Emergency contact mobile',
-          section: 'Contact Information',
-        ),
-        const FieldSpec(
-          key: 'emergency_relationship',
-          label: 'Relationship',
-          section: 'Contact Information',
-        ),
-        const FieldSpec(
-          key: 'profile_addresses',
-          label: 'Addresses',
-          kind: FieldKind.addressList,
-          section: 'Address',
-          sectionIcon: Icons.location_on_outlined,
-        ),
-        const FieldSpec(
-          key: 'employee_code',
-          label: 'Employee code',
-          section: 'Employment',
-          sectionIcon: Icons.work_outline,
-        ),
-        const FieldSpec(
-          key: 'joining_date',
-          label: 'Joining date',
-          kind: FieldKind.date,
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'leaving_date',
-          label: 'Leaving date',
-          kind: FieldKind.date,
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'department',
-          label: 'Department',
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'designation',
-          label: 'Designation',
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'reporting_manager',
-          label: 'Reporting manager',
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'employment_type',
-          label: 'Employment type',
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'cost_center',
-          label: 'Cost center',
-          section: 'Employment',
-        ),
-        const FieldSpec(
-          key: 'profile_documents',
-          label: 'Documents',
-          kind: FieldKind.documentList,
-          section: 'Documents',
-          sectionIcon: Icons.folder_outlined,
-        ),
-        const FieldSpec(
-          key: 'created_at',
-          label: 'Created on',
-          alwaysReadOnly: true,
-          section: 'Audit Information',
-          sectionIcon: Icons.history_outlined,
-        ),
-        const FieldSpec(
-          key: 'updated_at',
-          label: 'Last modified on',
-          alwaysReadOnly: true,
-          section: 'Audit Information',
-        ),
-        const FieldSpec(
-          key: 'last_login_at',
-          label: 'Last login',
-          alwaysReadOnly: true,
-          section: 'Audit Information',
-        ),
-        const FieldSpec(
-          key: 'failed_login_attempts',
-          label: 'Failed login attempts',
-          alwaysReadOnly: true,
-          section: 'Audit Information',
-        ),
-      ],
-      initialValues: (user) => user == null
-          ? {
-              'is_active': true,
-              'force_password_change': true,
-              'profile_addresses': const [],
-              'profile_documents': const [],
-            }
-          : {
-              'email': user.email,
-              'full_name': user.fullName,
-              'force_password_change': user.forcePasswordChange,
-              'is_active': user.isActive,
-              'expires_at': user.expiresAt,
-              'unlock': false,
-              'personal_mobile': user.personalMobile,
-              'alternate_mobile': user.alternateMobile,
-              'profile_photo_url': user.profilePhotoUrl,
-              'personal_email': user.personalEmail,
-              'office_email': user.officeEmail,
-              'emergency_contact_name': user.emergencyContactName,
-              'emergency_mobile': user.emergencyMobile,
-              'emergency_relationship': user.emergencyRelationship,
-              'employee_code': user.employeeCode,
-              'joining_date': user.joiningDate,
-              'leaving_date': user.leavingDate,
-              'department': user.department,
-              'designation': user.designation,
-              'reporting_manager': user.reportingManager,
-              'employment_type': user.employmentType,
-              'cost_center': user.costCenter,
-              'profile_addresses': user.profileAddresses,
-              'profile_documents': user.profileDocuments,
-              'created_at': user.createdAt,
-              'updated_at': user.updatedAt,
-              'last_login_at': user.lastLoginAt,
-              'failed_login_attempts': user.failedLoginAttempts.toString(),
-            },
-      payload: (values, isCreating) => isCreating
-          ? {
-              'email': values['email'],
-              'full_name': values['full_name'],
-              'password': values['password'],
-              'is_active': values['is_active'],
-              'force_password_change': values['force_password_change'],
-              if (values['expires_at'].toString().isNotEmpty)
-                'expires_at': values['expires_at'],
-              // The create form shows these, so it has to send them. It used
-              // to send only the six above, which meant a mobile number or a
-              // photo typed at creation was silently dropped and the record
-              // opened blank afterwards.
-              ...userProfilePayload(values),
-            }
-          : {
-              'full_name': values['full_name'],
-              'is_active': values['is_active'],
-              'expires_at': _orNull(values['expires_at']),
-              'unlock': values['unlock'],
-              ...userProfilePayload(values),
-            },
-      partialUpdate: true,
-      loadAssignments: api.userAssignmentValues,
-      saveAssignments: (id, values) async {
-        // Naming a job decides the roles. Both boxes are on screen, so one of
-        // them has to win and it has to be visible which -- the helper text
-        // on Roles says so rather than leaving it to be discovered.
-        //
-        // The same `apply_user_template` the grid action calls, so the
-        // firm-scope check that refuses a platform or cross-firm role applies
-        // here too and there is one implementation of it rather than two.
-        final String template = stringValue(values['template_id']);
-        if (template.isNotEmpty) {
-          await api.applyUserTemplate(id, template);
-        } else {
-          await api.setUserRoles(id, _ids(values['role_ids']));
-        }
-        await api.setUserFirms(
-          id,
-          _ids(values['firm_ids']),
-          values['primary_firm_id'].toString(),
-        );
-      },
-    );
+      const FieldSpec(
+        key: 'full_name',
+        label: 'Full name',
+        required: true,
+        section: 'General Information',
+      ),
+      const FieldSpec(
+        key: 'personal_mobile',
+        label: 'Mobile',
+        section: 'General Information',
+      ),
+      const FieldSpec(
+        key: 'alternate_mobile',
+        label: 'Alternate mobile',
+        section: 'General Information',
+      ),
+      const FieldSpec(
+        key: 'profile_photo_url',
+        label: 'Profile photo URL',
+        helperText: 'Link to a hosted photo.',
+        section: 'General Information',
+      ),
+      const FieldSpec(
+        key: 'is_active',
+        label: 'Status (Active)',
+        boolean: true,
+        section: 'General Information',
+      ),
+      FieldSpec(
+        key: 'firm_ids',
+        label: 'Firms',
+        helperText: 'Select one or more firms.',
+        // `/firms` is platform-only, so a firm administrator opening this
+        // form got an empty picker and a failed load. `/me/firms` is the
+        // honest source for them -- and the most they may assign anyway:
+        // the server refuses a firm they do not hold `USER_CREATE` in, and
+        // carries the person's other memberships through untouched rather
+        // than replacing them.
+        optionsResource: firmOptions,
+        section: 'Organization',
+        sectionIcon: Icons.apartment_outlined,
+      ),
+      FieldSpec(
+        key: 'primary_firm_id',
+        label: 'Primary firm',
+        helperText: 'Optional; must also be selected above.',
+        optionsResource: firmOptions,
+        singleSelection: true,
+        section: 'Organization',
+      ),
+      const FieldSpec(
+        key: 'password',
+        label: 'Initial password',
+        requiredOnCreate: true,
+        createOnly: true,
+        section: 'Security',
+        sectionIcon: Icons.lock_outline,
+      ),
+      const FieldSpec(
+        key: 'force_password_change',
+        label: 'Require password change',
+        boolean: true,
+        createOnly: true,
+        section: 'Security',
+      ),
+      const FieldSpec(
+        key: 'template_id',
+        label: 'Job template',
+        helperText: 'Name the job and its roles are applied for you. '
+            'Leave blank to pick roles by hand below.',
+        optionsResource: 'user-templates',
+        singleSelection: true,
+        // Create only. Afterwards the person is an ordinary user, and
+        // **Apply job template** on the grid is how a job is re-applied --
+        // a field here would suggest the user stays tied to the template,
+        // which is exactly what a template is not.
+        createOnly: true,
+        section: 'Security',
+      ),
+      const FieldSpec(
+        key: 'role_ids',
+        label: 'Roles',
+        helperText: 'Select one or more roles. '
+            'Ignored when a job template is named above.',
+        optionsResource: 'roles',
+        section: 'Security',
+      ),
+      const FieldSpec(
+        key: 'expires_at',
+        label: 'Expires at',
+        helperText: 'Optional ISO timestamp.',
+        section: 'Security',
+      ),
+      const FieldSpec(
+        key: 'unlock',
+        label: 'Clear login lock (Account Lock)',
+        boolean: true,
+        editOnly: true,
+        section: 'Security',
+      ),
+      const FieldSpec(
+        key: 'personal_email',
+        label: 'Personal email',
+        section: 'Contact Information',
+        sectionIcon: Icons.contact_mail_outlined,
+      ),
+      const FieldSpec(
+        key: 'office_email',
+        label: 'Office email',
+        section: 'Contact Information',
+      ),
+      const FieldSpec(
+        key: 'emergency_contact_name',
+        label: 'Emergency contact name',
+        section: 'Contact Information',
+      ),
+      const FieldSpec(
+        key: 'emergency_mobile',
+        label: 'Emergency contact mobile',
+        section: 'Contact Information',
+      ),
+      const FieldSpec(
+        key: 'emergency_relationship',
+        label: 'Relationship',
+        section: 'Contact Information',
+      ),
+      const FieldSpec(
+        key: 'profile_addresses',
+        label: 'Addresses',
+        kind: FieldKind.addressList,
+        section: 'Address',
+        sectionIcon: Icons.location_on_outlined,
+      ),
+      const FieldSpec(
+        key: 'employee_code',
+        label: 'Employee code',
+        section: 'Employment',
+        sectionIcon: Icons.work_outline,
+      ),
+      const FieldSpec(
+        key: 'joining_date',
+        label: 'Joining date',
+        kind: FieldKind.date,
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'leaving_date',
+        label: 'Leaving date',
+        kind: FieldKind.date,
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'department',
+        label: 'Department',
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'designation',
+        label: 'Designation',
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'reporting_manager',
+        label: 'Reporting manager',
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'employment_type',
+        label: 'Employment type',
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'cost_center',
+        label: 'Cost center',
+        section: 'Employment',
+      ),
+      const FieldSpec(
+        key: 'profile_documents',
+        label: 'Documents',
+        kind: FieldKind.documentList,
+        section: 'Documents',
+        sectionIcon: Icons.folder_outlined,
+      ),
+      const FieldSpec(
+        key: 'created_at',
+        label: 'Created on',
+        alwaysReadOnly: true,
+        section: 'Audit Information',
+        sectionIcon: Icons.history_outlined,
+      ),
+      const FieldSpec(
+        key: 'updated_at',
+        label: 'Last modified on',
+        alwaysReadOnly: true,
+        section: 'Audit Information',
+      ),
+      const FieldSpec(
+        key: 'last_login_at',
+        label: 'Last login',
+        alwaysReadOnly: true,
+        section: 'Audit Information',
+      ),
+      const FieldSpec(
+        key: 'failed_login_attempts',
+        label: 'Failed login attempts',
+        alwaysReadOnly: true,
+        section: 'Audit Information',
+      ),
+    ],
+    initialValues: (user) => user == null
+        ? {
+            'is_active': true,
+            'force_password_change': true,
+            'profile_addresses': const [],
+            'profile_documents': const [],
+          }
+        : {
+            'email': user.email,
+            'full_name': user.fullName,
+            'force_password_change': user.forcePasswordChange,
+            'is_active': user.isActive,
+            'expires_at': user.expiresAt,
+            'unlock': false,
+            'personal_mobile': user.personalMobile,
+            'alternate_mobile': user.alternateMobile,
+            'profile_photo_url': user.profilePhotoUrl,
+            'personal_email': user.personalEmail,
+            'office_email': user.officeEmail,
+            'emergency_contact_name': user.emergencyContactName,
+            'emergency_mobile': user.emergencyMobile,
+            'emergency_relationship': user.emergencyRelationship,
+            'employee_code': user.employeeCode,
+            'joining_date': user.joiningDate,
+            'leaving_date': user.leavingDate,
+            'department': user.department,
+            'designation': user.designation,
+            'reporting_manager': user.reportingManager,
+            'employment_type': user.employmentType,
+            'cost_center': user.costCenter,
+            'profile_addresses': user.profileAddresses,
+            'profile_documents': user.profileDocuments,
+            'created_at': user.createdAt,
+            'updated_at': user.updatedAt,
+            'last_login_at': user.lastLoginAt,
+            'failed_login_attempts': user.failedLoginAttempts.toString(),
+          },
+    payload: (values, isCreating) => isCreating
+        ? {
+            'email': values['email'],
+            'full_name': values['full_name'],
+            'password': values['password'],
+            'is_active': values['is_active'],
+            'force_password_change': values['force_password_change'],
+            if (values['expires_at'].toString().isNotEmpty)
+              'expires_at': values['expires_at'],
+            // The create form shows these, so it has to send them. It used
+            // to send only the six above, which meant a mobile number or a
+            // photo typed at creation was silently dropped and the record
+            // opened blank afterwards.
+            ...userProfilePayload(values),
+          }
+        : {
+            'full_name': values['full_name'],
+            'is_active': values['is_active'],
+            'expires_at': _orNull(values['expires_at']),
+            'unlock': values['unlock'],
+            ...userProfilePayload(values),
+          },
+    partialUpdate: true,
+    loadAssignments: api.userAssignmentValues,
+    saveAssignments: (id, values) async {
+      // Naming a job decides the roles. Both boxes are on screen, so one of
+      // them has to win and it has to be visible which -- the helper text
+      // on Roles says so rather than leaving it to be discovered.
+      //
+      // The same `apply_user_template` the grid action calls, so the
+      // firm-scope check that refuses a platform or cross-firm role applies
+      // here too and there is one implementation of it rather than two.
+      final String template = stringValue(values['template_id']);
+      if (template.isNotEmpty) {
+        await api.applyUserTemplate(id, template);
+      } else {
+        await api.setUserRoles(id, _ids(values['role_ids']));
+      }
+      await api.setUserFirms(
+        id,
+        _ids(values['firm_ids']),
+        values['primary_firm_id'].toString(),
+      );
+    },
+  );
 }
-
 
 ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
   ApiClient api,
   PermissionService permissions,
-) =>
-    ResourceDefinition(
-      title: 'User-Firm Assignments',
-      resource: 'users',
-      showFrame: false,
-      description: 'Assign users to one or more firms using the current API.',
-      // Same blindness as the profile assignment: the form is a firm picker
-      // and nothing in it says whose access is being changed.
-      dialogSubtitle: (user) => <String>[
-        if (user.fullName.isNotEmpty) user.fullName,
-        user.email,
-        user.isActive ? 'Active' : 'Inactive',
-      ].join('  ·  '),
-      headers: const ['Email', 'Name', 'Status'],
-      sortFields: const ['email', 'full_name', null],
-      cells: (user) => [
-        user.email,
-        user.fullName,
-        user.isActive ? 'Active' : 'Inactive',
-      ],
-      id: (user) => user.id,
-      load: api.users,
-      canUseAction: (action, _) => _canUseResourceAction(
-        permissions,
-        action,
-        view: const ['USER_VIEW', 'USER_UPDATE', 'FIRM_VIEW'],
-        create: const [],
-        update: const ['USER_VIEW', 'USER_UPDATE', 'FIRM_VIEW'],
-        delete: const [],
+) {
+  // `/firms` lists every firm on the platform and only a platform
+  // administrator may read it; everybody else gets their own.
+  final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
+  return ResourceDefinition(
+    title: 'User-Firm Assignments',
+    resource: 'users',
+    showFrame: false,
+    description: 'Assign users to one or more firms using the current API.',
+    // Same blindness as the profile assignment: the form is a firm picker
+    // and nothing in it says whose access is being changed.
+    dialogSubtitle: (user) => <String>[
+      if (user.fullName.isNotEmpty) user.fullName,
+      user.email,
+      user.isActive ? 'Active' : 'Inactive',
+    ].join('  ·  '),
+    headers: const ['Email', 'Name', 'Status'],
+    sortFields: const ['email', 'full_name', null],
+    cells: (user) => [
+      user.email,
+      user.fullName,
+      user.isActive ? 'Active' : 'Inactive',
+    ],
+    id: (user) => user.id,
+    load: api.users,
+    // `FIRM_VIEW` is a platform code `FIRM_ADMIN` can never hold, so this
+    // whole tab was dead for the one role whose job it is -- the same fault
+    // #240 fixed on the users grid, in the tab next door. The pickers were
+    // the second half of it: `/firms` is platform-only and came back empty.
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['USER_VIEW', 'USER_UPDATE'],
+      create: const [],
+      update: const ['USER_VIEW', 'USER_UPDATE'],
+      delete: const [],
+    ),
+    fields: [
+      FieldSpec(
+        key: 'firm_ids',
+        label: 'Firms',
+        helperText: 'Select one or more firms for this user.',
+        optionsResource: firmOptions,
       ),
-      fields: const [
-        FieldSpec(
-          key: 'firm_ids',
-          label: 'Firms',
-          helperText: 'Select one or more firms for this user.',
-          optionsResource: 'firms',
-        ),
-        FieldSpec(
-          key: 'primary_firm_id',
-          label: 'Primary firm',
-          helperText: 'Optional; it must also be selected above.',
-          optionsResource: 'firms',
-          singleSelection: true,
-        ),
-      ],
-      initialValues: (_) => {},
-      payload: (_, __) => {},
-      canCreate: false,
-      canDelete: false,
-      updateEntity: false,
-      loadAssignments: api.userFirmAssignmentValues,
-      saveAssignments: (id, values) => api.setUserFirms(
-        id,
-        _ids(values['firm_ids']),
-        values['primary_firm_id'].toString(),
+      FieldSpec(
+        key: 'primary_firm_id',
+        label: 'Primary firm',
+        helperText: 'Optional; it must also be selected above.',
+        optionsResource: firmOptions,
+        singleSelection: true,
       ),
-    );
+    ],
+    initialValues: (_) => {},
+    payload: (_, __) => {},
+    canCreate: false,
+    canDelete: false,
+    updateEntity: false,
+    loadAssignments: api.userFirmAssignmentValues,
+    saveAssignments: (id, values) => api.setUserFirms(
+      id,
+      _ids(values['firm_ids']),
+      values['primary_firm_id'].toString(),
+    ),
+  );
+}
 
 /// A named bundle of roles for one job.
 ///
@@ -3499,7 +3566,6 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
       // rename.
       partialUpdate: true,
     );
-
 
 ResourceDefinition<Role> _roleDefinition(
   ApiClient api,
@@ -4105,91 +4171,91 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
   // create passes null, which clears it.
   AttributeDefinitionRecord? editing;
   return ResourceDefinition(
-      title: 'Attribute Definitions',
-      resource: 'business-framework/attribute-definitions',
-      showFrame: showFrame,
-      description:
-          'Define reusable attribute metadata for future product and inventory modules.',
-      headers: const ['Code', 'Applies to', 'Name', 'Data type', 'Category'],
-      sortFields: const ['code', null, 'name', null, null],
-      cells: (attribute) => [
-        attribute.code,
-        attribute.entityType,
-        attribute.name,
-        attribute.dataType,
-        attribute.applicableCategory,
-      ],
-      id: (attribute) => attribute.id,
-      load: api.attributeDefinitions,
-      canUseAction: (action, _) => _canUseResourceAction(
-        permissions,
-        action,
-        view: const ['PLATFORM_VIEW'],
-        create: const ['PLATFORM_SETTINGS'],
-        update: const ['PLATFORM_SETTINGS'],
-        delete: const ['PLATFORM_SETTINGS'],
+    title: 'Attribute Definitions',
+    resource: 'business-framework/attribute-definitions',
+    showFrame: showFrame,
+    description:
+        'Define reusable attribute metadata for future product and inventory modules.',
+    headers: const ['Code', 'Applies to', 'Name', 'Data type', 'Category'],
+    sortFields: const ['code', null, 'name', null, null],
+    cells: (attribute) => [
+      attribute.code,
+      attribute.entityType,
+      attribute.name,
+      attribute.dataType,
+      attribute.applicableCategory,
+    ],
+    id: (attribute) => attribute.id,
+    load: api.attributeDefinitions,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PLATFORM_VIEW'],
+      create: const ['PLATFORM_SETTINGS'],
+      update: const ['PLATFORM_SETTINGS'],
+      delete: const ['PLATFORM_SETTINGS'],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Attribute code',
+        required: true,
+        readOnlyWhenEditing: true,
       ),
-      fields: const [
-        FieldSpec(
-          key: 'code',
-          label: 'Attribute code',
-          required: true,
-          readOnlyWhenEditing: true,
-        ),
-        FieldSpec(key: 'name', label: 'Name', required: true),
-        FieldSpec(
-          key: 'entity_type',
-          label: 'Applies to',
-          required: true,
-          choices: [
-            'PRODUCT',
-            'CUSTOMER',
-            'VENDOR',
-            'BRANCH',
-            'WAREHOUSE',
-            'TAX_PROFILE',
-            'UOM',
-          ],
-          helperText: 'Which record carries this field.',
-        ),
-        FieldSpec(
-          key: 'data_type',
-          label: 'Data type',
-          required: true,
-          choices: ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN'],
-          helperText: 'Decides which column stores the value, and how it is '
-              'validated and reported on.',
-        ),
-        FieldSpec(key: 'description', label: 'Description', multiline: true),
-        FieldSpec(key: 'default_value', label: 'Default value'),
-        FieldSpec(
-          key: 'mandatory',
-          label: 'Mandatory',
-          boolean: true,
-        ),
-        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
-        FieldSpec(
-          key: 'applicable_business_profile_id',
-          label: 'Limit to business profile',
-          optionsResource: 'business-framework/profiles',
-          singleSelection: true,
-          section: 'Where it applies',
-          helperText: 'Leave empty to offer this field to every industry.',
-        ),
-        FieldSpec(
-          key: 'applicable_category',
-          label: 'Limit to product category',
-          optionsResource: 'products/categories',
-          singleSelection: true,
-          // Matched against the category's code, not its id.
-          submitsCode: true,
-          section: 'Where it applies',
-          helperText: 'Leave empty to offer this field in every category.',
-        ),
-      ],
-      initialValues: (attribute) {
-        editing = attribute;
-        return attribute == null
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(
+        key: 'entity_type',
+        label: 'Applies to',
+        required: true,
+        choices: [
+          'PRODUCT',
+          'CUSTOMER',
+          'VENDOR',
+          'BRANCH',
+          'WAREHOUSE',
+          'TAX_PROFILE',
+          'UOM',
+        ],
+        helperText: 'Which record carries this field.',
+      ),
+      FieldSpec(
+        key: 'data_type',
+        label: 'Data type',
+        required: true,
+        choices: ['TEXT', 'NUMBER', 'DATE', 'BOOLEAN'],
+        helperText: 'Decides which column stores the value, and how it is '
+            'validated and reported on.',
+      ),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      FieldSpec(key: 'default_value', label: 'Default value'),
+      FieldSpec(
+        key: 'mandatory',
+        label: 'Mandatory',
+        boolean: true,
+      ),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      FieldSpec(
+        key: 'applicable_business_profile_id',
+        label: 'Limit to business profile',
+        optionsResource: 'business-framework/profiles',
+        singleSelection: true,
+        section: 'Where it applies',
+        helperText: 'Leave empty to offer this field to every industry.',
+      ),
+      FieldSpec(
+        key: 'applicable_category',
+        label: 'Limit to product category',
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        // Matched against the category's code, not its id.
+        submitsCode: true,
+        section: 'Where it applies',
+        helperText: 'Leave empty to offer this field in every category.',
+      ),
+    ],
+    initialValues: (attribute) {
+      editing = attribute;
+      return attribute == null
           ? {
               'mandatory': false,
               'is_active': true,
@@ -4209,25 +4275,25 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
               'default_value': attribute.defaultValue,
               'is_active': attribute.isActive,
             };
-      },
-      payload: (values, isCreating) => {
-        'code': values['code'],
-        'name': values['name'],
-        'entity_type': values['entity_type'],
-        'data_type': values['data_type'],
-        'applicable_category': _blankToNull(values['applicable_category']),
-        'applicable_business_profile_id':
-            _blankToNull(values['applicable_business_profile_id']),
-        'mandatory': values['mandatory'],
-        'description': _blankToNull(values['description']),
-        'default_value': _blankToNull(values['default_value']),
-        'is_active': values['is_active'],
-        // Round-tripped, not edited. Omitting it would null a rule the form
-        // never showed.
-        if (!isCreating && editing?.validationRule != null)
-          'validation_rule': editing!.validationRule,
-      },
-    );
+    },
+    payload: (values, isCreating) => {
+      'code': values['code'],
+      'name': values['name'],
+      'entity_type': values['entity_type'],
+      'data_type': values['data_type'],
+      'applicable_category': _blankToNull(values['applicable_category']),
+      'applicable_business_profile_id':
+          _blankToNull(values['applicable_business_profile_id']),
+      'mandatory': values['mandatory'],
+      'description': _blankToNull(values['description']),
+      'default_value': _blankToNull(values['default_value']),
+      'is_active': values['is_active'],
+      // Round-tripped, not edited. Omitting it would null a rule the form
+      // never showed.
+      if (!isCreating && editing?.validationRule != null)
+        'validation_rule': editing!.validationRule,
+    },
+  );
 }
 
 /// Send null rather than an empty string for an optional column.
@@ -4251,89 +4317,89 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
   final Map<String, FirmProfileAssignment> assigned =
       <String, FirmProfileAssignment>{};
   return ResourceDefinition(
-      title: 'Profile Assignment',
-      resource: 'firms',
-      showFrame: false,
-      description: 'Assign one active business profile to each firm.',
-      // The form is a profile dropdown, a switch and a notes box — nothing in
-      // it names the firm being assigned to. Without this the dialog reads
-      // "Profile Assignment / Edit existing record" and the user has to
-      // remember which row they opened, which is exactly the moment to get it
-      // wrong: a profile decides which features and modules a firm operates.
-      dialogSubtitle: (firm) => <String>[
-        '${firm.code} — ${firm.name}',
-        if (firm.city.isNotEmpty) firm.city,
-        if (firm.country.isNotEmpty) firm.country,
-        if (firm.currencyCode.isNotEmpty) firm.currencyCode,
-        firm.isActive ? 'Active' : 'Inactive',
-      ].join('  ·  '),
-      headers: const ['Code', 'Name', 'Business profile', 'Country', 'Status'],
-      sortFields: const ['code', 'name', null, null, null],
-      cells: (firm) => [
-        firm.code,
-        firm.name,
-        // Never blank. An unassigned firm, one whose store cannot be read and
-        // one that simply has not loaded are three different situations, and
-        // an empty cell reads as "nothing to do here" for all of them.
-        assigned[firm.id]?.label ?? 'Not assigned',
-        firm.country,
-        firm.isActive ? 'Active' : 'Inactive',
-      ],
-      id: (firm) => firm.id,
-      load: ({
-        int page = 1,
-        String search = '',
-        String sortBy = 'created_at',
-        bool descending = true,
-      }) async {
-        final PagedResult<Firm> firms = await api.firms(
-          page: page,
-          search: search,
-          sortBy: sortBy,
-          descending: descending,
-        );
-        // A failure here must not take the whole grid down: the firms are the
-        // record being administered and the profile is a column on them, so a
-        // store that cannot be reached should cost that cell, not the page.
-        try {
-          assigned
-            ..clear()
-            ..addAll(await api.firmProfileAssignments());
-        } on ApiException {
-          assigned.clear();
-        }
-        return firms;
-      },
-      canUseAction: (action, _) => _canUseResourceAction(
-        permissions,
-        action,
-        view: const ['FIRM_VIEW', 'PLATFORM_VIEW'],
-        create: const [],
-        update: const ['FIRM_VIEW', 'PLATFORM_VIEW', 'PLATFORM_SETTINGS'],
-        delete: const [],
+    title: 'Profile Assignment',
+    resource: 'firms',
+    showFrame: false,
+    description: 'Assign one active business profile to each firm.',
+    // The form is a profile dropdown, a switch and a notes box — nothing in
+    // it names the firm being assigned to. Without this the dialog reads
+    // "Profile Assignment / Edit existing record" and the user has to
+    // remember which row they opened, which is exactly the moment to get it
+    // wrong: a profile decides which features and modules a firm operates.
+    dialogSubtitle: (firm) => <String>[
+      '${firm.code} — ${firm.name}',
+      if (firm.city.isNotEmpty) firm.city,
+      if (firm.country.isNotEmpty) firm.country,
+      if (firm.currencyCode.isNotEmpty) firm.currencyCode,
+      firm.isActive ? 'Active' : 'Inactive',
+    ].join('  ·  '),
+    headers: const ['Code', 'Name', 'Business profile', 'Country', 'Status'],
+    sortFields: const ['code', 'name', null, null, null],
+    cells: (firm) => [
+      firm.code,
+      firm.name,
+      // Never blank. An unassigned firm, one whose store cannot be read and
+      // one that simply has not loaded are three different situations, and
+      // an empty cell reads as "nothing to do here" for all of them.
+      assigned[firm.id]?.label ?? 'Not assigned',
+      firm.country,
+      firm.isActive ? 'Active' : 'Inactive',
+    ],
+    id: (firm) => firm.id,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'created_at',
+      bool descending = true,
+    }) async {
+      final PagedResult<Firm> firms = await api.firms(
+        page: page,
+        search: search,
+        sortBy: sortBy,
+        descending: descending,
+      );
+      // A failure here must not take the whole grid down: the firms are the
+      // record being administered and the profile is a column on them, so a
+      // store that cannot be reached should cost that cell, not the page.
+      try {
+        assigned
+          ..clear()
+          ..addAll(await api.firmProfileAssignments());
+      } on ApiException {
+        assigned.clear();
+      }
+      return firms;
+    },
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['FIRM_VIEW', 'PLATFORM_VIEW'],
+      create: const [],
+      update: const ['FIRM_VIEW', 'PLATFORM_VIEW', 'PLATFORM_SETTINGS'],
+      delete: const [],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'business_profile_id',
+        label: 'Business profile',
+        optionsResource: 'business-framework/profiles',
+        singleSelection: true,
+        required: true,
       ),
-      fields: const [
-        FieldSpec(
-          key: 'business_profile_id',
-          label: 'Business profile',
-          optionsResource: 'business-framework/profiles',
-          singleSelection: true,
-          required: true,
-        ),
-        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
-        FieldSpec(key: 'notes', label: 'Notes', multiline: true),
-      ],
-      initialValues: (_) => {'is_active': true},
-      payload: (_, __) => {},
-      canCreate: false,
-      canDelete: false,
-      updateEntity: false,
-      loadAssignments: api.firmBusinessProfileAssignmentValues,
-      saveAssignments: (firmId, values) => api.assignBusinessProfileToFirm(
-        firmId,
-        values['business_profile_id'].toString(),
-        isActive: values['is_active'] as bool? ?? true,
-        notes: values['notes'].toString(),
-      ),
-    );
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      FieldSpec(key: 'notes', label: 'Notes', multiline: true),
+    ],
+    initialValues: (_) => {'is_active': true},
+    payload: (_, __) => {},
+    canCreate: false,
+    canDelete: false,
+    updateEntity: false,
+    loadAssignments: api.firmBusinessProfileAssignmentValues,
+    saveAssignments: (firmId, values) => api.assignBusinessProfileToFirm(
+      firmId,
+      values['business_profile_id'].toString(),
+      isActive: values['is_active'] as bool? ?? true,
+      notes: values['notes'].toString(),
+    ),
+  );
 }

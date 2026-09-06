@@ -145,6 +145,33 @@ class Firm {
       };
 }
 
+/// The least that identifies somebody, for hiring an account that exists.
+///
+/// Deliberately not a [PlatformUser]: the point is what it omits. A lookup
+/// reaches across firms, so it answers "is this them?" and nothing else --
+/// and above all it never says which firms they belong to, which is the fact
+/// one firm must not learn about another.
+class UserLookupResult {
+  const UserLookupResult({
+    required this.id,
+    required this.fullName,
+    required this.email,
+    required this.alreadyAMember,
+  });
+
+  final String id, fullName, email;
+
+  /// Already in this firm, so there is nothing to add.
+  final bool alreadyAMember;
+
+  factory UserLookupResult.fromJson(Json json) => UserLookupResult(
+        id: stringValue(json['id']),
+        fullName: stringValue(json['full_name']),
+        email: stringValue(json['email']),
+        alreadyAMember: boolValue(json['already_a_member']),
+      );
+}
+
 class PlatformUser {
   const PlatformUser({
     required this.id,
@@ -175,9 +202,19 @@ class PlatformUser {
     this.lastLoginAt = '',
     this.createdAt = '',
     this.updatedAt = '',
+    this.belongsToOtherFirms = false,
   });
   final String id, email, fullName;
   final bool isActive, forcePasswordChange;
+
+  /// Whether this person also works in a firm this caller cannot see.
+  ///
+  /// The server refuses `PATCH /users/{id}` and the delete for exactly these
+  /// -- a user record is platform-wide, so one firm renaming or deactivating
+  /// another firm's staff would reach outside its own books. The flag is what
+  /// lets the grid disable Edit rather than offer a form that cannot save.
+  /// Always false for a platform administrator, who can see every firm.
+  final bool belongsToOtherFirms;
   final String expiresAt;
 
   // Optional HR/profile enrichment (Phase 9). Never consulted for
@@ -213,6 +250,7 @@ class PlatformUser {
         isActive: boolValue(json['is_active'], fallback: true),
         forcePasswordChange: boolValue(json['force_password_change']),
         expiresAt: stringValue(json['expires_at']),
+        belongsToOtherFirms: boolValue(json['belongs_to_other_firms']),
         personalMobile: stringValue(json['personal_mobile']),
         alternateMobile: stringValue(json['alternate_mobile']),
         personalEmail: stringValue(json['personal_email']),

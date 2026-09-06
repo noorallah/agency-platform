@@ -135,6 +135,38 @@ firm's Audit Logs screen reads both, so **you see it in your own firm's
 trail**. `Settings → Audit Logs`, newest first, alongside everything else your
 firm did.
 
+## 3c. Hiring somebody who already has an account
+
+Somebody who already works at another firm — a person moving within a group, or
+working across two. **Administration → Users → Add existing person.**
+
+Search by **name or email**, at least three characters. Pick them, optionally
+name a job, and **Add to this firm**.
+
+What you see of them is their name and email, and whether they are already
+here. You are not told which other firms they work in — that is the one thing a
+firm does not learn about another, and it is why this is a lookup rather than a
+list you can page through.
+
+Nothing changes in any firm they already work in. Their memberships and roles
+there are untouched, and they are not told.
+
+If nobody matches, they have no account yet: use **New**.
+
+### What you may do to them afterwards
+
+Somebody who works in more than one firm has a profile that belongs to the
+platform, not to either firm — otherwise one firm could rename or deactivate
+the other firm's staff. Their row shows this, and **Edit** is disabled.
+
+| | |
+| --- | --- |
+| Their roles in **your** firm | yours to set |
+| Their job template | yours to apply |
+| Their membership of **your** firm | yours to add or remove |
+| Name, email, mobile, password, active | a platform administrator's |
+| Anything in another firm | not yours, and not visible |
+
 ## 4. Hiring somebody to do what an existing person does
 
 The more common case: you have a person in mind rather than a written-down job.

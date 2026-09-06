@@ -524,6 +524,35 @@ could read any audit trail at all**.
 
 ---
 
+## 24. Hiring somebody who already has an account
+
+`list_users` is scoped to the caller's own members, so a firm administrator
+could not find — or even learn the existence of — a person who already works
+elsewhere. Sign in as `whole01.admin`.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 24.1 | Administration → Users → **Add existing person** | A search box. It is offered with no row selected — the person is not in the grid, which is the point. |
+| 24.2 | Type `el` | Nothing searched: "at least 3 characters". |
+| 24.3 | Type `elec` | ELEC01's people, found by **email**. |
+| 24.4 | Type `Electro` | The same person found by **name**. |
+| 24.5 | Look at a result | Name, email, and nothing else. **No firm is named** — you must not learn which firms they work in. |
+| 24.6 | Type part of one of your own people's names | Listed, marked **Already in this firm**, and Add is disabled. |
+| 24.7 | Type something matching nobody | "They may not have an account yet — use New." |
+| 24.8 | Pick an ELEC01 person, set job **Counter Sales**, Add | Added. They appear in WHOLE01's user list. |
+| 24.9 | Open their row | **Edit is disabled**, and it says they also work in another firm and their profile is managed by a platform administrator. |
+| 24.10 | Apply job template / set roles on them | Both work. Those are yours. |
+| 24.11 **(HTTP)** | `GET /api/v1/users/{id}/firms` as `whole01.admin` | **Only WHOLE01.** It returned every membership until 2026-09-06. |
+| 24.12 **(HTTP)** | Same as `superadmin` | Both firms — a platform caller still sees them all. |
+| 24.13 **(SQL)** | Check their ELEC01 roles | Unchanged. Adding them to WHOLE01 touches nothing in ELEC01. |
+| 24.14 | As `whole01.sales1`, look for Add existing person | Not offered. It needs `USER_CREATE`. |
+| 24.15 **(HTTP)** | `GET /api/v1/users/lookup?q=elec` with a `whole01.sales1` token | `403`. `USER_VIEW` deliberately does not reach it. |
+
+> **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the
+> membership and the WHOLE01 roles afterwards, or reseed.
+
+---
+
 ---
 
 # Part 4 — Known gaps

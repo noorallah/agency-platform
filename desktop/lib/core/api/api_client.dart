@@ -301,6 +301,25 @@ class ApiClient {
           pageSize: pageSize, sortBy: sortBy, descending: descending);
 
 
+  /// Finds somebody who already has an account, to hire them into this firm.
+  ///
+  /// A **lookup, not a directory**: the server refuses a term under three
+  /// characters, caps the result, does not page, and never says which firms
+  /// somebody belongs to. `list_users` stays scoped to the caller's own firm.
+  Future<List<UserLookupResult>> lookupUsers(String term) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/users/lookup',
+      query: {'q': term},
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return [
+      for (final dynamic row in data)
+        if (row is Map<String, dynamic>) UserLookupResult.fromJson(row),
+    ];
+  }
+
   /// Hires somebody to do what an existing person does.
   ///
   /// Only access crosses over. The new person starts without the source's
