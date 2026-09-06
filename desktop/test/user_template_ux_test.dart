@@ -977,6 +977,75 @@ void _firmFilterTests() {
       expect(api.lastFirmId, '', reason: 'no filter means every firm');
     });
   });
+
+  group('the firm filter on the users grid', () {
+    Future<_FirmFilterApi> pumpGrid(
+      WidgetTester tester, {
+      bool optionsFail = false,
+    }) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1600, 900);
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+      final _FirmFilterApi api = _FirmFilterApi()..optionsFail = optionsFail;
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ResourceManagementPage<PlatformUser>(
+            api: api,
+            definition: userDefinition(api, _platformAdmin()),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('renders, and offers the firms it fetched', (tester) async {
+      // The definition naming a filter is not the same as a control on
+      // screen: the choices are rows in a table, so the grid has to fetch
+      // them before there is anything to pick.
+      final _FirmFilterApi api = await pumpGrid(tester);
+
+      expect(api.optionsAsked, contains('firms'));
+      expect(find.text('Firm'), findsOneWidget);
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('WHOLE01'), findsWidgets);
+      expect(find.text('ELEC01'), findsWidgets);
+      // Naming no firm has to stay reachable, or the filter has become a
+      // requirement rather than a narrowing.
+      expect(find.text('All firm'), findsWidgets);
+    });
+
+    testWidgets('choosing one reloads the grid against that firm',
+        (tester) async {
+      final _FirmFilterApi api = await pumpGrid(tester);
+      expect(api.lastFirmId, '', reason: 'the first load names no firm');
+
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ELEC01').last);
+      await tester.pumpAndSettle();
+
+      expect(api.lastFirmId, 'firm-b');
+    });
+
+    testWidgets('a firm list that cannot be read leaves the grid usable',
+        (tester) async {
+      // Emptying the filter bar because one fetch failed would be worse
+      // than a filter with fewer choices -- the grid itself still works.
+      final _FirmFilterApi api = await pumpGrid(tester, optionsFail: true);
+
+      expect(api.optionsAsked, contains('firms'));
+      expect(find.text('Firm'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
 
 
@@ -991,6 +1060,24 @@ class _FirmFilterApi extends ApiClient {
 
   /// The firm the last list request carried, so a test can see it arrive.
   String lastFirmId = '';
+
+  /// Resources whose options were fetched, so a test can see the grid ask.
+  final List<String> optionsAsked = [];
+
+  /// Whether the options fetch should fail, for the degraded case.
+  bool optionsFail = false;
+
+  @override
+  Future<List<AssignmentOption>> options(String resource) async {
+    optionsAsked.add(resource);
+    if (optionsFail) {
+      throw ApiException('the firm list could not be read');
+    }
+    return const [
+      AssignmentOption(id: 'firm-a', label: 'WHOLE01'),
+      AssignmentOption(id: 'firm-b', label: 'ELEC01'),
+    ];
+  }
 
   @override
   Future<PagedResult<PlatformUser>> users({
