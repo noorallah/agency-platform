@@ -736,6 +736,64 @@ void main() {
     });
   });
 
+  group('the create form starts in your own firm', () {
+    test('a firm admin gets their firm prefilled', () {
+      // `create_user` attaches the caller's firm; `saveAssignments` then sends
+      // whatever this picker holds. An untouched picker used to remove the
+      // membership the create had just made, so the new user landed in no
+      // firm and vanished from the grid -- the form doing the opposite of the
+      // API, with nothing on screen to say so.
+      final ResourceDefinition<PlatformUser> definition = userDefinition(
+        _UsersApi(),
+        _permissions(const [
+          'USER_VIEW',
+          'USER_CREATE',
+          'USER_UPDATE',
+          'ROLE_VIEW',
+          'ROLE_ASSIGN',
+        ]),
+      );
+
+      final Map<String, dynamic> fresh = definition.initialValues(null);
+
+      expect(fresh['firm_ids'], 'firm-1');
+      expect(fresh['primary_firm_id'], 'firm-1');
+    });
+
+    test('a platform administrator gets nothing prefilled', () {
+      // They have no "own firm". `create_user` attaches nothing for them, and
+      // quietly putting a new user into whichever firm their switcher happens
+      // to show would be a surprise rather than a default.
+      final ResourceDefinition<PlatformUser> definition =
+          userDefinition(_UsersApi(), _platformAdmin());
+
+      final Map<String, dynamic> fresh = definition.initialValues(null);
+
+      expect(fresh['firm_ids'], '');
+      expect(fresh['primary_firm_id'], '');
+    });
+
+    test('editing an existing user prefills nothing of the sort', () {
+      // The firms of somebody who already exists are loaded by
+      // `loadAssignments`, not guessed from whoever is looking at them.
+      final ResourceDefinition<PlatformUser> definition = userDefinition(
+        _UsersApi(),
+        _permissions(const ['USER_VIEW', 'USER_UPDATE', 'ROLE_VIEW']),
+      );
+      const PlatformUser existing = PlatformUser(
+        id: 'u-1',
+        email: 'someone@example.com',
+        fullName: 'Someone',
+        isActive: true,
+        forcePasswordChange: false,
+        expiresAt: '',
+      );
+
+      expect(
+          definition.initialValues(existing).containsKey('firm_ids'), isFalse);
+    });
+  });
+
   group('a person who works in more than one firm', () {
     test('their row cannot be edited, and the dialog says why', () {
       // A user record is platform-wide, so the server refuses to edit or

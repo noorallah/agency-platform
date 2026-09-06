@@ -2981,6 +2981,23 @@ ResourceDefinition<PlatformUser> userDefinition(
   // `/firms` lists every firm on the platform and only a platform
   // administrator may read it. A firm administrator gets their own.
   final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
+  // The firm a new user starts in, on the create form only.
+  //
+  // `create_user` already attaches the caller's firm when the caller has one,
+  // and `saveAssignments` then sends whatever this picker holds -- so an
+  // untouched picker used to *remove* the membership the create had just
+  // made, and the new user landed in no firm and vanished from the grid. The
+  // form was quietly doing the opposite of the API.
+  //
+  // Prefilling makes the common case visible and self-consistent: what the
+  // picker shows is what gets saved. Clearing it deliberately still gives a
+  // user with no firm, which is allowed -- see USER_ADMINISTRATION_GUIDE §7b.
+  //
+  // Empty for a platform administrator, who has no "own firm": `create_user`
+  // attaches nothing for them, and silently putting a new user into whichever
+  // firm their switcher happens to show would be a surprise, not a default.
+  final String ownFirm =
+      permissions.isPlatformAdmin ? '' : (api.activeFirmId?.call() ?? '');
   return ResourceDefinition(
     title: 'Users',
     resource: 'users',
@@ -3294,6 +3311,8 @@ ResourceDefinition<PlatformUser> userDefinition(
             'force_password_change': true,
             'profile_addresses': const [],
             'profile_documents': const [],
+            'firm_ids': ownFirm,
+            'primary_firm_id': ownFirm,
           }
         : {
             'email': user.email,
