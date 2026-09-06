@@ -355,7 +355,7 @@ decides which one they are doing.**
 
 | Firm selected | What the sidebar offers |
 | --- | --- |
-| **Platform** (none) | Dashboard, Administration, Settings, Licensing — and, inside Administration, only the platform tabs: Users, Roles, Permissions, User Templates, User-Firm Assignments |
+| **Platform** (none) | Dashboard, Administration, Settings, Licensing — and, inside Administration, only the platform tabs: **Firms**, Users, Roles, Permissions, User Templates, User-Firm Assignments |
 | A firm | that firm's whole application, plus everything above |
 
 Three rules behind it, each of which was a defect before it was a rule:
@@ -377,6 +377,15 @@ Three rules behind it, each of which was a defect before it was a rule:
 
 Nobody else can be in platform mode: for an ordinary user a null firm is not a
 mode but an empty application, so `switchFirm(null)` refuses them.
+
+**Firms is one of those tabs, and it used to be under Masters** — a firm's own
+master data, which needs a firm selected. So the one screen that creates a firm
+was reachable only from inside another firm. `FIRM_VIEW` is a platform code no
+firm role may hold, so moving it costs no firm user a tab. Its **Open this
+firm** action re-reads the firm list and switches into the new firm, because
+the rest of setting one up — business profile, financial year, chart of
+accounts — lives in that firm's own store; it is disabled for a dedicated firm
+whose storage has not been provisioned, and for a retired one.
 
 The module catalogue carries this as data — `requiresFirm` on
 `ModuleDefinition` and on `ModuleTabDefinition`, defaulting to true. It is
