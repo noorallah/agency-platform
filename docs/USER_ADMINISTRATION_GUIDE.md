@@ -138,7 +138,7 @@ firm did.
 ## 3c. Hiring somebody who already has an account
 
 Somebody who already works at another firm — a person moving within a group, or
-working across two. **Administration → Users → Add existing person.**
+working across two. **Administration → Users → Add existing user.**
 
 Search by **name or email**, at least three characters. Pick them, optionally
 name a job, and **Add to this firm**.

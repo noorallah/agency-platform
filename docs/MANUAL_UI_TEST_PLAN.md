@@ -532,7 +532,7 @@ elsewhere. Sign in as `whole01.admin`.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 24.1 | Administration → Users → **Add existing person** | A search box. It is offered with no row selected — the person is not in the grid, which is the point. |
+| 24.1 | Administration → Users → **Add existing user** | A search box. It is offered with no row selected — the person is not in the grid, which is the point. |
 | 24.2 | Type `el` | Nothing searched: "at least 3 characters". |
 | 24.3 | Type `elec` | ELEC01's people, found by **email**. |
 | 24.4 | Type `Electro` | The same person found by **name**. |
@@ -545,7 +545,7 @@ elsewhere. Sign in as `whole01.admin`.
 | 24.11 **(HTTP)** | `GET /api/v1/users/{id}/firms` as `whole01.admin` | **Only WHOLE01.** It returned every membership until 2026-09-06. |
 | 24.12 **(HTTP)** | Same as `superadmin` | Both firms — a platform caller still sees them all. |
 | 24.13 **(SQL)** | Check their ELEC01 roles | Unchanged. Adding them to WHOLE01 touches nothing in ELEC01. |
-| 24.14 | As `whole01.sales1`, look for Add existing person | Not offered. It needs `USER_CREATE`. |
+| 24.14 | As `whole01.sales1`, look for Add existing user | Not offered. It needs `USER_CREATE`. |
 | 24.15 **(HTTP)** | `GET /api/v1/users/lookup?q=elec` with a `whole01.sales1` token | `403`. `USER_VIEW` deliberately does not reach it. |
 
 > **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the

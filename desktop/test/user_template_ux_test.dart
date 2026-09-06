@@ -670,6 +670,72 @@ void main() {
     });
   });
 
+  group('the add-existing action needs no row', () {
+    testWidgets('it is the one action about somebody not in the grid',
+        (tester) async {
+      // Every other custom action is about the selected row, so the toolbar
+      // gates them all on a selection. This one is about a stranger --
+      // demanding a row first asks you to click an unrelated person in order
+      // to reach them, and the button reads as broken until you happen to.
+      //
+      // A real BuildContext, because the dialog-opening actions are declared
+      // behind `if (context != null)`. Written with `context: null` first and
+      // the loop ran over an empty list, so it passed with the fix reverted.
+      late ResourceDefinition<PlatformUser> definition;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              definition = userDefinition(
+                _UsersApi(),
+                _permissions(const [
+                  'USER_VIEW',
+                  'USER_CREATE',
+                  'USER_UPDATE',
+                  'ROLE_VIEW',
+                  'ROLE_ASSIGN',
+                ]),
+                context: context,
+              );
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+
+      final Map<String, bool> requirement = {
+        for (final ResourceAction<PlatformUser> action
+            in definition.customActions)
+          action.label: action.needsSelection,
+      };
+
+      expect(
+        requirement,
+        {
+          'Add existing user': false,
+          'Hire like this person': true,
+          'Apply job template': true,
+        },
+        reason: 'exactly one action stands without a selection',
+      );
+    });
+
+    test('the label says user, which is what the grid calls them', () {
+      // "person" and "user" for the same thing on one screen is a small
+      // thing that costs somebody a second every time they scan the toolbar.
+      final ResourceDefinition<PlatformUser> definition = userDefinition(
+        _UsersApi(),
+        _permissions(const ['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW']),
+      );
+
+      expect(definition.title, 'Users');
+      expect(
+        definition.customActions.map((action) => action.label),
+        isNot(contains('Add an existing person')),
+      );
+    });
+  });
+
   group('a person who works in more than one firm', () {
     test('their row cannot be edited, and the dialog says why', () {
       // A user record is platform-wide, so the server refuses to edit or
