@@ -19,6 +19,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/administration/apply_template_dialog.dart';
 import 'package:agency_desktop/ui/administration/clone_user_dialog.dart';
+import 'package:agency_desktop/ui/administration/find_person_dialog.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
@@ -535,6 +536,227 @@ void main() {
       expect(api.calls, contains('roles:r-3'));
     });
   });
+
+  group('adding somebody who already has an account', () {
+    // `list_users` is scoped to the caller's own members, so a firm
+    // administrator could not find -- or even learn the existence of --
+    // somebody who already works elsewhere. The lookup is the narrow opening
+    // for that one job, and these pin its limits.
+
+    Future<List<HireExistingPerson?>> open(
+      WidgetTester tester,
+      _LookupApi api,
+    ) async {
+      final List<HireExistingPerson?> chosen = <HireExistingPerson?>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async =>
+                    chosen.add(await findPersonToHire(context, api)),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      return chosen;
+    }
+
+    testWidgets('says a search reaches other firms and changes none of them',
+        (tester) async {
+      await open(tester, _LookupApi());
+
+      expect(find.textContaining('Search by name or email'), findsOneWidget);
+      expect(
+        find.textContaining('does not change anything in any other firm'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a term under three characters searches nothing',
+        (tester) async {
+      // The first of the limits that makes this a lookup rather than a
+      // directory: "a" must not return the platform. Checked here as well as
+      // on the server, so somebody typing two letters gets guidance instead
+      // of a 422 rendered as a failure.
+      final _LookupApi api = _LookupApi(results: [_lookupRow()]);
+
+      await open(tester, api);
+      await tester.enterText(find.byType(TextField), 'as');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(api.terms, isEmpty);
+      expect(find.text('Type a name or email to search.'), findsOneWidget);
+    });
+
+    testWidgets('three characters searches, and lists what came back',
+        (tester) async {
+      final _LookupApi api = _LookupApi(results: [
+        _lookupRow(name: 'Asha Rao', email: 'asha@elsewhere.example'),
+      ]);
+
+      await open(tester, api);
+      await tester.enterText(find.byType(TextField), 'ash');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(api.terms, ['ash']);
+      expect(find.text('Asha Rao'), findsOneWidget);
+      expect(find.text('asha@elsewhere.example'), findsOneWidget);
+    });
+
+    testWidgets('somebody already here is shown and cannot be added',
+        (tester) async {
+      // Shown rather than omitted: leaving them out would leave the searcher
+      // wondering whether the person has an account at all.
+      final _LookupApi api = _LookupApi(results: [
+        _lookupRow(name: 'Already Here', alreadyAMember: true),
+      ]);
+
+      await open(tester, api);
+      await tester.enterText(find.byType(TextField), 'alr');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Already in this firm'), findsOneWidget);
+      await tester.tap(find.text('Already Here'));
+      await tester.pumpAndSettle();
+      final FilledButton add = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Add to this firm'),
+      );
+      expect(add.onPressed, isNull);
+    });
+
+    testWidgets('nothing found says they may not have an account yet',
+        (tester) async {
+      await open(tester, _LookupApi());
+      await tester.enterText(find.byType(TextField), 'nobody');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.textContaining('may not have an account yet'), findsOneWidget);
+    });
+
+    testWidgets('choosing somebody returns them with the job', (tester) async {
+      final _LookupApi api = _LookupApi(results: [_lookupRow(id: 'u-9')]);
+      final List<HireExistingPerson?> chosen = await open(tester, api);
+
+      await tester.enterText(find.byType(TextField), 'ash');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Asha Rao'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Add to this firm'));
+      await tester.pumpAndSettle();
+
+      expect(chosen.single?.person.id, 'u-9');
+      // No job chosen is a valid answer: roles can be set afterwards.
+      expect(chosen.single?.templateId, '');
+    });
+
+    testWidgets('a dismissal adds nobody', (tester) async {
+      final List<HireExistingPerson?> chosen = await open(tester, _LookupApi());
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(chosen, [isNull]);
+    });
+  });
+
+  group('a person who works in more than one firm', () {
+    test('their row cannot be edited, and the dialog says why', () {
+      // A user record is platform-wide, so the server refuses to edit or
+      // delete anybody who also works in a firm this caller cannot see. The
+      // flag is what stops somebody filling in a form that cannot save.
+      final ResourceDefinition<PlatformUser> definition = userDefinition(
+        _UsersApi(),
+        _permissions(const [
+          'USER_VIEW',
+          'USER_CREATE',
+          'USER_UPDATE',
+          'ROLE_VIEW',
+          'ROLE_ASSIGN',
+        ]),
+      );
+      const PlatformUser shared = PlatformUser(
+        id: 'u-1',
+        email: 'asha@elsewhere.example',
+        fullName: 'Asha Rao',
+        isActive: true,
+        forcePasswordChange: false,
+        expiresAt: '',
+        belongsToOtherFirms: true,
+      );
+      const PlatformUser mine = PlatformUser(
+        id: 'u-2',
+        email: 'mine@example.com',
+        fullName: 'Own Person',
+        isActive: true,
+        forcePasswordChange: false,
+        expiresAt: '',
+      );
+
+      expect(definition.canEdit!(shared), isFalse);
+      expect(definition.canEdit!(mine), isTrue);
+      expect(definition.dialogSubtitle!(shared), contains('another firm'));
+      expect(
+        definition.dialogSubtitle!(shared),
+        contains('still yours to set'),
+        reason: 'say what they CAN do, not only what they cannot',
+      );
+    });
+  });
+}
+
+UserLookupResult _lookupRow({
+  String id = 'u-1',
+  String name = 'Asha Rao',
+  String email = 'asha@elsewhere.example',
+  bool alreadyAMember = false,
+}) =>
+    UserLookupResult(
+      id: id,
+      fullName: name,
+      email: email,
+      alreadyAMember: alreadyAMember,
+    );
+
+class _LookupApi extends ApiClient {
+  _LookupApi({this.results = const []})
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => 'firm-1',
+        );
+
+  final List<UserLookupResult> results;
+
+  /// Every term the dialog actually sent. A short one must send nothing.
+  final List<String> terms = <String>[];
+
+  @override
+  Future<List<UserLookupResult>> lookupUsers(String term) async {
+    terms.add(term);
+    return results;
+  }
+
+  @override
+  Future<PagedResult<UserTemplate>> userTemplates({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) async =>
+      const PagedResult<UserTemplate>(items: [], total: 0);
 }
 
 class _UsersApi extends ApiClient {

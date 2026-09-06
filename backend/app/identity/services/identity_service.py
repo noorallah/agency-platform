@@ -19,6 +19,7 @@ from app.core.exceptions import (
     BusinessRuleError,
     ConflictError,
     ResourceNotFoundError,
+    ValidationError,
 )
 from app.core.security import JwtService, PasswordSecurity
 from app.core.utils.dates import utc_now
@@ -1593,16 +1594,34 @@ class IdentityService:
                     break
         return combined
 
-    def list_user_firms(self, user_id: UUID) -> list[UserFirm]:
-        """Return visible firm memberships for one visible user."""
+    def list_user_firms(
+        self, user_id: UUID, visible_firm_ids: frozenset[UUID] | None = None
+    ) -> list[UserFirm]:
+        """Return the memberships of one user that this caller may see.
+
+        `visible_firm_ids` is the caller's reach; None is every firm, which is
+        what a platform caller has always had.
+
+        It was unconditionally every membership, on a route gated only by
+        `ROLE_VIEW` -- so any firm administrator who had a user id could read
+        which firms that person belongs to. That is precisely the fact one
+        firm must not learn about another, and it leaked for every user on the
+        platform rather than only for shared ones.
+
+        Args:
+            user_id: The person whose memberships are wanted.
+            visible_firm_ids: The firms the caller may see, or None for all.
+
+        Returns:
+            The memberships within reach, newest first is not meaningful here
+            so the natural order is kept.
+
+        """
         self._get_user(user_id)
-        return list(
-            self._session.scalars(
-                select(UserFirm).where(
-                    UserFirm.user_id == user_id, UserFirm.is_deleted.is_(False)
-                )
-            )
-        )
+        conditions = [UserFirm.user_id == user_id, UserFirm.is_deleted.is_(False)]
+        if visible_firm_ids is not None:
+            conditions.append(UserFirm.firm_id.in_(visible_firm_ids))
+        return list(self._session.scalars(select(UserFirm).where(*conditions)))
 
     def list_my_firms(self, user_id: UUID) -> list[tuple[UserFirm, Firm]]:
         """Return active firms assigned to the authenticated user."""
@@ -1854,6 +1873,111 @@ class IdentityService:
         for role_id in set(role_ids):
             self._revoke_role_users(role_id)
 
+    #: The shortest term a lookup will act on. `"a"` must not return the
+    #: platform.
+    LOOKUP_MINIMUM_TERM = 3
+
+    #: How many a lookup answers with. A lookup answers "is this them?", not
+    #: "who works here?" -- there is deliberately no paging, so the result is
+    #: not a directory somebody can walk.
+    LOOKUP_LIMIT = 10
+
+    def lookup_users(
+        self, term: str, firm_scope: UUID | None = None
+    ) -> list[tuple[User, bool]]:
+        """Find people by name or email, across firms, for hiring.
+
+        `list_users` is scoped to the caller's own firm, deliberately -- and
+        that leaves a firm administrator unable to hire somebody who already
+        has an account, or even to learn that they exist. This is the narrow
+        opening for that one job.
+
+        It reaches across firms, so it is a **lookup and not a directory**.
+        The limits are the design: a minimum term, a hard cap with no paging,
+        and a result that says who somebody is and **never which firms they
+        belong to** -- that last is the fact one firm must not learn about
+        another. Platform administrators never appear, mirroring `list_users`.
+
+        Enumeration by walking prefixes remains possible. That is accepted and
+        written down rather than defended against: `create_user` already
+        answers 409 on a duplicate email and is a narrower oracle of the same
+        kind.
+
+        Args:
+            term: What the administrator typed -- a name or an email.
+            firm_scope: The caller's firm, or None for a platform caller.
+
+        Returns:
+            Up to `LOOKUP_LIMIT` people, each with whether they are already a
+            member of the caller's firm.
+
+        Raises:
+            ValidationError: If the term is too short to act on.
+
+        """
+        needle = term.strip()
+        if len(needle) < self.LOOKUP_MINIMUM_TERM:
+            raise ValidationError(
+                f"Type at least {self.LOOKUP_MINIMUM_TERM} characters to look "
+                "somebody up."
+            )
+        pattern = f"%{needle}%"
+        rows = list(
+            self._session.scalars(
+                select(User)
+                .where(
+                    User.is_deleted.is_(False),
+                    or_(User.email.ilike(pattern), User.full_name.ilike(pattern)),
+                    ~User.id.in_(
+                        select(PlatformAdmin.user_id).where(
+                            PlatformAdmin.is_deleted.is_(False)
+                        )
+                    ),
+                )
+                .order_by(User.full_name.asc(), User.email.asc())
+                .limit(self.LOOKUP_LIMIT)
+            )
+        )
+        if firm_scope is None:
+            return [(row, False) for row in rows]
+        members = set(
+            self._session.scalars(
+                select(UserFirm.user_id).where(
+                    UserFirm.user_id.in_([row.id for row in rows]),
+                    UserFirm.firm_id == firm_scope,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                )
+            )
+        )
+        return [(row, row.id in members) for row in rows]
+
+    def shared_user_ids(
+        self, user_ids: list[UUID], firm_scope: UUID | None
+    ) -> set[UUID]:
+        """Return which of these people also work in a firm the caller cannot see.
+
+        `_assert_exclusive_firm_user` refuses `update_user` and `delete_user`
+        for exactly these, so a screen that does not know cannot disable the
+        button -- it lets somebody fill in a form that was never going to
+        save. One query for the page rather than one per row.
+
+        Empty for a platform caller: they see every firm, so nothing is hidden
+        and the guard does not apply to them.
+        """
+        if firm_scope is None or not user_ids:
+            return set()
+        return set(
+            self._session.scalars(
+                select(UserFirm.user_id).where(
+                    UserFirm.user_id.in_(user_ids),
+                    UserFirm.firm_id != firm_scope,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                )
+            )
+        )
+
     def _get_user(self, user_id: UUID, firm_scope: UUID | None = None) -> User:
         statement = select(User).where(User.id == user_id, User.is_deleted.is_(False))
         if firm_scope is not None:
@@ -1898,7 +2022,9 @@ class IdentityService:
         )
         if other_membership is not None:
             raise BusinessRuleError(
-                "Users assigned to multiple firms require platform administration."
+                "This person also works in another firm, so their profile is "
+                "managed by a platform administrator. You can still set their "
+                "roles and job template in your own firm."
             )
 
     def _get_role(self, role_id: UUID, firm_scope: UUID | None = None) -> Role:

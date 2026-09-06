@@ -162,6 +162,35 @@ class UserResponse(UserProfileFields):
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    #: Whether this person also works somewhere the caller cannot see.
+    #:
+    #: A user record is platform-wide, so `_assert_exclusive_firm_user` refuses
+    #: `update_user` and `delete_user` on anybody who belongs to a second firm
+    #: -- otherwise one firm could rename, deactivate or delete another firm's
+    #: staff. This carries that fact onto the row so a screen can say so
+    #: *before* somebody fills in a form that was never going to save.
+    #:
+    #: Always False for a platform caller: they can see every firm, so nothing
+    #: is hidden from them and the guard does not apply.
+    belongs_to_other_firms: bool = False
+
+
+class UserLookupResponse(ApiSchema):
+    """The least that identifies a person, for hiring somebody who exists.
+
+    A separate schema from `UserResponse`, and the point is what it **omits**.
+    Looking somebody up reaches across firms, so it answers "is this them?"
+    and nothing else -- no mobile, no employee code, no status, and above all
+    **no indication of which firms they belong to**, which is the fact one
+    firm must not learn about another.
+    """
+
+    id: UUID
+    full_name: str
+    email: str
+    #: Already in the caller's firm, so there is nothing to add. Always False
+    #: for a platform caller, who has no firm in context.
+    already_a_member: bool
 
 
 class RoleCreate(ApiSchema):

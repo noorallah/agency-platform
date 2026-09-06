@@ -31,10 +31,10 @@ from sqlalchemy.pool import StaticPool
 import app.core.database.all_models  # noqa: F401
 from app.core.config.settings import Settings
 from app.core.database.base import Base
-from app.core.exceptions import BusinessRuleError
+from app.core.exceptions import BusinessRuleError, ValidationError
 from app.firms.models import Firm
-from app.identity.models import User, UserFirm
-from app.identity.schemas.api import UserCreate, UserFirmAssignment
+from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
+from app.identity.schemas.api import UserCreate, UserFirmAssignment, UserUpdate
 from app.identity.services import IdentityService
 from app.identity.system_seed import ROLE_PERMISSION_CODES, seed_system_rbac
 
@@ -91,6 +91,28 @@ def _member(session: Session, user: User, firm: Firm, primary: bool = False) -> 
         )
     )
     session.commit()
+
+
+def _role_id(session: Session, code: str) -> UUID:
+    """Return one seeded role's id."""
+    role = session.scalar(select(Role).where(Role.code == code))
+    assert role is not None, code
+    return role.id
+
+
+def _codes_held(session: Session, user_id: UUID, firm_id: UUID | None) -> set[str]:
+    """Return the role codes a user holds, in one firm's scope."""
+    return set(
+        session.scalars(
+            select(Role.code)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.firm_id == firm_id,
+                UserRole.is_deleted.is_(False),
+            )
+        )
+    )
 
 
 def _firms_of(session: Session, user: User) -> set[UUID]:
@@ -277,3 +299,194 @@ def test_a_platform_caller_still_replaces_the_whole_list() -> None:
     )
 
     assert _firms_of(session, person) == {one.id}
+
+
+# --------------------------------------------------------------------------
+# Finding somebody who already has an account
+# --------------------------------------------------------------------------
+
+
+def test_a_short_term_is_refused() -> None:
+    """`"a"` must not return the platform.
+
+    The lookup reaches across firms, so it is a lookup and not a directory.
+    The minimum term is the first of the limits that makes that true.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    _user(service, "asha@example.com")
+
+    with pytest.raises(ValidationError):
+        service.lookup_users("as", firm.id)
+
+    # Three is enough.
+    assert service.lookup_users("ash", firm.id)
+
+
+def test_a_lookup_finds_somebody_in_another_firm_by_name_and_by_email() -> None:
+    """The gap this exists to close.
+
+    `list_users` filters to the caller's own members and applies `search`
+    *after* that filter, so a firm administrator could not find -- or even
+    learn the existence of -- somebody who already has an account elsewhere.
+    """
+    service, session = _service()
+    mine, theirs = _firm(session, "F1"), _firm(session, "F2")
+    outsider = _user(service, "asha.rao@elsewhere.example")
+    outsider.full_name = "Asha Rao"
+    _member(session, outsider, theirs)
+    session.commit()
+
+    by_name = service.lookup_users("Asha", mine.id)
+    by_email = service.lookup_users("elsewhere.example", mine.id)
+
+    assert [row.id for row, _ in by_name] == [outsider.id]
+    assert [row.id for row, _ in by_email] == [outsider.id]
+
+
+def test_a_lookup_never_says_which_firms_somebody_is_in() -> None:
+    """The one fact a firm must not learn about another.
+
+    The service answers `(User, already_a_member)` and the response schema
+    carries four fields. Neither can name a firm the caller cannot see, which
+    is the whole reason `UserLookupResponse` is not `UserResponse`.
+    """
+    from app.identity.schemas.api import UserLookupResponse
+
+    assert set(UserLookupResponse.model_fields) == {
+        "id",
+        "full_name",
+        "email",
+        "already_a_member",
+    }
+
+
+def test_a_lookup_marks_the_callers_own_people() -> None:
+    """The caller's own people are marked rather than hidden.
+
+    Otherwise somebody types a name, sees a row, and cannot tell why nothing
+    happens when they add it.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    inside = _user(service, "inside@example.com")
+    _member(session, inside, firm)
+    outside = _user(service, "outside@example.com")
+    session.commit()
+
+    found = dict(
+        (row.id, member) for row, member in service.lookup_users("example", firm.id)
+    )
+
+    assert found[inside.id] is True
+    assert found[outside.id] is False
+
+
+def test_a_lookup_never_returns_a_platform_administrator() -> None:
+    """Mirroring `list_users`. Their accounts are not a firm's to hire."""
+    service, session = _service()
+    firm = _firm(session, "F1")
+    boss = _user(service, "boss@example.com")
+    session.add(PlatformAdmin(user_id=boss.id, created_by=ACTOR, updated_by=ACTOR))
+    session.commit()
+
+    assert service.lookup_users("boss", firm.id) == []
+
+
+def test_a_lookup_is_capped_and_does_not_page() -> None:
+    """A lookup answers "is this them?", not "who works here?".
+
+    There is deliberately no page parameter, so the result is not a directory
+    somebody can walk.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    for index in range(service.LOOKUP_LIMIT + 5):
+        _user(service, f"many{index:02d}@example.com")
+
+    found = service.lookup_users("many", firm.id)
+
+    assert len(found) == service.LOOKUP_LIMIT
+
+
+# --------------------------------------------------------------------------
+# What a firm administrator may see and do to a shared person
+# --------------------------------------------------------------------------
+
+
+def test_the_membership_list_shows_only_firms_the_caller_may_see() -> None:
+    """It showed every one, on a route gated only by `ROLE_VIEW`.
+
+    So a firm administrator holding any user id could read which firms that
+    person belongs to -- for every user on the platform, not only shared ones.
+    """
+    service, session = _service()
+    mine, theirs = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, "shared@example.com")
+    _member(session, person, mine, primary=True)
+    _member(session, person, theirs)
+
+    scoped = service.list_user_firms(person.id, frozenset({mine.id}))
+    unscoped = service.list_user_firms(person.id)
+
+    assert [row.firm_id for row in scoped] == [mine.id]
+    # A platform caller passes None and still sees both.
+    assert {row.firm_id for row in unscoped} == {mine.id, theirs.id}
+
+
+def test_a_shared_person_is_flagged_on_the_row() -> None:
+    """The grid can disable Edit rather than offer a form that cannot save.
+
+    `_assert_exclusive_firm_user` refuses the save either way; the flag is
+    what lets somebody find that out before they type.
+    """
+    service, session = _service()
+    mine, theirs = _firm(session, "F1"), _firm(session, "F2")
+    only_mine = _user(service, "mine@example.com")
+    _member(session, only_mine, mine)
+    shared = _user(service, "shared@example.com")
+    _member(session, shared, mine)
+    _member(session, shared, theirs)
+
+    flagged = service.shared_user_ids([only_mine.id, shared.id], mine.id)
+
+    assert flagged == {shared.id}
+    # A platform caller sees every firm, so nothing is hidden from them.
+    assert service.shared_user_ids([only_mine.id, shared.id], None) == set()
+
+
+def test_a_shared_persons_profile_is_refused_and_says_why() -> None:
+    """The rule is unchanged; the message now names the situation.
+
+    So the screen can repeat it instead of showing a bare refusal.
+    """
+    service, session = _service()
+    mine, theirs = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, "shared@example.com")
+    _member(session, person, mine)
+    _member(session, person, theirs)
+
+    with pytest.raises(BusinessRuleError) as refusal:
+        service.update_user(person.id, UserUpdate(full_name="Renamed"), ACTOR, mine.id)
+
+    assert "another firm" in str(refusal.value)
+
+
+def test_a_shared_persons_roles_in_my_firm_are_still_mine_to_set() -> None:
+    """The half that must keep working.
+
+    Their profile is the platform's; the job they do in my firm is mine.
+    """
+    service, session = _service()
+    mine, theirs = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, "shared@example.com")
+    _member(session, person, mine)
+    _member(session, person, theirs)
+    service.set_user_roles(
+        person.id, [_role_id(session, "ACCOUNTANT")], ACTOR, theirs.id
+    )
+
+    service.set_user_roles(person.id, [_role_id(session, "CASHIER")], ACTOR, mine.id)
+
+    assert _codes_held(session, person.id, mine.id) == {"CASHIER"}
+    assert _codes_held(session, person.id, theirs.id) == {"ACCOUNTANT"}

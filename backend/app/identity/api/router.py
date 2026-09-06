@@ -38,6 +38,7 @@ from app.identity.schemas import (
     UserCreate,
     UserFirmAssignments,
     UserFirmResponse,
+    UserLookupResponse,
     UserPreferencesResponse,
     UserPreferencesUpdate,
     UserResponse,
@@ -272,8 +273,18 @@ def list_users(
         sort_direction == "desc",
         _firm_scope(principal),
     )
+    # One query for the page rather than one per row. Without it the grid
+    # cannot know whom it may edit, and offers a form that cannot save.
+    shared = _service(db, settings).shared_user_ids(
+        [row.id for row in rows], _firm_scope(principal)
+    )
     return PaginatedResponse(
-        data=[UserResponse.model_validate(row) for row in rows],
+        data=[
+            UserResponse.model_validate(row).model_copy(
+                update={"belongs_to_other_firms": row.id in shared}
+            )
+            for row in rows
+        ],
         pagination=params.metadata(total),
     )
 
@@ -298,6 +309,44 @@ def create_user(
 
 
 @router.get(
+    "/users/lookup",
+    response_model=ApiResponse[list[UserLookupResponse]],
+    tags=["Users"],
+)
+def lookup_users(
+    principal: UserCreatePrincipal,
+    q: Annotated[str, Query(min_length=1, max_length=320)],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[list[UserLookupResponse]]:
+    """Find somebody who already has an account, to hire them into this firm.
+
+    **Declared above `/users/{user_id}` and it must stay there.** FastAPI
+    matches in declaration order, so a literal path below `/{user_id}` is read
+    as a user id and answers 422 "Input should be a valid UUID". That has
+    happened ten times in this repository;
+    `tests/unit/test_route_declaration_order.py` fails the build on the next.
+
+    Gated on `USER_CREATE`: this exists in order to hire, and whoever may not
+    open an account has no use for it. `USER_VIEW` deliberately does not
+    reach it -- reading your own firm's people and reaching across firms are
+    different privileges.
+    """
+    found = _service(db, settings).lookup_users(q, _firm_scope(principal))
+    return ApiResponse(
+        data=[
+            UserLookupResponse(
+                id=user.id,
+                full_name=user.full_name,
+                email=user.email,
+                already_a_member=is_member,
+            )
+            for user, is_member in found
+        ]
+    )
+
+
+@router.get(
     "/users/{user_id}", response_model=ApiResponse[UserResponse], tags=["Users"]
 )
 def get_user(
@@ -307,9 +356,16 @@ def get_user(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
     """Retrieve a visible user."""
+    scope = _firm_scope(principal)
+    service = _service(db, settings)
+    user = service._get_user(user_id, scope)
     return ApiResponse(
-        data=UserResponse.model_validate(
-            _service(db, settings)._get_user(user_id, _firm_scope(principal))
+        data=UserResponse.model_validate(user).model_copy(
+            update={
+                "belongs_to_other_firms": bool(
+                    service.shared_user_ids([user.id], scope)
+                )
+            }
         )
     )
 
@@ -394,8 +450,17 @@ def list_user_firms(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
-    """List a user's firm memberships."""
-    rows = _service(db, settings).list_user_firms(user_id)
+    """List the firm memberships this caller may see.
+
+    Scoped to the caller's reach. It returned **every** membership on a route
+    gated only by `ROLE_VIEW`, so any firm administrator holding a user id
+    could read which firms that person belongs to -- the one fact a firm must
+    not learn about another, leaking for every user rather than only shared
+    ones. A platform caller's reach is None and still sees them all.
+    """
+    rows = _service(db, settings).list_user_firms(
+        user_id, _firms_the_caller_may_staff(principal)
+    )
     return ApiResponse(data=[UserFirmResponse.model_validate(row) for row in rows])
 
 

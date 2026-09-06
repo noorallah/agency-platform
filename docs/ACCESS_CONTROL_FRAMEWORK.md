@@ -318,8 +318,21 @@ happens at login (`AGENCY_SECURITY_MAX_LOGIN_ATTEMPTS`, `..._LOCKOUT_MINUTES`).
 
 # Part 5 — Memberships
 
-`user_firms` joins a person to a firm. `PUT /api/v1/users/{id}/firms` is
-`require_platform_admin()` — attaching people to firms is a platform act.
+`user_firms` joins a person to a firm. `PUT /api/v1/users/{id}/firms` takes
+**`USER_UPDATE`**, limited by reach — it was `require_platform_admin()` until
+2026-09-06, on the reasoning that attaching people to firms is a platform act.
+That is true of *which firms exist*, and does not follow for *who works in
+mine*: an administrator of two firms putting a new hire in both is the ordinary
+case, and it was refused outright.
+
+`_firms_the_caller_may_staff` limits a caller to firms where they hold
+`USER_CREATE` **in that firm** — not firms they merely belong to. Two rules
+follow: a firm outside that reach is refused **by name**, never silently
+dropped; and the call **merges** rather than replaces, so memberships the
+caller cannot see are carried through untouched.
+
+A firm administrator may attach somebody who is not yet in their firm at all.
+They find them with `GET /api/v1/users/lookup?q=` — see below.
 
 - `is_active` — an inactive membership grants nothing.
 - `is_primary` — the firm that opens by default. **One active primary per
@@ -333,6 +346,46 @@ happens at login (`AGENCY_SECURITY_MAX_LOGIN_ATTEMPTS`, `..._LOCKOUT_MINUTES`).
 - A firm with users assigned cannot be deleted — remove the memberships first.
 - Soft delete releases the natural keys: a deleted user's email can be
   re-onboarded, and `users.email` is unique only among live accounts.
+
+### Finding somebody who already has an account
+
+`list_users` is scoped to the caller's own members, and its `search` is applied
+*after* that filter — so a firm administrator cannot find, or even learn the
+existence of, somebody who already works elsewhere. `_get_user` returns 404
+rather than 403 for the same reason.
+
+`GET /api/v1/users/lookup?q=` is the narrow opening for the one job that needs
+it: hiring a person who already has an account. It is a **lookup, not a
+directory**, and the limits are the design:
+
+| Limit | Why |
+| --- | --- |
+| Minimum 3 characters | `"a"` must not return the platform |
+| Cap of 10, **no paging** | it answers "is this them?", not "who works here?" |
+| Returns `{id, full_name, email, already_a_member}` **only** | no mobile, no employee code, no status |
+| **Never says which firms somebody belongs to** | the fact one firm must not learn about another |
+| Excludes platform administrators | mirrors `list_users` |
+| `USER_CREATE`, not `USER_VIEW` | reading your own firm's people and reaching across firms are different privileges |
+
+Enumeration by walking prefixes remains possible; that is accepted and written
+down rather than defended against. `POST /api/v1/users` already answers 409 on
+a duplicate email and is a narrower oracle of the same kind.
+
+`GET /api/v1/users/{id}/firms` is scoped to the caller's reach for the same
+reason. It returned **every** membership on a route gated only by `ROLE_VIEW`
+until 2026-09-06, so any firm administrator holding a user id could read which
+firms that person belonged to — for every user, not only shared ones.
+
+### Somebody who works in more than one firm
+
+`_assert_exclusive_firm_user` refuses `update_user` and `delete_user` for
+anybody with a second active membership. A user record is platform-wide, so
+without it one firm could rename, deactivate or delete another firm's staff.
+
+What their firm's administrator *may* do is set their roles and job template —
+both scoped to `firm_id == firm_scope`, and both the whole point of having
+them. `UserResponse.belongs_to_other_firms` carries the fact onto the row so
+the screen can disable Edit rather than offer a form that cannot save.
 
 ---
 
