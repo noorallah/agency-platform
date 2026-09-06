@@ -519,6 +519,54 @@ void _navigationLeadsSomewhereTests() {
               'Guard the node on visibleTabIds.contains(<tab id>).',
         );
       });
+
+      test('with hasActiveFirm=$hasActiveFirm, no heading is empty', () {
+        // The test above walks *leaves*, and a heading carries no path, so an
+        // empty one slips straight through it. Administration's
+        // `Configuration` node was built unconditionally while every one of
+        // its descendants needs a firm -- so with none selected it rendered
+        // as a heading that opened nothing, and it was the only parent in the
+        // catalogue without a guard. Reported from the running client on
+        // 2026-09-06, after the leaf guard above had been green for months.
+        final ModuleVisibility view = ModuleVisibility(
+          permissions: _service(
+            permissions: _everyGatedCode().toList(),
+            platformAdmin: true,
+            platformScope: 'ALL_FIRMS',
+          ),
+          hasActiveFirm: hasActiveFirm,
+        );
+
+        List<String> emptyHeadings(List<WorkspaceNavigationNode> nodes) => [
+              for (final WorkspaceNavigationNode node in nodes) ...[
+                // No path of its own and nothing reachable underneath. Both
+                // halves matter: with its guard removed the node is built with
+                // an *empty* children list, so a check for
+                // `children.isNotEmpty` never fires -- which is how the first
+                // version of this test passed against the very bug it was
+                // written for.
+                if ((node.path ?? '').isEmpty && pathsOf(node.children).isEmpty)
+                  node.label,
+                ...emptyHeadings(node.children),
+              ],
+            ];
+
+        final Map<AppModule, List<String>> dead = {};
+        for (final ModuleDefinition module in ModuleCatalog.modules) {
+          final List<String> empty = emptyHeadings(
+            ModuleCatalog.navigationChildren(module.id, view.tabIds(module)),
+          );
+          if (empty.isNotEmpty) dead[module.id] = empty;
+        }
+
+        expect(
+          dead,
+          isEmpty,
+          reason: 'these navigation headings have no reachable child, so each '
+              'renders as an entry that does nothing when selected: $dead. '
+              'Guard the parent on hasAny([...its tab ids]).',
+        );
+      });
     }
   });
 }
