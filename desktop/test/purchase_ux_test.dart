@@ -496,6 +496,7 @@ class _PurchaseApi extends ApiClient {
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
+    String firmId = '',
   }) async =>
       const PagedResult(
         items: [

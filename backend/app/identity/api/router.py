@@ -10,6 +10,7 @@ from app.api.dependencies.settings import get_request_settings
 from app.core.config.settings import Settings
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
+from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -116,6 +117,29 @@ def _firms_the_caller_may_staff(principal: Principal) -> frozenset[UUID] | None:
 def _firm_scope(principal: Principal) -> UUID | None:
     """Return tenant scope for firm principals and global scope for platform admins."""
     return None if principal.is_platform_admin else principal.firm_id
+
+
+def _requested_firm_scope(principal: Principal, firm_id: UUID | None) -> UUID | None:
+    """Resolve which firm a user list is being asked about.
+
+    A platform administrator sees every user, which makes "who works at
+    WHOLE01?" a question they had no way to ask: the only firm filter was the
+    caller's own `X-Firm-ID`, and answering it meant switching into the firm.
+
+    A firm caller may name only the firm they are working in. Naming another
+    is **refused rather than ignored** -- a request that quietly answers about
+    a different firm than the one asked for is how somebody comes to believe
+    an account exists somewhere it does not.
+    """
+    scope = _firm_scope(principal)
+    if firm_id is None:
+        return scope
+    if scope is not None and firm_id != scope:
+        raise ValidationError(
+            "A user list can only be filtered by the firm you are working in. "
+            "Switch firms to see another one's people."
+        )
+    return firm_id
 
 
 @router.post(
@@ -274,26 +298,32 @@ def list_users(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
+    firm_id: UUID | None = None,
     sort_by: Literal["email", "full_name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> PaginatedResponse[UserResponse]:
-    """List users using whitelisted filtering, paging, and sorting fields."""
+    """List users using whitelisted filtering, paging, and sorting fields.
+
+    `firm_id` narrows the list to that firm's **active** members, which is the
+    question a platform administrator could not previously ask without
+    switching into the firm. It is refused for a firm caller naming anybody
+    else's firm; see `_requested_firm_scope`.
+    """
     params = PaginationParams(page=page, page_size=page_size)
+    scope = _requested_firm_scope(principal, firm_id)
     rows, total = _service(db, settings).list_users(
         params.page,
         params.page_size,
         search,
         sort_by,
         sort_direction == "desc",
-        _firm_scope(principal),
+        scope,
     )
     # One query for the page rather than one per row. Without it the grid
     # cannot know whom it may edit, and offers a form that cannot save.
-    shared = _service(db, settings).shared_user_ids(
-        [row.id for row in rows], _firm_scope(principal)
-    )
+    shared = _service(db, settings).shared_user_ids([row.id for row in rows], scope)
     return PaginatedResponse(
         data=[
             UserResponse.model_validate(row).model_copy(

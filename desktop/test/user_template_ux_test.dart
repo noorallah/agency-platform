@@ -136,6 +136,8 @@ Future<List<UserTemplate?>> _open(WidgetTester tester, _Api api) async {
 }
 
 void main() {
+  _firmFilterTests();
+
   group('the template picker', () {
     testWidgets('offers each job and says what it grants', (tester) async {
       // A template chosen by name alone is a permission decision made blind.
@@ -913,5 +915,93 @@ class _UsersApi extends ApiClient {
       calls.add('firms');
     }
     return {'success': true, 'data': <String>[]};
+  }
+}
+
+/// Which users are active in a given firm.
+///
+/// A platform administrator sees every user, so "who works at WHOLE01?" was a
+/// question they could only answer by switching into the firm. The Users grid
+/// and the User-Firm Assignments grid both read the same list, so both get the
+/// filter -- and neither offers it to a firm administrator, whose list is
+/// already their own firm and whom the server refuses the parameter.
+void _firmFilterTests() {
+  ResourceFilter? firmFilter(ResourceDefinition<PlatformUser> definition) {
+    for (final ResourceFilter filter in definition.filters) {
+      if (filter.key == 'firm_id') return filter;
+    }
+    return null;
+  }
+
+  group('filtering users by firm', () {
+    test('a platform administrator is offered it on both grids', () {
+      final PermissionService admin = _platformAdmin();
+
+      for (final ResourceDefinition<PlatformUser> definition in [
+        userDefinition(_FirmFilterApi(), admin),
+        userFirmAssignmentDefinition(_FirmFilterApi(), admin),
+      ]) {
+        final ResourceFilter? filter = firmFilter(definition);
+        expect(filter, isNotNull, reason: definition.title);
+        // The firms are rows in a table, so the choices cannot be a const
+        // list -- the grid fetches them.
+        expect(filter!.optionsResource, 'firms', reason: definition.title);
+        expect(definition.loadPage, isNotNull, reason: definition.title);
+      }
+    });
+
+    test('a firm administrator is not', () {
+      // Their list is already their own firm's people. A filter with one
+      // choice is noise, and the server refuses them the parameter anyway.
+      final PermissionService firmAdmin = _permissions(
+        const ['USER_VIEW', 'USER_CREATE', 'USER_UPDATE', 'ROLE_VIEW'],
+      );
+
+      expect(firmFilter(userDefinition(_FirmFilterApi(), firmAdmin)), isNull);
+      expect(
+        firmFilter(userFirmAssignmentDefinition(_FirmFilterApi(), firmAdmin)),
+        isNull,
+      );
+    });
+
+    test('choosing a firm reaches the request', () async {
+      // The filter is worth nothing if the value stops at the grid.
+      final _FirmFilterApi api = _FirmFilterApi();
+      final ResourceDefinition<PlatformUser> definition =
+          userDefinition(api, _platformAdmin());
+
+      await definition.loadPage!(filters: const {'firm_id': 'firm-7'});
+      expect(api.lastFirmId, 'firm-7');
+
+      await definition.loadPage!();
+      expect(api.lastFirmId, '', reason: 'no filter means every firm');
+    });
+  });
+}
+
+
+class _FirmFilterApi extends ApiClient {
+  _FirmFilterApi()
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => null,
+        );
+
+  /// The firm the last list request carried, so a test can see it arrive.
+  String lastFirmId = '';
+
+  @override
+  Future<PagedResult<PlatformUser>> users({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    String firmId = '',
+  }) async {
+    lastFirmId = firmId;
+    return const PagedResult(items: <PlatformUser>[], total: 0);
   }
 }

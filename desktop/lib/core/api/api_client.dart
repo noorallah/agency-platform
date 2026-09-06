@@ -268,15 +268,25 @@ class ApiClient {
         : stringValue(response['message']);
   }
 
+  /// List users, optionally narrowed to one firm's active members.
+  ///
+  /// `firmId` answers "who works at this firm?" without switching into it --
+  /// a question only a platform administrator can ask across firms, and one
+  /// the server refuses for a firm caller naming anybody else's firm.
   Future<PagedResult<PlatformUser>> users({
     int page = 1,
     int pageSize = 20,
     String search = '',
     String sortBy = 'created_at',
     bool descending = true,
+    String firmId = '',
   }) =>
       _list('/api/v1/users', PlatformUser.fromJson, page, search,
-          pageSize: pageSize, sortBy: sortBy, descending: descending);
+          pageSize: pageSize,
+          sortBy: sortBy,
+          descending: descending,
+          additionalQuery:
+              firmId.isEmpty ? const {} : {'firm_id': firmId});
   Future<PagedResult<Role>> roles({
     int page = 1,
     String search = '',

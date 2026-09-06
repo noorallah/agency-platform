@@ -144,12 +144,26 @@ class ResourceFilter {
   const ResourceFilter({
     required this.key,
     required this.label,
-    required this.options,
+    this.options = const [],
+    this.optionsResource,
   });
 
   final String key;
   final String label;
+
+  /// Choices known when the definition is written.
   final List<ResourceFilterOption> options;
+
+  /// A REST resource whose rows become the choices, fetched by the grid.
+  ///
+  /// The same idea as [FieldSpec.optionsResource], and necessary for the same
+  /// reason: "which firm" cannot be a `const` list, because the firms are rows
+  /// in a table. Without it a definition would have to be rebuilt by whatever
+  /// widget happened to have loaded them, which is how a filter ends up
+  /// belonging to a screen instead of to the resource it filters.
+  ///
+  /// Appended to [options], so a definition may offer both.
+  final String? optionsResource;
 }
 
 class ResourceFilterOption {
@@ -301,6 +315,13 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
   final Map<String, String> _filterValues = {};
+
+  /// Choices fetched for filters that name a resource, keyed by filter.
+  ///
+  /// A failed fetch leaves the entry absent, so the filter simply offers what
+  /// the definition declared. Emptying the grid's filter bar because one list
+  /// could not be read would be worse than a filter with fewer choices.
+  final Map<String, List<ResourceFilterOption>> _filterOptions = {};
   Set<String> _selectedIds = {};
   Timer? _searchTimer;
 
@@ -333,6 +354,27 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     super.initState();
     _searchFocus.addListener(_searchFocusChanged);
     _load();
+    _loadFilterOptions();
+  }
+
+  /// Fetch the choices for any filter that names a resource.
+  Future<void> _loadFilterOptions() async {
+    for (final ResourceFilter filter in widget.definition.filters) {
+      final String? resource = filter.optionsResource;
+      if (resource == null) continue;
+      try {
+        final List<AssignmentOption> rows = await widget.api.options(resource);
+        if (!mounted) return;
+        setState(() {
+          _filterOptions[filter.key] = [
+            for (final AssignmentOption row in rows)
+              ResourceFilterOption(value: row.id, label: row.label),
+          ];
+        });
+      } on ApiException {
+        // Leave the filter with whatever the definition declared.
+      }
+    }
   }
 
   @override
@@ -753,7 +795,10 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                         value: null,
                         child: Text('All ${filter.label.toLowerCase()}'),
                       ),
-                      for (final ResourceFilterOption option in filter.options)
+                      for (final ResourceFilterOption option in [
+                        ...filter.options,
+                        ...?_filterOptions[filter.key],
+                      ])
                         DropdownMenuItem<String>(
                           value: option.value,
                           child: Text(option.label),
