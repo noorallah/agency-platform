@@ -746,14 +746,43 @@ verifiable with the commands below. None of these is a defect report: each is a
 [`FUNCTIONAL_GUIDE.md`](FUNCTIONAL_GUIDE.md)'s "four permission rows worth
 questioning".
 
-### `CASHIER` is offered no module at all
+### ~~`CASHIER` is offered no module at all~~ — fixed
 
-The role holds `RECEIPT_CREATE`, `RECEIPT_VIEW`, `PAYMENT_CREATE`,
-`PAYMENT_VIEW`. Receipts and Payments are tabs of the **Finance** module, whose
-gate is `ACCOUNT_VIEW` (all), and whose tabs name no codes of their own so they
-inherit it. A cashier therefore signs in to an empty sidebar. `BILLING_EXECUTIVE`
-is offered six modules, so the seeded `counter-sales` template (`CASHIER` +
-`BILLING_EXECUTIVE`) hides the problem — a cashier on their own does not.
+**Fixed 2026-09-06.** The role holds `RECEIPT_CREATE`, `RECEIPT_VIEW`,
+`PAYMENT_CREATE`, `PAYMENT_VIEW`. Receipts and Payments are tabs of **Finance**,
+whose gate was `ACCOUNT_VIEW` (all), and whose tabs named no codes of their own
+so they inherited it. A cashier signed in to an empty sidebar — a working
+account, correct permissions, nothing on screen. `BILLING_EXECUTIVE` is offered
+six modules, so the seeded `counter-sales` template (`CASHIER` +
+`BILLING_EXECUTIVE`) hid it; a cashier on their own was not something anybody
+had made.
+
+Finance now takes **any of** `ACCOUNT_VIEW`, `RECEIPT_VIEW`, `PAYMENT_VIEW`,
+and **every tab names its own code**:
+
+| Tab | Gate |
+| --- | --- |
+| Chart of Accounts | `ACCOUNT_VIEW` |
+| Journal Entries | `JOURNAL_VIEW` |
+| Receipts | `RECEIPT_VIEW` |
+| Payments | `PAYMENT_VIEW` |
+| Refunds | `ACCOUNT_VIEW` |
+| Ledgers | `LEDGER_VIEW` |
+| Trial Balance | `TRIAL_BALANCE_VIEW` |
+| Profit & Loss | `PROFIT_LOSS_VIEW` |
+| Balance Sheet | `BALANCE_SHEET_VIEW` |
+
+Both halves were necessary. Widening the module gate alone would have fixed the
+empty sidebar by handing a cashier the chart of accounts and the journal.
+
+A cashier sees Finance with **Receipts and Payments**, and nothing else.
+`ACCOUNTANT`, `FIRM_ADMIN` and `VIEWER` keep all nine — every code above is one
+they already held, which is asserted rather than assumed. Refunds keeps
+`ACCOUNT_VIEW` because no `REFUND_*` code exists and reversing a settlement is
+not the job of whoever took the money.
+
+`tests/unit/test_every_role_can_open_something.py` asks the question of every
+seeded firm role, so the next stranded one fails the build.
 
 ### ~~`FIRM_ADMIN` is not granted six of the firm's own modules~~ — fixed
 
@@ -786,11 +815,46 @@ groups are operational — neither platform-withheld nor firm administration —
 and fails when `_operational_permissions` omits one. Removing `loyalty` or
 `credit_note` from the list fails it, which is how it was checked.
 
-### `FIRM_ADMIN` sees the Settings module with no tabs
+### ~~`FIRM_ADMIN` sees the Settings module with no tabs~~ — fixed
 
-Settings is offered on **any** of `SETTINGS_VIEW`, `AUDIT_LOG_VIEW`,
-`DIAGNOSTICS_VIEW`; `FIRM_ADMIN` holds only the first, and both tabs demand one
-of the other two. The module opens empty.
+**Fixed 2026-09-06** (`20260906_0131`). Settings is offered on **any** of
+`SETTINGS_VIEW`, `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`; `FIRM_ADMIN` held only
+the first, and both tabs demand one of the other two, so the module was offered
+and every tab in it refused — it opened empty.
+
+`AUDIT_LOG_VIEW` is granted directly, alongside `SETTINGS_VIEW` and
+`SETTINGS_UPDATE` and for the same reason: `PLATFORM_PERMISSION_CODES` answers
+*"what may a firm administrator not **grant**"*, which is a different question
+from what they may hold. `audit_scope` reads **one** trail chosen by firm
+context and still applies the membership check, so with `X-Firm-ID` they get
+their own firm's history and nothing else — driven: 200 on their firm, 403 on
+the platform trail.
+
+`DIAGNOSTICS_VIEW` deliberately stays out, so **Diagnostics remains refused**
+and the tab does not appear. Error reports are operational telemetry for
+whoever maintains the product, kept in one place rather than per firm.
+
+### The audit trail was unreachable for every platform administrator
+
+Found on 2026-09-06, and **introduced on 2026-09-05 by the escalation fix in
+#235**. That change moved the designation out of the `roles` claim into its
+own; `audit_scope` tested `"platform_admin" in principal.roles` in two places,
+which a grep for `is_platform_admin` did not find. The condition became
+permanently false, so a platform administrator was refused the platform trail
+by name and then refused every firm's trail by the membership check they have
+no rows for.
+
+It survived a full green suite because `test_audit_trail_api.py` built its
+principal with `roles={"platform_admin"}` — the shape the application had
+stopped issuing. **A fixture that supplies the old shape cannot see the
+break.** The fixtures now build what `_issue_tokens` mints, and with them in
+place the reverted router fails 2 of 6.
+
+`tests/unit/test_identity_hardening.py::
+test_no_module_reads_the_designation_out_of_the_roles_claim` is the guard. It
+strips comments before matching, because a naive grep flags the comment that
+*warns* against the pattern — the same false positive the `date.today()` sweep
+hit.
 
 ### The Licensing module names a business-module code that does not exist
 

@@ -481,6 +481,46 @@ and back in** — a token carries the claims it was minted with.
 
 ---
 
+## 22. A cashier can see the till
+
+`CASHIER` held exactly the right codes and was offered **no module at all** —
+Receipts and Payments are Finance tabs, Finance was gated on `ACCOUNT_VIEW`,
+and a tab naming no codes inherits its module's.
+
+Make a cashier first: **Users → New**, set **Job template** to nothing and pick
+the `CASHIER` role alone. (The seeded `counter-sales` template pairs it with
+`BILLING_EXECUTIVE`, which hides the whole problem.)
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 22.1 | Sign in as that user | **Finance** is in the sidebar. Before this the sidebar was empty. |
+| 22.2 | Open Finance | Exactly two tabs: **Receipts** and **Payments**. |
+| 22.3 | Look for Chart of Accounts, Journal Entries, Ledgers, Trial Balance, P&L, Balance Sheet, Refunds | **None of them.** Widening the module without gating its tabs would have handed a cashier the ledger. |
+| 22.4 | Record a receipt | Works. `RECEIPT_CREATE`. |
+| 22.5 | Sign in as `whole01.accounts` (or any `ACCOUNTANT`) → Finance | **All nine** tabs, exactly as before. Nobody lost one. |
+| 22.6 | As `whole01.admin` → Finance | All nine. |
+
+---
+
+## 23. The audit trail
+
+Two things here, and the first is a regression that shipped on 2026-09-05 and
+was found on 2026-09-06: moving the platform designation into its own claim
+left two checks looking for it in the old place, so **no platform administrator
+could read any audit trail at all**.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 23.1 | Sign in as `superadmin@agency.local`, no firm selected → Settings → Audit Logs | The **platform** trail: user, role and firm administration. Answered 403 between 2026-09-05 and 2026-09-06. |
+| 23.2 | Same user, select WHOLE01 → Settings → Audit Logs | **That firm's** trail, not the platform's. Also 403 in that window. |
+| 23.3 | As `whole01.admin` → Settings | The module opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW`, with both tabs demanding codes the role did not hold. |
+| 23.4 | Read it | WHOLE01's history and nothing else. |
+| 23.5 | Look for **Diagnostics** | **Not there.** `DIAGNOSTICS_VIEW` is deliberately withheld — error reports are telemetry for whoever maintains the product, not something a firm owns. |
+| 23.6 **(HTTP)** | `GET /api/v1/audit-logs` with a `whole01.admin` token and **no** `X-Firm-ID` | `403`. Reading the platform trail needs platform authority. |
+| 23.7 | As `whole01.sales1` → Settings | Not offered at all. |
+
+---
+
 ---
 
 # Part 4 — Known gaps

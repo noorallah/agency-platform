@@ -1,8 +1,10 @@
 """Tests for the platform identity hardening changes."""
 
 import base64
+import io
 import json
 import re
+import tokenize
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -434,4 +436,51 @@ def test_a_role_cannot_spell_the_platform_designation() -> None:
     assert not principal.is_platform_admin, (
         "holding a role called `platform_admin` made this principal a "
         "platform administrator"
+    )
+
+
+def test_no_module_reads_the_designation_out_of_the_roles_claim() -> None:
+    """The designation is its own claim, and a grep is what keeps it that way.
+
+    `test_a_role_cannot_spell_the_platform_designation` closed the escalation
+    by moving the designation out of `roles`. It did not stop anything *else*
+    still looking for it there -- and two places were, both in
+    `app/common/audit/api/router.py`, spelled `"platform_admin" in
+    principal.roles` rather than `principal.is_platform_admin`.
+
+    The consequence was total and silent: the condition became permanently
+    false, so **no platform administrator could read any audit trail**. The
+    audit tests kept passing throughout, because their fixtures still built a
+    principal with `roles={"platform_admin"}` -- the shape the application had
+    stopped issuing. A fixture that supplies the old shape cannot see the
+    break, which is why the suite going green after the escalation fix proved
+    less than it looked like it did.
+
+    Found on 2026-09-06 while reading the file for an unrelated reason, which
+    is not a method. This is the method.
+    """
+    offenders: list[str] = []
+    for path in sorted(Path("app").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        lines = source.splitlines()
+        # Comments are stripped before matching. A naive grep flags the
+        # comment two files away that *warns* against this exact pattern --
+        # the same false positive the `date.today()` sweep hit, recorded in
+        # CLAUDE.md. A guard that cries wolf on its own documentation is one
+        # somebody deletes.
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
+            if token.type == tokenize.COMMENT:
+                row = token.start[0] - 1
+                lines[row] = lines[row].replace(token.string, "")
+        for number, line in enumerate(lines, start=1):
+            if "platform_admin" in line and "principal.roles" in line:
+                offenders.append(f"{path.as_posix()}:{number}: {line.strip()}")
+
+    assert not offenders, (
+        "these read the platform designation out of the `roles` claim, where "
+        "it no longer is:"
+        + "".join(f"\n  {offender}" for offender in offenders)
+        + "\n\nUse `principal.is_platform_admin`, or "
+        "`principal.may_act_in_any_firm` where the question is whether the "
+        "caller may act inside a firm's books."
     )

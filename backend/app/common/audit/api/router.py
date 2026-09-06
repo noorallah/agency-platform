@@ -55,13 +55,23 @@ def audit_scope(
 ) -> AuditScope:
     """Resolve which audit trail the caller may read."""
     if x_firm_id is None:
-        # The platform trail records user, role, and firm administration.
-        if "platform_admin" not in principal.roles:
+        # The platform trail records user, role, and firm administration --
+        # which is what a `PLATFORM` operator does, so either reach may read
+        # it. Read from `is_platform_admin`, never from the `roles` claim:
+        # this said `"platform_admin" not in principal.roles` until
+        # 2026-09-06, and the designation stopped being a member of that list
+        # when it became its own claim, so the condition was always true and
+        # **no platform administrator could read any audit trail at all**.
+        if not principal.is_platform_admin:
             raise AuthorizationError(
                 "Reading the platform audit trail requires platform authority."
             )
         return AuditScope(principal, None)
-    if "platform_admin" in principal.roles:
+    # A firm's own trail is a firm's books, so the exemption belongs to
+    # `ALL_FIRMS` alone -- the same rule `optional_firm_scope` applies. A
+    # `PLATFORM` operator falls through to the membership check below and is
+    # whatever their `UserFirm` rows make them.
+    if principal.may_act_in_any_firm:
         firm = platform_db.scalar(
             select(Firm.id).where(
                 Firm.id == x_firm_id,

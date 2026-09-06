@@ -45,8 +45,25 @@ def _firm(session: Session, code: str) -> Firm:
 
 
 def _principal(
-    user_id: UUID, permissions: set[str], roles: set[str] | None = None
+    user_id: UUID,
+    permissions: set[str],
+    roles: set[str] | None = None,
+    *,
+    platform_admin: bool = False,
+    reach: str = "ALL_FIRMS",
 ) -> Principal:
+    """Build a principal of the shape `_issue_tokens` actually mints.
+
+    The designation is its **own claim**. It used to be a member of `roles`,
+    and these fixtures went on supplying it there after it stopped being --
+    so `audit_scope`, which read `"platform_admin" in principal.roles`, kept
+    passing here while refusing every real platform administrator in
+    production. A fixture that supplies the old shape cannot see the break.
+    """
+    extra: dict[str, object] = {"permissions": sorted(permissions)}
+    if platform_admin:
+        extra["platform_admin"] = True
+        extra["platform_admin_scope"] = reach
     return Principal(
         subject=user_id,
         roles=frozenset(roles or set()),
@@ -56,7 +73,7 @@ def _principal(
             type=TokenType.ACCESS,
             iat=1,
             exp=4_102_444_800,
-            permissions=sorted(permissions),
+            **extra,
         ),
     )
 
@@ -108,7 +125,7 @@ def test_audit_scope_requires_platform_authority_without_a_firm() -> None:
         audit_scope(_principal(user_id, {"AUDIT_LOG_VIEW"}), session, None)
 
     scope = audit_scope(
-        _principal(user_id, {"AUDIT_LOG_VIEW"}, {"platform_admin"}), session, None
+        _principal(user_id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
     )
     assert scope.firm_id is None
 
@@ -192,7 +209,7 @@ def test_platform_trail_returns_every_event_in_its_own_store() -> None:
     )
 
     scope = audit_scope(
-        _principal(actor_id, {"AUDIT_LOG_VIEW"}, {"platform_admin"}), session, None
+        _principal(actor_id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
     )
     page = list_audit_logs(scope, db=session)
     assert page.pagination.total_records == 2

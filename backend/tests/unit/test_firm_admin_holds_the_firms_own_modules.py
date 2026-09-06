@@ -95,7 +95,11 @@ def test_a_firm_manager_holds_the_same_less_the_administration() -> None:
     assert manager <= admin
     assert not manager & administration
     # Settings are the administrator's, and `LICENSE_MANAGE` is nobody's here.
-    assert admin - manager == administration | {"SETTINGS_VIEW", "SETTINGS_UPDATE"}
+    assert admin - manager == administration | {
+        "SETTINGS_VIEW",
+        "SETTINGS_UPDATE",
+        "AUDIT_LOG_VIEW",
+    }
 
 
 def test_the_five_that_were_missed_are_granted() -> None:
@@ -137,7 +141,16 @@ def test_the_platform_codes_stay_out_of_it() -> None:
     # "what may they hold" -- the seed hands them `SETTINGS_VIEW` and
     # `SETTINGS_UPDATE` directly, so they can configure their own firm without
     # being able to pass the codes on.
-    assert granted & PLATFORM_PERMISSION_CODES == {"SETTINGS_VIEW", "SETTINGS_UPDATE"}
+    assert granted & PLATFORM_PERMISSION_CODES == {
+        "SETTINGS_VIEW",
+        "SETTINGS_UPDATE",
+        # Their own firm's trail, not the platform's: `audit_scope` reads one
+        # trail chosen by firm context and still applies the membership check.
+        "AUDIT_LOG_VIEW",
+    }
+    # And not the crash log, which is telemetry for whoever maintains the
+    # product rather than anything a firm owns.
+    assert "DIAGNOSTICS_VIEW" not in granted
     assert "FIRM_VIEW" not in granted
     assert "VOID_INVOICE" not in granted
     assert "EDIT_POSTED_TRANSACTION" not in granted

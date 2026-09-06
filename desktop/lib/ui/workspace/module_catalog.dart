@@ -730,18 +730,69 @@ abstract final class ModuleCatalog {
       icon: Icons.account_balance_outlined,
       description: 'Accounting operations workspace.',
       workspaceTemplate: WorkspaceTemplateType.configuration,
-      requiredPermissions: ['ACCOUNT_VIEW'],
+      // Any of three, and every tab names its own code. It was
+      // `ACCOUNT_VIEW` alone, and the tabs named nothing so they inherited it
+      // -- which meant `CASHIER`, holding `RECEIPT_*` and `PAYMENT_*` and
+      // nothing else, was offered **no module at all** and signed in to an
+      // empty sidebar. The seeded `counter-sales` template pairs a cashier
+      // with `BILLING_EXECUTIVE`, which is why nobody had seen it.
+      //
+      // Widening the gate without gating the tabs would have been the wrong
+      // fix twice over: a cashier would then see the chart of accounts and
+      // the journal. Nobody loses a tab -- every code below is held by
+      // whoever held `ACCOUNT_VIEW` before.
+      requiredPermissions: ['ACCOUNT_VIEW', 'RECEIPT_VIEW', 'PAYMENT_VIEW'],
+      requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(
-            id: 'chart-of-accounts', label: 'Chart of Accounts'),
-        ModuleTabDefinition(id: 'journal-entries', label: 'Journal Entries'),
-        ModuleTabDefinition(id: 'receipts', label: 'Receipts'),
-        ModuleTabDefinition(id: 'payments', label: 'Payments'),
-        ModuleTabDefinition(id: 'refunds', label: 'Refunds'),
-        ModuleTabDefinition(id: 'ledgers', label: 'Ledgers'),
-        ModuleTabDefinition(id: 'trial-balance', label: 'Trial Balance'),
-        ModuleTabDefinition(id: 'profit-loss', label: 'Profit & Loss'),
-        ModuleTabDefinition(id: 'balance-sheet', label: 'Balance Sheet'),
+          id: 'chart-of-accounts',
+          label: 'Chart of Accounts',
+          requiredPermissions: ['ACCOUNT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'journal-entries',
+          label: 'Journal Entries',
+          requiredPermissions: ['JOURNAL_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'receipts',
+          label: 'Receipts',
+          requiredPermissions: ['RECEIPT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'payments',
+          label: 'Payments',
+          requiredPermissions: ['PAYMENT_VIEW'],
+        ),
+        // No `REFUND_*` code exists, so this keeps `ACCOUNT_VIEW` and stays
+        // exactly as reachable as it is today. A refund reverses a settlement
+        // and is not the job of whoever took the money -- the same separation
+        // that keeps `COMMISSION_PAY` off `SALES_MANAGER`.
+        ModuleTabDefinition(
+          id: 'refunds',
+          label: 'Refunds',
+          requiredPermissions: ['ACCOUNT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'ledgers',
+          label: 'Ledgers',
+          requiredPermissions: ['LEDGER_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'trial-balance',
+          label: 'Trial Balance',
+          requiredPermissions: ['TRIAL_BALANCE_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'profit-loss',
+          label: 'Profit & Loss',
+          requiredPermissions: ['PROFIT_LOSS_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'balance-sheet',
+          label: 'Balance Sheet',
+          requiredPermissions: ['BALANCE_SHEET_VIEW'],
+        ),
       ],
     ),
     ModuleDefinition(
