@@ -553,6 +553,30 @@ elsewhere. Sign in as `whole01.admin`.
 
 ---
 
+## 25. A firm's own roles and its own templates
+
+The point of this one: **you are not limited to what the platform shipped.**
+A role is a bundle of permissions, a template is a bundle of roles, and a firm
+administrator may write both. Sign in as `whole01.admin`.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 25.1 | Administration → **Roles** | The twelve firm roles. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. |
+| 25.2 | New → code `night-desk`, name `Night Desk` → Save | Created, and it belongs to WHOLE01. |
+| 25.3 | Open it → **Permissions** | **167** to choose from. Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
+| 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** The 22 platform codes are not offered, so there is nothing to get wrong. |
+| 25.5 | New role with code `platform_admin` | Refused — the designation and the twelve seeded codes are reserved, case-insensitively. |
+| 25.6 | User Templates → New → name it, pick **Night Desk** as its role | Created, Origin **This firm**. A template may bundle any role you may assign. |
+| 25.7 | Users → New → set **Job template** to it → Save | The new user holds `night-desk` and nothing else. |
+| 25.8 | Sign in as that user | They can do exactly what you ticked in 25.3, and nothing more. |
+| 25.9 | Edit the role, remove `RECEIPT_CREATE`, and have them sign out and in | Gone for them too. A role is not versioned — editing it changes everybody holding it. |
+| 25.10 | Try to delete `night-desk` while somebody holds it | Refused until they are off it. |
+
+> **Tidy up:** 25.2–25.7 leave a role, a template and a user in WHOLE01.
+> Remove them or reseed.
+
+---
+
 ---
 
 # Part 4 — Known gaps
