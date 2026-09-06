@@ -25,7 +25,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -36,6 +36,7 @@ from app.core.enums import PlatformAdminScope
 from app.core.exceptions import AuthorizationError
 from app.core.security.authorization import Principal, require_platform_admin
 from app.firms.models import Firm
+from app.identity.api.router import list_my_firms
 from app.identity.models import PlatformAdmin, User, UserFirm
 from app.identity.schemas.api import UserCreate
 from app.identity.services import IdentityService
@@ -320,3 +321,135 @@ def test_a_new_designation_defaults_to_the_narrow_reach() -> None:
     session.commit()
 
     assert _claims(service, user)["platform_admin_scope"] == "PLATFORM"
+
+
+# --------------------------------------------------------------------------
+# What the firm switcher offers
+# --------------------------------------------------------------------------
+#
+# `/me/firms` is the list the desktop's firm switcher renders, and it returned
+# memberships only. A designation that exempts somebody from the membership
+# check but leaves them unable to *name* a firm is not reach at all: the
+# bootstrap `platform-admin@agency.local` holds `ALL_FIRMS` and zero
+# memberships, so its switcher was empty while its token carried every
+# permission code, and every firm-owned module the sidebar offered opened onto
+# a request that could not be sent.
+
+
+def _named_firm(session: Session, code: str) -> Firm:
+    """Build a firm whose name matches its code.
+
+    `_firm` names every firm "A firm", so ordering by name ties and insertion
+    order decides -- which would make an assertion about the order prove
+    nothing about the query.
+    """
+    firm = _firm(session, code)
+    firm.name = code
+    session.commit()
+    return firm
+
+
+def _offered(session: Session, principal: Principal, subject: UUID) -> list[str]:
+    """Return the firm codes this principal's switcher would show."""
+    response = list_my_firms(principal=principal, db=session, settings=Settings())
+    return [firm.code for firm in response.data or []]
+
+
+def test_an_all_firms_administrator_is_offered_every_firm() -> None:
+    """The designation is the reach; a membership row is not required."""
+    service, session = _service()
+    _named_firm(session, "BETA")
+    _named_firm(session, "ALPHA")
+    admin = _admin(service, session, PlatformAdminScope.ALL_FIRMS)
+    principal = _principal(_claims(service, admin), admin.id)
+
+    assert list(session.scalars(select(UserFirm.id))) == []
+    assert _offered(session, principal, admin.id) == ["ALPHA", "BETA"]
+
+
+def test_a_platform_operator_is_offered_no_firm_they_do_not_belong_to() -> None:
+    """Tier 1 is refused firm-owned routes, so a full switcher is 403s.
+
+    This is the half that must *not* move. Widening on the designation rather
+    than on the reach would handed a platform operator a switcher full of
+    firms whose every screen refuses them.
+    """
+    service, session = _service()
+    _firm(session, "ALPHA")
+    admin = _admin(service, session, PlatformAdminScope.PLATFORM)
+    principal = _principal(_claims(service, admin), admin.id)
+
+    assert _offered(session, principal, admin.id) == []
+
+
+def test_an_ordinary_user_is_offered_only_their_own_firms() -> None:
+    """Nobody without the designation gains a firm from this change."""
+    service, session = _service()
+    mine = _firm(session, "MINE")
+    _firm(session, "THEIRS")
+    user = _admin(service, session, None, email="clerk@example.com")
+    actor = uuid4()
+    session.add(
+        UserFirm(
+            user_id=user.id,
+            firm_id=mine.id,
+            is_primary=True,
+            is_active=True,
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+    principal = _principal(_claims(service, user), user.id)
+
+    assert _offered(session, principal, user.id) == ["MINE"]
+
+
+def test_a_membership_still_carries_the_primary_flag() -> None:
+    """Widening must not lose which firm the switcher should land on.
+
+    `master.ops` and `superadmin` are `ALL_FIRMS` *and* members of all four
+    demo firms, so they take the widened branch -- where most firms have no
+    `user_firms` row and `is_primary` is therefore NULL.
+
+    What this test can prove is that the flag survives the outer join. What it
+    **cannot** prove is the ranking: `is_primary DESC` sorts NULLs first on
+    PostgreSQL and last on SQLite, and this suite is SQLite, so both spellings
+    pass here and only one is right in the deployment. The explicit `case` in
+    the service is the guard; this docstring is the record of why it is there.
+    """
+    service, session = _service()
+    _named_firm(session, "AAA")
+    chosen = _named_firm(session, "ZZZ")
+    admin = _admin(service, session, PlatformAdminScope.ALL_FIRMS)
+    actor = uuid4()
+    session.add(
+        UserFirm(
+            user_id=admin.id,
+            firm_id=chosen.id,
+            is_primary=True,
+            is_active=True,
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+    principal = _principal(_claims(service, admin), admin.id)
+
+    response = list_my_firms(principal=principal, db=session, settings=Settings())
+    rows = response.data or []
+    assert [firm.code for firm in rows] == ["ZZZ", "AAA"]
+    assert [firm.is_primary for firm in rows] == [True, False]
+
+
+def test_a_retired_firm_is_offered_to_nobody() -> None:
+    """The widened branch applies the same liveness filter as the narrow one."""
+    service, session = _service()
+    _firm(session, "LIVE")
+    retired = _firm(session, "GONE")
+    retired.is_active = False
+    session.commit()
+    admin = _admin(service, session, PlatformAdminScope.ALL_FIRMS)
+    principal = _principal(_claims(service, admin), admin.id)
+
+    assert _offered(session, principal, admin.id) == ["LIVE"]

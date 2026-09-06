@@ -24,9 +24,23 @@ class ModuleVisibility {
     required this.permissions,
     this.activeBusinessModules,
     this.salesStages = SalesWorkflowSettings.wholeChain,
+    this.hasActiveFirm = true,
   });
 
   final PermissionService permissions;
+
+  /// Whether a firm is currently selected.
+  ///
+  /// Defaults to true because everybody except a platform administrator
+  /// always has one: an ordinary user's switcher is their memberships, and a
+  /// firm-owned module with no firm behind it would empty their sidebar.
+  ///
+  /// It is a platform administrator who can have none, and until this existed
+  /// they were offered the whole application on a context that could not send
+  /// `X-Firm-ID` -- Sales, Purchases, Inventory, every one of them refused on
+  /// its first request. The switcher is now the mode: no firm is platform
+  /// work, a firm is that firm's books.
+  final bool hasActiveFirm;
 
   /// Business module codes this firm has switched on, or null while unknown.
   ///
@@ -73,6 +87,11 @@ class ModuleVisibility {
     if (!_typedByThisFirm(module)) {
       return 'this firm does not type this stage of a sale';
     }
+    // Asked last, so the answer explains a *missing firm* only to somebody
+    // who would otherwise be offered the module.
+    if (module.requiresFirm && !hasActiveFirm) {
+      return 'no firm is selected';
+    }
     return null;
   }
 
@@ -91,6 +110,9 @@ class ModuleVisibility {
     }
     return module.tabs
         .where((tab) => tab.available)
+        // Administration holds tabs of both kinds, so a module that opens
+        // without a firm still hides the tabs that need one.
+        .where((tab) => hasActiveFirm || !tab.requiresFirm)
         .where(
           (tab) => permissions.canUseTab(
             tab.requiredPermissions.isEmpty

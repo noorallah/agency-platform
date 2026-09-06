@@ -325,6 +325,7 @@ class _DesktopShellState extends State<DesktopShell> {
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
         salesStages: _salesStages,
+        hasActiveFirm: widget.session.currentFirm != null,
       );
 
   List<ModuleDefinition> get _visibleModules => _visibility.modules;
@@ -522,7 +523,10 @@ class _DesktopShellState extends State<DesktopShell> {
   Widget _firmControl({bool compact = false}) {
     final List<AssignedFirm> firms = widget.session.firms;
     final AssignedFirm? current = widget.session.currentFirm;
-    if (firms.length <= 1) {
+    // A platform administrator always gets the picker, even with one firm:
+    // Platform is a choice of its own and it is the only way back to it.
+    final bool platformIsAChoice = widget.session.canWorkWithoutAFirm;
+    if (firms.length <= 1 && !platformIsAChoice) {
       return compact
           ? const SizedBox.shrink()
           : Container(
@@ -577,9 +581,11 @@ class _DesktopShellState extends State<DesktopShell> {
             ConstrainedBox(
               constraints: BoxConstraints(maxWidth: compact ? 90 : 210),
               child: Text(
+                // "Platform" rather than "No firm": for an administrator with
+                // the designation it is a place to be working, not an absence.
                 compact
-                    ? (current?.code ?? 'No firm')
-                    : (current?.name ?? 'No firm'),
+                    ? (current?.code ?? (platformIsAChoice ? 'Platform' : 'No firm'))
+                    : (current?.name ?? (platformIsAChoice ? 'Platform' : 'No firm')),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -592,25 +598,29 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   Future<void> _openFirmPicker() async {
-    final String? selected = await showDialog<String>(
+    final FirmChoice? selected = await showDialog<FirmChoice>(
       context: context,
       builder: (context) => _FirmSwitcherDialog(
         firms: widget.session.firms,
         activeFirmId: widget.session.currentFirm?.id,
+        offerPlatform: widget.session.canWorkWithoutAFirm,
       ),
     );
     if (selected != null) {
-      await _switchFirm(selected);
+      await _switchFirm(selected.firmId);
     }
   }
 
-  Future<void> _switchFirm(String firmId) async {
+  Future<void> _switchFirm(String? firmId) async {
     try {
       await widget.session.switchFirm(firmId);
       if (!mounted) return;
+      final AssignedFirm? now = widget.session.currentFirm;
       NotificationService.show(
         context,
-        'Active firm changed to ${widget.session.currentFirm?.name}.',
+        now == null
+            ? 'Working on the platform. No firm is selected.'
+            : 'Active firm changed to ${now.name}.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
@@ -1013,7 +1023,10 @@ class _DesktopShellState extends State<DesktopShell> {
           _ => 'Connecting',
         },
         currentUser: widget.session.attemptedUsername,
-        currentFirm: widget.session.currentFirm?.name ?? 'No active firm',
+        currentFirm: widget.session.currentFirm?.name ??
+            (widget.session.canWorkWithoutAFirm
+                ? 'Platform'
+                : 'No active firm'),
         backend: _health.backend,
         database: _health.database,
         environment: Uri.tryParse(widget.session.baseUrl)?.host == 'localhost'
@@ -1303,14 +1316,31 @@ class _DesktopShellState extends State<DesktopShell> {
       };
 }
 
+/// What the firm picker came back with.
+///
+/// A plain `String?` cannot express it: `showDialog` already answers null for
+/// a dismissal, and Platform is a deliberate choice of no firm. Conflating the
+/// two would make pressing Escape switch an administrator out of the firm they
+/// were working in.
+class FirmChoice {
+  const FirmChoice(this.firmId);
+
+  /// The firm chosen, or null for the platform itself.
+  final String? firmId;
+}
+
 class _FirmSwitcherDialog extends StatefulWidget {
   const _FirmSwitcherDialog({
     required this.firms,
     required this.activeFirmId,
+    this.offerPlatform = false,
   });
 
   final List<AssignedFirm> firms;
   final String? activeFirmId;
+
+  /// Whether to offer working on the platform with no firm selected.
+  final bool offerPlatform;
 
   @override
   State<_FirmSwitcherDialog> createState() => _FirmSwitcherDialogState();
@@ -1346,26 +1376,45 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
               SizedBox(
                 height: 320,
                 child: ListView(
-                  children: _filteredFirms()
-                      .map(
-                        (firm) => ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.business_outlined),
-                          title: Text(firm.name),
-                          subtitle: Text(firm.code),
-                          trailing: firm.id == widget.activeFirmId
-                              ? const Icon(Icons.check, size: 18)
-                              : null,
-                          onTap: () => Navigator.of(context).pop(firm.id),
-                        ),
-                      )
-                      .toList(),
+                  children: [
+                    if (widget.offerPlatform && _matchesSearch('Platform'))
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.hub_outlined),
+                        title: const Text('Platform'),
+                        subtitle:
+                            const Text('Firms, people and platform settings'),
+                        trailing: widget.activeFirmId == null
+                            ? const Icon(Icons.check, size: 18)
+                            : null,
+                        onTap: () =>
+                            Navigator.of(context).pop(const FirmChoice(null)),
+                      ),
+                    ..._filteredFirms().map(
+                      (firm) => ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.business_outlined),
+                        title: Text(firm.name),
+                        subtitle: Text(firm.code),
+                        trailing: firm.id == widget.activeFirmId
+                            ? const Icon(Icons.check, size: 18)
+                            : null,
+                        onTap: () =>
+                            Navigator.of(context).pop(FirmChoice(firm.id)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
       );
+
+  bool _matchesSearch(String label) {
+    final String query = _searchController.text.trim().toLowerCase();
+    return query.isEmpty || label.toLowerCase().contains(query);
+  }
 
   List<AssignedFirm> _filteredFirms() {
     final String query = _searchController.text.trim().toLowerCase();

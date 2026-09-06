@@ -601,6 +601,31 @@ Do **not** raise these as defects. They are deliberate, and each is recorded in
 
 ---
 
+## 26. Platform mode, and the switcher that was empty
+
+Sign in as **`platform-admin@agency.local`**. This account is `ALL_FIRMS` and
+holds **no** firm memberships, which is what made the defect visible: its token
+carries all 189 permission codes, so the sidebar offered Sales, Purchases and
+Inventory, while `/me/firms` answered an empty list so no firm could be
+selected and every one of those screens refused its first request.
+
+| # | Step | Expect |
+| --- | --- | --- |
+| 26.1 | Sign in | The header firm control reads **Platform**, and so does the status bar. |
+| 26.2 | Look at the sidebar | Dashboard, Administration, Settings (and Licensing if seeded). **No** Sales, Purchases, Inventory, Masters, Finance or Reports. |
+| 26.3 | Open Administration | Users, Roles, Permissions, User Templates, User-Firm Assignments. **No** Tax, UOM, Business Profiles or Numbering Series — those live in a firm's own store. |
+| 26.4 | Open the firm control | A **Platform** entry at the top with a tick beside it, then all four firms — even though this account is a member of none. |
+| 26.5 | Pick `WHOLE01` | Notification names the firm; the sidebar grows Sales, Purchases, Inventory, Masters, Finance, Reports; Administration gains its configuration tabs. |
+| 26.6 | Open Sales → Sales Orders | Real rows. Before this change the module was offered and this screen failed. |
+| 26.7 | Open the firm control and pick **Platform** | "Working on the platform. No firm is selected." The firm-owned modules go away again. |
+| 26.8 | Sign out and back in | Lands on **Platform**, not on `WHOLE01`. Deliberate: a reach over every firm's books must not restore itself silently. |
+| 26.9 | Sign in as `superadmin@agency.local` | Also `ALL_FIRMS`, but a member of all four. Still starts on **Platform**; the switcher looks the same as before. |
+| 26.10 | Sign in as `whole01.admin@agency.local` | **No** Platform entry anywhere, one firm, lands in it as always. Nothing about a firm user's experience changed. |
+
+**(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
+with `is_primary: false` — no membership row, so nobody's primary. The same
+call as `whole01.admin` still returns one.
+
 ## Appendix — driving the API by hand
 
 For the **(HTTP)** cases. See `.claude/skills/run-app` for the full recipe.

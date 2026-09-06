@@ -318,4 +318,96 @@ void main() {
       }
     });
   });
+
+  // ----------------------------------------------------------------------
+  // Platform mode: a platform administrator with no firm selected
+  // ----------------------------------------------------------------------
+  //
+  // `platform-admin@agency.local` holds `ALL_FIRMS` and **zero** firm
+  // memberships, so its switcher was empty -- and its token carries every
+  // permission code, so the sidebar offered Sales, Purchases, Inventory and
+  // the rest on a context that could not send `X-Firm-ID`. Every one of them
+  // opened onto a request the server refuses.
+  //
+  // The firm switcher is the mode now: no firm is platform work.
+  group('with no firm selected', () {
+    ModuleVisibility platformMode() => ModuleVisibility(
+          permissions: _service(
+            permissions: _everyGatedCode().toList(),
+            platformAdmin: true,
+            platformScope: 'ALL_FIRMS',
+          ),
+          hasActiveFirm: false,
+        );
+
+    test('a firm-owned module is not offered', () {
+      final ModuleVisibility view = platformMode();
+      for (final AppModule id in [
+        AppModule.sales,
+        AppModule.purchases,
+        AppModule.inventory,
+        AppModule.masters,
+        AppModule.accounting,
+        AppModule.reports,
+      ]) {
+        final ModuleDefinition module = ModuleCatalog.byId(id);
+        expect(view.allows(module), isFalse, reason: module.label);
+        expect(view.denial(module), 'no firm is selected',
+            reason: module.label);
+      }
+    });
+
+    test('platform administration still is', () {
+      final ModuleVisibility view = platformMode();
+      expect(view.allows(ModuleCatalog.byId(AppModule.administration)), isTrue);
+      expect(view.allows(ModuleCatalog.byId(AppModule.dashboard)), isTrue);
+      expect(view.allows(ModuleCatalog.byId(AppModule.settings)), isTrue);
+    });
+
+    test("Administration offers its platform tabs and hides the firm's", () {
+      // The module that makes a tab-level answer necessary: users and roles
+      // are platform tables, the tax and UOM configuration is each firm's
+      // own, and they sit side by side under one heading.
+      final Set<String> tabs =
+          platformMode().tabIds(ModuleCatalog.byId(AppModule.administration));
+
+      expect(tabs, contains('users'));
+      expect(tabs, contains('roles'));
+      expect(tabs, contains('user-firms'));
+      expect(tabs, isNot(contains('tax-configuration')));
+      expect(tabs, isNot(contains('uoms')));
+      expect(tabs, isNot(contains('business-profiles')));
+    });
+
+    test('nobody is left with an empty sidebar', () {
+      // The failure this is really about: a mode that hides everything is
+      // worse than the menu of refusals it replaced.
+      expect(platformMode().modules, isNotEmpty);
+    });
+
+    test('selecting a firm brings the firm-owned modules back', () {
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: _service(
+          permissions: _everyGatedCode().toList(),
+          platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
+        ),
+      );
+      expect(view.allows(ModuleCatalog.byId(AppModule.sales)), isTrue);
+      expect(
+        view.tabIds(ModuleCatalog.byId(AppModule.administration)),
+        contains('tax-configuration'),
+      );
+    });
+
+    test('an ordinary user is never put in platform mode', () {
+      // `hasActiveFirm` defaults to true for exactly this reason: everybody
+      // without the designation always has a firm, and a null one would empty
+      // their application rather than change its mode.
+      final ModuleVisibility view = ModuleVisibility(
+        permissions: _service(permissions: _salesExecutive),
+      );
+      expect(view.allows(ModuleCatalog.byId(AppModule.sales)), isTrue);
+    });
+  });
 }

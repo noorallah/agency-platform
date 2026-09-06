@@ -47,6 +47,10 @@ class _AgencyAppState extends State<AgencyApp> {
         preferences: _preferences,
         onPreferencesSynchronized: _applyServerPreferences,
         onAccessTokenChanged: _permissions.applyAccessToken,
+        // Late-bound on purpose: the permission service is the one
+        // decoder of the token's claims, and it is refreshed by the
+        // callback above before this is ever asked.
+        isPlatformAdmin: () => _permissions.isPlatformAdmin,
       );
 
   @override
