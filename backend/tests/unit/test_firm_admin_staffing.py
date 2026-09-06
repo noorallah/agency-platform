@@ -21,6 +21,7 @@ requires is **reach**, and two things follow from it, both tested here:
 """
 
 from datetime import date
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -32,7 +33,9 @@ import app.core.database.all_models  # noqa: F401
 from app.core.config.settings import Settings
 from app.core.database.base import Base
 from app.core.exceptions import BusinessRuleError, ValidationError
+from app.core.security.authorization import Principal
 from app.firms.models import Firm
+from app.identity.api.router import list_users
 from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
 from app.identity.schemas.api import UserCreate, UserFirmAssignment, UserUpdate
 from app.identity.services import IdentityService
@@ -490,3 +493,93 @@ def test_a_shared_persons_roles_in_my_firm_are_still_mine_to_set() -> None:
 
     assert _codes_held(session, person.id, mine.id) == {"CASHIER"}
     assert _codes_held(session, person.id, theirs.id) == {"ACCOUNTANT"}
+
+
+def _platform_principal() -> Principal:
+    """Build a platform administrator, who sees every user."""
+    return Principal(
+        subject=ACTOR,
+        roles=frozenset(),
+        permissions=frozenset({"USER_VIEW"}),
+        claims=SimpleNamespace(model_extra={"platform_admin": True}),  # type: ignore[arg-type]
+    )
+
+
+def _firm_principal(firm_id: UUID) -> Principal:
+    """Build a principal working in one firm."""
+    return Principal(
+        subject=ACTOR,
+        roles=frozenset({"FIRM_ADMIN"}),
+        permissions=frozenset({"USER_VIEW"}),
+        claims=SimpleNamespace(model_extra={}),  # type: ignore[arg-type]
+        firm_id=firm_id,
+    )
+
+
+def _emails_listed(
+    principal: Principal, session: Session, firm_id: UUID | None
+) -> set[str]:
+    """Return the emails one caller sees when asking about one firm."""
+    page = list_users(
+        principal,
+        firm_id=firm_id,
+        db=session,
+        settings=Settings(),
+    )
+    return {row.email for row in page.data}
+
+
+def test_a_platform_admin_can_ask_who_works_at_one_firm() -> None:
+    """The question they previously had to switch into the firm to answer.
+
+    The only firm filter on the list was the caller's own `X-Firm-ID`, which a
+    platform administrator does not carry while looking across firms -- so
+    "who works at WHOLE01?" meant leaving the platform, and the answer came
+    back as every user on the installation until they did.
+
+    Both halves are asserted, because narrowing is only half the change: with
+    no firm named the list must still be everybody, or a filter has become a
+    requirement.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    here = _user(service, "here@example.com")
+    there = _user(service, "there@example.com")
+    _member(session, here, one, primary=True)
+    _member(session, there, two, primary=True)
+    caller = _platform_principal()
+
+    assert _emails_listed(caller, session, one.id) == {"here@example.com"}
+    assert _emails_listed(caller, session, two.id) == {"there@example.com"}
+    assert _emails_listed(caller, session, None) == {
+        "here@example.com",
+        "there@example.com",
+    }
+
+
+def test_a_firm_caller_naming_another_firm_is_refused_by_name() -> None:
+    """Refused, not quietly answered about the firm they are working in.
+
+    A list that silently answers about a different firm than the one asked
+    for is how somebody comes to believe an account exists somewhere it does
+    not -- the same reasoning `set_user_firms` refuses a firm outside the
+    caller's reach rather than dropping it.
+
+    Naming their own firm is allowed and changes nothing, which is the half
+    that has to keep working: the desktop offers the filter only to a platform
+    administrator, but the parameter is on the endpoint for anybody.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    here = _user(service, "here@example.com")
+    there = _user(service, "there@example.com")
+    _member(session, here, one, primary=True)
+    _member(session, there, two, primary=True)
+    caller = _firm_principal(one.id)
+
+    with pytest.raises(ValidationError) as refusal:
+        _emails_listed(caller, session, two.id)
+
+    assert "firm you are working in" in str(refusal.value)
+    assert _emails_listed(caller, session, one.id) == {"here@example.com"}
+    assert _emails_listed(caller, session, None) == {"here@example.com"}
