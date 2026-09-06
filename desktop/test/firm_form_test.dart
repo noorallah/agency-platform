@@ -32,6 +32,8 @@ class _FirmApi extends ApiClient {
 }
 
 void main() {
+  _firmSetupTests();
+
   group('financial year default', () {
     test('on or after 1 April it is this year', () {
       expect(
@@ -190,5 +192,113 @@ void main() {
     expect(helperFor('contact_phone'), contains('country code'));
     expect(helperFor('connection_profile'), contains('REMOTE_A'));
     expect(helperFor('connection_profile'), contains('platform server'));
+  });
+}
+
+/// Creating a firm, and then being able to reach it.
+///
+/// The Firms screen was the first tab of **Masters** -- a firm's own master
+/// data, which needs a firm selected. So the one screen that creates a firm
+/// was reachable only from inside another firm, and invisible entirely to a
+/// platform administrator who had not picked one. It lives under
+/// Administration now, beside Users and Roles.
+///
+/// The second half is that `session.firms` is fetched once at sign-in, so a
+/// firm created minutes ago is in no switcher until the administrator signs
+/// out and back in.
+Firm _firm({
+  String name = 'Acme Traders',
+  String deploymentMode = 'SHARED',
+  String provisionedAt = '',
+  bool isActive = true,
+}) =>
+    Firm.fromJson(<String, dynamic>{
+      'id': 'firm-1',
+      'code': 'ACME',
+      'name': name,
+      'deployment_mode': deploymentMode,
+      'provisioned_at': provisionedAt,
+      'is_active': isActive,
+    });
+
+void _firmSetupTests() {
+  group('setting a firm up', () {
+    ResourceAction<Firm>? openAction({
+      Future<String> Function(Firm firm)? onOpenFirm,
+    }) {
+      final ResourceDefinition<Firm> definition = firmDefinition(
+        _FirmApi(),
+        PermissionService(),
+        showFrame: false,
+        onOpenFirm: onOpenFirm,
+      );
+      for (final ResourceAction<Firm> action in definition.customActions) {
+        if (action.label == 'Open this firm') return action;
+      }
+      return null;
+    }
+
+    test('the grid can switch into a firm once one is created', () async {
+      Firm? opened;
+      final ResourceAction<Firm>? action = openAction(
+        onOpenFirm: (firm) async {
+          opened = firm;
+          return 'switched';
+        },
+      );
+
+      expect(action, isNotNull);
+      expect(await action!.onInvoke(_firm()), 'switched');
+      expect(opened?.code, 'ACME');
+    });
+
+    test('and offers nothing when the shell supplies no way to switch', () {
+      // The definition is built by three tests with no session behind it. An
+      // action that cannot do anything is worse than an absent one.
+      expect(openAction(), isNull);
+    });
+
+    test('a dedicated firm cannot be opened before its storage is built', () {
+      // Switching into it would send `X-Firm-ID` at a database that has no
+      // tables yet, so every screen would answer an error.
+      final ResourceAction<Firm> action = openAction(
+        onOpenFirm: (_) async => '',
+      )!;
+
+      expect(
+        action.isEnabled!(_firm(deploymentMode: 'DATABASE')),
+        isFalse,
+      );
+      expect(
+        action.isEnabled!(
+          _firm(deploymentMode: 'DATABASE', provisionedAt: '2026-09-06'),
+        ),
+        isTrue,
+      );
+      // A shared firm lives in the platform store and is ready at once.
+      expect(action.isEnabled!(_firm()), isTrue);
+    });
+
+    test('a retired firm cannot be opened at all', () {
+      final ResourceAction<Firm> action = openAction(
+        onOpenFirm: (_) async => '',
+      )!;
+
+      expect(action.isEnabled!(_firm(isActive: false)), isFalse);
+    });
+
+    test('creating one names the step it could not perform', () {
+      // The profile lives in the firm's own store, so this screen cannot set
+      // it -- and a firm with none silently trades as GENERIC.
+      final String followUp = firmDefinition(
+        _FirmApi(),
+        PermissionService(),
+        showFrame: false,
+        onOpenFirm: (_) async => '',
+      ).createFollowUp!(const <String, dynamic>{})!;
+
+      expect(followUp, contains('Open this firm'));
+      expect(followUp, contains('Firm Settings'));
+    });
   });
 }

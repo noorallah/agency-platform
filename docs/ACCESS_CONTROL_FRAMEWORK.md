@@ -338,14 +338,60 @@ They find them with `GET /api/v1/users/lookup?q=` — see below.
 - `is_primary` — the firm that opens by default. **One active primary per
   user**, enforced by the service and, on PostgreSQL, by the partial index
   `UQ_user_firms_active_primary`.
-- The firm switcher in the shell header lists only firms the signed-in user is
-  an active member of (`GET /api/v1/me/firms`).
+- The firm switcher in the shell header lists the firms the signed-in user may
+  work in (`GET /api/v1/me/firms`) — their active memberships, or, for an
+  `ALL_FIRMS` administrator, **every active firm**. See *Platform mode* below.
 - **A platform administrator still has to pick a firm** to open firm-owned
   screens. `X-Firm-ID` is required by `required_firm_scope` regardless of
   designation; `ALL_FIRMS` skips the *membership* check, not the *header*.
 - A firm with users assigned cannot be deleted — remove the memberships first.
 - Soft delete releases the natural keys: a deleted user's email can be
   re-onboarded, and `users.email` is unique only among live accounts.
+
+### Platform mode — the switcher is the mode switch
+
+A tier-2 administrator has two jobs and one sidebar. **The firm switcher
+decides which one they are doing.**
+
+| Firm selected | What the sidebar offers |
+| --- | --- |
+| **Platform** (none) | Dashboard, Administration, Settings, Licensing — and, inside Administration, only the platform tabs: **Firms**, Users, Roles, Permissions, User Templates, User-Firm Assignments |
+| A firm | that firm's whole application, plus everything above |
+
+Three rules behind it, each of which was a defect before it was a rule:
+
+- **`ALL_FIRMS` is offered every firm, not only the ones it has a membership
+  row in.** The designation already exempts them from the membership check, so
+  a list built from `user_firms` made their reach depend on somebody having
+  remembered to insert rows. `superadmin` and `master.ops` were seeded into all
+  four demo firms and worked; the bootstrap `platform-admin@agency.local` had
+  none, so its switcher was **empty** while its token carried all 189 codes —
+  Sales, Purchases and Inventory all offered, all unusable.
+- **A `PLATFORM` administrator is deliberately not widened.** They are refused
+  firm-owned routes outright, so a full switcher would offer them nothing but
+  403s.
+- **A platform administrator always starts in Platform mode**, whatever they
+  were last working in. Their reach covers every firm's books, so restoring a
+  firm would drop them into somebody's ledgers on a screen that looks like
+  their own. The stored `default_firm_id` is left untouched, not cleared.
+
+Nobody else can be in platform mode: for an ordinary user a null firm is not a
+mode but an empty application, so `switchFirm(null)` refuses them.
+
+**Firms is one of those tabs, and it used to be under Masters** — a firm's own
+master data, which needs a firm selected. So the one screen that creates a firm
+was reachable only from inside another firm. `FIRM_VIEW` is a platform code no
+firm role may hold, so moving it costs no firm user a tab. Its **Open this
+firm** action re-reads the firm list and switches into the new firm, because
+the rest of setting one up — business profile, financial year, chart of
+accounts — lives in that firm's own store; it is disabled for a dedicated firm
+whose storage has not been provisioned, and for a retired one.
+
+The module catalogue carries this as data — `requiresFirm` on
+`ModuleDefinition` and on `ModuleTabDefinition`, defaulting to true. It is
+declared per tab as well as per module because Administration holds both kinds
+side by side: `users` and `roles` are platform tables, while the tax, UOM,
+document-framework and business-profile tabs live in each firm's own store.
 
 ### Finding somebody who already has an account
 
@@ -804,7 +850,9 @@ case they act there as their roles allow.
 - **A forced password change locks the whole application**, not one screen —
   every permission check fails until it is done.
 - **A platform administrator still needs `X-Firm-ID`** for firm-owned screens.
-  `ALL_FIRMS` skips the membership check, not the header.
+  `ALL_FIRMS` skips the membership check, not the header. Which is why the
+  switcher offers them every firm, and why picking one is what turns the
+  firm-owned modules on.
 - **The desktop's module filtering is cosmetic.** It hides menu entries; the
   server is the boundary.
 - **`GET /api/v1/roles`, `/permissions` and `/users` list what the caller's

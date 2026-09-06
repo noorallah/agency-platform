@@ -601,6 +601,53 @@ Do **not** raise these as defects. They are deliberate, and each is recorded in
 
 ---
 
+## 26. Platform mode, and the switcher that was empty
+
+Sign in as **`platform-admin@agency.local`**. This account is `ALL_FIRMS` and
+holds **no** firm memberships, which is what made the defect visible: its token
+carries all 189 permission codes, so the sidebar offered Sales, Purchases and
+Inventory, while `/me/firms` answered an empty list so no firm could be
+selected and every one of those screens refused its first request.
+
+| # | Step | Expect |
+| --- | --- | --- |
+| 26.1 | Sign in | The header firm control reads **Platform**, and so does the status bar. |
+| 26.2 | Look at the sidebar | Dashboard, Administration, Settings (and Licensing if seeded). **No** Sales, Purchases, Inventory, Masters, Finance or Reports. |
+| 26.3 | Open Administration | **Firms**, Users, Roles, Permissions, User Templates, User-Firm Assignments. **No** Tax, UOM, Business Profiles or Numbering Series — those live in a firm's own store. |
+| 26.4 | Open the firm control | A **Platform** entry at the top with a tick beside it, then all four firms — even though this account is a member of none. |
+| 26.5 | Pick `WHOLE01` | Notification names the firm; the sidebar grows Sales, Purchases, Inventory, Masters, Finance, Reports; Administration gains its configuration tabs. |
+| 26.6 | Open Sales → Sales Orders | Real rows. Before this change the module was offered and this screen failed. |
+| 26.7 | Open the firm control and pick **Platform** | "Working on the platform. No firm is selected." The firm-owned modules go away again. |
+| 26.8 | Sign out and back in | Lands on **Platform**, not on `WHOLE01`. Deliberate: a reach over every firm's books must not restore itself silently. |
+| 26.9 | Sign in as `superadmin@agency.local` | Also `ALL_FIRMS`, but a member of all four. Still starts on **Platform**; the switcher looks the same as before. |
+| 26.10 | Sign in as `whole01.admin@agency.local` | **No** Platform entry anywhere, one firm, lands in it as always. Nothing about a firm user's experience changed. |
+
+**(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
+with `is_primary: false` — no membership row, so nobody's primary. The same
+call as `whole01.admin` still returns one.
+
+## 27. Creating a firm and setting it up
+
+Still as `platform-admin@agency.local`, on **Platform**. Firms was the first
+tab of Masters until 2026-09-06 — a firm's own master data, which needs a firm
+selected — so the one screen that creates a firm was reachable only from inside
+another firm.
+
+| # | Step | Expect |
+| --- | --- | --- |
+| 27.1 | Administration → **Firms** | The list of all firms. This tab did not exist here before. |
+| 27.2 | Masters → look for Firms | It is not there. Nothing else in Masters moved. |
+| 27.3 | New → code `TEST01`, a name, leave the rest | Saves. The message names the next step: open the firm, then Masters → Firm Settings for its business profile. |
+| 27.4 | Select the new row | **Open this firm** is enabled (a shared-database firm is ready at once). **Provision storage** is hidden, since there is nothing to provision. |
+| 27.5 | Press **Open this firm** | "Working in …". The header firm control shows it and the sidebar grows the whole application. |
+| 27.6 | Open the firm switcher | `TEST01` is listed. **This is the half that was broken**: the switcher is read once at sign-in, so without the refresh the firm you had just created was not in it and could not be chosen until you signed out. |
+| 27.7 | Masters → Firm Settings | Set its business profile. Until you do it trades as GENERIC. |
+| 27.8 | Switch back to **Platform**, create a firm with deployment mode `SCHEMA` | **Open this firm** is **disabled** — its schema has no tables yet. **Provision storage** is enabled. |
+| 27.9 | Provision it, refresh the grid, select it again | **Open this firm** is now enabled. |
+| 27.10 | Sign in as `whole01.admin@agency.local` | Administration shows **no** Firms tab — `FIRM_VIEW` is a platform code no firm role can hold. |
+
+Delete `TEST01` afterwards, or leave it; a firm with no data costs nothing.
+
 ## Appendix — driving the API by hand
 
 For the **(HTTP)** cases. See `.claude/skills/run-app` for the full recipe.

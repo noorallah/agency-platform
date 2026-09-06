@@ -5,7 +5,7 @@ from hashlib import sha256
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -1623,20 +1623,62 @@ class IdentityService:
             conditions.append(UserFirm.firm_id.in_(visible_firm_ids))
         return list(self._session.scalars(select(UserFirm).where(*conditions)))
 
-    def list_my_firms(self, user_id: UUID) -> list[tuple[UserFirm, Firm]]:
-        """Return active firms assigned to the authenticated user."""
+    def list_my_firms(
+        self, user_id: UUID, *, every_firm: bool = False
+    ) -> list[tuple[UserFirm | None, Firm]]:
+        """Return the firms this user may work in.
+
+        `every_firm` is for a platform administrator whose reach is
+        `ALL_FIRMS`. Their designation already exempts them from the
+        membership check in `app/common/scope.py`, so the server accepts an
+        `X-Firm-ID` for any firm -- but this list is what the desktop's firm
+        switcher offers, and it returned memberships only. The reach a
+        designation confers therefore depended on somebody having remembered
+        to insert `user_firms` rows: `superadmin` and `master.ops` were seeded
+        into all four firms and worked, while the bootstrap
+        `platform-admin@agency.local` had none and was offered an **empty**
+        switcher, so every firm-owned screen its token unlocked opened onto a
+        request it could not send.
+
+        The membership still comes back where one exists, because it carries
+        `is_primary`. A firm reached by the designation alone has no row and
+        yields `None`, which is why the tuple's first element is optional.
+        """
         self._get_user(user_id)
+        if not every_firm:
+            rows = self._session.execute(
+                select(UserFirm, Firm)
+                .join(Firm, Firm.id == UserFirm.firm_id)
+                .where(
+                    UserFirm.user_id == user_id,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                    Firm.is_active.is_(True),
+                    Firm.is_deleted.is_(False),
+                )
+                .order_by(UserFirm.is_primary.desc(), Firm.name.asc())
+            )
+            return [(row[0], row[1]) for row in rows]
+
+        # Ranked explicitly rather than by `is_primary.desc()`: most firms
+        # have no membership row here, so that column is NULL for them, and
+        # PostgreSQL sorts NULLs first in DESC while SQLite sorts them last --
+        # the ordering would differ between the tests and the deployment.
+        primary_first = case((UserFirm.is_primary.is_(True), 0), else_=1)
         rows = self._session.execute(
             select(UserFirm, Firm)
-            .join(Firm, Firm.id == UserFirm.firm_id)
-            .where(
-                UserFirm.user_id == user_id,
-                UserFirm.is_active.is_(True),
-                UserFirm.is_deleted.is_(False),
-                Firm.is_active.is_(True),
-                Firm.is_deleted.is_(False),
+            .select_from(Firm)
+            .outerjoin(
+                UserFirm,
+                and_(
+                    UserFirm.firm_id == Firm.id,
+                    UserFirm.user_id == user_id,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                ),
             )
-            .order_by(UserFirm.is_primary.desc(), Firm.name.asc())
+            .where(Firm.is_active.is_(True), Firm.is_deleted.is_(False))
+            .order_by(primary_first, Firm.name.asc())
         )
         return [(row[0], row[1]) for row in rows]
 

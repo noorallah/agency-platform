@@ -325,6 +325,7 @@ class _DesktopShellState extends State<DesktopShell> {
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
         salesStages: _salesStages,
+        hasActiveFirm: widget.session.currentFirm != null,
       );
 
   List<ModuleDefinition> get _visibleModules => _visibility.modules;
@@ -522,7 +523,10 @@ class _DesktopShellState extends State<DesktopShell> {
   Widget _firmControl({bool compact = false}) {
     final List<AssignedFirm> firms = widget.session.firms;
     final AssignedFirm? current = widget.session.currentFirm;
-    if (firms.length <= 1) {
+    // A platform administrator always gets the picker, even with one firm:
+    // Platform is a choice of its own and it is the only way back to it.
+    final bool platformIsAChoice = widget.session.canWorkWithoutAFirm;
+    if (firms.length <= 1 && !platformIsAChoice) {
       return compact
           ? const SizedBox.shrink()
           : Container(
@@ -577,9 +581,11 @@ class _DesktopShellState extends State<DesktopShell> {
             ConstrainedBox(
               constraints: BoxConstraints(maxWidth: compact ? 90 : 210),
               child: Text(
+                // "Platform" rather than "No firm": for an administrator with
+                // the designation it is a place to be working, not an absence.
                 compact
-                    ? (current?.code ?? 'No firm')
-                    : (current?.name ?? 'No firm'),
+                    ? (current?.code ?? (platformIsAChoice ? 'Platform' : 'No firm'))
+                    : (current?.name ?? (platformIsAChoice ? 'Platform' : 'No firm')),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -592,25 +598,41 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   Future<void> _openFirmPicker() async {
-    final String? selected = await showDialog<String>(
+    final FirmChoice? selected = await showDialog<FirmChoice>(
       context: context,
       builder: (context) => _FirmSwitcherDialog(
         firms: widget.session.firms,
         activeFirmId: widget.session.currentFirm?.id,
+        offerPlatform: widget.session.canWorkWithoutAFirm,
       ),
     );
     if (selected != null) {
-      await _switchFirm(selected);
+      await _switchFirm(selected.firmId);
     }
   }
 
-  Future<void> _switchFirm(String firmId) async {
+  /// Switch into a firm chosen from the Firms grid.
+  ///
+  /// The list is re-read first: `session.firms` is fetched once at sign-in,
+  /// so a firm created minutes ago is not in it and `switchFirm` would refuse
+  /// it as "not assigned to this user" -- true of the stale list and false of
+  /// the platform.
+  Future<String> _openFirm(Firm firm) async {
+    await widget.session.refreshFirms();
+    await widget.session.switchFirm(firm.id);
+    return 'Working in ${firm.name}. Its own settings are now reachable.';
+  }
+
+  Future<void> _switchFirm(String? firmId) async {
     try {
       await widget.session.switchFirm(firmId);
       if (!mounted) return;
+      final AssignedFirm? now = widget.session.currentFirm;
       NotificationService.show(
         context,
-        'Active firm changed to ${widget.session.currentFirm?.name}.',
+        now == null
+            ? 'Working on the platform. No firm is selected.'
+            : 'Active firm changed to ${now.name}.',
         kind: AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
@@ -1013,7 +1035,10 @@ class _DesktopShellState extends State<DesktopShell> {
           _ => 'Connecting',
         },
         currentUser: widget.session.attemptedUsername,
-        currentFirm: widget.session.currentFirm?.name ?? 'No active firm',
+        currentFirm: widget.session.currentFirm?.name ??
+            (widget.session.canWorkWithoutAFirm
+                ? 'Platform'
+                : 'No active firm'),
         backend: _health.backend,
         database: _health.database,
         environment: Uri.tryParse(widget.session.baseUrl)?.host == 'localhost'
@@ -1166,6 +1191,7 @@ class _DesktopShellState extends State<DesktopShell> {
             api: api,
             permissions: widget.permissions,
             router: _router,
+            onOpenFirm: _openFirm,
           ),
         AppModule.masters => _MastersWorkspace(
             key: ValueKey('masters-${widget.session.firmContextVersion}'),
@@ -1303,14 +1329,31 @@ class _DesktopShellState extends State<DesktopShell> {
       };
 }
 
+/// What the firm picker came back with.
+///
+/// A plain `String?` cannot express it: `showDialog` already answers null for
+/// a dismissal, and Platform is a deliberate choice of no firm. Conflating the
+/// two would make pressing Escape switch an administrator out of the firm they
+/// were working in.
+class FirmChoice {
+  const FirmChoice(this.firmId);
+
+  /// The firm chosen, or null for the platform itself.
+  final String? firmId;
+}
+
 class _FirmSwitcherDialog extends StatefulWidget {
   const _FirmSwitcherDialog({
     required this.firms,
     required this.activeFirmId,
+    this.offerPlatform = false,
   });
 
   final List<AssignedFirm> firms;
   final String? activeFirmId;
+
+  /// Whether to offer working on the platform with no firm selected.
+  final bool offerPlatform;
 
   @override
   State<_FirmSwitcherDialog> createState() => _FirmSwitcherDialogState();
@@ -1346,26 +1389,45 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
               SizedBox(
                 height: 320,
                 child: ListView(
-                  children: _filteredFirms()
-                      .map(
-                        (firm) => ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.business_outlined),
-                          title: Text(firm.name),
-                          subtitle: Text(firm.code),
-                          trailing: firm.id == widget.activeFirmId
-                              ? const Icon(Icons.check, size: 18)
-                              : null,
-                          onTap: () => Navigator.of(context).pop(firm.id),
-                        ),
-                      )
-                      .toList(),
+                  children: [
+                    if (widget.offerPlatform && _matchesSearch('Platform'))
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.hub_outlined),
+                        title: const Text('Platform'),
+                        subtitle:
+                            const Text('Firms, people and platform settings'),
+                        trailing: widget.activeFirmId == null
+                            ? const Icon(Icons.check, size: 18)
+                            : null,
+                        onTap: () =>
+                            Navigator.of(context).pop(const FirmChoice(null)),
+                      ),
+                    ..._filteredFirms().map(
+                      (firm) => ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.business_outlined),
+                        title: Text(firm.name),
+                        subtitle: Text(firm.code),
+                        trailing: firm.id == widget.activeFirmId
+                            ? const Icon(Icons.check, size: 18)
+                            : null,
+                        onTap: () =>
+                            Navigator.of(context).pop(FirmChoice(firm.id)),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
         ),
       );
+
+  bool _matchesSearch(String label) {
+    final String query = _searchController.text.trim().toLowerCase();
+    return query.isEmpty || label.toLowerCase().contains(query);
+  }
 
   List<AssignedFirm> _filteredFirms() {
     final String query = _searchController.text.trim().toLowerCase();
@@ -1388,7 +1450,11 @@ class _AdministrationWorkspace extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.router,
+    this.onOpenFirm,
   });
+
+  /// Switches the session into a firm, for the Firms tab's "Open this firm".
+  final Future<String> Function(Firm firm)? onOpenFirm;
   final ApiClient api;
   final PermissionService permissions;
   final WorkspaceRouter router;
@@ -1403,21 +1469,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module =
         ModuleCatalog.byId(AppModule.administration);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No administration access',
@@ -1493,6 +1549,15 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.api,
             widget.permissions,
             showFrame: false,
+          ),
+        ),
+      'firms' => ResourceManagementPage<Firm>(
+          api: widget.api,
+          definition: firmDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+            onOpenFirm: widget.onOpenFirm,
           ),
         ),
       'user-firms' => ResourceManagementPage<PlatformUser>(
@@ -1666,21 +1731,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.masters);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     final String? requestedTab =
         widget.router.current.module == AppModule.masters.name
             ? widget.router.current.tab
@@ -1690,14 +1745,6 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         : visibleTabs.first.id;
     final bool hasActiveFirm = widget.api.activeFirmId?.call() != null;
     final Widget content = switch (tabId) {
-      'firms' => ResourceManagementPage<Firm>(
-          api: widget.api,
-          definition: firmDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
       'financial-years' => FinancialYearsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1860,21 +1907,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.sales);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No sales access',
@@ -2089,21 +2126,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.purchases);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No purchase access',
@@ -2240,21 +2267,11 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.goodsReceipts);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No goods receipt access',
@@ -2303,21 +2320,11 @@ class _DeliveryNoteWorkspaceState extends State<_DeliveryNoteWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.deliveryNotes);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No delivery note access',
@@ -2364,21 +2371,11 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.inventory);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No inventory access',
@@ -2663,6 +2660,7 @@ ResourceDefinition<Firm> firmDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
+  Future<String> Function(Firm firm)? onOpenFirm,
 }) =>
     ResourceDefinition(
       title: 'Firms',
@@ -2693,9 +2691,13 @@ ResourceDefinition<Firm> firmDefinition(
       // A firm with no business profile silently runs as the platform default,
       // so a wholesale business can end up operating as GENERIC. The profile
       // cannot be set from here, so the next step is named instead.
-      createFollowUp: (_) =>
-          'Set this firm\'s business profile in Masters → Firm Settings. '
-          'Until then it runs on the platform default.',
+      createFollowUp: (_) => onOpenFirm == null
+          ? 'Created. Switch into this firm, then set its business profile in '
+              'Masters → Firm Settings. Until then it runs on the '
+              'platform default.'
+          : 'Created. Use "Open this firm" to switch into it, then set its '
+              'business profile in Masters → Firm Settings. Until then '
+              'it runs on the platform default.',
       customActions: [
         ResourceAction<Firm>(
           label: 'Provision storage',
@@ -2705,6 +2707,22 @@ ResourceDefinition<Firm> firmDefinition(
               firm.deploymentMode != 'SHARED' && !firm.isStorageReady,
           onInvoke: (firm) => api.provisionFirmStorage(firm!.id),
         ),
+        // Setting a firm up finishes *inside* the firm: its business profile,
+        // financial year, chart of accounts and settings all live in its own
+        // store and need `X-Firm-ID`. Without this, the administrator who had
+        // just created it had to find it in the firm switcher -- where it does
+        // not appear, because that list is read once at sign-in.
+        if (onOpenFirm != null)
+          ResourceAction<Firm>(
+            label: 'Open this firm',
+            icon: Icons.login_outlined,
+            // A dedicated store that has not been built yet holds no tables,
+            // so switching into it would answer errors on every screen.
+            isEnabled: (firm) =>
+                firm.isActive &&
+                (firm.deploymentMode == 'SHARED' || firm.isStorageReady),
+            onInvoke: (firm) => onOpenFirm(firm!),
+          ),
       ],
       id: (firm) => firm.id,
       load: api.firms,

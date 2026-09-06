@@ -321,19 +321,40 @@ a decision about future hires.
 
 When a firm is created, its people and their templates are the operator's job.
 
-1. **Create the firm.** Administration → Firms → New. Provision storage if it
-   is not a shared-database firm.
-2. **Write its templates.** User Templates → New, and set **Offered to** to
-   that firm.
+**You start on the platform.** A platform administrator signs in with no firm
+selected — the firm control in the header reads **Platform** — and the sidebar
+shows platform work only. That is where the first three steps happen.
+
+1. **Create the firm.** Administration → Firms → New.
+   * **Provision storage** if it is not a shared-database firm. A dedicated
+     schema or database has no tables until you do, so nothing about the firm
+     works before this and the firm cannot be opened.
+2. **Write its templates.** Administration → User Templates → New, and set
+   **Offered to** to that firm.
    * Leave **Offered to** blank and the template is offered to **every firm**
      on the platform. That is right for a job every firm has and wrong for one
      firm's own, which is why the field says so.
 3. **Create its administrator**, put them in the firm, and apply the
    `firm-administrator` template.
-4. Hand over. From there the firm administrator does §3, §4 and §5 themselves.
+4. **Open the firm and finish setting it up.** Select it in the Firms grid and
+   press **Open this firm** — the sidebar grows that firm's application. Its
+   business profile (Masters → Firm Settings), financial year and chart of
+   accounts all live in the firm's own store, so none of them can be set from
+   the platform side. **A firm with no business profile silently trades as
+   GENERIC**, which is why the message after creating one says so.
+5. Hand over. From there the firm administrator does §3, §4 and §5 themselves.
 
-A tier-1 operator can do all of this and is still refused the firm's books —
-`GET /api/v1/customers` answers 403 for them, by design.
+Two things worth knowing about step 4. **Open this firm** re-reads your firm
+list first: that list is otherwise fetched once when you sign in, so a firm
+created minutes ago is not in the switcher and choosing it there would be
+refused. And you are put back on **Platform** every time you sign in, whatever
+firm you were last in — a reach over every firm's books should not restore
+itself silently.
+
+A tier-1 operator can do steps 1 to 3 and is still refused the firm's books —
+`GET /api/v1/customers` answers 403 for them, by design, and **Open this firm**
+would give them a sidebar of refusals. Step 4 is a tier-2 job, or the firm's
+own administrator's.
 
 ---
 

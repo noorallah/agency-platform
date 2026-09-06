@@ -237,15 +237,31 @@ def list_my_firms(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[MyFirmResponse]]:
-    """Return active firms assigned to the authenticated user."""
-    rows = _service(db, settings).list_my_firms(_actor_id(principal))
+    """Return the firms this user may work in.
+
+    A platform administrator whose reach is `ALL_FIRMS` gets every active
+    firm, not only the ones somebody gave them a membership row in. Their
+    designation already exempts them from the membership check, so this list
+    was the only thing standing between them and the firms they may act in --
+    and the bootstrap administrator, seeded with no memberships at all, was
+    offered an empty switcher while its token carried every permission code.
+
+    A `PLATFORM` administrator is deliberately not widened: they are refused
+    firm-owned routes, so a switcher full of firms would offer them nothing
+    but 403s.
+    """
+    rows = _service(db, settings).list_my_firms(
+        _actor_id(principal), every_firm=principal.may_act_in_any_firm
+    )
     return ApiResponse(
         data=[
             MyFirmResponse(
                 id=firm.id,
                 code=firm.code,
                 name=firm.name,
-                is_primary=membership.is_primary,
+                # A firm reached by the designation has no membership row, so
+                # it is nobody's primary.
+                is_primary=membership is not None and membership.is_primary,
             )
             for membership, firm in rows
         ]

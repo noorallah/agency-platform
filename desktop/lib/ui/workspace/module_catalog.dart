@@ -39,6 +39,7 @@ class ModuleTabDefinition {
     this.available = true,
     this.requiredPermissions = const [],
     this.requiresAnyPermission = false,
+    this.requiresFirm = true,
   });
 
   final String id;
@@ -46,6 +47,16 @@ class ModuleTabDefinition {
   final bool available;
   final List<String> requiredPermissions;
   final bool requiresAnyPermission;
+
+  /// Whether this tab's data lives in a firm's store.
+  ///
+  /// Administration is the module that makes this necessary: `users`, `roles`,
+  /// `permissions` and the templates are platform tables, while the
+  /// business-profile catalogue, the document framework and the geography
+  /// masters live in **every firm's own store** and their endpoints resolve a
+  /// tenant from `X-Firm-ID`. So one module holds tabs of both kinds, and a
+  /// module-level answer would be wrong for half of them either way.
+  final bool requiresFirm;
 }
 
 class ModuleDefinition {
@@ -59,6 +70,7 @@ class ModuleDefinition {
     this.requiredPermissions = const [],
     this.requiresAnyPermission = false,
     this.requiresPlatformAdmin = false,
+    this.requiresFirm = true,
   });
 
   final AppModule id;
@@ -83,6 +95,19 @@ class ModuleDefinition {
   /// -- so a firm's own administrator was shown a screen that answered "you
   /// are not authorized" on the page the app lands on.
   final bool requiresPlatformAdmin;
+
+  /// Whether this module needs a firm selected to be of any use.
+  ///
+  /// The server draws this line already: everything outside `/health` and
+  /// `/api/v1/{auth,users,roles,permissions,firms,dashboard,me}` resolves a
+  /// tenant from `X-Firm-ID` and refuses the request without one. So a module
+  /// offered with no firm selected is a menu entry whose every screen fails --
+  /// which is what an `ALL_FIRMS` administrator with no membership row saw:
+  /// Sales, Purchases, Inventory and the rest, all unusable.
+  ///
+  /// It defaults to true because most modules are a firm's own business. The
+  /// four that are not say so.
+  final bool requiresFirm;
 }
 
 abstract final class ModuleCatalog {
@@ -106,6 +131,10 @@ abstract final class ModuleCatalog {
       ],
       requiresAnyPermission: true,
       requiresPlatformAdmin: true,
+      // `/api/v1/dashboard` is a platform path: it counts firms, users,
+      // roles and permissions across the whole platform and resolves no
+      // tenant.
+      requiresFirm: false,
     ),
     ModuleDefinition(
       id: AppModule.administration,
@@ -113,6 +142,11 @@ abstract final class ModuleCatalog {
       icon: Icons.admin_panel_settings_outlined,
       description: 'Manage platform access and user assignments.',
       workspaceTemplate: WorkspaceTemplateType.configuration,
+      // Mixed: `users`, `roles`, `permissions` and the templates are platform
+      // tables, while the tax, UOM, document-framework and business-profile
+      // tabs live in each firm's own store. The module opens either way and
+      // each tab answers for itself.
+      requiresFirm: false,
       requiredPermissions: [
         'USER_VIEW',
         'ROLE_VIEW',
@@ -127,14 +161,32 @@ abstract final class ModuleCatalog {
       ],
       requiresAnyPermission: true,
       tabs: [
+        // First, because creating a firm precedes creating its people. It
+        // lived under Masters, which is a firm's *own* master data and needs
+        // a firm selected -- so the one screen that creates a firm was
+        // reachable only from inside another one, and invisible entirely to a
+        // platform administrator who had not picked one. `FIRM_VIEW` is a
+        // platform code no firm role may hold, so no firm user loses a tab.
         ModuleTabDefinition(
-            id: 'users', label: 'Users', requiredPermissions: ['USER_VIEW']),
+            id: 'firms',
+            label: 'Firms',
+            requiredPermissions: ['FIRM_VIEW'],
+            requiresFirm: false),
         ModuleTabDefinition(
-            id: 'roles', label: 'Roles', requiredPermissions: ['ROLE_VIEW']),
+            id: 'users',
+            label: 'Users',
+            requiredPermissions: ['USER_VIEW'],
+            requiresFirm: false),
+        ModuleTabDefinition(
+            id: 'roles',
+            label: 'Roles',
+            requiredPermissions: ['ROLE_VIEW'],
+            requiresFirm: false),
         ModuleTabDefinition(
           id: 'permissions',
           label: 'Permissions',
           requiredPermissions: ['PERMISSION_VIEW'],
+          requiresFirm: false,
         ),
         ModuleTabDefinition(
           id: 'user-templates',
@@ -142,6 +194,7 @@ abstract final class ModuleCatalog {
           // `ROLE_VIEW`, because a template is a bundle of roles and the
           // screen is useless without the role list beside it.
           requiredPermissions: ['ROLE_VIEW'],
+          requiresFirm: false,
         ),
         ModuleTabDefinition(
           id: 'user-firms',
@@ -152,6 +205,7 @@ abstract final class ModuleCatalog {
           // `canUseAction`, leaving the tab itself unreachable. Two gates on
           // one screen and only one of them moved.
           requiredPermissions: ['USER_VIEW', 'USER_UPDATE'],
+          requiresFirm: false,
         ),
         ModuleTabDefinition(
           id: 'numbering-series',
@@ -261,8 +315,6 @@ abstract final class ModuleCatalog {
       ],
       requiresAnyPermission: true,
       tabs: [
-        ModuleTabDefinition(
-            id: 'firms', label: 'Firms', requiredPermissions: ['FIRM_VIEW']),
         ModuleTabDefinition(
           id: 'customers',
           label: 'Customers',
@@ -820,6 +872,7 @@ abstract final class ModuleCatalog {
       workspaceTemplate: WorkspaceTemplateType.configuration,
       requiredPermissions: ['LICENSE_MANAGE'],
       tabs: [],
+      requiresFirm: false,
     ),
     ModuleDefinition(
       id: AppModule.settings,
@@ -827,6 +880,9 @@ abstract final class ModuleCatalog {
       icon: Icons.settings_outlined,
       description: 'Application settings workspace.',
       workspaceTemplate: WorkspaceTemplateType.settings,
+      // The audit trail reads the platform's own store when no firm is
+      // selected, and diagnostics is platform telemetry throughout.
+      requiresFirm: false,
       // Any one of the three, not all: SYSTEM_AUDITOR holds AUDIT_LOG_VIEW and
       // DIAGNOSTICS_VIEW and no SETTINGS_VIEW, so demanding all of them hid
       // the workspace from the one role that exists to read what is in it.
@@ -839,6 +895,7 @@ abstract final class ModuleCatalog {
           id: 'audit-logs',
           label: 'Audit Logs',
           requiredPermissions: ['AUDIT_LOG_VIEW'],
+          requiresFirm: false,
         ),
         // Its own permission: the audit trail and the crash log answer to
         // different people, and DIAGNOSTICS_VIEW is seeded separately.
@@ -846,6 +903,7 @@ abstract final class ModuleCatalog {
           id: 'diagnostics',
           label: 'Diagnostics',
           requiredPermissions: ['DIAGNOSTICS_VIEW'],
+          requiresFirm: false,
         ),
       ],
     ),
@@ -979,6 +1037,12 @@ abstract final class ModuleCatalog {
           label: 'Permissions',
           path: 'permissions',
           icon: Icons.key_outlined,
+        ),
+      if (visibleTabIds.contains('firms'))
+        const WorkspaceNavigationNode(
+          label: 'Firms',
+          path: 'firms',
+          icon: Icons.apartment_outlined,
         ),
       if (visibleTabIds.contains('user-templates'))
         const WorkspaceNavigationNode(
@@ -1146,12 +1210,6 @@ abstract final class ModuleCatalog {
   ) {
     bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
     return [
-      if (visibleTabIds.contains('firms'))
-        const WorkspaceNavigationNode(
-          label: 'Firms',
-          path: 'firms',
-          icon: Icons.apartment_outlined,
-        ),
       if (visibleTabIds.contains('customers'))
         const WorkspaceNavigationNode(
           label: 'Customers',

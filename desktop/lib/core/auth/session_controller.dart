@@ -29,7 +29,9 @@ class SessionController extends ChangeNotifier {
     void Function(String? accessToken)? onAccessTokenChanged,
     Duration sessionTimeout = const Duration(minutes: 30),
     ReportQueue? reportQueue,
-  })  : _tokenStore = tokenStore ?? MigratingRefreshTokenStore(),
+    bool Function()? isPlatformAdmin,
+  })  : _isPlatformAdmin = isPlatformAdmin ?? _neverAPlatformAdmin,
+        _tokenStore = tokenStore ?? MigratingRefreshTokenStore(),
         _reportQueue = reportQueue ?? ReportQueue(),
         _preferences = preferences ?? DesktopPreferencesService(),
         _baseUrl = baseUrl,
@@ -48,6 +50,17 @@ class SessionController extends ChangeNotifier {
       _onPreferencesSynchronized;
   final void Function(String? accessToken)? _onAccessTokenChanged;
   final Duration _sessionTimeout;
+
+  /// Whether the signed-in user carries the platform designation.
+  ///
+  /// Read through a callback rather than decoded here: `PermissionService`
+  /// already owns the token's claims, and a second decoder is a second thing
+  /// to get wrong. It is read *after* `_applyTokens`, which pushes the new
+  /// token into that service, so it is current by the time it is asked.
+  final bool Function() _isPlatformAdmin;
+
+  static bool _neverAPlatformAdmin() => false;
+
   String _baseUrl;
   String? _accessToken;
   String? _refreshToken;
@@ -261,7 +274,47 @@ class SessionController extends ChangeNotifier {
     return 'light';
   }
 
-  Future<void> switchFirm(String firmId) async {
+  /// Re-read the firms this user may work in.
+  ///
+  /// The list is otherwise fetched once, at sign-in, by
+  /// `_synchronizePreferences` -- so a platform administrator who created a
+  /// firm could not select it until they signed out and back in. Creating one
+  /// and then being unable to reach it is the whole of setting a firm up.
+  ///
+  /// The current selection is kept if it is still in the list, and dropped if
+  /// it is not: a firm that has been retired underneath the session is not one
+  /// to go on sending `X-Firm-ID` for.
+  Future<void> refreshFirms() async {
+    final List<AssignedFirm> firms = await api.myFirms();
+    _firms = firms;
+    final String? currentId = _currentFirm?.id;
+    if (currentId != null && !firms.any((firm) => firm.id == currentId)) {
+      _currentFirm = null;
+      _firmContextVersion++;
+    }
+    notifyListeners();
+  }
+
+  /// Whether this session may work with no firm selected.
+  ///
+  /// Only a platform administrator can: for anybody else a null firm means an
+  /// empty sidebar and an application that does nothing, which is a bug rather
+  /// than a mode.
+  bool get canWorkWithoutAFirm => _isPlatformAdmin();
+
+  /// Select a firm, or pass null for platform mode.
+  Future<void> switchFirm(String? firmId) async {
+    if (firmId == null) {
+      if (!canWorkWithoutAFirm) {
+        throw const ApiException('Select a firm to continue.');
+      }
+      if (_currentFirm == null) return;
+      _currentFirm = null;
+      _firmContextVersion++;
+      registerActivity();
+      notifyListeners();
+      return;
+    }
     final AssignedFirm firm = _firms.firstWhere(
       (item) => item.id == firmId,
       orElse: () => throw const ApiException(
@@ -356,8 +409,33 @@ class SessionController extends ChangeNotifier {
   AssignedFirm? _resolveCurrentFirm(
     List<AssignedFirm> firms,
     String? preferredFirmId,
-  ) {
-    if (firms.isEmpty) return null;
+  ) =>
+      resolveLandingFirm(
+        firms,
+        preferredFirmId,
+        isPlatformAdmin: _isPlatformAdmin(),
+      );
+
+  /// Which firm a fresh session lands on, if any.
+  ///
+  /// A platform administrator lands on **none**, every time, whatever they
+  /// were last working in. Their designation reaches every firm's books, so
+  /// restoring a firm would drop them straight into somebody's ledgers on a
+  /// screen that looks like their own. The stored `default_firm_id` is left
+  /// untouched rather than cleared, so nothing is lost by it -- and the
+  /// caller skips the write-back when this answers null, which is what keeps
+  /// it that way.
+  ///
+  /// Static and public because it is the rule rather than a step: the
+  /// controller builds its own `ApiClient`, so `_synchronizePreferences`
+  /// cannot be driven from a test, and a private answer inside it would be
+  /// one nothing could interrogate.
+  static AssignedFirm? resolveLandingFirm(
+    List<AssignedFirm> firms,
+    String? preferredFirmId, {
+    required bool isPlatformAdmin,
+  }) {
+    if (firms.isEmpty || isPlatformAdmin) return null;
     for (final AssignedFirm firm in firms) {
       if (firm.id == preferredFirmId) return firm;
     }

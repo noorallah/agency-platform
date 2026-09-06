@@ -24,9 +24,23 @@ class ModuleVisibility {
     required this.permissions,
     this.activeBusinessModules,
     this.salesStages = SalesWorkflowSettings.wholeChain,
+    this.hasActiveFirm = true,
   });
 
   final PermissionService permissions;
+
+  /// Whether a firm is currently selected.
+  ///
+  /// Defaults to true because everybody except a platform administrator
+  /// always has one: an ordinary user's switcher is their memberships, and a
+  /// firm-owned module with no firm behind it would empty their sidebar.
+  ///
+  /// It is a platform administrator who can have none, and until this existed
+  /// they were offered the whole application on a context that could not send
+  /// `X-Firm-ID` -- Sales, Purchases, Inventory, every one of them refused on
+  /// its first request. The switcher is now the mode: no firm is platform
+  /// work, a firm is that firm's books.
+  final bool hasActiveFirm;
 
   /// Business module codes this firm has switched on, or null while unknown.
   ///
@@ -73,6 +87,11 @@ class ModuleVisibility {
     if (!_typedByThisFirm(module)) {
       return 'this firm does not type this stage of a sale';
     }
+    // Asked last, so the answer explains a *missing firm* only to somebody
+    // who would otherwise be offered the module.
+    if (module.requiresFirm && !hasActiveFirm) {
+      return 'no firm is selected';
+    }
     return null;
   }
 
@@ -89,21 +108,48 @@ class ModuleVisibility {
     if (!allows(module)) {
       return const {};
     }
-    return module.tabs
-        .where((tab) => tab.available)
-        .where(
-          (tab) => permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
+    return tabsFor(module, permissions, hasActiveFirm: hasActiveFirm)
         .map((tab) => tab.id)
         .toSet();
   }
+
+  /// The tabs of one module a holder of these permissions may open.
+  ///
+  /// Static because every workspace needs it and none of them has a
+  /// `ModuleVisibility`: each built its **own** copy of this filter over the
+  /// catalogue -- seven byte-identical copies in `desktop_shell.dart` beside
+  /// the one here, which is eight chances for the rules to drift apart. They
+  /// promptly did: adding [ModuleTabDefinition.requiresFirm] here hid the
+  /// firm-owned tabs from the navigation tree while every workspace's own tab
+  /// strip went on offering them.
+  ///
+  /// The module's own gates are deliberately not applied. A workspace is only
+  /// built for a module the shell already allowed, and re-asking would need
+  /// the business-profile codes and sales stages plumbed into seven widgets
+  /// to answer a question that has already been answered.
+  static List<ModuleTabDefinition> tabsFor(
+    ModuleDefinition module,
+    PermissionService permissions, {
+    required bool hasActiveFirm,
+  }) =>
+      module.tabs
+          // A tab declared `available: false` has no workspace behind it, so
+          // showing it routes the user to an unrelated screen.
+          .where((tab) => tab.available)
+          // Administration holds tabs of both kinds, so a module that opens
+          // without a firm still hides the tabs that need one.
+          .where((tab) => hasActiveFirm || !tab.requiresFirm)
+          .where(
+            (tab) => permissions.canUseTab(
+              tab.requiredPermissions.isEmpty
+                  ? module.requiredPermissions
+                  : tab.requiredPermissions,
+              requiresAny: tab.requiredPermissions.isEmpty
+                  ? module.requiresAnyPermission
+                  : tab.requiresAnyPermission,
+            ),
+          )
+          .toList();
 
   bool _enabledByBusinessProfile(ModuleDefinition module) {
     final Set<String>? configured = activeBusinessModules;
