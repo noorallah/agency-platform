@@ -755,25 +755,36 @@ inherit it. A cashier therefore signs in to an empty sidebar. `BILLING_EXECUTIVE
 is offered six modules, so the seeded `counter-sales` template (`CASHIER` +
 `BILLING_EXECUTIVE`) hides the problem — a cashier on their own does not.
 
-### `FIRM_ADMIN` is not granted six of the firm's own modules
+### ~~`FIRM_ADMIN` is not granted six of the firm's own modules~~ — fixed
 
-`_operational_permissions` in `system_seed.py` names eighteen groups, and the
-groups added since are not among them. A firm administrator holds **none** of:
+**Five of the six were granted on 2026-09-06** (`20260906_0130`).
+`_operational_permissions` named eighteen groups and the groups added since had
+never been added to it, so a firm administrator held **none** of:
 
-| Group | Codes | Consequence |
-| --- | --- | --- |
-| `credit_note` | `CREDIT_NOTE_VIEW`, `_MANAGE`, `_APPROVE` | Sales › Credit Notes not offered |
-| `proforma` | `PROFORMA_VIEW`, `_MANAGE` | Sales › Proforma not offered |
-| `einvoice` | `EINVOICE_VIEW`, `_MANAGE` | Sales › E-Invoice not offered |
-| `loyalty` | `LOYALTY_VIEW`, `_MANAGE`, `_MANAGE_SETTINGS` | Masters › Loyalty not offered |
-| `tcs` | `TCS_VIEW`, `_MANAGE` | Sales › TCS not offered |
-| `firm` | `FIRM_VIEW` and the five others | Masters › Firms, Masters › Firm Settings and Administration › User-Firm Assignments not offered |
+| Group | Codes | Was not offered | Now |
+| --- | --- | --- | --- |
+| `credit_note` | `CREDIT_NOTE_VIEW`, `_MANAGE`, `_APPROVE` | Sales › Credit Notes | granted |
+| `proforma` | `PROFORMA_VIEW`, `_MANAGE` | Sales › Proforma | granted |
+| `einvoice` | `EINVOICE_VIEW`, `_MANAGE` | Sales › E-Invoice | granted |
+| `loyalty` | `LOYALTY_VIEW`, `_MANAGE`, `_MANAGE_SETTINGS` | Masters › Loyalty | granted |
+| `tcs` | `TCS_VIEW`, `_MANAGE` | Sales › TCS | granted |
+| `firm` | `FIRM_VIEW` and the five others | Masters › Firms, Firm Settings, User-Firm Assignments | **still withheld, deliberately** |
 
-`SALES_MANAGER` holds most of the first five, so the screens are reachable by
+`SALES_MANAGER` held most of the first five, so the screens were reachable by
 somebody — just not by the role whose description is "runs the firm and every
-module". `FIRM_VIEW` is in `PLATFORM_PERMISSION_CODES`, so its absence is
-deliberate; the other five look like the flag-outlives-the-fact pattern
-`COMMISSION`'s `is_implemented` had.
+module", which is why it survived until this file's survey asked the question
+mechanically. `FIRM_MANAGER` gained the same twelve codes, since it is
+`_operational_permissions` less the administration ones.
+
+`FIRM_VIEW` and its group stay out: they are in `PLATFORM_PERMISSION_CODES`,
+and deciding which firms exist is not a firm's own business. The desktop no
+longer needs it — the users grid reads `/api/v1/me/firms`.
+
+**The list is no longer hand-kept in a way that can drift silently.**
+`tests/unit/test_firm_admin_holds_the_firms_own_modules.py` derives which
+groups are operational — neither platform-withheld nor firm administration —
+and fails when `_operational_permissions` omits one. Removing `loyalty` or
+`credit_note` from the list fails it, which is how it was checked.
 
 ### `FIRM_ADMIN` sees the Settings module with no tabs
 

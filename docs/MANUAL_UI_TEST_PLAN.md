@@ -457,6 +457,26 @@ can never be given. Sign in as `whole01.admin`.
 
 ---
 
+## 21. The five modules a firm administrator could not open
+
+`_operational_permissions` is the list `FIRM_ADMIN` and `FIRM_MANAGER` are
+built from, and five groups had never been added to it. Sign in as
+`whole01.admin`. **If you were already signed in when this shipped, sign out
+and back in** — a token carries the claims it was minted with.
+
+| # | Case | Expected |
+| --- | --- | --- |
+| 21.1 | Sales → Credit Notes | Offered, and opens. Draft, approve and the approve gate are all reachable. |
+| 21.2 | Sales → Proforma | Offered, and opens. |
+| 21.3 | Sales → E-Invoice | Offered, and opens. Check the mode badge reads SANDBOX. |
+| 21.4 | Masters → Loyalty | Offered, and opens. Settings included — `LOYALTY_MANAGE_SETTINGS` is granted. |
+| 21.5 | Sales → TCS | Offered, and opens, settings included. |
+| 21.6 | As `whole01.sales1`, try all five | Still refused, all five. The grant widened one role, not everybody. |
+| 21.7 | Masters → Firms | **Still not offered**, deliberately. Deciding which firms exist is not a firm's own business. |
+| 21.8 **(HTTP)** | `GET /api/v1/credit-notes`, `/proforma-invoices`, `/einvoice/registrations`, `/loyalty/settings`, `/tcs/settings` with a `whole01.admin` token | `200` on all five. They answered `403` before. |
+
+---
+
 ---
 
 # Part 4 — Known gaps
