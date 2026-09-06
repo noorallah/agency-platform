@@ -451,7 +451,10 @@ can never be given. Sign in as `whole01.admin`.
 | # | Case | Expected |
 | --- | --- | --- |
 | 20.1 | Administration → Users | **New** and **Edit** are offered. Before this they were not, for any firm administrator. |
-| 20.2 | New → fill in name, email, password → Save | Created, and already a member of WHOLE01 — a firm administrator's new user lands in their own firm. |
+| 20.2 | New → look at **Firms** before typing anything | **WHOLE01 is already ticked.** The form used to open empty and then silently remove the membership the save had just created, leaving a user in no firm and invisible in the grid. |
+| 20.2a | Fill in name, email, password → Save | Created and in WHOLE01, visible in the grid straight away. |
+| 20.2b | New again, **clear** the Firms box, save | Created in **no** firm — allowed, and deliberate. They will not appear in the grid; find them with **Add existing user**. |
+| 20.2c | As `superadmin`, open New | Firms is **empty**, not prefilled. A platform administrator has no own firm, and quietly using whichever one their switcher shows would be a surprise. |
 | 20.3 | Open the form again and look at **Firms** | Lists the firms *you* belong to. It read `/api/v1/firms`, which is platform-only, so it used to come back empty with a failed load. |
 | 20.4 | Sign in as `superadmin@agency.local` and open the same form | **Firms** lists every firm. Same field, different source. |
 | 20.5 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms` naming ELEC01 | `422`, "You can only assign firms you administer." Refused by name, not silently dropped. |

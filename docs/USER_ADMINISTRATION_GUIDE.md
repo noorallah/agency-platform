@@ -302,7 +302,7 @@ Four ways a person ends up in a firm, and it is worth knowing which is which:
 
 | How | What happens |
 | --- | --- |
-| **New** (as a firm admin) | They are attached to your firm automatically — unless you clear the Firms box, which leaves them in **no** firm. |
+| **New** (as a firm admin) | The Firms box opens with **your firm already in it**, so they land there. Clear it and they land in **no** firm, which is allowed. |
 | **Add existing user** | They keep every firm they already had, and gain yours. |
 | **Hire like this person** | They get the same firms as the person you copied, within your reach. |
 | **Edit → Firms** | You set which of *your* firms they are in. |
