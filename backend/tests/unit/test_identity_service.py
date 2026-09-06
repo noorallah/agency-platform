@@ -309,7 +309,28 @@ def test_production_rejects_the_known_development_jwt_key() -> None:
 
 
 def test_firm_admin_has_no_platform_permissions_or_platform_access() -> None:
-    """Prevent firm roles from crossing the immutable platform boundary."""
+    """Prevent firm roles from crossing the immutable platform boundary.
+
+    `AUDIT_LOG_VIEW` came **off** this list on 2026-09-06, which is a real
+    change to a boundary somebody drew deliberately, so here is the reasoning.
+
+    The other six reach the platform: creating firms, reading the registry,
+    changing platform settings, managing licences. `AUDIT_LOG_VIEW` unlocks
+    exactly one endpoint, `GET /api/v1/audit-logs`, and that endpoint is
+    **firm-scoped**: without `X-Firm-ID` it demands the designation, and with
+    one it applies the ordinary `UserFirm` membership check. So the code
+    grants a firm administrator their own firm's history and nothing else --
+    driven, 200 on their firm and 403 on the platform trail.
+
+    It was withheld before because the Settings module's Audit Logs tab was
+    the only way to spend it and nobody had asked for it. The cost was that
+    Settings was offered to `FIRM_ADMIN` (on `SETTINGS_VIEW`) while both its
+    tabs demanded codes the role did not hold, so the module opened empty.
+
+    `DIAGNOSTICS_VIEW` stays on the list. Error reports are operational
+    telemetry for whoever maintains the product, kept in one place rather
+    than per firm, and `firm_id` on them is data rather than routing.
+    """
     assert ROLE_PERMISSION_CODES["FIRM_ADMIN"].isdisjoint(
         {
             "PLATFORM_VIEW",
@@ -318,7 +339,7 @@ def test_firm_admin_has_no_platform_permissions_or_platform_access() -> None:
             "LICENSE_MANAGE",
             "FIRM_CREATE",
             "FIRM_VIEW",
-            "AUDIT_LOG_VIEW",
+            "DIAGNOSTICS_VIEW",
         }
     )
     user_id = uuid4()
