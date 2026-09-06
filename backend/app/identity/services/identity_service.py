@@ -1036,6 +1036,21 @@ class IdentityService:
             entity_id=user_id,
             actor_id=actor_id,
             firm_id=target,
+            # Which job, not merely that a job was applied. This recorded
+            # neither the template nor the roles, so the trail said somebody's
+            # access changed and nothing about what it changed to -- and this
+            # is the call a promotion is made with, where "moved into Sales
+            # Manager, by whom, on what date" is the whole question somebody
+            # asks six months later. `clone_user` already recorded its source
+            # for the same reason.
+            #
+            # The code as well as the id: a template can be retired, and an
+            # id alone then points at a row nobody can name.
+            after_data={
+                "template_id": str(template.id),
+                "template_code": template.code,
+                "role_ids": [str(role_id) for role_id in role_ids],
+            },
         )
         self._session.commit()
         return role_ids

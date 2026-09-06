@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.core.database.all_models  # noqa: F401
+from app.common.audit.models import AuditLog
 from app.core.config.settings import Settings
 from app.core.database.base import Base
 from app.core.exceptions import (
@@ -790,3 +791,107 @@ def test_the_clone_can_be_edited_like_any_other_user() -> None:
     assert _codes_held(session, clone.id, firm.id) == {"SALES_EXECUTIVE"}
     # And the source is unaffected, which a shared row would not be.
     assert _codes_held(session, source.id, firm.id) == {"CASHIER"}
+
+
+# --------------------------------------------------------------------------
+# Promotions
+# --------------------------------------------------------------------------
+
+
+def test_the_trail_says_which_job_somebody_was_moved_into() -> None:
+    """A promotion has to be answerable from the audit trail.
+
+    Applying a template is how a promotion is made, so the trail has to answer
+    the question somebody asks six months later.
+
+    It recorded that a template was applied, to whom and by whom -- and not
+    **which** template, nor what the person ended up holding. So the history
+    said somebody's access changed and nothing about what it changed to.
+    `clone_user` already recorded its source for exactly this reason.
+
+    The code travels beside the id because a template can be retired, and an
+    id alone then points at a row nobody can name.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    person = _user(service, session, "clerk@example.com", firm)
+    rows, _ = service.list_user_templates(1, 50, "counter", "code", False, firm.id)
+
+    service.apply_user_template(person.id, rows[0].id, ACTOR, firm.id)
+
+    entry = session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == "user_template.applied")
+        .order_by(AuditLog.created_at.desc())
+    ).first()
+    assert entry is not None
+    recorded = entry.after_data or {}
+    assert recorded["template_code"] == "counter-sales"
+    assert recorded["template_id"] == str(rows[0].id)
+    assert len(recorded["role_ids"]) == 2
+    assert entry.entity_id == person.id
+    assert entry.actor_id == ACTOR
+
+
+def test_a_promotion_replaces_the_old_job_rather_than_adding_to_it() -> None:
+    """What makes it useful for a promotion, and the thing to know first.
+
+    Somebody moved from the counter to managing sales should stop holding the
+    counter's roles. They do -- `apply_user_template` is a plain
+    `set_user_roles`, which replaces. The corollary is worth stating: any role
+    hand-added on top of their old job goes with it.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    person = _user(service, session, "rising.star@example.com", firm)
+    counter, _ = service.list_user_templates(1, 50, "counter", "code", False, firm.id)
+    service.apply_user_template(person.id, counter[0].id, ACTOR, firm.id)
+    # And something granted on top of the job, by hand.
+    service.set_user_roles(
+        person.id,
+        [
+            _role_id(session, "CASHIER"),
+            _role_id(session, "BILLING_EXECUTIVE"),
+            _role_id(session, "CUSTOMER_SUPPORT"),
+        ],
+        ACTOR,
+        firm.id,
+    )
+    assert _codes_held(session, person.id, firm.id) == {
+        "CASHIER",
+        "BILLING_EXECUTIVE",
+        "CUSTOMER_SUPPORT",
+    }
+
+    manager, _ = service.list_user_templates(
+        1, 50, "sales-manager", "code", False, firm.id
+    )
+    service.apply_user_template(person.id, manager[0].id, ACTOR, firm.id)
+
+    # The new job, and only the new job.
+    assert _codes_held(session, person.id, firm.id) == {"SALES_MANAGER"}
+
+
+def test_a_promotion_in_one_firm_leaves_the_others_alone() -> None:
+    """Somebody promoted where they work is not demoted where they do not."""
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, session, "travels@example.com", one)
+    session.add(
+        UserFirm(
+            user_id=person.id,
+            firm_id=two.id,
+            is_primary=False,
+            is_active=True,
+            created_by=ACTOR,
+            updated_by=ACTOR,
+        )
+    )
+    session.commit()
+    service.set_user_roles(person.id, [_role_id(session, "ACCOUNTANT")], ACTOR, two.id)
+    counter, _ = service.list_user_templates(1, 50, "counter", "code", False, one.id)
+
+    service.apply_user_template(person.id, counter[0].id, ACTOR, one.id)
+
+    assert _codes_held(session, person.id, one.id) == {"CASHIER", "BILLING_EXECUTIVE"}
+    assert _codes_held(session, person.id, two.id) == {"ACCOUNTANT"}
