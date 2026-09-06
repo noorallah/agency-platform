@@ -181,7 +181,7 @@ def test_firm_trail_excludes_other_firms_and_platform_events() -> None:
     )
 
     scope = audit_scope(_principal(user_id, {"AUDIT_LOG_VIEW"}), session, firm.id)
-    page = list_audit_logs(scope, db=session)
+    page = list_audit_logs(scope, db=session, platform_db=session)
     assert page.pagination.total_records == 1
     assert page.data[0].action == "customer.created"
     assert page.data[0].firm_id == firm.id
@@ -211,7 +211,7 @@ def test_platform_trail_returns_every_event_in_its_own_store() -> None:
     scope = audit_scope(
         _principal(actor_id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
     )
-    page = list_audit_logs(scope, db=session)
+    page = list_audit_logs(scope, db=session, platform_db=session)
     assert page.pagination.total_records == 2
 
 
@@ -251,22 +251,30 @@ def test_audit_filters_and_pagination() -> None:
 
     scope = audit_scope(_principal(user_id, {"AUDIT_LOG_VIEW"}), session, firm.id)
 
-    by_type = list_audit_logs(scope, entity_type="customer", db=session)
+    by_type = list_audit_logs(
+        scope, entity_type="customer", db=session, platform_db=session
+    )
     assert by_type.pagination.total_records == 5
 
-    by_actor = list_audit_logs(scope, actor_id=other_actor, db=session)
+    by_actor = list_audit_logs(
+        scope, actor_id=other_actor, db=session, platform_db=session
+    )
     assert by_actor.pagination.total_records == 1
     assert by_actor.data[0].action == "product.created"
 
     # Date bounds are inclusive UTC calendar days, so the reference day must
     # come from UTC too: a local 'today' can be a day ahead of the stamps.
     utc_today = utc_now().date()
-    recent = list_audit_logs(scope, date_from=utc_today, db=session)
+    recent = list_audit_logs(
+        scope, date_from=utc_today, db=session, platform_db=session
+    )
     assert recent.pagination.total_records == 6
-    today_only = list_audit_logs(scope, date_to=utc_today, db=session)
+    today_only = list_audit_logs(
+        scope, date_to=utc_today, db=session, platform_db=session
+    )
     assert today_only.pagination.total_records == 7
 
-    first = list_audit_logs(scope, page=1, page_size=3, db=session)
+    first = list_audit_logs(scope, page=1, page_size=3, db=session, platform_db=session)
     assert len(first.data) == 3
     assert first.pagination.total_records == 7
     assert first.pagination.total_pages == 3

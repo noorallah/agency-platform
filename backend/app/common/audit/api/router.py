@@ -114,6 +114,7 @@ def list_audit_logs(
     date_to: date | None = None,
     sort_direction: Annotated[Literal["asc", "desc"], Query()] = "desc",
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
 ) -> PaginatedResponse[AuditLogResponse]:
     """Return one page of audit events for the trail in scope."""
     params = PaginationParams(page=page, page_size=page_size)
@@ -125,13 +126,31 @@ def list_audit_logs(
         date_from=date_from,
         date_to=date_to,
     )
-    rows, total = AuditLogReader(db).list_events(
-        firm_scope=scope.firm_id,
-        filters=filters,
-        page=params.page,
-        page_size=params.page_size,
-        descending=sort_direction == "desc",
-    )
+    reader = AuditLogReader(db)
+    if scope.firm_id is None:
+        # The platform trail: one store, and `db` is already it.
+        rows, total = reader.list_events(
+            firm_scope=None,
+            filters=filters,
+            page=params.page,
+            page_size=params.page_size,
+            descending=sort_direction == "desc",
+        )
+    else:
+        # A firm's trail, and the firm's own store is not all of it.
+        # Administering a firm's people runs on the platform session --
+        # `users`, `roles` and `user_firms` live only there -- so hiring,
+        # role edits and promotions are recorded in `platform.audit_logs`
+        # carrying this firm's `firm_id`. Without the merge a firm
+        # administrator cannot see their own staffing decisions.
+        rows, total = reader.list_events_with(
+            AuditLogReader(platform_db),
+            firm_scope=scope.firm_id,
+            filters=filters,
+            page=params.page,
+            page_size=params.page_size,
+            descending=sort_direction == "desc",
+        )
     return PaginatedResponse(
         data=[AuditLogResponse.model_validate(row) for row in rows],
         pagination=params.metadata(total),

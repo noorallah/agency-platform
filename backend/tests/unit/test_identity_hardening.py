@@ -117,6 +117,43 @@ def test_every_enforced_permission_code_is_seeded() -> None:
     assert not missing, f"permission codes enforced but never seeded: {missing}"
 
 
+def test_every_enforced_permission_code_reaches_some_seeded_role() -> None:
+    """Being seeded is not enough; a code nobody holds gates nothing open.
+
+    The sibling above catches a code that was never defined. This catches the
+    quieter half: a code defined, attached to a route, and granted to no role
+    at all. The endpoint is then reachable only by a platform administrator,
+    who passes by short-circuit rather than by holding it -- so it looks
+    guarded, tests as guarded, and is simply unreachable for everybody the
+    guard was written for.
+
+    That is not hypothetical. `ROLE_VIEW` was seeded and granted and still
+    unreachable on `GET /api/v1/roles`, because the route took the designation
+    instead (`test_platform_only_routes.py`); and the `credit_note`,
+    `proforma`, `einvoice`, `loyalty` and `tcs` groups were seeded and granted
+    to `SALES_MANAGER` but not to the role that runs the firm
+    (`test_firm_admin_holds_the_firms_own_modules.py`). This is the third
+    question in that family and the one nothing was asking.
+    """
+    granted: set[str] = set()
+    for codes in ROLE_PERMISSION_CODES.values():
+        granted.update(codes)
+    ungrantable = {
+        code: where
+        for code, where in _enforced_permission_codes().items()
+        if code not in granted
+    }
+
+    assert not ungrantable, (
+        "these permission codes are enforced on a route and held by no seeded "
+        "role, so only a platform administrator can reach them:\n  "
+        + "\n  ".join(f"{code}: {where}" for code, where in sorted(ungrantable.items()))
+        + "\n\nGrant the code in `ROLE_PERMISSION_CODES`, and remember a live "
+        "database needs a migration too -- `seed_system_rbac` never runs at "
+        "startup. `20260906_0130` is the pattern."
+    )
+
+
 def test_batch_and_delivery_permissions_reach_operational_roles() -> None:
     """The previously-missing codes are grantable through system roles."""
     firm_admin = ROLE_PERMISSION_CODES["FIRM_ADMIN"]

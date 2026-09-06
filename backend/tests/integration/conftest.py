@@ -15,11 +15,12 @@ from collections.abc import Iterator
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 # Importing the model modules registers every table on Base.metadata.
 import tests.conftest  # noqa: F401
+from app.common.audit.models import AuditLog
 from app.core.config.settings import Settings
 from app.core.database.base import Base
 
@@ -68,6 +69,47 @@ def temp_schema(engine: Engine) -> Iterator[str]:
     finally:
         with engine.begin() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
+
+
+@pytest.fixture
+def audit_store_pair(engine: Engine) -> Iterator[tuple[str, str]]:
+    """Create two disposable schemas holding only `audit_logs`.
+
+    A firm's store and the platform store are two schemas, and several
+    behaviours exist only *between* them -- the audit trail's merged read is
+    one. A single namespace cannot express it: the two become the same table
+    and the behaviour collapses to a plain read, which is exactly why the unit
+    suite is blind to this class.
+
+    One table rather than all 182. `temp_schema` builds the whole ORM schema
+    and is slow enough that a test doing it twice is a test nobody runs;
+    `audit_logs` carries no foreign keys -- deliberately, since it spans
+    stores -- so it stands alone. Widen this the day a second cross-store
+    behaviour needs more, not before.
+    """
+    # Its own engine, and therefore its own connection pool. Sharing the
+    # session-scoped `engine` puts connections this fixture has used back into
+    # a pool that other tests draw from, and several of those set `search_path`
+    # on the connection and depend on it -- so a schema created and dropped
+    # here surfaced as `relation "firms" does not exist` in
+    # `test_multi_schema_tenancy.py`, a file this one does not touch. Disposed
+    # at the end, so nothing outlives the test.
+    own = create_engine(engine.url)
+    names = (f"it_{uuid4().hex[:12]}", f"it_{uuid4().hex[:12]}")
+    try:
+        for name in names:
+            with own.begin() as connection:
+                connection.execute(text(f'CREATE SCHEMA "{name}"'))
+            Base.metadata.create_all(
+                own.execution_options(schema_translate_map={None: name}),
+                tables=[AuditLog.__table__],
+            )
+        yield names
+    finally:
+        for name in names:
+            with own.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{name}" CASCADE'))
+        own.dispose()
 
 
 @pytest.fixture
