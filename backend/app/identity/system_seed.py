@@ -359,6 +359,23 @@ def _codes(*groups: str) -> frozenset[str]:
 _all_permissions = frozenset(SYSTEM_PERMISSION_CODES)
 _platform_administration = _codes("platform", "system_administration")
 _firm_administration = _codes("user", "role", "permission")
+#: Running a firm's business, as opposed to administering its people. Held by
+#: `FIRM_ADMIN` and -- minus the administration codes -- by `FIRM_MANAGER`.
+#:
+#: **A group added to `PERMISSION_GROUPS` is not added here**, and five slipped
+#: through: `credit_note`, `proforma`, `einvoice`, `loyalty` and `tcs` all
+#: shipped with a module, a screen and a seeded gate, and none of them reached
+#: the role whose description is running the firm and every module. A firm
+#: administrator could not open Credit Notes, Proforma, E-Invoice, Loyalty or
+#: TCS at all; `SALES_MANAGER` names most of them individually, so the screens
+#: were reachable by somebody, which is why nobody noticed. Corrected
+#: 2026-09-06 (`20260906_0130` grants them in databases that already exist).
+#:
+#: The check that finds the next one is in
+#: `tests/unit/test_firm_admin_holds_the_firms_own_modules.py`: it asks which
+#: groups are operational -- neither platform nor firm administration -- and
+#: fails if this list omits one. A list somebody has to remember to update is
+#: a list that drifts.
 _operational_permissions = _codes(
     "customer",
     "vendor",
@@ -375,6 +392,11 @@ _operational_permissions = _codes(
     "promotions",
     "sales_targets",
     "commission",
+    "credit_note",
+    "proforma",
+    "einvoice",
+    "loyalty",
+    "tcs",
     "accounting",
     "report",
     "financial_year",
