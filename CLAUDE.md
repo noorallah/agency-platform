@@ -32,7 +32,7 @@ uv run mypy app
 uv run pytest -q
 ```
 
-As of 2026-09-06 `pytest` is **green (1,237 unit + 48 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
+As of 2026-09-06 `pytest` is **green (1,239 unit + 48 integration)** and every test file also passes standalone — `tests/conftest.py` imports all model modules so `Base.metadata.create_all` sees the whole schema regardless of test order. Keep that list in step with `alembic/env.py`.
 
 `tests/integration/` needs a real PostgreSQL server and **skips cleanly without one**. It covers what SQLite cannot express: platform tables being invisible to a firm schema, firm-scope resolution across deployment modes, two schemas holding independent rows, and ORM-vs-deployed-schema drift. Run it with `uv run pytest tests/integration -q`. Reach for it whenever a change touches tenancy, cross-schema foreign keys, triggers or concurrency — every defect in that class has been invisible to the unit suite.
 
@@ -299,13 +299,13 @@ since -- consecutive sweeps over the same tree prove nothing twice. Targeted
 runs need no permission and should be constant; say which files you ran.
 
 **Run what the change can break, not everything.** The full backend suite is
-1,237 unit tests and the desktop suite is 1,151. The six-minutes-and-two this
-line used to quote were measured on an idle machine: with the dev server and
-the built desktop client running, the same backend suite took **23 minutes**
-on 2026-09-06 and had to be run in quarters to fit inside a ten-minute tool
-timeout, while the desktop suite took four. Budget for the machine you are on,
-not for the number. Running both after a one-line fix is most of the cost of
-the fix.
+1,239 unit tests and the desktop suite is 1,154. On an **idle** machine they
+take **7:19** and **2:26** (measured 2026-09-06); with the dev server and the
+built desktop client running, the same backend suite took **23 minutes** the
+same day and had to be run in quarters to fit inside a ten-minute tool
+timeout, while the desktop suite took four. That is a **three-fold** spread on
+one machine on one day, so budget for the machine you are on, not for the
+number. Running both after a one-line fix is most of the cost of the fix.
 While iterating, run the module's own test file plus any guard that reads the
 thing you touched -- a router edit wants that module's tests and
 `test_identity_hardening.py`; a change to `module_catalog.dart` wants
@@ -335,7 +335,7 @@ speed choice while iterating, never a claim that the narrow set was sufficient.
 
 Backend tests are unit tests under `backend/tests/unit/`, one file per module. They build a **SQLite in-memory** engine with `Base.metadata.create_all` and a `StaticPool`, then call FastAPI route functions directly with hand-constructed `Principal`/scope objects — no running server or PostgreSQL required. Follow that pattern; new modules should keep their models SQLite-compatible for tests even though PostgreSQL is the deployment target. `backend/tests/integration/` is **not** empty -- it holds 48 tests and is described above; this line said it was empty long after it stopped being true.
 
-Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,151)** and `flutter analyze` is clean as of 2026-09-06.
+Desktop tests are widget tests in `desktop/test/`, mostly per-module UX tests plus login and navigation-tree tests. `flutter test` is **green (1,154)** and `flutter analyze` is clean as of 2026-09-06.
 
 ## Repository conventions and traps
 
