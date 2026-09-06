@@ -1563,7 +1563,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'user-firms' => ResourceManagementPage<PlatformUser>(
           api: widget.api,
           definition:
-              _userFirmAssignmentDefinition(widget.api, widget.permissions),
+              userFirmAssignmentDefinition(widget.api, widget.permissions),
         ),
       'numbering-series' => NumberingSeriesPage(
           api: widget.api,
@@ -3031,6 +3031,34 @@ ResourceDefinition<PlatformUser> userDefinition(
     ],
     id: (user) => user.id,
     load: api.users,
+    // Only a platform administrator can be looking across firms: a firm
+    // caller's list is already their own firm's people, so a filter offering
+    // one choice would be noise, and the server refuses them the parameter.
+    filters: permissions.isPlatformAdmin
+        ? const [
+            ResourceFilter(
+              key: 'firm_id',
+              label: 'Firm',
+              optionsResource: 'firms',
+            ),
+          ]
+        : const [],
+    loadPage: ({
+      int page = 1,
+      int pageSize = 20,
+      String search = '',
+      String sortBy = 'created_at',
+      bool descending = true,
+      Map<String, String> filters = const {},
+    }) =>
+        api.users(
+      page: page,
+      pageSize: pageSize,
+      search: search,
+      sortBy: sortBy,
+      descending: descending,
+      firmId: filters['firm_id'] ?? '',
+    ),
     // A user record is platform-wide, so the server refuses to edit or
     // delete anybody who also works in a firm this caller cannot see --
     // otherwise one firm could rename or deactivate another firm's staff.
@@ -3409,7 +3437,11 @@ ResourceDefinition<PlatformUser> userDefinition(
   );
 }
 
-ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
+/// The User-Firm Assignments grid.
+///
+/// Public for the reason [userDefinition] is: no test instantiates
+/// `DesktopShell`, so a private definition is one nothing can interrogate.
+ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
   ApiClient api,
   PermissionService permissions,
 ) {
@@ -3437,6 +3469,34 @@ ResourceDefinition<PlatformUser> _userFirmAssignmentDefinition(
     ],
     id: (user) => user.id,
     load: api.users,
+    // The tab is *about* which firms somebody may work in, so "who is active
+    // in this firm?" is the question it exists to answer. Platform only, for
+    // the reason on the users grid.
+    filters: permissions.isPlatformAdmin
+        ? const [
+            ResourceFilter(
+              key: 'firm_id',
+              label: 'Firm',
+              optionsResource: 'firms',
+            ),
+          ]
+        : const [],
+    loadPage: ({
+      int page = 1,
+      int pageSize = 20,
+      String search = '',
+      String sortBy = 'created_at',
+      bool descending = true,
+      Map<String, String> filters = const {},
+    }) =>
+        api.users(
+      page: page,
+      pageSize: pageSize,
+      search: search,
+      sortBy: sortBy,
+      descending: descending,
+      firmId: filters['firm_id'] ?? '',
+    ),
     // `FIRM_VIEW` is a platform code `FIRM_ADMIN` can never hold, so this
     // whole tab was dead for the one role whose job it is -- the same fault
     // #240 fixed on the users grid, in the tab next door. The pickers were
