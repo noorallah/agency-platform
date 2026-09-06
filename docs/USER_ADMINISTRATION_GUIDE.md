@@ -71,6 +71,26 @@ Eleven come with the platform and are offered to every firm:
 
 Most are a single role, and that is not a redundancy — the value is the name.
 
+**A template is a bundle of roles, and a role is a bundle of permissions.**
+That is the whole model, and it is what lets you build any access you want
+without anybody writing code:
+
+```
+permission   SALES_INVOICE_CREATE, RECEIPT_CREATE, CUSTOMER_VIEW ...
+    |         189 of them; 167 are yours to use
+    v
+role         a name for a set of permissions      <- you can write your own
+    |
+    v
+template     a name for a set of roles            <- you can write your own
+    |
+    v
+user         holds the roles, in one firm
+```
+
+You may write your own at both levels. Neither is limited to what the platform
+shipped.
+
 ---
 
 ## 3. Hiring somebody into a job
@@ -196,10 +216,40 @@ stay invisible.
 
 ---
 
-## 5. Writing your own template
+## 5. Writing your own role
+
+A template can only give what its roles carry, so if none of the twelve seeded
+roles fits the job, write one. **Administration → Roles → New.** Needs
+`ROLE_CREATE`; `FIRM_ADMIN` has it.
+
+| Field | Notes |
+| --- | --- |
+| **Role code** | Lower case, digits, dots, dashes. `night-desk`, not `NIGHT_DESK` — upper case is reserved for the platform's own twelve. |
+| **Name** | What your firm calls it. |
+| **Permissions** | Tick what the job needs. |
+
+**167 of the 189 permissions are yours.** The other 22 are platform codes —
+creating firms, platform settings, licence management, and the high-risk verbs
+over posted books. You cannot put them on a role, and they are not even shown
+to you in the picker, so there is nothing to get wrong.
+
+A role you write belongs to your firm. Another firm cannot see it, cannot
+assign it, and cannot put it in their templates.
+
+Some things worth knowing:
+
+- **`platform_admin` and the twelve seeded codes are refused as role codes**,
+  case-insensitively. A role that merely *looks* like a platform designation
+  is a trap for whoever reads a token next.
+- Editing a role changes what **everybody** already holding it can do,
+  immediately on their next token refresh. It is not versioned.
+- A role somebody holds cannot be deleted until they are off it.
+
+## 6. Writing your own template
 
 **Administration → User Templates → New.** Needs `ROLE_CREATE` and
-`ROLE_VIEW`.
+`ROLE_VIEW`. A template may bundle any role you may assign — the seeded
+twelve, and any you wrote yourself in §5.
 
 | Field | Notes |
 | --- | --- |
@@ -226,7 +276,7 @@ a decision about future hires.
 
 ---
 
-## 6. Setting a new firm up (platform operators)
+## 7. Setting a new firm up (platform operators)
 
 When a firm is created, its people and their templates are the operator's job.
 
@@ -246,7 +296,26 @@ A tier-1 operator can do all of this and is still refused the firm's books —
 
 ---
 
-## 7. Somebody who works in more than one firm
+## 7b. Which firm somebody belongs to
+
+Four ways a person ends up in a firm, and it is worth knowing which is which:
+
+| How | What happens |
+| --- | --- |
+| **New** (as a firm admin) | They are attached to your firm automatically — unless you clear the Firms box, which leaves them in **no** firm. |
+| **Add existing user** | They keep every firm they already had, and gain yours. |
+| **Hire like this person** | They get the same firms as the person you copied, within your reach. |
+| **Edit → Firms** | You set which of *your* firms they are in. |
+
+**A user with no firm is allowed.** They can sign in but reach nothing — no
+firm means no firm-owned screen and an empty firm switcher — and they do not
+appear in your users list. Use **Add existing user** to find them again; that
+search is not limited to your firm.
+
+Removing your firm from somebody removes only yours. Any other firm they work
+in is untouched, and you are not told about it.
+
+## 8. Somebody who works in more than one firm
 
 A firm administrator of two firms can put a person in both.
 
@@ -274,7 +343,7 @@ always done — their reach is every firm, so "replace within your reach" and
 
 ---
 
-## 8. Who can press what
+## 9. Who can press what
 
 | Action | Needs | `FIRM_ADMIN` |
 | --- | --- | --- |
@@ -282,6 +351,8 @@ always done — their reach is every firm, so "replace within your reach" and
 | Users → Apply job template | `ROLE_ASSIGN`, `ROLE_VIEW` | yes |
 | Users → Hire like this person | `ROLE_ASSIGN`, `ROLE_VIEW`, `USER_CREATE` | yes |
 | Users → Edit → Firms | `USER_UPDATE`, plus `USER_CREATE` in each firm named | yes, for their own firms |
+| Roles → New / Edit | `ROLE_CREATE` / `ROLE_UPDATE` | yes |
+| Roles → set its permissions | `PERMISSION_ASSIGN`, `PERMISSION_VIEW` | yes |
 | User Templates (see) | `ROLE_VIEW` | yes |
 | User Templates → New / Edit / Retire | `ROLE_CREATE` / `ROLE_UPDATE` / `ROLE_DELETE` | yes |
 | User Templates → Offered to | The platform designation | no |
@@ -295,7 +366,7 @@ job it is.
 
 ---
 
-## 9. Testing it
+## 10. Testing it
 
 `docs/MANUAL_UI_TEST_PLAN.md` has the cases:
 
