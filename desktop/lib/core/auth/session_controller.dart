@@ -274,6 +274,27 @@ class SessionController extends ChangeNotifier {
     return 'light';
   }
 
+  /// Re-read the firms this user may work in.
+  ///
+  /// The list is otherwise fetched once, at sign-in, by
+  /// `_synchronizePreferences` -- so a platform administrator who created a
+  /// firm could not select it until they signed out and back in. Creating one
+  /// and then being unable to reach it is the whole of setting a firm up.
+  ///
+  /// The current selection is kept if it is still in the list, and dropped if
+  /// it is not: a firm that has been retired underneath the session is not one
+  /// to go on sending `X-Firm-ID` for.
+  Future<void> refreshFirms() async {
+    final List<AssignedFirm> firms = await api.myFirms();
+    _firms = firms;
+    final String? currentId = _currentFirm?.id;
+    if (currentId != null && !firms.any((firm) => firm.id == currentId)) {
+      _currentFirm = null;
+      _firmContextVersion++;
+    }
+    notifyListeners();
+  }
+
   /// Whether this session may work with no firm selected.
   ///
   /// Only a platform administrator can: for anybody else a null firm means an

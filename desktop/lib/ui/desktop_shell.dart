@@ -611,6 +611,18 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
+  /// Switch into a firm chosen from the Firms grid.
+  ///
+  /// The list is re-read first: `session.firms` is fetched once at sign-in,
+  /// so a firm created minutes ago is not in it and `switchFirm` would refuse
+  /// it as "not assigned to this user" -- true of the stale list and false of
+  /// the platform.
+  Future<String> _openFirm(Firm firm) async {
+    await widget.session.refreshFirms();
+    await widget.session.switchFirm(firm.id);
+    return 'Working in ${firm.name}. Its own settings are now reachable.';
+  }
+
   Future<void> _switchFirm(String? firmId) async {
     try {
       await widget.session.switchFirm(firmId);
@@ -1179,6 +1191,7 @@ class _DesktopShellState extends State<DesktopShell> {
             api: api,
             permissions: widget.permissions,
             router: _router,
+            onOpenFirm: _openFirm,
           ),
         AppModule.masters => _MastersWorkspace(
             key: ValueKey('masters-${widget.session.firmContextVersion}'),
@@ -1437,7 +1450,11 @@ class _AdministrationWorkspace extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.router,
+    this.onOpenFirm,
   });
+
+  /// Switches the session into a firm, for the Firms tab's "Open this firm".
+  final Future<String> Function(Firm firm)? onOpenFirm;
   final ApiClient api;
   final PermissionService permissions;
   final WorkspaceRouter router;
@@ -1452,21 +1469,11 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
   Widget build(BuildContext context) {
     final ModuleDefinition module =
         ModuleCatalog.byId(AppModule.administration);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No administration access',
@@ -1542,6 +1549,15 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.api,
             widget.permissions,
             showFrame: false,
+          ),
+        ),
+      'firms' => ResourceManagementPage<Firm>(
+          api: widget.api,
+          definition: firmDefinition(
+            widget.api,
+            widget.permissions,
+            showFrame: false,
+            onOpenFirm: widget.onOpenFirm,
           ),
         ),
       'user-firms' => ResourceManagementPage<PlatformUser>(
@@ -1715,21 +1731,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.masters);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     final String? requestedTab =
         widget.router.current.module == AppModule.masters.name
             ? widget.router.current.tab
@@ -1739,14 +1745,6 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         : visibleTabs.first.id;
     final bool hasActiveFirm = widget.api.activeFirmId?.call() != null;
     final Widget content = switch (tabId) {
-      'firms' => ResourceManagementPage<Firm>(
-          api: widget.api,
-          definition: firmDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
       'financial-years' => FinancialYearsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1909,21 +1907,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.sales);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No sales access',
@@ -2138,21 +2126,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.purchases);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No purchase access',
@@ -2289,21 +2267,11 @@ class _GoodsReceiptWorkspaceState extends State<_GoodsReceiptWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.goodsReceipts);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No goods receipt access',
@@ -2352,21 +2320,11 @@ class _DeliveryNoteWorkspaceState extends State<_DeliveryNoteWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.deliveryNotes);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No delivery note access',
@@ -2413,21 +2371,11 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
   @override
   Widget build(BuildContext context) {
     final ModuleDefinition module = ModuleCatalog.byId(AppModule.inventory);
-    final List<ModuleTabDefinition> visibleTabs = module.tabs
-        // A tab declared `available: false` has no workspace behind it, so
-        // showing it routes the user to an unrelated screen.
-        .where((tab) => tab.available)
-        .where(
-          (tab) => widget.permissions.canUseTab(
-            tab.requiredPermissions.isEmpty
-                ? module.requiredPermissions
-                : tab.requiredPermissions,
-            requiresAny: tab.requiredPermissions.isEmpty
-                ? module.requiresAnyPermission
-                : tab.requiresAnyPermission,
-          ),
-        )
-        .toList();
+    final List<ModuleTabDefinition> visibleTabs = ModuleVisibility.tabsFor(
+      module,
+      widget.permissions,
+      hasActiveFirm: widget.api.activeFirmId?.call() != null,
+    );
     if (visibleTabs.isEmpty) {
       return const WorkspaceEmptyState(
         title: 'No inventory access',
@@ -2712,6 +2660,7 @@ ResourceDefinition<Firm> firmDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
+  Future<String> Function(Firm firm)? onOpenFirm,
 }) =>
     ResourceDefinition(
       title: 'Firms',
@@ -2742,9 +2691,13 @@ ResourceDefinition<Firm> firmDefinition(
       // A firm with no business profile silently runs as the platform default,
       // so a wholesale business can end up operating as GENERIC. The profile
       // cannot be set from here, so the next step is named instead.
-      createFollowUp: (_) =>
-          'Set this firm\'s business profile in Masters → Firm Settings. '
-          'Until then it runs on the platform default.',
+      createFollowUp: (_) => onOpenFirm == null
+          ? 'Created. Switch into this firm, then set its business profile in '
+              'Masters → Firm Settings. Until then it runs on the '
+              'platform default.'
+          : 'Created. Use "Open this firm" to switch into it, then set its '
+              'business profile in Masters → Firm Settings. Until then '
+              'it runs on the platform default.',
       customActions: [
         ResourceAction<Firm>(
           label: 'Provision storage',
@@ -2754,6 +2707,22 @@ ResourceDefinition<Firm> firmDefinition(
               firm.deploymentMode != 'SHARED' && !firm.isStorageReady,
           onInvoke: (firm) => api.provisionFirmStorage(firm!.id),
         ),
+        // Setting a firm up finishes *inside* the firm: its business profile,
+        // financial year, chart of accounts and settings all live in its own
+        // store and need `X-Firm-ID`. Without this, the administrator who had
+        // just created it had to find it in the firm switcher -- where it does
+        // not appear, because that list is read once at sign-in.
+        if (onOpenFirm != null)
+          ResourceAction<Firm>(
+            label: 'Open this firm',
+            icon: Icons.login_outlined,
+            // A dedicated store that has not been built yet holds no tables,
+            // so switching into it would answer errors on every screen.
+            isEnabled: (firm) =>
+                firm.isActive &&
+                (firm.deploymentMode == 'SHARED' || firm.isStorageReady),
+            onInvoke: (firm) => onOpenFirm(firm!),
+          ),
       ],
       id: (firm) => firm.id,
       load: api.firms,

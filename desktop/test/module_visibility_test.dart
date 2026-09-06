@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/sales_invoice.dart';
@@ -374,6 +375,10 @@ void main() {
       expect(tabs, contains('users'));
       expect(tabs, contains('roles'));
       expect(tabs, contains('user-firms'));
+      // The screen that creates a firm. It was the first tab of Masters --
+      // a firm's own master data, which needs a firm selected -- so creating
+      // a firm was reachable only from inside another firm.
+      expect(tabs, contains('firms'));
       expect(tabs, isNot(contains('tax-configuration')));
       expect(tabs, isNot(contains('uoms')));
       expect(tabs, isNot(contains('business-profiles')));
@@ -400,6 +405,13 @@ void main() {
       );
     });
 
+    test("Firms is no longer filed under a firm's own master data", () {
+      expect(
+        ModuleCatalog.byId(AppModule.masters).tabs.map((tab) => tab.id),
+        isNot(contains('firms')),
+      );
+    });
+
     test('an ordinary user is never put in platform mode', () {
       // `hasActiveFirm` defaults to true for exactly this reason: everybody
       // without the designation always has a firm, and a null one would empty
@@ -409,5 +421,26 @@ void main() {
       );
       expect(view.allows(ModuleCatalog.byId(AppModule.sales)), isTrue);
     });
+  });
+
+  test('there is one tab filter, and the shell does not keep its own', () {
+    // There were eight: `ModuleVisibility.tabIds` and seven byte-identical
+    // copies inside `desktop_shell.dart`, one per workspace. They drifted the
+    // day `requiresFirm` was added -- the navigation tree hid the firm-owned
+    // tabs and every workspace's own tab strip went on offering them, so the
+    // sidebar and the screen it opened disagreed.
+    //
+    // A source check rather than a behavioural one because the workspaces are
+    // private widgets: nothing can build one to ask it what it shows.
+    final String shell = File('lib/ui/desktop_shell.dart').readAsStringSync();
+
+    expect(
+      shell.contains('canUseTab('),
+      isFalse,
+      reason: 'desktop_shell.dart is filtering tabs itself again. Call '
+          'ModuleVisibility.tabsFor -- a second copy is a second answer, and '
+          'the tab strip and the sidebar then disagree.',
+    );
+    expect(shell.contains('ModuleVisibility.tabsFor('), isTrue);
   });
 }

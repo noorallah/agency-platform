@@ -161,6 +161,17 @@ abstract final class ModuleCatalog {
       ],
       requiresAnyPermission: true,
       tabs: [
+        // First, because creating a firm precedes creating its people. It
+        // lived under Masters, which is a firm's *own* master data and needs
+        // a firm selected -- so the one screen that creates a firm was
+        // reachable only from inside another one, and invisible entirely to a
+        // platform administrator who had not picked one. `FIRM_VIEW` is a
+        // platform code no firm role may hold, so no firm user loses a tab.
+        ModuleTabDefinition(
+            id: 'firms',
+            label: 'Firms',
+            requiredPermissions: ['FIRM_VIEW'],
+            requiresFirm: false),
         ModuleTabDefinition(
             id: 'users',
             label: 'Users',
@@ -304,8 +315,6 @@ abstract final class ModuleCatalog {
       ],
       requiresAnyPermission: true,
       tabs: [
-        ModuleTabDefinition(
-            id: 'firms', label: 'Firms', requiredPermissions: ['FIRM_VIEW']),
         ModuleTabDefinition(
           id: 'customers',
           label: 'Customers',
@@ -1029,6 +1038,12 @@ abstract final class ModuleCatalog {
           path: 'permissions',
           icon: Icons.key_outlined,
         ),
+      if (visibleTabIds.contains('firms'))
+        const WorkspaceNavigationNode(
+          label: 'Firms',
+          path: 'firms',
+          icon: Icons.apartment_outlined,
+        ),
       if (visibleTabIds.contains('user-templates'))
         const WorkspaceNavigationNode(
           label: 'User Templates',
@@ -1195,12 +1210,6 @@ abstract final class ModuleCatalog {
   ) {
     bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
     return [
-      if (visibleTabIds.contains('firms'))
-        const WorkspaceNavigationNode(
-          label: 'Firms',
-          path: 'firms',
-          icon: Icons.apartment_outlined,
-        ),
       if (visibleTabIds.contains('customers'))
         const WorkspaceNavigationNode(
           label: 'Customers',
