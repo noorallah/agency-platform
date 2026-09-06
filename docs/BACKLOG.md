@@ -1255,6 +1255,103 @@ setup could not be completed. Documented meanwhile in section 3b of
 `docs/platform-administration-guide.md`, so the gap is at least visible to
 whoever hits it.
 
+## 16. A firm cannot configure its own custom fields
+
+`FIRM_ADMIN` writes its own tax rules, UOM conversions and numbering series,
+and cannot add a single field to its own products. **27 of the 29 routes in
+`app/business/api/router.py` take the platform designation**; the two
+exceptions are `/active-features` and `/active-modules`, the read-only lists
+the desktop draws menus from. So six Administration tabs are hidden from a
+firm administrator, and unhiding them would hand over six screens where every
+button answers 403 -- the desktop is faithfully reflecting the server.
+
+### Who should get what
+
+Devolve the screens that describe **one firm**; keep the ones that describe
+the **shared catalogue**.
+
+| Screen | Firm admin | Why |
+| --- | --- | --- |
+| Attribute Definitions | **gain** | The extra fields on this firm's own products -- no more structural than the tax rules they already write. |
+| Mandatory Attributes | **gain** | Which fields a category insists on; meaningless apart from the definitions. |
+| Profile Assignment | **read** | A firm-level fact, but changing it re-scopes every definition at once. |
+| Business Profiles | no | One `WHOLESALE` row serves every wholesale firm. |
+| Feature Management | no | Shared catalogue, and `is_implemented` is a fact about the codebase. |
+| Module Configuration | no | Which modules a firm may operate is closer to commercial than operational. |
+
+### The gate that matters more than the role
+
+Raised by the owner, and the sharper half: **once a firm is trading, changing
+its fields loses work** -- and that risk does not depend on who clicks. A
+platform administrator breaks it exactly as thoroughly, today, with nothing in
+the way.
+
+*Before any value exists* every edit is safe. *Once values exist*: adding a
+field and renaming a label stay safe (the code is the identity); **changing a
+data type and deleting must be refused**; making a field mandatory must warn
+with the count of records that would fail their next save.
+
+**None of that exists.** `update_attribute` is a `setattr` loop over
+`model_dump(exclude_unset=True)`, so a type change leaves values stranded in
+`value_text` while every read looks in `value_number` -- orphaned rather than
+deleted, which is worse because nothing reports it. `delete_attribute` is a
+bare soft delete with no check for values, the same trap the geography masters
+carry: a RESTRICT constraint is not a guard on a soft-deleted table. And the
+mandatory flag has already caused this outage once -- `20260801_0011` seeded
+four attributes mandatory with no scope and broke product creation on every
+freshly migrated database until `20260815_0087` cleared it.
+
+### Why the permission gate cannot simply be opened
+
+Neither `attribute_definitions` nor `category_attribute_rules` carries a
+`firm_id`, and neither is in `_PLATFORM_TABLES` -- so the rows live once per
+**store** while being identified per **profile**. Measured across all four
+demo firms on 2026-09-06:
+
+```
+firm      mode      store             definitions  mandatory rules
+ELEC01    DATABASE  electrolink_ops             6                2
+FOOD01    SHARED    firm_shared                 6                8
+MEDI01    SHARED    firm_shared                 6                8
+WHOLE01   SCHEMA    wholesale_hub               6                2
+```
+
+FOOD01 and MEDI01 are not showing similar numbers, they are showing **the same
+rows**. A pharmacy adding "Drug schedule" would add it to the food
+distributor, and `SHARED` is the mode every new firm gets by default. `code`
+is unique per store as well, so two shared firms cannot hold one field name
+with different meanings.
+
+### The work, in order
+
+1. **`firm_id` on both tables**, nullable, `NULL` meaning platform-wide.
+2. **Copy the shared rows per firm** -- decided by the owner. Every firm in a
+   shared store gets its own copy, so no firm loses a field and each can
+   diverge. A few duplicate rows against firms overwriting one another.
+3. **Widen the unique key**: `code` unique per firm, as a partial index over
+   live rows, the shape `UQ_firms_code_active` already uses.
+4. **Scope the service** on the caller's firm; a `NULL` row stays visible to
+   everyone and editable only by the platform.
+5. **Add the lifecycle guards** in the service, where no client can bypass
+   them.
+6. **Seed permission codes** for the two devolved screens, grant to
+   `FIRM_ADMIN` with a migration for existing databases, then take the tabs
+   off `PLATFORM_VIEW`.
+
+### Two decisions still open
+
+- **May a firm administrator change their own business profile?** Drafted as
+  read-only. It is a firm-level fact, which argues for devolving it, but it
+  re-scopes every custom field and toggles features, so it behaves like a
+  setup-time decision that should need the platform once trading starts.
+- **Refuse a type change, or convert the stored values?** Refusing is honest
+  and cheap -- add a new field, retire the old, history stays readable.
+  Converting is friendlier and fails silently, per row. Recommend refusing
+  first.
+
+**Raised 2026-09-06** by the owner asking why a firm administrator cannot set
+up their own firm. Not started.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
