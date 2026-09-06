@@ -44,6 +44,13 @@ right thing when developing.
 Developer Mode is not optional on Windows: the secure-storage plugin needs
 symlinks, and the desktop build fails without it.
 
+For **hardware** — how much RAM, disk and CPU a server, a client or a
+development machine actually needs — see
+[HARDWARE_SIZING.md](HARDWARE_SIZING.md). The short version: 8 GB and a
+4-core mini PC serves a small office, the desktop client costs 84 MB, and the
+one setting that decides your disk usage in three years is whether the
+retention service is switched on.
+
 ---
 
 ## First time only
