@@ -395,6 +395,10 @@ the platform's. Sign in as `whole01.admin`.
 | 17.2 | Select a platform template → Edit / Retire | Both disabled. It is offered to every firm, so no one firm may change it. |
 | 17.3 | New → code `night-counter`, name `Night Counter`, pick one or two roles → Save | Created. Origin reads **This firm**. |
 | 17.4 | Edit it, change only the **name**, save | The roles are unchanged. An edit that says nothing about the bundle must not empty it. |
+| 17.4a | Administration → Users → **New**, fill in the details, set **Job template** to Counter Sales, save | The user is created **and** holds `CASHIER` and `BILLING_EXECUTIVE`. One step, no second visit to the grid. |
+| 17.4b | New again, leave **Job template** blank and pick two roles by hand | Those two roles, as before. The template field is optional. |
+| 17.4c | New again, name a job **and** pick a different role | The job wins. The helper text under Roles says so; check it does. |
+| 17.4d | Edit an existing user | **No** Job template field — it is create-only. Use Apply job template on the grid instead. |
 | 17.5 | Administration → Users → select a user → **Apply job template** | A picker listing each job with the roles beside it, and a line saying the person's roles are **replaced** and editable afterwards. |
 | 17.6 | Choose Counter Sales → Apply | Their roles become exactly `BILLING_EXECUTIVE` and `CASHIER`. |
 | 17.7 | Edit that user's roles by hand afterwards | Works normally. A template is where you start, not where you stay — nothing on the user records which template they came from. |

@@ -3081,9 +3081,24 @@ ResourceDefinition<PlatformUser> userDefinition(
           section: 'Security',
         ),
         const FieldSpec(
+          key: 'template_id',
+          label: 'Job template',
+          helperText: 'Name the job and its roles are applied for you. '
+              'Leave blank to pick roles by hand below.',
+          optionsResource: 'user-templates',
+          singleSelection: true,
+          // Create only. Afterwards the person is an ordinary user, and
+          // **Apply job template** on the grid is how a job is re-applied --
+          // a field here would suggest the user stays tied to the template,
+          // which is exactly what a template is not.
+          createOnly: true,
+          section: 'Security',
+        ),
+        const FieldSpec(
           key: 'role_ids',
           label: 'Roles',
-          helperText: 'Select one or more roles.',
+          helperText: 'Select one or more roles. '
+              'Ignored when a job template is named above.',
           optionsResource: 'roles',
           section: 'Security',
         ),
@@ -3271,7 +3286,19 @@ ResourceDefinition<PlatformUser> userDefinition(
       partialUpdate: true,
       loadAssignments: api.userAssignmentValues,
       saveAssignments: (id, values) async {
-        await api.setUserRoles(id, _ids(values['role_ids']));
+        // Naming a job decides the roles. Both boxes are on screen, so one of
+        // them has to win and it has to be visible which -- the helper text
+        // on Roles says so rather than leaving it to be discovered.
+        //
+        // The same `apply_user_template` the grid action calls, so the
+        // firm-scope check that refuses a platform or cross-firm role applies
+        // here too and there is one implementation of it rather than two.
+        final String template = stringValue(values['template_id']);
+        if (template.isNotEmpty) {
+          await api.applyUserTemplate(id, template);
+        } else {
+          await api.setUserRoles(id, _ids(values['role_ids']));
+        }
         await api.setUserFirms(
           id,
           _ids(values['firm_ids']),
