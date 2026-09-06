@@ -1195,11 +1195,18 @@ abstract final class ModuleCatalog {
                   ),
               ],
             ),
-          const WorkspaceNavigationNode(
-            label: 'Numbering Series',
-            path: 'numbering-series',
-            icon: Icons.confirmation_number_outlined,
-          ),
+          // Gated on the real tab id, like every other leaf. It was
+          // unconditional, so it appeared even when the tab did not -- and
+          // selecting it silently rendered whatever tab happened to be first.
+          // Document numbering lives in each firm's own store, so this is the
+          // one Configuration leaf a platform administrator loses when no firm
+          // is selected, which is when the omission showed.
+          if (visibleTabIds.contains('numbering-series'))
+            const WorkspaceNavigationNode(
+              label: 'Numbering Series',
+              path: 'numbering-series',
+              icon: Icons.confirmation_number_outlined,
+            ),
         ],
       ),
     ];
