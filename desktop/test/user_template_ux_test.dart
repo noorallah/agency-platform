@@ -438,6 +438,103 @@ void main() {
       );
     });
   });
+
+  group('creating a user by naming the job', () {
+    // The one-step version. Before this the form could only take individual
+    // roles, so hiring a counter clerk meant creating the user, finding them
+    // in the grid, and applying a template as a second act.
+    ResourceDefinition<PlatformUser> definition(_UsersApi api) =>
+        userDefinition(
+          api,
+          _permissions(const [
+            'USER_VIEW',
+            'USER_CREATE',
+            'USER_UPDATE',
+            'ROLE_VIEW',
+            'ROLE_ASSIGN',
+          ]),
+        );
+
+    test('the New form offers a Job template field', () {
+      final FieldSpec template = definition(_UsersApi())
+          .fields
+          .firstWhere((field) => field.key == 'template_id');
+
+      expect(template.label, 'Job template');
+      expect(template.optionsResource, 'user-templates');
+      expect(template.singleSelection, isTrue);
+      // Create only: afterwards the person is an ordinary user, and **Apply
+      // job template** on the grid is how a job is re-applied. A field here
+      // would suggest the user stays tied to the template, which is exactly
+      // what a template is not.
+      expect(template.createOnly, isTrue);
+    });
+
+    test('both boxes are on screen, so it says which one wins', () {
+      final List<FieldSpec> fields = definition(_UsersApi()).fields;
+      final FieldSpec roles =
+          fields.firstWhere((field) => field.key == 'role_ids');
+      final FieldSpec template =
+          fields.firstWhere((field) => field.key == 'template_id');
+
+      expect(roles.helperText, contains('Ignored when a job template'));
+      expect(template.helperText, contains('pick roles by hand'));
+    });
+
+    test('naming a job applies it', () async {
+      final _UsersApi api = _UsersApi();
+
+      await definition(api).saveAssignments!('u-1', <String, dynamic>{
+        'template_id': 't-1',
+        'role_ids': '',
+        'firm_ids': '',
+      });
+
+      expect(api.calls, contains('template:t-1'));
+      expect(api.calls.where((c) => c.startsWith('roles:')), isEmpty);
+    });
+
+    test('naming no job falls back to the roles picked by hand', () async {
+      final _UsersApi api = _UsersApi();
+
+      await definition(api).saveAssignments!('u-1', <String, dynamic>{
+        'template_id': '',
+        'role_ids': 'r-1,r-2',
+        'firm_ids': '',
+      });
+
+      expect(api.calls, contains('roles:r-1,r-2'));
+      expect(api.calls.where((c) => c.startsWith('template:')), isEmpty);
+    });
+
+    test('a job named alongside hand-picked roles decides', () async {
+      // One of them has to win. The helper text on Roles says which, rather
+      // than leaving somebody to discover it from the audit trail.
+      final _UsersApi api = _UsersApi();
+
+      await definition(api).saveAssignments!('u-1', <String, dynamic>{
+        'template_id': 't-1',
+        'role_ids': 'r-9',
+        'firm_ids': '',
+      });
+
+      expect(api.calls, contains('template:t-1'));
+      expect(api.calls, isNot(contains('roles:r-9')));
+    });
+
+    test('editing an existing user is unchanged', () async {
+      // `createOnly` keeps the field off the edit form, so nothing sends a
+      // template and the roles picker behaves exactly as it always did.
+      final _UsersApi api = _UsersApi();
+
+      await definition(api).saveAssignments!('u-1', <String, dynamic>{
+        'role_ids': 'r-3',
+        'firm_ids': '',
+      });
+
+      expect(api.calls, contains('roles:r-3'));
+    });
+  });
 }
 
 class _UsersApi extends ApiClient {
@@ -448,4 +545,27 @@ class _UsersApi extends ApiClient {
           refreshAccessToken: () async => false,
           activeFirmId: () => 'firm-1',
         );
+
+  /// What the form actually did on save, in order.
+  final List<String> calls = <String>[];
+
+  @override
+  Future<Json> request(
+    String method,
+    String path, {
+    Json? body,
+    Map<String, String>? query,
+    bool authenticated = true,
+    bool retrying = false,
+    int? expectedVersion,
+  }) async {
+    if (path.contains('/apply-template')) {
+      calls.add('template:${body?['template_id']}');
+    } else if (path.endsWith('/roles')) {
+      calls.add('roles:${(body?['ids'] as List<dynamic>?)?.join(',')}');
+    } else if (path.endsWith('/firms')) {
+      calls.add('firms');
+    }
+    return {'success': true, 'data': <String>[]};
+  }
 }

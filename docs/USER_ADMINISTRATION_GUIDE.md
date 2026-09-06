@@ -75,22 +75,32 @@ Most are a single role, and that is not a redundancy — the value is the name.
 
 ## 3. Hiring somebody into a job
 
-**Administration → Users.** You need `USER_CREATE`, `USER_UPDATE`,
+**Administration → Users → New.** You need `USER_CREATE`, `USER_UPDATE`,
 `ROLE_ASSIGN` and `ROLE_VIEW`; `FIRM_ADMIN` holds all four.
 
-1. **New.** Fill in the name, email and an initial password.
-   * A firm administrator's new user lands in **their own firm** automatically.
-   * The **Firms** picker lists the firms *you* belong to. A platform
-     administrator sees every firm instead.
-2. Save. The person exists but holds nothing yet.
-3. Select them → **Apply job template**.
-4. Pick the job. The picker names the roles beside each one, because choosing
-   by name alone is a permission decision made blind.
-5. **Apply.**
+Fill in the name, email and an initial password, then **name the job in
+`Job template`** and save. That is the whole thing — the job's roles are
+applied as part of the save.
 
-What they hold afterwards is an ordinary role set. Edit it in the ordinary way
-— nothing on the user records which template they came from, deliberately: a
-user who has since been edited is no longer described by it.
+| Field | Notes |
+| --- | --- |
+| **Job template** | Name the job and its roles are applied for you. Create only. |
+| **Roles** | Pick roles by hand instead. **Ignored when a job template is named.** |
+| **Firms** | The firms *you* belong to. A platform administrator sees every firm. A firm administrator's new user lands in their own firm automatically, so this is only for somebody who works in more than one. |
+
+Both boxes are on screen, so one of them has to win and it has to be visible
+which: **naming a job decides the roles**, and the helper text on Roles says so.
+
+### Applying a job to somebody who already exists
+
+`Job template` is on the New form only. Afterwards the person is an ordinary
+user, and **Administration → Users → select → Apply job template** is how a job
+is applied or changed. The picker names the roles beside each job, because
+choosing by name alone is a permission decision made blind.
+
+Either way, what they hold afterwards is an ordinary role set. Edit it in the
+ordinary way — nothing on the user records which template they came from,
+deliberately: a user who has since been edited is no longer described by it.
 
 > **The person must change their password when they first sign in.** A password
 > somebody else chose is not a password.
