@@ -151,8 +151,27 @@ application administration.
 
 ## 3. Create firms
 
+**Only a platform administrator can create a firm, and no permission code
+changes that.** Every route under `/api/v1/firms` is gated by
+`require_platform_admin()`, which checks the `platform_admin` claim and that
+the token is not flagged `password_change_required` -- it never looks at a
+permission. So `FIRM_CREATE` gates only the desktop's **New** button, and no
+firm role, `FIRM_ADMIN` included, can create a firm through any client. Either
+platform scope works: `require_platform_admin()` does not read
+`platform_admins.scope`, and running the platform is precisely what a
+`PLATFORM` administrator is for.
+
+In the desktop client this is **Administration -> Firms**, which is the one
+Administration tab that needs no firm selected -- so it is reachable from
+Platform mode, where a platform administrator always starts.
+
 Firm codes, country codes, and currency codes are normalized to upper case.
-`financial_year_start` uses `YYYY-MM-DD`.
+`financial_year_start` uses `YYYY-MM-DD`. Only `name`, `code`, `country`,
+`currency_code` and `financial_year_start` are required; everything else is
+optional.
+
+**Choose `deployment_mode` deliberately -- it is permanent.** See 3a; nothing
+migrates a firm's rows between stores afterwards.
 
 ```powershell
 $mumbaiFirm = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/firms" `
@@ -248,6 +267,61 @@ stores, so `PUT /api/v1/firms/{id}` rejects any change to `deployment_mode`,
 
 > After any schema change, upgrade **every** store, not just the platform one:
 > `uv run python scripts/migrate_all_stores.py --dry-run` then `--yes`.
+
+### 3b. Making the firm ready to trade
+
+A provisioned firm has tables. It cannot trade yet, and the remaining steps
+are easy to miss because nothing fails until somebody tries to approve
+something.
+
+**Switch into the firm.** Setting a firm up finishes *inside* it: the business
+profile, the financial year and the chart of accounts live in the firm's own
+store and need `X-Firm-ID`. In the desktop client, **Open this firm** on the
+Firms workspace refreshes the switcher and switches you in -- necessary
+because `session.firms` is read once at sign-in, so a firm created minutes ago
+is in no switcher and `switchFirm` would reject it as "not assigned to this
+user". The action is disabled for a retired firm and for a dedicated firm that
+has not been provisioned, since switching into an empty store answers errors
+on every screen.
+
+**Set the business profile**, in **Masters -> Firm Settings**. A firm with no
+assignment resolves to the platform default (GENERIC), so a wholesaler runs
+without the features and modules its profile would enable. Nothing refuses a
+document over this; it simply behaves like a different kind of business.
+
+**Open the books.** Documents post through `DocumentPostingService`, which
+**refuses rather than guesses**, so before anything can be approved the firm
+needs a chart of accounts, a financial year, open accounting periods, journal
+and voucher types, and a mapped control account for each of the 24 posting
+purposes.
+
+> **There is no screen or endpoint for the control-account mapping.** No path
+> in the served OpenAPI document contains `control`, and no desktop file
+> references one. The only code that builds this is `seed_finance_setup` in
+> `app/finance/services/opening_setup.py`, whose only callers are
+> `scripts/generate_sample_data.py` and `scripts/generate_transaction_history.py`.
+
+So a firm created purely through the UI will accept masters and let documents
+be drafted, and then **refuse every posting action** -- approving an invoice,
+completing a goods receipt. That refusal is the design working, not a fault in
+the new firm. The chart itself *can* be built by hand (`POST` exists for
+account groups, ledger accounts, financial years, periods, journal types and
+voucher types); the mapping cannot, so posting stays blocked either way until
+one of the two scripts is run against that store.
+
+**Check where a firm stands** with the read-only report, from `backend`:
+
+```powershell
+./.venv/Scripts/python.exe scripts/check_firm_readiness.py ACME-MUM
+./.venv/Scripts/python.exe scripts/check_firm_readiness.py   # every firm
+```
+
+It prints the deployment mode, whether storage is provisioned, the business
+profile, the counts of accounts, years and periods, how many control purposes
+are unmapped, and a verdict of `can post documents` or `CANNOT post -- books
+not open`. It writes nothing, resolves a SHARED firm to the configured shared
+store rather than to the NULLs on its mapping, and exits non-zero if any firm
+it reported is not ready.
 
 ## 4. Create a user
 
