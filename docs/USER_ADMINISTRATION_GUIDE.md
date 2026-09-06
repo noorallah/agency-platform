@@ -91,6 +91,43 @@ user         holds the roles, in one firm
 You may write your own at both levels. Neither is limited to what the platform
 shipped.
 
+## 2b. A template *is* a group of roles — so why have both?
+
+It is a fair question, and the answer is not what each one holds. It is
+**when each one acts**.
+
+| | Role | Job template |
+| --- | --- | --- |
+| What it groups | permissions | roles |
+| Who holds it | the user holds roles | **nobody holds a template** |
+| After you apply it | — | the person holds its roles; the template is forgotten |
+| Editing it later | changes what **everyone** holding it can do, on their next sign-in | changes **nothing** for anyone already hired through it |
+| Deleting it | **allowed even while people hold it** — they lose its permissions on their next sign-in, silently | allowed, and their access is untouched |
+
+**A role is live wiring. A template is a written-down decision.**
+
+That is why applying a template is the same act as setting somebody's roles by
+hand, and why nothing on a user records which template they came from — a
+person who has been edited since is no longer described by it.
+
+### Which to use
+
+- The person needs an unusual mix, **just this once** → set their roles
+  directly. A template nobody will reuse is a name to maintain for nothing.
+- You will hire **this same job again** → write a template, so the decision is
+  made once and correctly rather than re-derived on every hire.
+
+### The consequence that catches people
+
+If you improve a template — you realise Counter Sales also needs
+`CUSTOMER_VIEW` — **the people already hired through it do not change.** Add
+the role to them, or apply the template again.
+
+If you want a change to reach everybody at once, put it in a **role** instead.
+Role edits propagate to everyone holding it. That is the practical difference
+between the two, and it is worth deciding on purpose: a template is a starting
+point, a role is a standing grant.
+
 ---
 
 ## 3. Hiring somebody into a job
@@ -243,7 +280,11 @@ Some things worth knowing:
   is a trap for whoever reads a token next.
 - Editing a role changes what **everybody** already holding it can do,
   immediately on their next token refresh. It is not versioned.
-- A role somebody holds cannot be deleted until they are off it.
+- **Deleting a role does not check who holds it.** The role is retired, every
+  holder's session is ended, and they come back without those permissions and
+  with nothing to tell them why. Check who is on a role before you delete it —
+  Administration → Users, and look at each person's roles. There is no "who
+  holds this role" list yet.
 
 ## 6. Writing your own template
 
