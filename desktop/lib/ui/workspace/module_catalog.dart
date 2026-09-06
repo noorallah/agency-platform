@@ -241,14 +241,24 @@ abstract final class ModuleCatalog {
           id: 'profile-assignment',
           label: 'Profile Assignment',
           requiredPermissions: ['FIRM_VIEW', 'PLATFORM_VIEW'],
-          // Its codes are platform-only and `assign_profile_to_firm` takes the
-          // designation, so the only people allowed to open this were the ones
-          // who always start in platform mode -- where a tab defaulting to
-          // `requiresFirm: true` cannot appear. The screen names the firm in
-          // the URL rather than reading `X-Firm-ID`, so it needs no firm of
-          // its own, and setting a new firm's profile had to be done from
-          // inside some *other* firm.
-          requiresFirm: false,
+          // Deliberately left needing a firm, though its own two calls do not.
+          // The grid reads `/firm-profile-assignments` and the record reads
+          // `/firms/{id}/profile-assignment`, both of which answer 200 with no
+          // firm -- but the edit dialog's profile dropdown reads
+          // `/business-framework/profiles`, and the profile *catalogue* lives
+          // in each firm's own store. With no firm the session falls back to
+          // the platform schema and PostgreSQL answers `relation
+          // "platform.business_profiles" does not exist`, which reaches the
+          // user as "The database is temporarily unavailable".
+          //
+          // Making the tab visible here was tried on 2026-09-06 and reverted
+          // the same day: the grid rendered and the dialog could not be
+          // filled in, which is worse than a tab that is one click further
+          // away. Selecting any firm makes the whole screen work, and the
+          // grid still lists every firm, so a new firm's profile is set from
+          // inside any existing one. Moving this needs the dropdown to read
+          // the catalogue of the firm being edited -- a per-record options
+          // source, which `FieldSpec.optionsResource` cannot express today.
         ),
         ModuleTabDefinition(
           id: 'tax-configuration',

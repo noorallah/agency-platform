@@ -298,13 +298,22 @@ wholesaler runs without the features and modules its profile would enable.
 Nothing refuses a document over this; it simply behaves like a different kind
 of business.
 
-> That tab was **invisible in platform mode** until 2026-09-06:
-> `ModuleTabDefinition.requiresFirm` defaults to true, and this one never said
-> otherwise -- so the only people permitted to open it were the only people
-> who could not see it, and a new firm's profile had to be set from inside
-> some *other* firm. Its five neighbours under Business Profiles still require
-> a firm, correctly: the profile *catalogue* lives in each firm's own store
-> and answers 503 without one, where the assignment grid answers 200.
+> **Select a firm first.** Every tab under Business Profiles needs one, this
+> one included, so in platform mode the group is not offered at all. Open any
+> existing firm and the tab appears; the grid still lists *every* firm, so a
+> brand-new firm's profile is set from inside an established one.
+>
+> The reason is not the permission -- it is where the data lives. The grid and
+> the record both answer 200 with no firm, but the edit dialog's profile
+> dropdown reads `/business-framework/profiles`, and the profile *catalogue*
+> lives in each firm's own store. With no firm the session falls back to the
+> platform schema, where PostgreSQL answers `relation
+> "platform.business_profiles" does not exist` and the user sees "The database
+> is temporarily unavailable". Making the tab firm-free was tried on
+> 2026-09-06 and reverted the same day for exactly that: the grid rendered and
+> the dialog could not be filled in. Moving it needs the dropdown to read the
+> catalogue of the firm being edited, which `FieldSpec.optionsResource` cannot
+> express today.
 
 **Open the books.** Documents post through `DocumentPostingService`, which
 **refuses rather than guesses**, so before anything can be approved the firm
