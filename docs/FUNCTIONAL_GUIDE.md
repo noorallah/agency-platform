@@ -99,6 +99,12 @@ has simply outgrown its granularity.
 
 # 1. Firm setup and access
 
+> [`ACCESS_CONTROL_FRAMEWORK.md`](ACCESS_CONTROL_FRAMEWORK.md) is the reference
+> for the model behind this section: the two tiers of administrator, all 16
+> seeded roles and 189 permission codes, how a role becomes a permission on a
+> request, which modules each role is offered, and every setting a firm can
+> change with the code that guards it. This section stays the **workflow**.
+
 ## What it does
 
 The platform serves many firms from one installation. A **firm** is a trading
