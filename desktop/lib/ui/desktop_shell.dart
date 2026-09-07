@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'identity/firm_roles_dialog.dart';
+
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
@@ -3106,6 +3108,28 @@ ResourceDefinition<PlatformUser> userDefinition(
               permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
           onInvoke: (user) => _applyTemplate(context, api, user!),
         ),
+        // A firm-tier role names its firm, so there is no one set of roles to
+        // edit on the form: this person may be a sales manager in one firm
+        // and a cashier in another. The dialog edits each firm on its own,
+        // and a firm administrator sees only the firms they may staff.
+        ResourceAction<PlatformUser>(
+          label: 'Roles by firm',
+          icon: Icons.badge_outlined,
+          isVisible: (_) =>
+              permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']),
+          // The dialog saves each firm on its own as you go, so there is
+          // nothing left to report when it closes -- an empty result keeps
+          // the toolbar from claiming an edit that may not have happened.
+          onInvoke: (user) async {
+            await showFirmRolesDialog(
+              context,
+              api: api,
+              userId: user!.id,
+              userLabel: '${user.fullName} · ${user.email}',
+            );
+            return '';
+          },
+        ),
       ],
     ],
     canUseAction: (action, _) => _canUseResourceAction(
@@ -3221,11 +3245,20 @@ ResourceDefinition<PlatformUser> userDefinition(
         createOnly: true,
         section: 'Security',
       ),
-      const FieldSpec(
+      FieldSpec(
         key: 'role_ids',
-        label: 'Roles',
-        helperText: 'Select one or more roles. '
-            'Ignored when a job template is named above.',
+        // A platform caller's save writes the **global** set: roles that
+        // apply in every firm this person belongs to. Labelling it "Roles"
+        // made it read as everything they hold anywhere, which it is not --
+        // each firm's own roles live on Roles by firm, and are not touched
+        // by this field. A firm caller's save still scopes to their firm.
+        label: permissions.isPlatformAdmin ? 'Roles in every firm' : 'Roles',
+        helperText: permissions.isPlatformAdmin
+            ? 'Applies in every firm this person belongs to, including firms '
+                'added later. Use Roles by firm for one firm only. '
+                'Ignored when a job template is named above.'
+            : 'Roles in your firm. '
+                'Ignored when a job template is named above.',
         optionsResource: 'roles',
         section: 'Security',
       ),

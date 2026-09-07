@@ -717,6 +717,9 @@ void main() {
           'Add existing user': false,
           'Hire like this person': true,
           'Apply job template': true,
+          // Edits what one person does firm by firm, so it acts on the
+          // selected row like the other two.
+          'Roles by firm': true,
         },
         reason: 'exactly one action stands without a selection',
       );

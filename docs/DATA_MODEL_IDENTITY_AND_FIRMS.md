@@ -90,6 +90,39 @@ erDiagram
 | `user_templates` | `code`, `firm_id`, `is_system` | A named bundle of roles. `firm_id` NULL means offered to every firm, which needs **two partial indexes** rather than one: PostgreSQL treats NULLs as distinct, so a single key on `(firm_id, code)` would let the platform hold ten templates called `counter-sales`. |
 | `user_template_roles` | `template_id`, `role_id` | Unique on the pair. Validated at creation, not only at apply, so a template naming an unassignable role fails then rather than for whoever tries to use it weeks later. |
 
+### Three `firm_id` columns, three different questions
+
+They are easy to conflate and they answer different things. All three live in
+the platform schema.
+
+| Column | Question it answers | NULL means |
+| --- | --- | --- |
+| `user_firms.firm_id` | **Which firms is this person a member of?** | not nullable — a membership always names a firm |
+| `user_roles.firm_id` | **Where does this person hold this role?** | the **global** tier: every firm they belong to, now and in future. Only a platform administrator writes it; a firm administrator sees it and cannot change it. |
+| `roles.firm_id` | **Who wrote this role definition?** | a platform-wide role, offered to every firm |
+
+`user_firms` says somebody *belongs*; `user_roles` says what they may *do*
+there. A member with no roles sees an empty application, and — because of the
+NULL case on `user_roles` — somebody can hold a role in a firm they were only
+just added to.
+
+Each tier is replaced only by a save of its own tier -- `_replace_global_user_roles`
+for the NULL rows, `_replace_scoped_user_roles` for one firm's -- so a platform
+administrator's save cannot delete a firm's grants and a firm administrator's
+cannot delete a global one. Before that split, the platform path keyed on
+`role_id` alone and a no-op save collapsed every firm's roles into global ones.
+
+The distinction that catches people is between the last two. `SALES_MANAGER`
+has `roles.firm_id = NULL`, meaning any firm may use it; a *grant* of it has
+its own `user_roles.firm_id`, which decides where that person is a sales
+manager. The first is about the definition, the second about the grant, and
+only the second varies per person. See "Assigning roles" in
+`docs/ACCESS_CONTROL_FRAMEWORK.md` for which caller writes which.
+
+As seeded here, all 16 roles carry `roles.firm_id = NULL` and `is_system =
+true`; a firm writing its own role through Administration → Roles produces the
+first non-NULL row.
+
 ## Firms, profiles and settings
 
 Two tables in the platform schema decide that a firm exists and where its rows

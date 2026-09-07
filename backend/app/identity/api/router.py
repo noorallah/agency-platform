@@ -485,6 +485,83 @@ def list_user_roles(
     )
 
 
+@router.put(
+    "/users/{user_id}/firms/{firm_id}/roles",
+    response_model=ApiResponse[None],
+    tags=["Users"],
+)
+def set_user_firm_roles(
+    user_id: UUID,
+    firm_id: UUID,
+    data: IdentifierList,
+    principal: UserRoleAssignmentPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[None]:
+    """Replace what one user does in one firm.
+
+    The only route that grants a firm-tier role. A platform administrator
+    names the firm rather than having the grant apply everywhere by omission;
+    a firm administrator is held to the firms they may staff, and their edit
+    of a row is what an override amounts to -- there is no precedence rule,
+    because every grant is a row in one firm.
+    """
+    _service(db, settings).set_user_firm_roles(
+        user_id,
+        firm_id,
+        data.ids,
+        _actor_id(principal),
+        _firms_the_caller_may_staff(principal),
+    )
+    return ApiResponse(data=None)
+
+
+@router.get(
+    "/users/{user_id}/global-roles",
+    response_model=ApiResponse[IdentifierList],
+    tags=["Users"],
+)
+def list_user_global_roles(
+    user_id: UUID,
+    principal: RoleViewPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[IdentifierList]:
+    """List the roles one user holds in every firm.
+
+    Readable by a firm administrator and not writable by them: these apply in
+    their firm, so hiding them would under-report what the person can do
+    there, and letting them edit one would undo a platform decision.
+    """
+    return ApiResponse(
+        data=IdentifierList(
+            ids=_service(db, settings).list_user_global_role_ids(user_id)
+        )
+    )
+
+
+@router.get(
+    "/users/{user_id}/firms/{firm_id}/roles",
+    response_model=ApiResponse[IdentifierList],
+    tags=["Users"],
+)
+def list_user_firm_roles(
+    user_id: UUID,
+    firm_id: UUID,
+    principal: RoleViewPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[IdentifierList]:
+    """List the roles one user holds in one firm."""
+    return ApiResponse(
+        data=IdentifierList(
+            ids=_service(db, settings).list_user_firm_role_ids(
+                user_id, firm_id, _firm_scope(principal)
+            )
+        )
+    )
+
+
 @router.get(
     "/users/{user_id}/firms",
     response_model=ApiResponse[list[UserFirmResponse]],

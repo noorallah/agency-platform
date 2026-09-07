@@ -149,8 +149,8 @@ Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
 | `SUPPORT_ADMIN` | platform | 189 | Support access; hidden from role listings | — |
 | `LICENSE_ADMIN` | platform | 3 | `LICENSE_MANAGE`, `FIRM_VIEW`, `REPORT_VIEW` | everything else |
 | `SYSTEM_AUDITOR` | platform | 5 | Reads the trails: `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `FIRM_VIEW`, `USER_VIEW`, `REPORT_VIEW` | every write |
-| `FIRM_ADMIN` | firm | 157 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
-| `FIRM_MANAGER` | firm | 138 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
+| `FIRM_ADMIN` | firm | 170 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
+| `FIRM_MANAGER` | firm | 150 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
 | `ACCOUNTANT` | firm | 24 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` | sales and purchase writes |
 | `SALES_MANAGER` | firm | 35 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend | the ten controls in the table below |
 | `SALES_EXECUTIVE` | firm | 6 | Works a beat: view customers and territory; raise quotation, order, invoice | approval, cancellation, every master write |
@@ -161,6 +161,50 @@ Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
 | `BILLING_EXECUTIVE` | firm | 2 | `SALES_INVOICE_CREATE`, `SALES_VIEW` | everything else |
 | `CUSTOMER_SUPPORT` | firm | 3 | `CUSTOMER_VIEW`, `CUSTOMER_UPDATE`, `PRODUCT_VIEW` | everything else |
 | `VIEWER` | firm | 37 | Every `*_VIEW` code **except** `PLATFORM_VIEW`, `USER_VIEW`, `ROLE_VIEW`, `PERMISSION_VIEW`, `AUDIT_LOG_VIEW`, `SETTINGS_VIEW` | every write |
+
+### The twelve firm roles form a containment tree
+
+Not a metaphor and not a design intention read back from the names -- computed
+from `ROLE_PERMISSION_CODES` by asking which role's codes are a strict superset
+of which. Re-derive it rather than trusting the drawing:
+
+```
+uv run python -c "from app.identity.system_seed import ROLE_PERMISSION_CODES as R;   [print(a, '>', [b for b in R if b != a and set(R[b]) < set(R[a])]) for a in R]"
+```
+
+```
+FIRM_ADMIN (170)          runs the firm and its people
+└── FIRM_MANAGER (150)    every module, none of the people
+    ├── SALES_MANAGER (35)
+    │   ├── SALES_EXECUTIVE (6)
+    │   │   └── BILLING_EXECUTIVE (2)
+    │   └── CUSTOMER_SUPPORT (3)
+    ├── PURCHASE_MANAGER (9)
+    │   └── PURCHASE_EXECUTIVE (8)
+    ├── ACCOUNTANT (24)
+    │   └── CASHIER (4)
+    └── INVENTORY_MANAGER (16)
+
+VIEWER (37)               outside the tree
+```
+
+Two things the shape says that the names do not.
+
+**`CASHIER` sits under `ACCOUNTANT`, not under `SALES_MANAGER`.** A sales
+manager holds neither `RECEIPT_CREATE` nor `PAYMENT_CREATE`, so they cannot
+take money -- whoever agrees the price does not handle the cash. It is the same
+separation that keeps `COMMISSION_PAY` away from whoever states the debt and
+`TCS_MANAGE` away from the role the threshold constrains.
+
+**`VIEWER` is a parallel axis rather than a rung.** It holds 37 read codes and
+no writes, so it contains nothing -- not even `CUSTOMER_SUPPORT`, which can
+update a customer -- and nothing contains it, because no operational role holds
+every `*_VIEW`. Reading "VIEWER is the bottom of the ladder" out of the numbers
+is wrong in both directions.
+
+Everything else nests exactly as its name suggests, which is worth knowing
+before inventing a custom role: if the job is "a purchase executive who may
+also approve", that is `PURCHASE_MANAGER`, already seeded.
 
 ### Why the withholdings are what they are
 
@@ -302,6 +346,58 @@ every firm's, which would show a user buttons the API then refuses.
   `firm_id`-scoped roles, plus the unscoped seeded **firm** roles. A platform or
   cross-firm role is refused with *"Platform or cross-firm roles cannot be
   assigned."*
+
+### Two tiers of grant, and neither undoes the other
+
+A role is granted in one of two ways, and which one decides who may change it.
+
+| | `user_roles.firm_id` | Written by | Applies |
+| --- | --- | --- | --- |
+| **Global** | NULL | a platform administrator only | every firm the person belongs to, including firms added later |
+| **Firm** | the firm | a platform administrator naming a firm, **or** that firm's administrator | that firm |
+
+Effective access in a firm is the **union**: `_issue_tokens` collects, per
+membership, the permissions of every role where `UserRole.firm_id == <that
+firm>` **or** `UserRole.firm_id IS NULL`. The tiers are strictly additive --
+a firm administrator adds to what the platform granted and **cannot subtract
+from it**, by design. A global `SYSTEM_AUDITOR` is therefore not removable by
+the firm being audited.
+
+`PUT /api/v1/users/{id}/roles` writes the tier the caller owns:
+`_firm_scope` returns `None` for the designation, so a platform caller's save
+is the *global* set, and a firm caller's is their own firm's.
+`PUT /api/v1/users/{id}/firms/{firm_id}/roles` is how either administrator
+writes one named firm; a firm caller is held to
+`_firms_the_caller_may_staff`, and a firm outside it is refused by name.
+
+**Each save replaces only its own tier.** `_replace_global_user_roles` touches
+rows with `firm_id IS NULL`; `_replace_scoped_user_roles` touches one firm's.
+That is load-bearing rather than tidy: before it, the platform path went
+through `_replace_associations`, which keys on `role_id` alone and ignores
+`firm_id` -- so a platform administrator who opened a user and pressed Save,
+**changing nothing**, soft-deleted every firm-scoped row and re-created the
+survivors unscoped. Two firms' separate grants collapsed into one global
+grant, silently, from a no-op.
+
+**Each read answers for the tier its caller manages**, for the same reason.
+`list_user_role_ids` returns the global set to a platform caller and one
+firm's to a firm caller; it used to return every row from every firm merged
+into a single list, which read as "holds all of these, everywhere" -- and then
+the save made it true. `list_user_global_role_ids` is the read a firm
+administrator gets of the tier they may not write: shown, because it applies
+in their firm, and disabled, because it is not theirs.
+
+### Giving one person different jobs in two firms
+
+No second account, and no clearing required first:
+
+1. A **platform administrator** grants anything that should apply everywhere
+   on the user form (**Roles in every firm**), or leaves it empty.
+2. Either administrator sets each firm's own roles under **Roles by firm** on
+   the Users grid -- one section per firm, saved one firm at a time.
+
+The person is a sales manager in one firm and a cashier in another, plus
+whatever the global tier gave them in both.
 
 ## Two things that invalidate a token immediately
 

@@ -4086,6 +4086,48 @@ class ApiClient {
       request('DELETE', '/api/v1/$resource/$id');
   Future<void> setUserRoles(String userId, List<String> ids) =>
       request('PUT', '/api/v1/users/$userId/roles', body: {'ids': ids});
+
+  /// The roles one user holds **in one firm**.
+  ///
+  /// A firm-tier role always names its firm, so this is how the Roles-by-firm
+  /// editor reads and writes. `PUT /users/{id}/roles` now carries only the
+  /// platform-tier roles, which belong to no firm at all.
+  Future<List<String>> userFirmRoles(String userId, String firmId) async {
+    final Json response =
+        await request('GET', '/api/v1/users/$userId/firms/$firmId/roles');
+    final dynamic data = response['data'];
+    final dynamic ids = data is Map ? data['ids'] : null;
+    return ids is List
+        ? ids.map(stringValue).where((id) => id.isNotEmpty).toList()
+        : <String>[];
+  }
+
+  /// The roles one user holds in **every** firm.
+  ///
+  /// Readable by a firm administrator and not writable by them: a global
+  /// grant applies in their firm, so hiding it would under-report what the
+  /// person can do there, and editing one would undo a platform decision.
+  Future<List<String>> userGlobalRoles(String userId) async {
+    final Json response =
+        await request('GET', '/api/v1/users/$userId/global-roles');
+    final dynamic data = response['data'];
+    final dynamic ids = data is Map ? data['ids'] : null;
+    return ids is List
+        ? ids.map(stringValue).where((id) => id.isNotEmpty).toList()
+        : <String>[];
+  }
+
+  /// Replace what one user does in one firm. Other firms are untouched.
+  Future<void> setUserFirmRoles(
+    String userId,
+    String firmId,
+    List<String> roleIds,
+  ) =>
+      request(
+        'PUT',
+        '/api/v1/users/$userId/firms/$firmId/roles',
+        body: {'ids': roleIds},
+      );
   Future<void> setUserFirms(
     String userId,
     List<String> firmIds,

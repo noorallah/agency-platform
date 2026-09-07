@@ -464,6 +464,36 @@ can never be given. Sign in as `whole01.admin`.
 
 ---
 
+## 20a. Roles: global and firm-level
+
+Two tiers. A **platform** administrator writes the global set on the user
+form (**Roles in every firm**); either administrator writes one firm's set
+under **Roles by firm** on the Users grid. They are additive, and a firm
+administrator cannot remove a global grant.
+
+The defect behind the screen: the single Roles box wrote through a path that
+replaced every row regardless of firm, so a platform administrator pressing
+Save without changing anything collapsed each firm's separate roles into one
+global grant.
+
+Use a user who belongs to **two** firms — create one and add both memberships
+first.
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 20a.1 | As `master.ops`, Administration → Users → edit that user | The roles field is labelled **Roles in every firm**, and says it applies in every firm including ones added later. |
+| 20a.2 | Set it to `VIEWER` and save | Saved as the global set. |
+| 20a.3 | Select the row → **Roles by firm** | A section per firm the person belongs to — and **not** firms they do not belong to. `VIEWER` appears once at the top under **Applies in every firm**, greyed and unclickable. |
+| 20a.4 | Give WHOLE01 `SALES_MANAGER`, press its **Save** | Saved for WHOLE01. Each firm has its own Save, enabled only once that firm changed. |
+| 20a.5 | Give ELEC01 `CASHIER`, save | Saved for ELEC01. WHOLE01 still shows `SALES_MANAGER` — one Save affects one firm. |
+| 20a.6 | Re-open the user form and press **Save** without changing anything | **Both firms keep their own roles.** This is the regression case: before the fix, WHOLE01 and ELEC01 both ended up holding every role, globally. |
+| 20a.7 | Sign in as `whole01.admin` → Users → that person → **Roles by firm** | One section, WHOLE01. `VIEWER` is shown greyed under **Applies in every firm** and cannot be cleared. |
+| 20a.8 | Remove `SALES_MANAGER` in WHOLE01 and save | Removed in WHOLE01. `VIEWER` survives — a firm administrator may not undo a platform grant. |
+| 20a.9 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused: "You can only set roles in firms you administer." |
+| 20a.10 **(HTTP)** | As `master.ops`, `PUT /api/v1/users/{id}/firms/{firm}/roles` for a firm the user is **not** a member of | Refused: "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token. |
+
+---
+
 ## 21. The five modules a firm administrator could not open
 
 `_operational_permissions` is the list `FIRM_ADMIN` and `FIRM_MANAGER` are

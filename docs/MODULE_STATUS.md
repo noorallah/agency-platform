@@ -91,7 +91,7 @@ no seeded row satisfies.
 | Business profiles `app/business` | 29 | 0 | **Partial** | **22 features declared, 6 of them flagged unbuilt.** Of the 16 that exist, 11 are gated (see `BUSINESS_PROFILE_FRAMEWORK.md`) and 3 are deliberately ungated pending a decision. Custom fields extend any module without a migration. |
 | Tax framework `app/tax` | 52 | 0 | Built | Rules attach to the transaction, never the product. First match wins and evaluation stops. |
 | Document framework `app/document_framework` | 17 | 0 | Built | Types, states, print templates and numbering. A firm administers its own series as of 2026-09-05. |
-| Identity and roles `app/identity` | 25 | 0 | Built | 157 permission codes, all seeded, and all now visible to the guard that checks they are. |
+| Identity and roles `app/identity` | 25 | 0 | Built | 189 permission codes in 30 groups, all seeded, and all visible to the guard that checks they are. |
 
 ## Platform — the parts a firm never sees
 
