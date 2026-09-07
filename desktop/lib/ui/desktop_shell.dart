@@ -3262,6 +3262,26 @@ ResourceDefinition<PlatformUser> userDefinition(
         optionsResource: 'roles',
         section: 'Security',
       ),
+      // Which tier the roles above are written to. A platform caller's grant
+      // resolved globally whenever no firm was named, so creating somebody as
+      // a cashier made them one in **every** firm they belong to and every
+      // firm added later -- the same surprise the Roles box used to carry,
+      // still live on the template picker. Left blank it keeps that meaning;
+      // named, the roles land in that firm alone.
+      //
+      // Offered only to a platform caller: a firm administrator's grant is
+      // already scoped to their own firm, so the question has one answer.
+      if (permissions.isPlatformAdmin)
+        const FieldSpec(
+          key: 'role_firm_id',
+          label: 'Apply roles to',
+          helperText: 'Leave blank to grant in every firm this person belongs '
+              'to. Name one of the firms above to grant there only.',
+          optionsResource: 'firms',
+          singleSelection: true,
+          createOnly: true,
+          section: 'Security',
+        ),
       const FieldSpec(
         key: 'expires_at',
         label: 'Expires at',
@@ -3448,24 +3468,36 @@ ResourceDefinition<PlatformUser> userDefinition(
     partialUpdate: true,
     loadAssignments: api.userAssignmentValues,
     saveAssignments: (id, values) async {
-      // Naming a job decides the roles. Both boxes are on screen, so one of
-      // them has to win and it has to be visible which -- the helper text
-      // on Roles says so rather than leaving it to be discovered.
-      //
-      // The same `apply_user_template` the grid action calls, so the
-      // firm-scope check that refuses a platform or cross-firm role applies
-      // here too and there is one implementation of it rather than two.
-      final String template = stringValue(values['template_id']);
-      if (template.isNotEmpty) {
-        await api.applyUserTemplate(id, template);
-      } else {
-        await api.setUserRoles(id, _ids(values['role_ids']));
-      }
+      // **Memberships first.** A role in one firm needs an active membership
+      // there -- the token is built per membership, so a grant without one
+      // reaches nobody and the service refuses it. Roles used to be written
+      // first, when the person was still in no firm, which made a per-firm
+      // grant impossible at create however the form asked for it.
       await api.setUserFirms(
         id,
         _ids(values['firm_ids']),
         values['primary_firm_id'].toString(),
       );
+
+      // Naming a job decides the roles. Both boxes are on screen, so one of
+      // them has to win and it has to be visible which -- the helper text
+      // on Roles says so rather than leaving it to be discovered.
+      //
+      // `Apply roles to` decides the tier: blank grants in every firm, a firm
+      // grants there alone. A firm caller never sees the field and their
+      // grant scopes to their own firm, as it always did.
+      final String template = stringValue(values['template_id']);
+      final String roleFirm = stringValue(values['role_firm_id']);
+      if (template.isNotEmpty) {
+        // The same `apply_user_template` the grid action calls, so the
+        // firm-scope check that refuses a platform or cross-firm role applies
+        // here too and there is one implementation of it rather than two.
+        await api.applyUserTemplate(id, template, firmId: roleFirm);
+      } else if (roleFirm.isNotEmpty) {
+        await api.setUserFirmRoles(id, roleFirm, _ids(values['role_ids']));
+      } else {
+        await api.setUserRoles(id, _ids(values['role_ids']));
+      }
     },
   );
 }

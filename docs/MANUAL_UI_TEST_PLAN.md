@@ -489,6 +489,10 @@ first.
 | 20a.6 | Re-open the user form and press **Save** without changing anything | **Both firms keep their own roles.** This is the regression case: before the fix, WHOLE01 and ELEC01 both ended up holding every role, globally. |
 | 20a.7 | Sign in as `whole01.admin` → Users → that person → **Roles by firm** | One section, WHOLE01. `VIEWER` is shown greyed under **Applies in every firm** and cannot be cleared. |
 | 20a.8 | Remove `SALES_MANAGER` in WHOLE01 and save | Removed in WHOLE01. `VIEWER` survives — a firm administrator may not undo a platform grant. |
+| 20a.8b | As `master.ops`, Users → **New**. Look at **Apply roles to** | Present, under Security, with "Leave blank to grant in every firm this person belongs to." A firm administrator does not see it — their grant is already their firm. |
+| 20a.8c | Create a user: two firms, a role, **Apply roles to** = one of them | The role lands in that firm only. Check with **Roles by firm**: one section holds it, the other is empty. |
+| 20a.8d | Create another: same, but leave **Apply roles to** blank | Granted in every firm — the global tier, which is what a platform caller has always meant. Now the form says so rather than doing it silently. |
+| 20a.8e | Create a third naming a **job template** and a firm | The job lands in that firm alone. Before this the template picker granted it in every firm the person belonged to, with nothing on screen saying so. |
 | 20a.9 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused: "You can only set roles in firms you administer." |
 | 20a.10 **(HTTP)** | As `master.ops`, `PUT /api/v1/users/{id}/firms/{firm}/roles` for a firm the user is **not** a member of | Refused: "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token. |
 

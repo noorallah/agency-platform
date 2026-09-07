@@ -356,9 +356,21 @@ class ApiClient {
   /// What they hold afterwards is an ordinary role set, editable in the
   /// ordinary way -- a template is where an administrator starts, not
   /// somewhere the user stays.
-  Future<void> applyUserTemplate(String userId, String templateId) =>
-      request('POST', '/api/v1/users/$userId/apply-template',
-          body: {'template_id': templateId});
+  /// Apply a job template, optionally in one named firm.
+  ///
+  /// A platform caller who names no firm grants the job **globally** -- in
+  /// every firm the person belongs to and every firm they are added to later.
+  /// That is rarely what "hire this person as a cashier" means, so the create
+  /// form asks which, and passes it here.
+  Future<void> applyUserTemplate(
+    String userId,
+    String templateId, {
+    String firmId = '',
+  }) =>
+      request('POST', '/api/v1/users/$userId/apply-template', body: {
+        'template_id': templateId,
+        if (firmId.isNotEmpty) 'firm_id': firmId,
+      });
 
   /// Lists permissions, honouring a caller-chosen page size.
   ///
