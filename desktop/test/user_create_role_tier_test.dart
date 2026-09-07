@@ -50,8 +50,8 @@ class _CreateApi extends ApiClient {
 
   /// Every call in the order it was made, so the sequence can be asserted.
   final List<String> calls = [];
-  String templateFirmId = '';
-  String scopedFirmId = '';
+  final List<String> templateFirmIds = [];
+  final List<String> scopedFirmIds = [];
 
   @override
   Future<void> setUserFirms(
@@ -74,7 +74,7 @@ class _CreateApi extends ApiClient {
     List<String> roleIds,
   ) async {
     calls.add('firmRoles');
-    scopedFirmId = firmId;
+    scopedFirmIds.add(firmId);
   }
 
   @override
@@ -84,7 +84,7 @@ class _CreateApi extends ApiClient {
     String firmId = '',
   }) async {
     calls.add('template');
-    templateFirmId = firmId;
+    templateFirmIds.add(firmId);
   }
 }
 
@@ -110,7 +110,10 @@ void main() {
 
       expect(field, isNotNull);
       expect(field!.optionsResource, 'firms');
-      expect(field.singleSelection, isTrue);
+      // Multi-select: a person hired into three firms may need the role in
+      // two of them, and one-at-a-time would mean three trips through the
+      // form.
+      expect(field.singleSelection, isFalse);
       // Afterwards the person's roles are edited per firm on Roles by firm,
       // so a field on the edit form would offer a second way to do one thing.
       expect(field.createOnly, isTrue);
@@ -147,7 +150,7 @@ void main() {
       });
 
       expect(api.calls, ['firms', 'firmRoles']);
-      expect(api.scopedFirmId, 'firm-1');
+      expect(api.scopedFirmIds, ['firm-1']);
     });
 
     test('naming no firm keeps the global grant', () async {
@@ -174,7 +177,36 @@ void main() {
       });
 
       expect(api.calls, ['firms', 'template']);
-      expect(api.templateFirmId, 'firm-1');
+      expect(api.templateFirmIds, ['firm-1']);
+    });
+
+    test('two firms are written separately', () async {
+      // A grant is per firm in the table, so there is no "these two at once"
+      // to send. Writing them one at a time is also what lets each firm
+      // change its own afterwards without touching the other.
+      final _CreateApi api = await save({
+        'firm_ids': 'firm-1,firm-2',
+        'primary_firm_id': 'firm-1',
+        'role_ids': 'role-1',
+        'template_id': '',
+        'role_firm_id': 'firm-1,firm-2',
+      });
+
+      expect(api.calls, ['firms', 'firmRoles', 'firmRoles']);
+      expect(api.scopedFirmIds, ['firm-1', 'firm-2']);
+    });
+
+    test('a template applies in each named firm', () async {
+      final _CreateApi api = await save({
+        'firm_ids': 'firm-1,firm-2',
+        'primary_firm_id': 'firm-1',
+        'role_ids': '',
+        'template_id': 'template-1',
+        'role_firm_id': 'firm-1,firm-2',
+      });
+
+      expect(api.calls, ['firms', 'template', 'template']);
+      expect(api.templateFirmIds, ['firm-1', 'firm-2']);
     });
 
     test('a template with no firm still grants globally', () async {
@@ -189,7 +221,9 @@ void main() {
       });
 
       expect(api.calls, ['firms', 'template']);
-      expect(api.templateFirmId, '');
+      // One call, carrying no firm -- which is what the endpoint reads as
+      // platform-wide.
+      expect(api.templateFirmIds, ['']);
     });
   });
 }

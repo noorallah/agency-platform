@@ -3276,9 +3276,9 @@ ResourceDefinition<PlatformUser> userDefinition(
           key: 'role_firm_id',
           label: 'Apply roles to',
           helperText: 'Leave blank to grant in every firm this person belongs '
-              'to. Name one of the firms above to grant there only.',
+              'to. Or pick the firms to grant in — the roles are written to '
+              'each one separately, so a firm can change its own later.',
           optionsResource: 'firms',
-          singleSelection: true,
           createOnly: true,
           section: 'Security',
         ),
@@ -3487,16 +3487,29 @@ ResourceDefinition<PlatformUser> userDefinition(
       // grants there alone. A firm caller never sees the field and their
       // grant scopes to their own firm, as it always did.
       final String template = stringValue(values['template_id']);
-      final String roleFirm = stringValue(values['role_firm_id']);
+      // Zero firms means the global tier; one or more means those firms, each
+      // written separately. A grant is per firm in the table, so there is no
+      // "these three at once" to send -- and writing them one at a time is
+      // what lets each firm change its own afterwards without touching the
+      // others.
+      final List<String> roleFirms = _ids(values['role_firm_id']);
       if (template.isNotEmpty) {
         // The same `apply_user_template` the grid action calls, so the
         // firm-scope check that refuses a platform or cross-firm role applies
         // here too and there is one implementation of it rather than two.
-        await api.applyUserTemplate(id, template, firmId: roleFirm);
-      } else if (roleFirm.isNotEmpty) {
-        await api.setUserFirmRoles(id, roleFirm, _ids(values['role_ids']));
-      } else {
+        if (roleFirms.isEmpty) {
+          await api.applyUserTemplate(id, template);
+        } else {
+          for (final String firmId in roleFirms) {
+            await api.applyUserTemplate(id, template, firmId: firmId);
+          }
+        }
+      } else if (roleFirms.isEmpty) {
         await api.setUserRoles(id, _ids(values['role_ids']));
+      } else {
+        for (final String firmId in roleFirms) {
+          await api.setUserFirmRoles(id, firmId, _ids(values['role_ids']));
+        }
       }
     },
   );
