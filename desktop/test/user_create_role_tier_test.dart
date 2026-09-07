@@ -23,11 +23,15 @@ import 'package:flutter_test/flutter_test.dart';
 PermissionService _permissions({
   required bool platformAdmin,
   List<String> codes = const [],
+  String? activeFirmId = 'firm-1',
 }) {
   final String payload = base64Url.encode(
     utf8.encode(
       jsonEncode({
-        'permissions': const <String>[],
+        // `_issue_tokens` puts **all** active codes in the global claim for a
+        // platform administrator, so a fixture granting none tests a shape the
+        // application never issues.
+        'permissions': platformAdmin ? codes : const <String>[],
         'roles': const <String>[],
         'platform_admin': platformAdmin,
         if (platformAdmin) 'platform_admin_scope': 'ALL_FIRMS',
@@ -36,7 +40,7 @@ PermissionService _permissions({
     ),
   );
   return PermissionService()
-    ..applyAccessToken('h.$payload.s', activeFirmId: 'firm-1');
+    ..applyAccessToken('h.$payload.s', activeFirmId: activeFirmId);
 }
 
 class _CreateApi extends ApiClient {
@@ -117,7 +121,10 @@ class _CreateApi extends ApiClient {
   ) async {
     calls.add('firmRoles');
     scopedFirmIds.add(firmId);
+    scopedRoleIds.add(roleIds.join(','));
   }
+
+  final List<String> scopedRoleIds = [];
 
   @override
   Future<void> applyUserTemplate(
@@ -133,8 +140,17 @@ class _CreateApi extends ApiClient {
 ResourceDefinition<PlatformUser> _definition(
   _CreateApi api, {
   required bool platformAdmin,
+  List<String> codes = const ['ROLE_ASSIGN', 'ROLE_VIEW'],
+  String? activeFirmId = 'firm-1',
 }) =>
-    userDefinition(api, _permissions(platformAdmin: platformAdmin));
+    userDefinition(
+      api,
+      _permissions(
+        platformAdmin: platformAdmin,
+        codes: codes,
+        activeFirmId: activeFirmId,
+      ),
+    );
 
 FieldSpec? _field(ResourceDefinition<PlatformUser> definition, String key) {
   for (final FieldSpec field in definition.fields) {
@@ -212,6 +228,106 @@ void main() {
               .loadAssignments!('user-1');
 
       expect(values['firm_roles_note'], 'None');
+    });
+  });
+
+  group('two columns: the global tier and the firm you are in', () {
+    test('the second column appears only with a firm selected', () {
+      // With none there is nothing for it to name, and platform mode is
+      // where a platform administrator starts.
+      expect(
+        _field(_definition(_CreateApi(), platformAdmin: true),
+            'firm_role_ids'),
+        isNotNull,
+      );
+      expect(
+        _field(
+          _definition(_CreateApi(), platformAdmin: true, activeFirmId: null),
+          'firm_role_ids',
+        ),
+        isNull,
+      );
+    });
+
+    test('a firm administrator gets one column, not two', () {
+      // Their Roles field already *is* their firm's set; a second column
+      // would be the same thing twice.
+      expect(
+        _field(_definition(_CreateApi(), platformAdmin: false),
+            'firm_role_ids'),
+        isNull,
+      );
+    });
+
+    test('it loads the roles held in the selected firm', () async {
+      final _CreateApi api = _CreateApi();
+      final Map<String, dynamic> values =
+          await _definition(api, platformAdmin: true)
+              .loadAssignments!('user-1');
+
+      expect(values['firm_role_ids'], 'role-sm');
+    });
+
+    test('saving writes it to the selected firm alone', () async {
+      // The whole point of the column: MEDI01 selected means MEDI01, not
+      // everywhere -- which is what happened before it existed.
+      final _CreateApi api = _CreateApi();
+      await _definition(api, platformAdmin: true).saveAssignments!('user-1', {
+        'firm_ids': 'firm-1,firm-2',
+        'primary_firm_id': 'firm-1',
+        'role_ids': 'role-admin',
+        'template_id': '',
+        'role_firm_id': '',
+        'firm_role_ids': 'role-cashier',
+      });
+
+      expect(api.calls, ['firms', 'globalRoles', 'firmRoles']);
+      expect(api.scopedFirmIds, ['firm-1']);
+      expect(api.scopedRoleIds, ['role-cashier']);
+    });
+  });
+
+  group('reaching the per-firm editor from the form', () {
+    test('the edit dialog offers it, the create dialog does not', () {
+      // A platform administrator editing somebody with a firm selected
+      // expects their change to land in that firm. It does not, and never
+      // will. This is the way to the screen that *is* per firm, one click
+      // from where the expectation forms.
+      final ResourceDefinition<PlatformUser> definition =
+          _definition(_CreateApi(), platformAdmin: true);
+
+      expect(definition.dialogLeadingAction, isNotNull);
+    });
+
+    test('the Roles helper says the switcher does not scope it', () {
+      // The surprise reported from the running app: roles added with MEDI01
+      // selected all landed globally.
+      final FieldSpec? roles =
+          _field(_definition(_CreateApi(), platformAdmin: true), 'role_ids');
+
+      expect(roles!.helperText, contains('switcher does not change this'));
+    });
+
+    test('a caller who cannot assign roles is not offered it', () {
+      // Giving somebody a role is the privilege this needs, so it must not be
+      // reachable by anybody who could not assign one at a time.
+      expect(
+        _definition(
+          _CreateApi(),
+          platformAdmin: false,
+          codes: const ['USER_VIEW'],
+        ).dialogLeadingAction,
+        isNull,
+      );
+    });
+
+    test('a firm administrator who can assign roles is offered it', () {
+      // Their firm's section is the only one they will see, which is the
+      // point: one click to the roles they may actually change.
+      expect(
+        _definition(_CreateApi(), platformAdmin: false).dialogLeadingAction,
+        isNotNull,
+      );
     });
   });
 

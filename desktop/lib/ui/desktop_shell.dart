@@ -3255,13 +3255,34 @@ ResourceDefinition<PlatformUser> userDefinition(
         label: permissions.isPlatformAdmin ? 'Roles in every firm' : 'Roles',
         helperText: permissions.isPlatformAdmin
             ? 'Applies in every firm this person belongs to, including firms '
-                'added later. Use Roles by firm for one firm only. '
+                'added later. Choosing a firm in the switcher does not change '
+                'this — use Edit roles by firm below for one firm only. '
                 'Ignored when a job template is named above.'
             : 'Roles in your firm. '
                 'Ignored when a job template is named above.',
         optionsResource: 'roles',
         section: 'Security',
       ),
+      // The second column: the firm this platform caller is actually working
+      // in. Their Roles field above is the global tier and stays that way --
+      // `_firm_scope` gives the designation no firm, so the switcher cannot
+      // scope it. But somebody with MEDI01 selected, editing a user, means
+      // MEDI01; making them close the form and find another screen for that
+      // is what produced roles landing globally by surprise.
+      //
+      // Only when a firm is actually selected: with none there is no second
+      // column to fill, and platform mode is where a platform administrator
+      // starts.
+      if (permissions.isPlatformAdmin && permissions.activeFirmId != null)
+        const FieldSpec(
+          key: 'firm_role_ids',
+          label: 'Roles in the firm you are working in',
+          helperText: 'Applies in the firm selected in the switcher, and '
+              'nowhere else. Use Edit roles by firm for any other firm.',
+          optionsResource: 'roles',
+          editOnly: true,
+          section: 'Security',
+        ),
       // What a firm administrator cannot edit here but must be able to see.
       // A global grant applies **in their firm**, so a form that shows only
       // their own tier reports less than the person can actually do -- the
@@ -3502,6 +3523,26 @@ ResourceDefinition<PlatformUser> userDefinition(
             ...userProfilePayload(values),
           },
     partialUpdate: true,
+    // The per-firm editor, reachable from the form rather than only from the
+    // toolbar. A platform administrator editing somebody with a firm selected
+    // reasonably expects their change to land in that firm; it does not, and
+    // never will, because `_firm_scope` gives the designation no firm. This is
+    // the way to the screen that *is* per firm, one click from where the
+    // expectation forms.
+    dialogLeadingAction: permissions.hasAllPermissions(
+      ['ROLE_ASSIGN', 'ROLE_VIEW'],
+    )
+        ? (dialogContext, user) => TextButton.icon(
+              icon: const Icon(Icons.badge_outlined),
+              label: const Text('Edit roles by firm'),
+              onPressed: () => showFirmRolesDialog(
+                dialogContext,
+                api: api,
+                userId: user.id,
+                userLabel: '${user.fullName} · ${user.email}',
+              ),
+            )
+        : null,
     // The form's own values, plus the tier this caller may not write. Only
     // a firm caller pays for the extra read.
     loadAssignments: (userId) async {
@@ -3509,6 +3550,11 @@ ResourceDefinition<PlatformUser> userDefinition(
       if (permissions.isPlatformAdmin) {
         final String perFirm = await api.userFirmRoleLabels(userId);
         values['firm_roles_note'] = perFirm.isEmpty ? 'None' : perFirm;
+        final String? active = permissions.activeFirmId;
+        if (active != null) {
+          values['firm_role_ids'] =
+              (await api.userFirmRoles(userId, active)).join(',');
+        }
       } else {
         final String global = await api.userGlobalRoleLabels(userId);
         values['global_roles_note'] = global.isEmpty ? 'None' : global;
@@ -3558,6 +3604,15 @@ ResourceDefinition<PlatformUser> userDefinition(
         for (final String firmId in roleFirms) {
           await api.setUserFirmRoles(id, firmId, _ids(values['role_ids']));
         }
+      }
+
+      // The second column, written to the firm it names. Absent on create --
+      // the field is `editOnly`, and a membership has to exist first anyway.
+      final String? active = permissions.activeFirmId;
+      if (permissions.isPlatformAdmin &&
+          active != null &&
+          values.containsKey('firm_role_ids')) {
+        await api.setUserFirmRoles(id, active, _ids(values['firm_role_ids']));
       }
     },
   );

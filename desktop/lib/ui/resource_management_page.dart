@@ -201,6 +201,7 @@ class ResourceDefinition<T> {
     this.customActions = const [],
     this.createFollowUp,
     this.dialogSubtitle,
+    this.dialogLeadingAction,
     this.searchHint,
     this.pageSize = 25,
     this.pageSizeOptions = const [25, 50, 100],
@@ -249,6 +250,15 @@ class ResourceDefinition<T> {
   /// profile assignment shows a profile dropdown and a notes box, so with no
   /// subtitle there is nothing on screen naming the firm being assigned to.
   final String Function(T item)? dialogSubtitle;
+
+  /// A secondary action in the edit dialog's footer, for the thing this form
+  /// cannot do but the person on it needs next.
+  ///
+  /// The user form is the case it was built for: a platform administrator's
+  /// Roles field writes the **global** tier whatever firm is selected, so the
+  /// per-firm roles are edited elsewhere -- and closing the form to find a
+  /// toolbar action is exactly the step somebody does not know to take.
+  final Widget Function(BuildContext context, T item)? dialogLeadingAction;
 
   /// What this module's records are searchable by, in the user's words —
   /// "Search permissions by name or code" rather than a generic "Search".
@@ -525,11 +535,16 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     final Map<String, dynamic>? values = await showDialog<Map<String, dynamic>>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => CrudWorkspaceDialog(
+      builder: (dialogContext) => CrudWorkspaceDialog(
         title: widget.definition.title,
         subtitle: item == null
             ? null
             : widget.definition.dialogSubtitle?.call(item),
+        // Editing only: on create the record does not exist yet, so there is
+        // nothing for a secondary action to act on.
+        leadingAction: item == null || mode == CrudDialogMode.create
+            ? null
+            : widget.definition.dialogLeadingAction?.call(dialogContext, item),
         fields: widget.definition.fields,
         twoColumn: widget.definition.twoColumnForm,
         values: initialValues,
@@ -1098,6 +1113,7 @@ class CrudWorkspaceDialog extends StatefulWidget {
     required this.onSave,
     this.subtitle,
     this.twoColumn = true,
+    this.leadingAction,
     super.key,
   });
   final String title;
@@ -1114,6 +1130,9 @@ class CrudWorkspaceDialog extends StatefulWidget {
   /// Pairs short fields two to a row, on by default.
   /// See [ResourceDefinition.twoColumnForm].
   final bool twoColumn;
+
+  /// See [ResourceDefinition.dialogLeadingAction].
+  final Widget? leadingAction;
 
   bool get isCreating => mode == CrudDialogMode.create;
   bool get isReadOnly => mode == CrudDialogMode.view;
@@ -1336,6 +1355,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                 EnterpriseActionBar(
                   saving: _saving,
                   readOnly: widget.isReadOnly,
+                  leading: widget.leadingAction,
                   onCancel: _saving ? null : _close,
                   onSaveAndClose: widget.isReadOnly || _saving ? null : _save,
                   onSaveAndNew:

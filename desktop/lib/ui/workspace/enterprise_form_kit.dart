@@ -193,6 +193,7 @@ class EnterpriseActionBar extends StatelessWidget {
     this.onSaveAndNew,
     this.readOnly = false,
     this.cancelLabel = 'Cancel',
+    this.leading,
   });
 
   final bool saving;
@@ -205,14 +206,22 @@ class EnterpriseActionBar extends StatelessWidget {
   final VoidCallback? onSaveAndNew;
   final String cancelLabel;
 
+  /// A secondary action, left-aligned away from Cancel and Save.
+  ///
+  /// For the thing a form cannot do but the person on it needs next -- the
+  /// per-firm role editor from the user form, say. Left rather than beside
+  /// Save because it is not a way of finishing this dialog.
+  final Widget? leading;
+
   @override
   Widget build(BuildContext context) => Material(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              if (leading != null) leading!,
+              const Spacer(),
               OutlinedButton(
                 onPressed: onCancel,
                 child: Text(readOnly ? 'Close' : cancelLabel),
