@@ -701,6 +701,37 @@ or endpoint reaches the mapping**. See `docs/BACKLOG.md` §15.
 | 27.25 | Raise a sales invoice in the new firm and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- do not report it as one. |
 | 27.26 | Run the same readiness check against `WHOLE01` | **`can post documents`** -- 24 accounts, 3 years, 36 periods, all 24 control purposes mapped. The contrast is the point: it shows what "finished" looks like. |
 
+### 27f. Custom fields and mandatory fields
+
+How a profile reaches a product. `docs/BUSINESS_PROFILE_FRAMEWORK.md`,
+"How a firm resolves its attributes", is the reference. Stay signed in as
+`master.ops` **with a firm selected** -- both screens live in that firm's
+store, so platform mode does not offer them.
+
+A definition applies when it targets the entity type **and** is either
+unscoped or scoped to the firm's profile. **NULL means every profile, not
+none** -- that is the whole grammar of the table, and reading it backwards is
+what put an IMEI on a pharmacy's products in `20260801_0011`.
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.27 | Administration → Configuration → Business Profiles → **Dynamic Attributes** | The definitions in *this firm's* store. Each row shows its entity type and which profile it is narrowed to. |
+| 27.28 | New → entity type `PRODUCT`, leave **business profile** blank | Applies to every profile. This is what a field every firm needs looks like. |
+| 27.29 | New → entity type `PRODUCT`, business profile = **something other than this firm's** | Saved, and **not** offered on this firm's products. Scoping is what stops one industry's field appearing everywhere. |
+| 27.30 | Masters → Products → New | The field from 27.28 appears; the one from 27.29 does not. |
+| 27.31 | Set 27.28's definition **mandatory**, then create a product without it | Refused. The flag on the definition applies to **every** category it reaches -- blunt, and the one with a history. |
+| 27.32 | Clear that flag. Administration → Configuration → Business Profiles → **Mandatory Attributes** → New, naming one category | Required for that category only. Products in other categories still save without it. |
+| 27.33 | Add a mandatory rule naming a definition scoped to **another** profile | Accepted and **inert** -- `mandatory_ids` intersects the rules against what applies, so a rule this firm cannot see enforces nothing. Not an error. |
+| 27.34 | Create a product carrying a value, then change the firm's business profile in Profile Assignment | The field **stops appearing** and its value is still in `product_attribute_values`. Nothing warns you; this is `docs/BACKLOG.md` §16. |
+| 27.35 | Change the profile back | The field and its value reappear. Nothing was lost -- it stopped being *read*. |
+| 27.36 | Change a definition's **data type** after a product carries a value | Accepted with no warning, and the value stops being read -- it sits in the old typed column. Record this as expected-but-wrong; it is §16's first lifecycle guard. |
+
+**If the firm is `SHARED`**, one more case, and it is the reason §16 exists:
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.37 | Add a definition in your new `SHARED` firm, then open Dynamic Attributes as `medi01.admin@agency.local` | **It is there.** `attribute_definitions` carries no `firm_id`, so every firm in `firm_shared` edits one set. A firm in its own schema or database does not have this. |
+
 Delete the test firms afterwards, or leave them; a firm with no data costs
 nothing. A `SCHEMA` firm leaves its schema behind either way.
 
