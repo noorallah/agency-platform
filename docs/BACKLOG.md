@@ -1352,6 +1352,86 @@ with different meanings.
 **Raised 2026-09-06** by the owner asking why a firm administrator cannot set
 up their own firm. Not started.
 
+## 17. The duplicated catalogue — low priority, and mostly decided
+
+**Priority: low. Not mandatory.** Raised as a question about duplication on
+2026-09-07 and largely answered in the same conversation; recorded so nobody
+re-derives it.
+
+### The observation
+
+`business_profiles`, `business_features`, `business_modules`,
+`profile_features` and `profile_modules` are pure reference data that no firm
+edits, and every firm store carries its own complete copy -- 12 profiles, 21
+features and 75 mappings per store, identical everywhere. `firms` is the only
+platform table in the picture, which is why
+`firm_business_profiles.firm_id` carries no foreign key.
+
+The obvious tidy-up is to move the catalogue into `platform`, read it through
+`platform_reader()` the way `users` and `firms` are already read, and cache it.
+That would also let `firm_business_profiles` become a plain platform table with
+two real foreign keys, which removes the unenforced cross-store reference
+entirely and turns "which profile does each firm use" from a loop over stores
+into one query.
+
+### Why it is not being done
+
+**A firm store must keep working when the platform database does not.** That
+is the point of `DATABASE` mode -- a firm on its own server, possibly a
+different server, serving its own requests. Moving the catalogue would put the
+platform database on the request path for rendering a product form, so a firm
+that is fully self-sufficient today would stop being so. The owner confirmed
+on 2026-09-07 that this isolation is wanted, which settles it: the duplication
+is buying something real, and the cost of keeping it is drift and a migration
+that has to reach every store, both of which are already handled by
+`scripts/migrate_all_stores.py`.
+
+**And the attributes are not catalogue at all.** `attribute_definitions` and
+`category_attribute_rules` are the firm's own -- the fields *this* firm records
+against *its* products -- so they belong in the firm's store whatever happens
+to the profiles above. §16 is where that goes, and it wants a `firm_id` on
+both, which is the opposite direction from consolidating.
+
+### The part that is a real defect
+
+One piece survives the decision, and it is small and worth doing on its own.
+
+**A profile created at runtime exists in exactly one store.** The twelve
+seeded profiles agree across every store only because the migrations insert
+**hardcoded UUIDs** (`10000000-0000-0000-0000-00000000000x`) -- verified
+2026-09-07, every store holding the same twelve codes with the same ids.
+Nothing maintains that invariant for a profile created through
+`POST /business-framework/profiles`, which runs on `get_db` and so lands in
+whichever firm store the caller happened to be in, with a random id.
+
+The consequence is reachable from the desktop. The Profile Assignment
+dropdown reads `/business-framework/profiles` from the **caller's** current
+firm store, while `assign_profile_to_firm` validates with `get_profile()` on
+the **target** firm's store. So a platform administrator working inside
+WHOLE01 who writes a "Bakery" profile is offered it, and assigning it to
+FOOD01 is refused as not found -- a profile visible in the list and
+unusable, with a message that describes neither cause nor cure.
+
+Read from the code rather than driven, deliberately: reproducing it writes a
+profile row into a real store.
+
+Three ways out, cheapest first, none of them started:
+
+1. **Write a new profile to every store**, the way a migration does. Keeps the
+   invariant the design already relies on, and makes the reliance explicit
+   rather than accidental.
+2. **Refuse to create one outside the platform context**, and say so -- honest,
+   and it closes the hole without new machinery, at the cost of a firm never
+   getting its own profile.
+3. **Move only `business_profiles` to `platform`** and have
+   `attribute_definitions` reference the profile **code** rather than its id --
+   a stable string travels across stores where an id does not. This is the
+   narrow version of the refactor rejected above and reintroduces the same
+   dependency, so it is listed last.
+
+Until one is chosen, a profile created at runtime is safe to use only within
+the store it was created in, and the seeded twelve are safe everywhere.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
