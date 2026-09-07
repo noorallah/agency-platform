@@ -56,9 +56,13 @@ class _CreateApi extends ApiClient {
   @override
   Future<Json> userAssignmentValues(String userId) async => {
         'role_ids': '',
-        'firm_ids': 'firm-1',
+        'firm_ids': 'firm-1,firm-2',
         'primary_firm_id': 'firm-1',
       };
+
+  @override
+  Future<Map<String, dynamic>> userFirmAssignmentValues(String userId) async =>
+      {'firm_ids': 'firm-1,firm-2', 'primary_firm_id': 'firm-1'};
 
   @override
   Future<List<String>> userGlobalRoles(String userId) async =>
@@ -66,14 +70,30 @@ class _CreateApi extends ApiClient {
 
   List<String> globalRoleIds = const ['role-admin'];
 
+  /// What each firm holds, for the platform-side summary.
+  Map<String, List<String>> firmRoleIds = const {
+    'firm-1': ['role-sm'],
+    'firm-2': ['role-cashier'],
+  };
+
+  @override
+  Future<List<String>> userFirmRoles(String userId, String firmId) async =>
+      firmRoleIds[firmId] ?? const <String>[];
+
   @override
   Future<List<AssignmentOption>> options(String resource) async =>
-      resource == 'roles'
-          ? const [
-              AssignmentOption(id: 'role-admin', label: 'FIRM_ADMIN'),
-              AssignmentOption(id: 'role-sm', label: 'SALES_MANAGER'),
-            ]
-          : const <AssignmentOption>[];
+      switch (resource) {
+        'roles' => const [
+            AssignmentOption(id: 'role-admin', label: 'FIRM_ADMIN'),
+            AssignmentOption(id: 'role-sm', label: 'SALES_MANAGER'),
+            AssignmentOption(id: 'role-cashier', label: 'CASHIER'),
+          ],
+        'firms' => const [
+            AssignmentOption(id: 'firm-1', label: 'WHOLE01'),
+            AssignmentOption(id: 'firm-2', label: 'ELEC01'),
+          ],
+        _ => const <AssignmentOption>[],
+      };
 
   @override
   Future<void> setUserFirms(
@@ -152,19 +172,46 @@ void main() {
       expect(values['global_roles_note'], 'None');
     });
 
-    test('a platform administrator is not offered it', () async {
-      // The Roles field above already *is* their global set, and each firm's
-      // own roles are on Roles by firm.
+    test('a platform administrator sees the firm grants instead', () async {
+      // The mirror. Their Roles field is the global set, so without this the
+      // page says nothing about what the person does in each firm.
       final _CreateApi api = _CreateApi();
-      expect(
-        _field(_definition(api, platformAdmin: true), 'global_roles_note'),
-        isNull,
-      );
+      final ResourceDefinition<PlatformUser> definition =
+          _definition(api, platformAdmin: true);
+
+      expect(_field(definition, 'global_roles_note'), isNull,
+          reason: 'the Roles field above already is their global set');
+      final FieldSpec? note = _field(definition, 'firm_roles_note');
+      expect(note, isNotNull);
+      expect(note!.alwaysReadOnly, isTrue);
+
+      final Map<String, dynamic> values =
+          await definition.loadAssignments!('user-1');
+      // Each firm named beside what it holds -- a grant is per firm, so a
+      // flat list of roles would say nothing about where they apply.
+      expect(values['firm_roles_note'],
+          'WHOLE01: SALES_MANAGER  ·  ELEC01: CASHIER');
+    });
+
+    test('a firm with no roles is left out of the summary', () async {
+      final _CreateApi api = _CreateApi()
+        ..firmRoleIds = const {'firm-1': ['role-sm']};
+
       final Map<String, dynamic> values =
           await _definition(api, platformAdmin: true)
               .loadAssignments!('user-1');
-      expect(values.containsKey('global_roles_note'), isFalse,
-          reason: 'and they do not pay for the extra read');
+
+      expect(values['firm_roles_note'], 'WHOLE01: SALES_MANAGER');
+    });
+
+    test('no firm grants at all reads None', () async {
+      final _CreateApi api = _CreateApi()..firmRoleIds = const {};
+
+      final Map<String, dynamic> values =
+          await _definition(api, platformAdmin: true)
+              .loadAssignments!('user-1');
+
+      expect(values['firm_roles_note'], 'None');
     });
   });
 

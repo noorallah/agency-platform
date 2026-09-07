@@ -442,6 +442,14 @@ through `_replace_associations`, which keys on `role_id` alone and ignores
 survivors unscoped. Two firms' separate grants collapsed into one global
 grant, silently, from a no-op.
 
+**Each caller is shown the tier they cannot write**, read-only, on the user
+form: a firm administrator sees *Also applies here* (the global grants, which
+apply in their firm), and a platform administrator sees *Roles in specific
+firms* (what each firm holds, named beside its firm). Hiding either was the
+same under-report pointing in opposite directions -- a firm administrator
+could not tell that somebody was a firm administrator in their own firm, and a
+platform administrator could not tell what anybody did in any firm.
+
 **Each read answers for the tier its caller manages**, for the same reason.
 `list_user_role_ids` returns the global set to a platform caller and one
 firm's to a firm caller; it used to return every row from every firm merged
