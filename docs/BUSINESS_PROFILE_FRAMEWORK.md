@@ -377,6 +377,80 @@ Current assignments — all four firms now carry a real profile:
 | WHOLE01 | `wholesale_hub` | WHOLESALE | batch, multiple warehouses, territory |
 | ELEC01 | `electrolink_ops` | ELECTRONICS | serial numbers, warranty |
 
+## How a firm resolves its attributes
+
+The section above resolves *features and modules*. Custom fields resolve
+separately, through `AttributeService`, and the rules are not the same — a
+feature is a switch the profile owns, while an attribute is a row that
+*names* a profile.
+
+```
+X-Firm-ID header
+   └─> firm_business_profiles → the firm's profile
+         └─> if none assigned: business_profiles WHERE is_default → GENERIC
+               └─> attribute_definitions WHERE
+                     entity_type   = the record being edited (PRODUCT, CUSTOMER, …)
+                     is_active     = true
+                     applicable_business_profile_id IN (NULL, that profile)
+                     applicable_category            IN (NULL, the category)
+```
+
+`AttributeService.definitions_for` is the implementation and
+`_profile_id` the fallback, which is the same "default profile, then nothing"
+ladder the capability resolver uses.
+
+**NULL means every profile, not none.** That is the whole grammar of the
+table: a field every firm needs carries NULL, and a pharmacy-only field
+carries the PHARMACY id. The same reading applies to `applicable_category`.
+Get it backwards and a field written for one industry appears in all of them,
+which is how `20260801_0011` came to ask a pharmacy for an IMEI.
+
+### Two independent ways a field becomes mandatory
+
+`AttributeService.mandatory_ids` unions them, and they behave differently
+enough that choosing the wrong one is a bug rather than a preference.
+
+| | `attribute_definitions.mandatory` | `category_attribute_rules.is_mandatory` |
+| --- | --- | --- |
+| Scope | **every** category the definition applies to | one `category_code` |
+| Profile scope | inherited from the definition | its own `business_profile_id`, NULL for all |
+| Screen | Dynamic Attributes | Mandatory Attributes |
+| Use when | the field is required wherever it appears | the field is required only for some goods |
+
+Two properties worth knowing before using either. A category rule can only
+make mandatory something **already in the applicable set** — `mandatory_ids`
+intersects the rules against `definitions_for`, so a rule naming a field this
+firm's profile does not get is inert rather than an error. And the blunt flag
+is the one with a history: `20260801_0011` set it on EXPIRY_DATE,
+BATCH_NUMBER, MANUFACTURER and IMEI with **no** profile or category scope, so
+`AttributeService` refused every product write on a freshly migrated database
+until `20260815_0087` cleared it. Where a field really is required, say so in
+`category_attribute_rules`, scoped.
+
+### What changing a firm's profile does to existing data
+
+Nothing to the rows, and everything to what is read. Values live in
+`product_attribute_values` and its siblings keyed by
+`attribute_definition_id`, with no profile on them — so a definition that
+stops applying takes its values out of every read while they sit in the table.
+The reverse also holds: assigning a profile can make fields appear on records
+created before it, blank.
+
+Neither direction is warned about today. `docs/BACKLOG.md` §16 is the proposal
+to gate it, and records the three other unguarded edits in the same area — a
+changed `data_type` strands values in the wrong typed column, a deleted
+definition is a bare soft delete with no check for values, and the mandatory
+flag blocks the next save of every record missing one.
+
+### A shared store shares the definitions
+
+`attribute_definitions` and `category_attribute_rules` carry **no `firm_id`**,
+and neither is in `_PLATFORM_TABLES` — so the rows live once per *store* while
+being identified per *profile*. Two firms in `firm_shared` therefore edit one
+set: measured on 2026-09-06, FOOD01 and MEDI01 did not merely show the same
+counts, they shared the rows. A firm in its own schema or database has its own
+copy. `SHARED` is the mode every new firm gets by default.
+
 ## What the profile actually changes today
 
 Be precise here — the framework is wired into more places than it *drives*.
