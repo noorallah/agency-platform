@@ -492,16 +492,18 @@ first.
 | 20a.6d | Give someone roles in one firm and none in another, then re-open | Only the firm holding roles is listed. A firm with none is left out rather than shown empty, so the line stays readable as firms are added. |
 | 20a.7 | Sign in as `whole01.admin` → Users → that person → **Roles by firm** | One section, WHOLE01. `VIEWER` is shown greyed under **Applies in every firm** and cannot be cleared. |
 | 20a.8 | Remove `SALES_MANAGER` in WHOLE01 and save | Removed in WHOLE01. `VIEWER` survives — a firm administrator may not undo a platform grant. |
-| 20a.8b | As `master.ops`, Users → **New**. Look at **Apply roles to** | Present, under Security, with "Leave blank to grant in every firm this person belongs to." A firm administrator does not see it — their grant is already their firm. |
-| 20a.8c | Create a user: two firms, a role, **Apply roles to** = one of them | The role lands in that firm only. Check with **Roles by firm**: one section holds it, the other is empty. |
-| 20a.8c2 | Create another: three firms, **Apply roles to** = two of them | The role lands in those two. Each is written separately, so the third is empty and either of the two can be changed later without touching the other. |
-| 20a.8d | Create another: same, but leave **Apply roles to** blank | Granted in every firm — the global tier, which is what a platform caller has always meant. Now the form says so rather than doing it silently. |
-| 20a.8e | Create a third naming a **job template** and a firm | The job lands in that firm alone. Before this the template picker granted it in every firm the person belonged to, with nothing on screen saying so. |
-| 20a.8f | As `master.ops` **with a firm selected**, edit a user | Two columns under Security: **Roles in every firm** and **Roles in the firm you are working in**. The second is pre-filled with what that firm holds. |
-| 20a.8g | Add a role to the second column and save, then check **Roles by firm** | It landed in the selected firm **only** — the other firms are untouched, and the global column is unchanged. This is the case that failed before: with MEDI01 selected, roles added on this form all went global. |
-| 20a.8h | Switch to **Platform** (no firm) and edit the same user | The second column is gone — there is no firm for it to name. |
-| 20a.8i | Press **Edit roles by firm** in the dialog footer | The per-firm editor opens without closing the form. Offered to anyone holding `ROLE_ASSIGN` and `ROLE_VIEW`. |
+| 20a.8b | As `master.ops`, Users → **New** | Under Security: **Job template**, **Roles in every firm**, and nothing that names a firm. **Apply roles to** is gone — the form writes the global tier only, and Roles by firm is the only place a firm-tier role is written. |
+| 20a.8c | Create a user: two firms, a role | Granted globally. Check with **Roles by firm**: both firm sections are empty; the role sits under **Applies in every firm**. |
+| 20a.8d | Give one firm a role from **Roles by firm**, then re-open the form and Save it unchanged | The firm keeps its role and the global set is unchanged — one writer per tier, so neither save can touch the other's rows. |
+| 20a.8e | Create another naming a **job template** | The job's roles land globally, the same tier the Roles field would have written. |
+| 20a.8f | As `master.ops` **with a firm selected**, edit a user | **One** roles field under Security, **Roles in every firm**, plus the read-only **Roles in specific firms** listing every firm the person holds roles in — the selected one included. No second column. The helper says a role in one firm only is set under Roles by firm. |
+| 20a.8g | Add a role there and save, then check **Roles by firm** | It is under **Applies in every firm**; no firm section changed. The switcher has no say in where a role lands. |
+| 20a.8h | Sign in as `whole01.admin` → Users → edit somebody in WHOLE01 | The roles field is labelled **Roles in this firm** and **Also applies here** shows the global grants read-only. Nothing names a firm. |
+| 20a.8i | Press **Roles by firm** in the dialog footer (edit **or** view) | The per-firm editor opens without closing the form. Offered to anyone holding `ROLE_ASSIGN` and `ROLE_VIEW`. |
+| 20a.8j | As `whole01.admin`, select a person who is in WHOLE01 **and** ELEC01 → **Roles by firm** | **One section, WHOLE01**, with chips that respond and a Save that lands. This was the broken case: the dialog read the platform-only firm list, answered 403, and showed a firm administrator an error and no firm at all. ELEC01 is not listed — its Save would be refused by name. |
+| 20a.8k | As `whole01.admin`, open Roles by firm on somebody who is in ELEC01 only | "This person belongs to no firm you administer." — not "belongs to no firm yet", which would be false. |
 | 20a.9 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused: "You can only set roles in firms you administer." |
+| 20a.9b **(HTTP)** | As `whole01.admin`, `GET /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused the same way: "You can only read roles in firms you administer." The read used to answer for any firm. `.../firms/{WHOLE01 id}/roles` still answers 200. |
 | 20a.10 **(HTTP)** | As `master.ops`, `PUT /api/v1/users/{id}/firms/{firm}/roles` for a firm the user is **not** a member of | Refused: "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token. |
 
 ---

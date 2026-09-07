@@ -44,6 +44,19 @@ class PermissionService extends ChangeNotifier {
   Set<String> permissionsForFirm(String firmId) =>
       Set.unmodifiable(_byFirm[firmId] ?? const <String>{});
 
+  /// The firms in which the user holds [permission] through a membership.
+  ///
+  /// Reach, not membership: somebody who administers one firm and sells in
+  /// another belongs to both and may staff only the first. This is the
+  /// client-side spelling of the server's `_firms_the_caller_may_staff`, so a
+  /// screen can offer exactly the firms a write will be accepted for. The
+  /// global claim is deliberately not consulted -- a platform administrator
+  /// reaches every firm and should be asked [isPlatformAdmin] instead.
+  Set<String> firmsHolding(String permission) => {
+        for (final MapEntry<String, Set<String>> entry in _byFirm.entries)
+          if (entry.value.contains(permission)) entry.key,
+      };
+
   void applyAccessToken(String? token, {String? activeFirmId}) {
     final Map<String, dynamic>? claims = _decodePayload(token);
     _global = _stringClaims(claims?['permissions']).toSet();

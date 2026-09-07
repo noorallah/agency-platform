@@ -464,14 +464,27 @@ No second account, and no clearing required first:
 
 1. A **platform administrator** grants anything that should apply everywhere
    on the user form (**Roles in every firm**), or leaves it empty.
-2. Either administrator sets each firm's own roles under **Roles by firm** on
-   the Users grid -- one section per firm, saved one firm at a time.
+2. Either administrator sets each firm's own roles under **Roles by firm** --
+   on the Users grid, or from the footer of the user form -- one section per
+   firm, saved one firm at a time.
 
-At create, **Apply roles to** does both in one step: left empty it writes the
-global tier, and naming one or more firms writes the roles into each of them
-separately. Separately rather than as a set, because a grant is per firm in
-the table -- which is also what lets one firm change its own afterwards
-without touching the others.
+**The form is one tier and Roles by firm is the other, for both callers.** A
+platform administrator's form writes the global set and nothing else, and
+selecting a firm in the switcher does not change that; a firm administrator's
+form is their own firm's set (**Roles in this firm**), scoped by the server.
+Nothing on the form names a firm. It briefly carried two more writers -- a
+tier picker at create and a second column keyed off the firm switcher -- and
+they were removed on 2026-09-08: two places that write the same row are two
+places that can disagree, and a write keyed off the switcher is exactly what
+put roles in a tier nobody chose.
+
+Roles by firm lists, for a firm administrator, the firms the person belongs to
+**and** the caller may staff (`USER_CREATE` held in that firm), which is the
+set the server accepts a write for. It reads the firm names from
+`/api/v1/me/firms`; until 2026-09-08 it read the platform-only `/api/v1/firms`
+and answered a firm administrator with an error and no firm at all. The
+per-firm read, `GET /users/{id}/firms/{firm_id}/roles`, is held to the same
+reach as the write since the same day.
 
 The person is a sales manager in one firm and a cashier in another, plus
 whatever the global tier gave them in both.

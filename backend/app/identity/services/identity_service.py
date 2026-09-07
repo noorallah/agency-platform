@@ -2248,10 +2248,22 @@ class IdentityService:
         )
 
     def list_user_firm_role_ids(
-        self, user_id: UUID, firm_id: UUID, firm_scope: UUID | None = None
+        self,
+        user_id: UUID,
+        firm_id: UUID,
+        firm_scope: UUID | None = None,
+        allowed_firm_ids: frozenset[UUID] | None = None,
     ) -> list[UUID]:
-        """Return the roles one user holds in one firm."""
+        """Return the roles one user holds in one firm.
+
+        `allowed_firm_ids` is the caller's reach, the same set
+        `set_user_firm_roles` is held to; None means every firm. The user is
+        resolved first so somebody outside the caller's scope still answers
+        404 rather than confirming they exist with a 403.
+        """
         self._get_user(user_id, firm_scope)
+        if allowed_firm_ids is not None and firm_id not in allowed_firm_ids:
+            raise BusinessRuleError("You can only read roles in firms you administer.")
         return list(
             self._session.scalars(
                 select(UserRole.role_id).where(
