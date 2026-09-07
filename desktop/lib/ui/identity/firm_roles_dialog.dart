@@ -21,11 +21,28 @@ class FirmRolesDialog extends StatefulWidget {
     required this.api,
     required this.userId,
     required this.userLabel,
+    required this.firmsResource,
+    this.staffableFirmIds,
   });
 
   final ApiClient api;
   final String userId;
   final String userLabel;
+
+  /// Where the firm names come from: `firms` for a platform administrator,
+  /// `me/firms` for anybody else. `/api/v1/firms` is platform-only and
+  /// answers 403 to a firm administrator, which left this dialog -- the one
+  /// screen the user form sends them to -- showing an error and no firm at
+  /// all.
+  final String firmsResource;
+
+  /// The firms this caller may write roles in, or null for every firm.
+  ///
+  /// A firm administrator sees a section per firm the person belongs to
+  /// **and** they may staff. The server refuses the rest by name, and a
+  /// section whose Save can only be refused is a broken control, not a
+  /// choice.
+  final Set<String>? staffableFirmIds;
 
   @override
   State<FirmRolesDialog> createState() => _FirmRolesDialogState();
@@ -60,7 +77,7 @@ class _FirmRolesDialogState extends State<FirmRolesDialog> {
   Future<void> _load() async {
     try {
       final List<AssignmentOption> allFirms =
-          await widget.api.options('firms');
+          await widget.api.options(widget.firmsResource);
       final Map<String, dynamic> membership =
           await widget.api.userFirmAssignmentValues(widget.userId);
       final Set<String> memberOf = (membership['firm_ids'] as String? ?? '')
@@ -71,8 +88,12 @@ class _FirmRolesDialogState extends State<FirmRolesDialog> {
       final List<String> global =
           await widget.api.userGlobalRoles(widget.userId);
 
-      final List<AssignmentOption> firms =
-          allFirms.where((firm) => memberOf.contains(firm.id)).toList();
+      final Set<String>? staffable = widget.staffableFirmIds;
+      final List<AssignmentOption> firms = allFirms
+          .where((firm) =>
+              memberOf.contains(firm.id) &&
+              (staffable == null || staffable.contains(firm.id)))
+          .toList();
       for (final AssignmentOption firm in firms) {
         final List<String> held =
             await widget.api.userFirmRoles(widget.userId, firm.id);
@@ -185,18 +206,28 @@ class _FirmRolesDialogState extends State<FirmRolesDialog> {
       );
     }
     if (_firms.isEmpty) {
+      // Two different answers. "No firm yet" is about the person; "no firm
+      // you administer" is about the caller's reach, and telling a firm
+      // administrator the person belongs nowhere when they belong somewhere
+      // else would be false.
+      final bool scoped = widget.staffableFirmIds != null;
       return Padding(
         padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'This person belongs to no firm yet.',
+              scoped
+                  ? 'This person belongs to no firm you administer.'
+                  : 'This person belongs to no firm yet.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 6),
             Text(
-              'A role is held in a firm, so add them to one first.',
+              scoped
+                  ? 'Add them to your firm first, and their roles there '
+                      'can be set here.'
+                  : 'A role is held in a firm, so add them to one first.',
               style: theme.textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -336,6 +367,8 @@ Future<void> showFirmRolesDialog(
   required ApiClient api,
   required String userId,
   required String userLabel,
+  required String firmsResource,
+  Set<String>? staffableFirmIds,
 }) =>
     showDialog<void>(
       context: context,
@@ -343,5 +376,7 @@ Future<void> showFirmRolesDialog(
         api: api,
         userId: userId,
         userLabel: userLabel,
+        firmsResource: firmsResource,
+        staffableFirmIds: staffableFirmIds,
       ),
     );

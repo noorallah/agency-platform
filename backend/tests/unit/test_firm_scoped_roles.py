@@ -219,6 +219,41 @@ def test_a_firm_caller_cannot_reach_another_firm() -> None:
     assert _codes_in(session, person.id, two.id) == set()
 
 
+def test_a_firm_caller_cannot_read_another_firms_roles_either() -> None:
+    """The read is held to the same reach as the write.
+
+    It answered for any firm, so a firm administrator holding a shared user's
+    id could learn what that person does in every other firm -- the same
+    disclosure `GET /users/{id}/firms` was closed for. A platform caller, whose
+    reach is None, still reads everywhere.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, "person@example.com")
+    _member(session, person, one)
+    _member(session, person, two)
+    service.set_user_firm_roles(
+        person.id, two.id, [_role_id(session, "CASHIER")], ACTOR
+    )
+
+    with pytest.raises(BusinessRuleError) as refusal:
+        service.list_user_firm_role_ids(
+            person.id, two.id, one.id, allowed_firm_ids=frozenset({one.id})
+        )
+    assert "firms you administer" in str(refusal.value)
+
+    # Their own firm still answers, and a platform caller reads both.
+    assert (
+        service.list_user_firm_role_ids(
+            person.id, one.id, one.id, allowed_firm_ids=frozenset({one.id})
+        )
+        == []
+    )
+    assert service.list_user_firm_role_ids(person.id, two.id, None) == [
+        _role_id(session, "CASHIER")
+    ]
+
+
 def test_a_role_needs_a_membership_first() -> None:
     """A role in a firm somebody does not belong to is not reachable access.
 

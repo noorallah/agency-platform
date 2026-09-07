@@ -144,27 +144,32 @@ Set<String> _securityKeys(ResourceDefinition<PlatformUser> definition) => {
 
 void main() {
   group('the role fields each caller is given', () {
+    // One editable field per caller, plus the tier they cannot write, shown
+    // read-only. Nothing on the form names a firm: the tier picker at create
+    // and the second column keyed off the switcher are both gone, and Roles
+    // by firm is the only per-firm writer.
+    const Set<String> gone = {'firm_role_ids', 'role_firm_id'};
+
     testWidgets('a platform administrator in platform mode', (tester) async {
-      // No firm selected, so there is no second column to fill -- and this is
-      // where a platform administrator starts.
       final ResourceDefinition<PlatformUser> d = await _definition(
           tester, _Api(), _perms(platformAdmin: true));
 
       expect(_securityKeys(d), contains('role_ids'));
       expect(_securityKeys(d), contains('firm_roles_note'));
-      expect(_securityKeys(d), isNot(contains('firm_role_ids')));
+      expect(_securityKeys(d).intersection(gone), isEmpty);
       expect(_securityKeys(d), isNot(contains('global_roles_note')),
           reason: 'their Roles field already is the global tier');
     });
 
     testWidgets('a platform administrator working in a firm', (tester) async {
+      // The same form. Selecting a firm changes nothing about it -- that
+      // coupling is what wrote roles into a tier nobody chose.
       final ResourceDefinition<PlatformUser> d = await _definition(
           tester, _Api(), _perms(platformAdmin: true, activeFirmId: 'firm-1'));
 
       expect(_securityKeys(d), contains('role_ids'));
-      expect(_securityKeys(d), contains('firm_role_ids'),
-          reason: 'the firm they are in is editable here');
       expect(_securityKeys(d), contains('firm_roles_note'));
+      expect(_securityKeys(d).intersection(gone), isEmpty);
     });
 
     testWidgets('a firm administrator', (tester) async {
@@ -175,10 +180,7 @@ void main() {
           reason: 'which for them is their own firm');
       expect(_securityKeys(d), contains('global_roles_note'),
           reason: 'a global grant applies here and they must see it');
-      expect(_securityKeys(d), isNot(contains('firm_role_ids')),
-          reason: 'that would be their own firm twice');
-      expect(_securityKeys(d), isNot(contains('role_firm_id')),
-          reason: 'their grant is already scoped; the question has one answer');
+      expect(_securityKeys(d).intersection(gone), isEmpty);
     });
   });
 
@@ -196,7 +198,6 @@ void main() {
       await d.saveAssignments!('user-1', {
         ...values,
         'template_id': '',
-        'role_firm_id': '',
         ...extra,
       });
       return api.calls;
@@ -208,15 +209,15 @@ void main() {
           ['write:memberships', 'write:global']);
     });
 
-    testWidgets('with a firm selected it also writes that firm',
+    testWidgets('with a firm selected it writes exactly the same',
         (tester) async {
-      // The case that failed in the running app: roles added with a firm
-      // selected all landed globally, because there was nowhere else to put
-      // them.
+      // The per-firm write this form used to make here is gone. A platform
+      // administrator with MEDI01 selected who wants a role in MEDI01 goes
+      // to Roles by firm, where the firm is named beside the roles.
       expect(
         await save(tester,
             _perms(platformAdmin: true, activeFirmId: 'firm-1')),
-        ['write:memberships', 'write:global', 'write:firm-1'],
+        ['write:memberships', 'write:global'],
       );
     });
 
@@ -274,31 +275,33 @@ void main() {
   });
 
   group('what a form open costs', () {
-    testWidgets('the selected firm is read once, not twice', (tester) async {
-      // It is both the editable column and a candidate for the read-only
-      // summary. Reading it twice was harmless; *listing* it twice was not --
-      // the two could disagree the moment either was edited.
+    testWidgets('each firm is read once, whatever is selected', (tester) async {
+      // One read per firm the person belongs to, for the summary, and no
+      // second read of the selected firm -- there is no longer a column for
+      // it to fill.
       final _Api api = _Api();
       final ResourceDefinition<PlatformUser> d = await _definition(
           tester, api, _perms(platformAdmin: true, activeFirmId: 'firm-1'));
 
       await d.loadAssignments!('user-1');
 
-      expect(api.calls.where((c) => c == 'read:firm-1'), hasLength(1));
-      // The other firm still appears in the summary.
-      expect(api.calls, contains('read:firm-2'));
+      expect(api.calls.where((c) => c.startsWith('read:')),
+          ['read:firm-1', 'read:firm-2']);
     });
 
-    testWidgets('the summary leaves out the firm being edited',
+    testWidgets('the summary names every firm, the selected one included',
         (tester) async {
+      // Leaving it out made the summary depend on the switcher. Nothing else
+      // on the form shows that firm now, so the summary is the one place.
       final _Api api = _Api();
       final ResourceDefinition<PlatformUser> d = await _definition(
           tester, api, _perms(platformAdmin: true, activeFirmId: 'firm-1'));
 
       final Map<String, dynamic> values = await d.loadAssignments!('user-1');
 
-      expect(values['firm_roles_note'], 'ELEC01: CASHIER');
-      expect(values['firm_role_ids'], 'role-sm');
+      expect(values['firm_roles_note'],
+          'WHOLE01: SALES_MANAGER  ·  ELEC01: CASHIER');
+      expect(values.containsKey('firm_role_ids'), isFalse);
     });
   });
 }

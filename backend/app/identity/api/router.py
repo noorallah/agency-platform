@@ -552,11 +552,20 @@ def list_user_firm_roles(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
-    """List the roles one user holds in one firm."""
+    """List the roles one user holds in one firm.
+
+    Held to the same reach as the write twin: a firm administrator reads the
+    firms they may staff, not every firm a shared user belongs to. It used to
+    answer for any firm, which disclosed what a person does elsewhere to
+    anybody holding `ROLE_VIEW` and a user id.
+    """
     return ApiResponse(
         data=IdentifierList(
             ids=_service(db, settings).list_user_firm_role_ids(
-                user_id, firm_id, _firm_scope(principal)
+                user_id,
+                firm_id,
+                _firm_scope(principal),
+                allowed_firm_ids=_firms_the_caller_may_staff(principal),
             )
         )
     )
