@@ -297,6 +297,69 @@ Two combinations of those groups are load-bearing:
   `GET /api/v1/firm-members` is the one list of a firm's people, gated on
   membership and nothing else. *Acting* on a person is what needs a code.
 
+## Adding a new permission
+
+`POST /api/v1/permissions` exists, so a code can be created at runtime — and
+doing only that gates **nothing**. No part of the application looks a
+permission up by name at request time; every gate is written into a route:
+
+```python
+# app/customers/api/router.py
+CustomerViewScope = Annotated[ResolvedFirmScope,
+                              firm_permission_scope("CUSTOMER_VIEW")]
+```
+
+So a code created through the API, attached to a role and granted to a user is
+a row nobody consults. A genuinely new capability is a code change, in five
+steps, and skipping any one of them fails quietly rather than loudly.
+
+1. **Seed the code in `PERMISSION_GROUPS`** (`app/identity/system_seed.py`).
+   This is the step that bites: an unseeded code has no permission row, so it
+   can be attached to no role, and the endpoint enforcing it becomes
+   **platform-admin-only** — their check short-circuits the lookup, so it
+   works for whoever wrote it and for nobody else. Twelve codes were in that
+   state until 2026-08-09.
+   `tests/unit/test_identity_hardening.py::test_every_enforced_permission_code_is_seeded`
+   fails the build if it recurs.
+
+2. **Write a migration inserting it.** `seed_system_rbac` is called by
+   `generate_sample_data.py` and never at startup, so a live database gets
+   seeded rows from migrations only — see `20260809_0044`.
+
+3. **Enforce it.** `firm_permission_scope("CODE")` on a firm-owned route,
+   composed the way `app/customers/api/router.py` does it;
+   `require_permission("CODE")` on a platform one. Never
+   `require_platform_admin()` beside a permission code — the designation makes
+   every code on that route grant nothing, which is how `GET /api/v1/roles`
+   came to refuse the one role whose job it is.
+
+4. **Grant it to the roles that should hold it** in `ROLE_PERMISSION_CODES`,
+   and to `_operational_permissions` if `FIRM_ADMIN` and `FIRM_MANAGER` should
+   have it. That second list is hand-kept and **five groups drifted out of
+   it** — `credit_note`, `proforma`, `einvoice`, `loyalty` and `tcs` each
+   shipped with a module, a screen and a seeded gate that the role running the
+   firm could not open.
+   `tests/unit/test_firm_admin_holds_the_firms_own_modules.py` asks the
+   derived question rather than naming the five.
+
+5. **Gate the screen.** `requiredPermissions` on the module or tab in
+   `desktop/lib/ui/workspace/module_catalog.dart`, or the endpoint exists and
+   nothing reaches it. A tab naming no codes **inherits its module's list**,
+   which is how a cashier came to hold exactly the right codes and be offered
+   an empty sidebar.
+
+**Before adding a code to any role, check its blast radius**: a permission's
+reach is the set of endpoints enforcing it, not the group it is filed under.
+`grep -rn CODE app/ --include=*.py` answers that in a second.
+
+### What needs no code at all
+
+Worth knowing before reaching for step 1, because most requests do not need
+it. A firm composes its **own** access from the 167 codes already assignable
+to it — a role it writes, permissions it picks, a template bundling those
+roles, and the roles granted per firm — with no deployment. Only a genuinely
+new *capability*, one no existing code describes, needs the five steps above.
+
 ---
 
 # Part 4 — How a role becomes a permission on a request
