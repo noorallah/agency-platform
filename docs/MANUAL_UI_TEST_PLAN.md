@@ -628,25 +628,81 @@ call as `whole01.admin` still returns one.
 
 ## 27. Creating a firm and setting it up
 
-Still as `platform-admin@agency.local`, on **Platform**. Firms was the first
-tab of Masters until 2026-09-06 — a firm's own master data, which needs a firm
-selected — so the one screen that creates a firm was reachable only from inside
-another firm.
+**Sign in as `master.ops@agency.local`.** Not `platform-admin@agency.local`,
+which this section used to name: that account is created at startup from
+`AGENCY_BOOTSTRAP_ADMIN_PASSWORD` and its password is changed on first use, so
+on a database anybody has signed into it no longer takes the value in
+`config/.env`. Both hold the same designation and `ALL_FIRMS` scope, so nothing
+about the cases changes -- only which account can reach them. On a *fresh*
+database the bootstrap account is the only one that exists, and `master.ops`
+comes from the demo seeder.
 
-| # | Step | Expect |
+Only a platform administrator can do any of 27.1--27.20. `require_platform_admin()`
+guards every `/api/v1/firms` route and never reads a permission, so `FIRM_CREATE`
+gates the desktop's **New** button and nothing else.
+
+### 27a. Creating the record
+
+| # | Case | Expect |
 | --- | --- | --- |
-| 27.1 | Administration → **Firms** | The list of all firms. This tab did not exist here before. |
-| 27.2 | Masters → look for Firms | It is not there. Nothing else in Masters moved. |
-| 27.3 | New → code `TEST01`, a name, leave the rest | Saves. The message names the next step: open the firm, then Masters → Firm Settings for its business profile. |
-| 27.4 | Select the new row | **Open this firm** is enabled (a shared-database firm is ready at once). **Provision storage** is hidden, since there is nothing to provision. |
-| 27.5 | Press **Open this firm** | "Working in …". The header firm control shows it and the sidebar grows the whole application. |
-| 27.6 | Open the firm switcher | `TEST01` is listed. **This is the half that was broken**: the switcher is read once at sign-in, so without the refresh the firm you had just created was not in it and could not be chosen until you signed out. |
-| 27.7 | Masters → Firm Settings | Set its business profile. Until you do it trades as GENERIC. |
-| 27.8 | Switch back to **Platform**, create a firm with deployment mode `SCHEMA` | **Open this firm** is **disabled** — its schema has no tables yet. **Provision storage** is enabled. |
-| 27.9 | Provision it, refresh the grid, select it again | **Open this firm** is now enabled. |
-| 27.10 | Sign in as `whole01.admin@agency.local` | Administration shows **no** Firms tab — `FIRM_VIEW` is a platform code no firm role can hold. |
+| 27.1 | Administration → **Firms**, on **Platform** | The list of all firms. This is the one Administration tab that needs no firm selected. |
+| 27.2 | Masters → look for Firms | Not there. It moved on 2026-09-06; a firm's own master data needs a firm, so creating a firm was reachable only from inside another one. |
+| 27.3 | **New** → save with only a name | Refused. `name`, `code`, `country` (2 letters), `currency_code` (3 letters) and `financial_year_start` are the five required fields; everything else is optional. |
+| 27.4 | Enter code `sntest02` in lower case | Stored as `SNTEST02`. Code, country and currency are upper-cased on the way in. |
+| 27.5 **(HTTP)** | `POST /api/v1/firms` with code `WHOLE01` | **409**, "Firm code, GST number, or PAN number already exists." The three are unique among *live* firms only, so a soft-deleted firm releases its code. |
+| 27.6 **(HTTP)** | Same with code `BAD CODE` | **422**. The pattern is `^[A-Z0-9_-]+$` -- no spaces, no dots. |
+| 27.7 **(HTTP)** | Same with `country: "IND"` | **422**. Two letters, ISO-style. |
+| 27.8 | Create with deployment mode `SHARED` | Saves. The follow-up message names the next step. |
+| 27.9 **(HTTP)** | Create with mode `DATABASE` and `connection_profile: "NOPE"` | **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation rather than at first use -- otherwise the firm provisions nothing and fails far from the request that caused it. |
 
-Delete `TEST01` afterwards, or leave it; a firm with no data costs nothing.
+### 27b. What creation does and does not do
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.10 | Select the new `SHARED` row | **Open this firm** enabled -- a shared firm is ready at once. **Provision storage** hidden; there is nothing to provision. |
+| 27.11 | Create a second firm with mode `SCHEMA` | **Open this firm** **disabled** -- its schema has no tables, so switching in would answer errors on every screen. **Provision storage** enabled. |
+| 27.12 | Press **Provision storage**, refresh, select it again | **Open this firm** now enabled. The response carries `provisioned_at`. |
+| 27.13 | Press **Provision storage** again | Succeeds, reporting it was already provisioned. Every step is create-if-missing, so this is also the repair action after a target server was unreachable. |
+| 27.14 **(HTTP)** | `PUT /api/v1/firms/{id}` changing `deployment_mode` | **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/…). Migrate the firm's data first." Nothing moves a firm's rows between stores, so the routing is fixed at creation. Verified 2026-09-06. |
+
+### 27c. Reaching the new firm
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.15 | Press **Open this firm** | "Working in …". The header shows it and the sidebar grows the whole application. |
+| 27.16 | Open the firm switcher | The new firm is listed. **This is the half that was broken**: the switcher is read once at sign-in, so without the refresh a firm created minutes earlier was not in it and `switchFirm` refused it as "not assigned to this user". |
+| 27.17 | Go back to **Platform** and look at Administration | There is **no Configuration heading**. Every one of its eighteen descendants lives in a firm's store, so with no firm it had nothing under it -- and until 2026-09-06 it was offered anyway and opened nothing. |
+
+### 27d. Setting the business profile
+
+**Not** *Masters → Firm Settings*, which this section said until 2026-09-06 and
+which does not exist. It is **Administration → Configuration → Business
+Profiles → Profile Assignment**, and it needs a firm selected.
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.18 | With any firm open: Administration → Configuration → Business Profiles → **Profile Assignment** | A grid of **every** firm, not just the one you are in. The screen names the firm in the URL rather than reading `X-Firm-ID`. |
+| 27.19 | Select the new firm, open it, choose a profile, save | Saved against that firm. The **Business profile** dropdown must be populated -- if it is empty or the dialog says "The database is temporarily unavailable", you are in platform mode with no firm selected, and the catalogue it reads lives in each firm's store. |
+| 27.20 | Re-open the row | The profile you chose is shown. Until it is set the firm trades as GENERIC, with the features and modules of no particular industry. |
+| 27.21 | Sign in as `whole01.admin@agency.local` → Administration | **No** Firms tab and **no** Business Profiles group. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold. |
+| 27.22 **(HTTP)** | As `whole01.admin`, `GET` and `POST /api/v1/firms` | **403** for both. Measured 2026-09-06. No permission code can grant this. |
+
+### 27e. The firm is not finished — check before reporting a bug
+
+A provisioned firm with a profile still cannot trade. It needs a chart of
+accounts, a financial year, open periods, journal and voucher types, and a
+mapped control account for each of the 24 posting purposes -- and **no screen
+or endpoint reaches the mapping**. See `docs/BACKLOG.md` §15.
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.23 | From `backend`, run `.\.venv\Scripts\python.exe scripts\check_firm_readiness.py SNTEST02` | Reports the mode, whether storage is provisioned, the profile, the counts of accounts, years and periods, how many control purposes are unmapped, and a verdict. For a new firm: **`CANNOT post -- books not open`**. |
+| 27.24 | In the new firm, create a customer and a product | Both save. Masters do not need the books. |
+| 27.25 | Raise a sales invoice in the new firm and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- do not report it as one. |
+| 27.26 | Run the same readiness check against `WHOLE01` | **`can post documents`** -- 24 accounts, 3 years, 36 periods, all 24 control purposes mapped. The contrast is the point: it shows what "finished" looks like. |
+
+Delete the test firms afterwards, or leave them; a firm with no data costs
+nothing. A `SCHEMA` firm leaves its schema behind either way.
 
 ## Appendix — driving the API by hand
 
