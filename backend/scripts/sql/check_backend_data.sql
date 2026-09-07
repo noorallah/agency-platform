@@ -326,3 +326,107 @@ LIMIT 25;
 -- Tables that grow without bound unless scripts/purge_retention.py runs.
 SELECT 'tax_rule_execution_logs' AS table_name, COUNT(*), MIN(created_at) AS oldest
 FROM tax_rule_execution_logs;
+
+-- ============================================================
+-- 10. Identity: who can do what, and where
+-- ============================================================
+-- Platform schema only -- `users`, `roles`, `user_roles`, `user_firms` and
+-- `platform_admins` exist nowhere else, which is why a firm-owned service
+-- reading them raises `UndefinedTable`.
+--
+-- A role grant carries a tier. `user_roles.firm_id` NULL is the **global**
+-- set, written by a platform administrator and applying in every firm the
+-- person belongs to; a firm id is that firm alone, written by either
+-- administrator. Effective access in a firm is the union of the two.
+
+-- Every live grant, with the tier spelled out. The one query to read first.
+SELECT u.email,
+       r.code AS role_code,
+       CASE WHEN ur.firm_id IS NULL THEN '(every firm)' ELSE f.code END AS granted_in
+FROM platform.user_roles ur
+JOIN platform.users u ON u.id = ur.user_id
+JOIN platform.roles r ON r.id = ur.role_id
+LEFT JOIN platform.firms f ON f.id = ur.firm_id
+WHERE NOT ur.is_deleted AND NOT u.is_deleted
+ORDER BY u.email, granted_in, r.code;
+
+-- The split, as a single line. A global grant reaches every firm somebody
+-- belongs to *and* every firm they are added to later, so a number climbing
+-- here is worth asking about.
+SELECT COUNT(*) FILTER (WHERE firm_id IS NULL)     AS global_grants,
+       COUNT(*) FILTER (WHERE firm_id IS NOT NULL) AS firm_grants
+FROM platform.user_roles
+WHERE NOT is_deleted;
+
+-- A role granted in a firm the person is not a member of. **Expect no rows.**
+-- The token is built per membership, so such a grant sits in the table and
+-- reaches nobody: it looks done and does nothing. The service refuses to
+-- create one now; rows here predate that.
+SELECT u.email, r.code AS role_code, f.code AS firm_code
+FROM platform.user_roles ur
+JOIN platform.users u ON u.id = ur.user_id
+JOIN platform.roles r ON r.id = ur.role_id
+JOIN platform.firms f ON f.id = ur.firm_id
+LEFT JOIN platform.user_firms uf
+       ON uf.user_id = ur.user_id AND uf.firm_id = ur.firm_id
+      AND uf.is_active AND NOT uf.is_deleted
+WHERE NOT ur.is_deleted AND ur.firm_id IS NOT NULL AND uf.id IS NULL;
+
+-- The platform designation and how far it reaches. `PLATFORM` runs the
+-- platform and is refused a firm's books; `ALL_FIRMS` is every firm. An
+-- `ALL_FIRMS` administrator needs no membership row -- `/me/firms` widens for
+-- them -- so zero memberships here is not a fault.
+SELECT u.email, pa.scope,
+       COUNT(uf.id) FILTER (WHERE uf.is_active AND NOT uf.is_deleted) AS memberships
+FROM platform.platform_admins pa
+JOIN platform.users u ON u.id = pa.user_id
+LEFT JOIN platform.user_firms uf ON uf.user_id = u.id
+WHERE NOT pa.is_deleted AND NOT u.is_deleted
+GROUP BY u.email, pa.scope
+ORDER BY u.email;
+
+-- The roles themselves. `roles.firm_id` says who *wrote* the role, which is a
+-- different question from where somebody *holds* it: NULL is a platform-wide
+-- definition, a firm id is a role that firm wrote for itself. The seeded
+-- sixteen are all `is_system` and all platform-wide.
+SELECT r.code,
+       r.is_system,
+       COALESCE(f.code, '(every firm)') AS owned_by,
+       COUNT(rp.id) FILTER (WHERE NOT rp.is_deleted) AS permissions
+FROM platform.roles r
+LEFT JOIN platform.firms f ON f.id = r.firm_id
+LEFT JOIN platform.role_permissions rp ON rp.role_id = r.id
+WHERE NOT r.is_deleted
+GROUP BY r.code, r.is_system, owned_by
+ORDER BY permissions DESC, r.code;
+
+-- Live accounts that can sign in and do nothing: no role anywhere and no
+-- designation. They reach an empty application, which reads as a broken
+-- install rather than an unfinished setup.
+SELECT u.email,
+       COUNT(uf.id) FILTER (WHERE uf.is_active AND NOT uf.is_deleted) AS firms
+FROM platform.users u
+LEFT JOIN platform.user_firms uf ON uf.user_id = u.id
+LEFT JOIN platform.user_roles ur ON ur.user_id = u.id AND NOT ur.is_deleted
+LEFT JOIN platform.platform_admins pa ON pa.user_id = u.id AND NOT pa.is_deleted
+WHERE NOT u.is_deleted AND u.is_active AND ur.id IS NULL AND pa.id IS NULL
+GROUP BY u.email
+ORDER BY u.email;
+
+-- An email is unique only among **live** accounts, so a soft delete releases
+-- it. **Expect no rows**: more than one live account on one address means a
+-- lookup that forgot `is_deleted` wrote one.
+SELECT LOWER(email) AS email, COUNT(*) AS live_accounts
+FROM platform.users
+WHERE NOT is_deleted
+GROUP BY LOWER(email)
+HAVING COUNT(*) > 1;
+
+-- One primary firm per person, held by a partial unique index. **Expect no
+-- rows.**
+SELECT u.email, COUNT(*) AS primary_rows
+FROM platform.user_firms uf
+JOIN platform.users u ON u.id = uf.user_id
+WHERE uf.is_primary AND uf.is_active AND NOT uf.is_deleted
+GROUP BY u.email
+HAVING COUNT(*) > 1;
