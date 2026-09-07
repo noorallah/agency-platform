@@ -396,6 +396,12 @@ No second account, and no clearing required first:
 2. Either administrator sets each firm's own roles under **Roles by firm** on
    the Users grid -- one section per firm, saved one firm at a time.
 
+At create, **Apply roles to** does both in one step: left empty it writes the
+global tier, and naming one or more firms writes the roles into each of them
+separately. Separately rather than as a set, because a grant is per firm in
+the table -- which is also what lets one firm change its own afterwards
+without touching the others.
+
 The person is a sales manager in one firm and a cashier in another, plus
 whatever the global tier gave them in both.
 
