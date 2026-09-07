@@ -497,6 +497,10 @@ first.
 | 20a.8c2 | Create another: three firms, **Apply roles to** = two of them | The role lands in those two. Each is written separately, so the third is empty and either of the two can be changed later without touching the other. |
 | 20a.8d | Create another: same, but leave **Apply roles to** blank | Granted in every firm — the global tier, which is what a platform caller has always meant. Now the form says so rather than doing it silently. |
 | 20a.8e | Create a third naming a **job template** and a firm | The job lands in that firm alone. Before this the template picker granted it in every firm the person belonged to, with nothing on screen saying so. |
+| 20a.8f | As `master.ops` **with a firm selected**, edit a user | Two columns under Security: **Roles in every firm** and **Roles in the firm you are working in**. The second is pre-filled with what that firm holds. |
+| 20a.8g | Add a role to the second column and save, then check **Roles by firm** | It landed in the selected firm **only** — the other firms are untouched, and the global column is unchanged. This is the case that failed before: with MEDI01 selected, roles added on this form all went global. |
+| 20a.8h | Switch to **Platform** (no firm) and edit the same user | The second column is gone — there is no firm for it to name. |
+| 20a.8i | Press **Edit roles by firm** in the dialog footer | The per-firm editor opens without closing the form. Offered to anyone holding `ROLE_ASSIGN` and `ROLE_VIEW`. |
 | 20a.9 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused: "You can only set roles in firms you administer." |
 | 20a.10 **(HTTP)** | As `master.ops`, `PUT /api/v1/users/{id}/firms/{firm}/roles` for a firm the user is **not** a member of | Refused: "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token. |
 
