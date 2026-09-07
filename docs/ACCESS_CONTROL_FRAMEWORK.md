@@ -347,51 +347,57 @@ every firm's, which would show a user buttons the API then refuses.
   cross-firm role is refused with *"Platform or cross-firm roles cannot be
   assigned."*
 
-### The scope is the caller's, and a platform administrator has none
+### Two tiers of grant, and neither undoes the other
 
-`_firm_scope` in `app/identity/api/router.py` is the whole rule:
+A role is granted in one of two ways, and which one decides who may change it.
 
-```python
-return None if principal.is_platform_admin else principal.firm_id
-```
+| | `user_roles.firm_id` | Written by | Applies |
+| --- | --- | --- | --- |
+| **Global** | NULL | a platform administrator only | every firm the person belongs to, including firms added later |
+| **Firm** | the firm | a platform administrator naming a firm, **or** that firm's administrator | that firm |
 
-So a platform administrator writes `user_roles.firm_id = NULL` **always** —
-selecting a firm in the switcher does not change it, because the designation
-short-circuits the scope before the header is read. **Only a firm
-administrator can produce a firm-scoped assignment**, since only they carry a
-non-null `principal.firm_id`.
+Effective access in a firm is the **union**: `_issue_tokens` collects, per
+membership, the permissions of every role where `UserRole.firm_id == <that
+firm>` **or** `UserRole.firm_id IS NULL`. The tiers are strictly additive --
+a firm administrator adds to what the platform granted and **cannot subtract
+from it**, by design. A global `SYSTEM_AUDITOR` is therefore not removable by
+the firm being audited.
 
-At read time `_issue_tokens` collects, for each firm the user belongs to, the
-permissions of every role where `UserRole.firm_id == <that firm>` **or**
-`UserRole.firm_id IS NULL`. So the two kinds stack, and **NULL means every
-firm the person is a member of, including firms they are added to later**.
+`PUT /api/v1/users/{id}/roles` writes the tier the caller owns:
+`_firm_scope` returns `None` for the designation, so a platform caller's save
+is the *global* set, and a firm caller's is their own firm's.
+`PUT /api/v1/users/{id}/firms/{firm_id}/roles` is how either administrator
+writes one named firm; a firm caller is held to
+`_firms_the_caller_may_staff`, and a firm outside it is refused by name.
 
-Measured on the demo data: 16 of 17 live assignments are firm-scoped — the
-seeder writes them that way, which is why `whole01.admin` is `FIRM_ADMIN` in
-WHOLE01 and nowhere else. The one unscoped row belongs to a user created
-through the desktop by a platform administrator, who is consequently
-`FIRM_ADMIN` in all four firms they belong to.
+**Each save replaces only its own tier.** `_replace_global_user_roles` touches
+rows with `firm_id IS NULL`; `_replace_scoped_user_roles` touches one firm's.
+That is load-bearing rather than tidy: before it, the platform path went
+through `_replace_associations`, which keys on `role_id` alone and ignores
+`firm_id` -- so a platform administrator who opened a user and pressed Save,
+**changing nothing**, soft-deleted every firm-scoped row and re-created the
+survivors unscoped. Two firms' separate grants collapsed into one global
+grant, silently, from a no-op.
+
+**Each read answers for the tier its caller manages**, for the same reason.
+`list_user_role_ids` returns the global set to a platform caller and one
+firm's to a firm caller; it used to return every row from every firm merged
+into a single list, which read as "holds all of these, everywhere" -- and then
+the save made it true. `list_user_global_role_ids` is the read a firm
+administrator gets of the tier they may not write: shown, because it applies
+in their firm, and disabled, because it is not theirs.
 
 ### Giving one person different jobs in two firms
 
-It needs no second user account, and it cannot be done from the platform side:
+No second account, and no clearing required first:
 
-1. As a **platform administrator**, create the user, give them both firm
-   memberships, and leave their roles **empty** — or set only what should
-   genuinely apply everywhere.
-2. As **firm A's administrator**, set their roles. Scoped to firm A.
-3. As **firm B's administrator**, set their roles. Scoped to firm B.
+1. A **platform administrator** grants anything that should apply everywhere
+   on the user form (**Roles in every firm**), or leaves it empty.
+2. Either administrator sets each firm's own roles under **Roles by firm** on
+   the Users grid -- one section per firm, saved one firm at a time.
 
-**Step 1 is the one that goes wrong.** `_replace_scoped_user_roles` deletes
-only rows matching the firm it was given, so a firm administrator's save
-**cannot remove an unscoped row** — from inside the firm that role is
-invisible and unremovable. Grant `SALES_MANAGER` globally and then add
-`SALES_EXECUTIVE` in firm B, and in firm B the person is both. Clear the
-unscoped roles first, as the platform administrator, or the rest does not
-behave as intended.
-
-Nothing in the desktop distinguishes the two: the Roles field shows
-`SALES_MANAGER` whether it is held everywhere or in one firm.
+The person is a sales manager in one firm and a cashier in another, plus
+whatever the global tier gave them in both.
 
 ## Two things that invalidate a token immediately
 

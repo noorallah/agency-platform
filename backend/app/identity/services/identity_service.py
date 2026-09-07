@@ -1311,13 +1311,25 @@ class IdentityService:
     ) -> list[UUID]:
         """Return role identifiers assigned to one visible user."""
         self._get_user(user_id, firm_scope)
-        conditions = [
-            UserRole.user_id == user_id,
-            UserRole.is_deleted.is_(False),
-        ]
-        if firm_scope is not None:
-            conditions.append(UserRole.firm_id == firm_scope)
-        return list(self._session.scalars(select(UserRole.role_id).where(*conditions)))
+        # What the caller sees is what the caller manages. A platform caller
+        # reads the **global** set, because that is what their save replaces;
+        # returning every row from every firm merged into one list made the
+        # screen read as "holds all of these, everywhere" and invited a save
+        # that made it true.
+        scope = (
+            UserRole.firm_id.is_(None)
+            if firm_scope is None
+            else UserRole.firm_id == firm_scope
+        )
+        return list(
+            self._session.scalars(
+                select(UserRole.role_id).where(
+                    UserRole.user_id == user_id,
+                    UserRole.is_deleted.is_(False),
+                    scope,
+                )
+            )
+        )
 
     def list_role_permission_ids(
         self, role_id: UUID, firm_scope: UUID | None = None
@@ -1386,9 +1398,16 @@ class IdentityService:
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
         if firm_scope is None:
-            self._replace_associations(
-                UserRole, "user_id", user.id, "role_id", role_ids, actor_id
-            )
+            # The **global** set: `firm_id IS NULL`, which applies in every
+            # firm the person belongs to. Only a platform administrator writes
+            # these, and a firm administrator can neither edit nor remove one.
+            #
+            # It replaces the global rows and nothing else. `_replace_associations`
+            # keys on `role_id` alone and would soft-delete every firm-scoped
+            # row as well, then re-create the survivors unscoped -- so a
+            # platform administrator opening this and pressing Save, changing
+            # nothing, collapsed each firm's own roles into global ones.
+            self._replace_global_user_roles(user.id, role_ids, actor_id)
         else:
             allowed_count = self._session.scalar(
                 select(func.count())
@@ -2106,6 +2125,142 @@ class IdentityService:
             raise ResourceNotFoundError(
                 "One or more referenced resources were not found."
             )
+
+    def _replace_global_user_roles(
+        self, user_id: UUID, role_ids: list[UUID], actor_id: UUID
+    ) -> None:
+        """Replace the roles a user holds in **every** firm.
+
+        Scoped rows are carried through untouched: a global grant and a firm's
+        own grant are different decisions by different administrators, and
+        neither may silently undo the other. This mirrors `set_user_firms`,
+        which merges rather than replaces for the same reason.
+        """
+        existing_by_role = {
+            item.role_id: item
+            for item in self._session.scalars(
+                select(UserRole).where(
+                    UserRole.user_id == user_id,
+                    UserRole.firm_id.is_(None),
+                )
+            )
+        }
+        requested = set(role_ids)
+        now = utc_now()
+        for role_id in role_ids:
+            existing = existing_by_role.get(role_id)
+            if existing is None:
+                self._session.add(
+                    UserRole(
+                        user_id=user_id,
+                        role_id=role_id,
+                        firm_id=None,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
+            elif existing.is_deleted:
+                existing.is_deleted = False
+                existing.deleted_at = None
+                existing.deleted_by = None
+                existing.updated_by = actor_id
+        for role_id, existing in existing_by_role.items():
+            if not existing.is_deleted and role_id not in requested:
+                existing.is_deleted = True
+                existing.deleted_at = now
+                existing.deleted_by = actor_id
+                existing.updated_by = actor_id
+
+    def set_user_firm_roles(
+        self,
+        user_id: UUID,
+        firm_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        allowed_firm_ids: frozenset[UUID] | None = None,
+    ) -> None:
+        """Replace what one user does in one firm.
+
+        The only way a firm-tier role is granted. A platform caller reaches
+        every firm the user belongs to and names the one they mean; a firm
+        caller is held to `allowed_firm_ids`, the firms where they themselves
+        hold `USER_CREATE`.
+
+        Deleting a role here removes it in this firm and nowhere else, which
+        is what makes a firm administrator's edit an override without any
+        precedence rule to reason about.
+        """
+        if allowed_firm_ids is not None and firm_id not in allowed_firm_ids:
+            raise BusinessRuleError("You can only set roles in firms you administer.")
+        user = self._get_user(user_id, firm_id if allowed_firm_ids else None)
+        self._ensure_identifiers(Role, role_ids)
+        membership = self._session.scalar(
+            select(UserFirm).where(
+                UserFirm.user_id == user.id,
+                UserFirm.firm_id == firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
+        )
+        if membership is None:
+            raise BusinessRuleError(
+                "Add the user to this firm before giving them a role in it."
+            )
+        allowed_count = self._session.scalar(
+            select(func.count())
+            .select_from(Role)
+            .where(
+                Role.id.in_(role_ids),
+                Role.is_deleted.is_(False),
+                or_(Role.firm_id == firm_id, Role.code.in_(FIRM_ROLE_CODES)),
+            )
+        )
+        if int(allowed_count or 0) != len(role_ids):
+            raise BusinessRuleError("Platform or cross-firm roles cannot be assigned.")
+        self._replace_scoped_user_roles(user.id, role_ids, actor_id, firm_id)
+        self._revoke_user_tokens(user.id)
+        record_audit(
+            self._session,
+            action="user.firm_roles_set",
+            entity_type="user",
+            entity_id=user.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
+        self._session.commit()
+
+    def list_user_global_role_ids(self, user_id: UUID) -> list[UUID]:
+        """Return the roles a user holds in every firm.
+
+        Read by a firm administrator too, and shown to them **read-only**:
+        these apply in their firm and are not theirs to change, so hiding them
+        would under-report what the person can actually do there -- which is
+        what the old per-firm read did.
+        """
+        return list(
+            self._session.scalars(
+                select(UserRole.role_id).where(
+                    UserRole.user_id == user_id,
+                    UserRole.firm_id.is_(None),
+                    UserRole.is_deleted.is_(False),
+                )
+            )
+        )
+
+    def list_user_firm_role_ids(
+        self, user_id: UUID, firm_id: UUID, firm_scope: UUID | None = None
+    ) -> list[UUID]:
+        """Return the roles one user holds in one firm."""
+        self._get_user(user_id, firm_scope)
+        return list(
+            self._session.scalars(
+                select(UserRole.role_id).where(
+                    UserRole.user_id == user_id,
+                    UserRole.firm_id == firm_id,
+                    UserRole.is_deleted.is_(False),
+                )
+            )
+        )
 
     def _replace_associations(
         self,

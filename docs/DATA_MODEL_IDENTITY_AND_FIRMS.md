@@ -98,13 +98,19 @@ the platform schema.
 | Column | Question it answers | NULL means |
 | --- | --- | --- |
 | `user_firms.firm_id` | **Which firms is this person a member of?** | not nullable — a membership always names a firm |
-| `user_roles.firm_id` | **Where does this person hold this role?** | every firm they belong to, now and in future |
+| `user_roles.firm_id` | **Where does this person hold this role?** | the **global** tier: every firm they belong to, now and in future. Only a platform administrator writes it; a firm administrator sees it and cannot change it. |
 | `roles.firm_id` | **Who wrote this role definition?** | a platform-wide role, offered to every firm |
 
 `user_firms` says somebody *belongs*; `user_roles` says what they may *do*
 there. A member with no roles sees an empty application, and — because of the
 NULL case on `user_roles` — somebody can hold a role in a firm they were only
 just added to.
+
+Each tier is replaced only by a save of its own tier -- `_replace_global_user_roles`
+for the NULL rows, `_replace_scoped_user_roles` for one firm's -- so a platform
+administrator's save cannot delete a firm's grants and a firm administrator's
+cannot delete a global one. Before that split, the platform path keyed on
+`role_id` alone and a no-op save collapsed every firm's roles into global ones.
 
 The distinction that catches people is between the last two. `SALES_MANAGER`
 has `roles.firm_id = NULL`, meaning any firm may use it; a *grant* of it has
