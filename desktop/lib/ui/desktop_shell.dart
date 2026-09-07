@@ -3280,6 +3280,24 @@ ResourceDefinition<PlatformUser> userDefinition(
           editOnly: true,
           section: 'Security',
         ),
+      // The mirror, for the caller who edits the other tier. A platform
+      // administrator's Roles field above is the **global** set, so without
+      // this the page says nothing about the firm grants and the same blind
+      // spot points the other way -- somebody could be a sales manager in one
+      // firm and a cashier in another with the form showing neither.
+      //
+      // Read-only here because a grant is per firm: changing one is a
+      // decision about that firm, made on Roles by firm where the firm is
+      // named beside it.
+      if (permissions.isPlatformAdmin)
+        const FieldSpec(
+          key: 'firm_roles_note',
+          label: 'Roles in specific firms',
+          helperText: 'Set per firm. Use Roles by firm to change them.',
+          alwaysReadOnly: true,
+          editOnly: true,
+          section: 'Security',
+        ),
       // Which tier the roles above are written to. A platform caller's grant
       // resolved globally whenever no firm was named, so creating somebody as
       // a cashier made them one in **every** firm they belong to and every
@@ -3488,7 +3506,10 @@ ResourceDefinition<PlatformUser> userDefinition(
     // a firm caller pays for the extra read.
     loadAssignments: (userId) async {
       final Json values = await api.userAssignmentValues(userId);
-      if (!permissions.isPlatformAdmin) {
+      if (permissions.isPlatformAdmin) {
+        final String perFirm = await api.userFirmRoleLabels(userId);
+        values['firm_roles_note'] = perFirm.isEmpty ? 'None' : perFirm;
+      } else {
         final String global = await api.userGlobalRoleLabels(userId);
         values['global_roles_note'] = global.isEmpty ? 'None' : global;
       }

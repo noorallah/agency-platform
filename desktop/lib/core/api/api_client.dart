@@ -4336,6 +4336,47 @@ class ApiClient {
         : '${named.join(', ')} and $unnamed more';
   }
 
+  /// What a user holds firm by firm, as one readable line.
+  ///
+  /// The mirror of [userGlobalRoleLabels], for the caller who edits the other
+  /// tier: a platform administrator's Roles field is the global set, so
+  /// without this the user page says nothing about the firm grants and the
+  /// same blind spot points the other way.
+  ///
+  /// One read per firm the person belongs to. That is the shape of the data --
+  /// a grant is per firm -- and it happens once when the form opens.
+  Future<String> userFirmRoleLabels(String userId) async {
+    final Map<String, dynamic> membership =
+        await userFirmAssignmentValues(userId);
+    final List<String> firmIds = (membership['firm_ids'] as String? ?? '')
+        .split(',')
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (firmIds.isEmpty) return '';
+
+    final List<AssignmentOption> firms = await options('firms');
+    final List<AssignmentOption> roles = await options('roles');
+    final Map<String, String> firmName = {
+      for (final AssignmentOption firm in firms) firm.id: firm.label,
+    };
+    final Map<String, String> roleName = {
+      for (final AssignmentOption role in roles) role.id: role.label,
+    };
+
+    final List<String> parts = [];
+    for (final String firmId in firmIds) {
+      final List<String> held = await userFirmRoles(userId, firmId);
+      if (held.isEmpty) continue;
+      final List<String> named = [
+        for (final String id in held)
+          if (roleName.containsKey(id)) roleName[id]!,
+      ]..sort();
+      if (named.isEmpty) continue;
+      parts.add('${firmName[firmId] ?? firmId}: ${named.join(", ")}');
+    }
+    return parts.join('  ·  ');
+  }
+
   Future<Map<String, dynamic>> userFirmAssignmentValues(String userId) async {
     final Json response = await request('GET', '/api/v1/users/$userId/firms');
     final dynamic data = response['data'];
