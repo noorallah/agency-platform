@@ -188,6 +188,7 @@ class ResourceDefinition<T> {
     this.loadAssignments,
     this.saveAssignments,
     this.canEdit,
+    this.editRefusal,
     this.canCreate = true,
     this.canDelete = true,
     this.updateEntity = true,
@@ -229,6 +230,14 @@ class ResourceDefinition<T> {
   final Future<void> Function(String id, Map<String, dynamic> values)?
       saveAssignments;
   final bool Function(T item)? canEdit;
+
+  /// Why [canEdit] refused, said to the person who tried.
+  ///
+  /// A disabled toolbar button is only half the story: the row is still
+  /// double-clickable and the context menu still offers Edit, and both used to
+  /// return in silence -- which reads as a broken screen rather than a rule.
+  /// Where the refusal has a way around it, say that too.
+  final String? Function(T item)? editRefusal;
   final bool canCreate, canDelete, updateEntity, showFrame;
   final String? description;
   final List<String> breadcrumbs;
@@ -511,11 +520,18 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       CrudDialogMode.view => ToolbarAction.view,
       CrudDialogMode.edit => ToolbarAction.edit,
     };
+    if (mode == CrudDialogMode.edit &&
+        item != null &&
+        !(widget.definition.canEdit?.call(item) ?? true)) {
+      final String? why = widget.definition.editRefusal?.call(item);
+      if (why != null) {
+        NotificationService.show(context, why,
+            kind: AppNotificationKind.information);
+      }
+      return;
+    }
     if (!_hasCapability(action, item) ||
-        (mode == CrudDialogMode.create && !widget.definition.canCreate) ||
-        (mode == CrudDialogMode.edit &&
-            item != null &&
-            !(widget.definition.canEdit?.call(item) ?? true))) {
+        (mode == CrudDialogMode.create && !widget.definition.canCreate)) {
       return;
     }
     final Map<String, dynamic> initialValues =
@@ -618,9 +634,18 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   }
 
   Future<void> _delete(T item) async {
+    // The same refusal as editing, and it was silent here too. Whatever makes
+    // a record uneditable makes it undeletable, so one reason serves both.
+    if (!(widget.definition.canEdit?.call(item) ?? true)) {
+      final String? why = widget.definition.editRefusal?.call(item);
+      if (why != null) {
+        NotificationService.show(context, why,
+            kind: AppNotificationKind.information);
+      }
+      return;
+    }
     if (!_hasCapability(ToolbarAction.delete, item) ||
-        !widget.definition.canDelete ||
-        !(widget.definition.canEdit?.call(item) ?? true)) {
+        !widget.definition.canDelete) {
       return;
     }
     final bool accepted = await showWorkspaceConfirmDialog(

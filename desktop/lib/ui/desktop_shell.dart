@@ -3067,6 +3067,20 @@ ResourceDefinition<PlatformUser> userDefinition(
     // Disabling the button is what stops somebody filling in a form that
     // was never going to save; the subtitle below says why.
     canEdit: (user) => !user.belongsToOtherFirms,
+    // The refusal used to be silent: the toolbar button was disabled, but a
+    // double-click on the row and the context menu's Edit both returned
+    // without a word, which reads as a broken screen rather than a rule.
+    //
+    // It also names the way round, because there is one and it is not
+    // obvious. The *profile* is platform-wide and not this firm's to change;
+    // the job this person does **in this firm** is, and Roles by firm is
+    // where that is set -- the server allows it for a shared user, so the
+    // only thing stopping anybody was the door.
+    editRefusal: (user) => user.belongsToOtherFirms
+        ? '${user.fullName} also works in another firm, so their profile is '
+            'managed by a platform administrator. Use Roles by firm to set '
+            'what they do in yours.'
+        : null,
     dialogSubtitle: (user) => user.belongsToOtherFirms
         ? '${user.fullName} also works in another firm, so their profile is '
             'managed by a platform administrator. Their roles and job '
@@ -3311,10 +3325,16 @@ ResourceDefinition<PlatformUser> userDefinition(
       // decision about that firm, made on Roles by firm where the firm is
       // named beside it.
       if (permissions.isPlatformAdmin)
-        const FieldSpec(
+        FieldSpec(
           key: 'firm_roles_note',
-          label: 'Roles in specific firms',
-          helperText: 'Set per firm. Use Roles by firm to change them.',
+          // Named for what it actually holds. With a firm selected that firm
+          // is editable in the column above and left out of this one, so
+          // calling both "specific firms" would be two names for two
+          // different sets.
+          label: permissions.activeFirmId == null
+              ? 'Roles in specific firms'
+              : 'Roles in other firms',
+          helperText: 'Set per firm. Use Edit roles by firm to change them.',
           alwaysReadOnly: true,
           editOnly: true,
           section: 'Security',
@@ -3548,9 +3568,14 @@ ResourceDefinition<PlatformUser> userDefinition(
     loadAssignments: (userId) async {
       final Json values = await api.userAssignmentValues(userId);
       if (permissions.isPlatformAdmin) {
-        final String perFirm = await api.userFirmRoleLabels(userId);
-        values['firm_roles_note'] = perFirm.isEmpty ? 'None' : perFirm;
         final String? active = permissions.activeFirmId;
+        // The selected firm has its own editable column below, so leaving it
+        // out of the summary keeps one fact in one place. Without this the
+        // firm appeared twice and the two could disagree the moment either
+        // was edited.
+        final String perFirm =
+            await api.userFirmRoleLabels(userId, except: active ?? '');
+        values['firm_roles_note'] = perFirm.isEmpty ? 'None' : perFirm;
         if (active != null) {
           values['firm_role_ids'] =
               (await api.userFirmRoles(userId, active)).join(',');

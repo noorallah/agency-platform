@@ -4345,7 +4345,7 @@ class ApiClient {
   ///
   /// One read per firm the person belongs to. That is the shape of the data --
   /// a grant is per firm -- and it happens once when the form opens.
-  Future<String> userFirmRoleLabels(String userId) async {
+  Future<String> userFirmRoleLabels(String userId, {String except = ''}) async {
     final Map<String, dynamic> membership =
         await userFirmAssignmentValues(userId);
     final List<String> firmIds = (membership['firm_ids'] as String? ?? '')
@@ -4365,6 +4365,10 @@ class ApiClient {
 
     final List<String> parts = [];
     for (final String firmId in firmIds) {
+      // The caller may already be editing one firm in a field of its own.
+      // Listing it here as well says the same thing twice, in two places
+      // that could disagree the moment one is edited.
+      if (firmId == except) continue;
       final List<String> held = await userFirmRoles(userId, firmId);
       if (held.isEmpty) continue;
       final List<String> named = [

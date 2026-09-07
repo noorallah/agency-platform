@@ -5,6 +5,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Creating a user: which firms, and which tier the roles land in.
@@ -191,9 +192,13 @@ void main() {
     test('a platform administrator sees the firm grants instead', () async {
       // The mirror. Their Roles field is the global set, so without this the
       // page says nothing about what the person does in each firm.
+      //
+      // In **platform mode**: with a firm selected that firm is editable in
+      // its own column and left out of this summary, which
+      // `user_form_surface_test.dart` covers.
       final _CreateApi api = _CreateApi();
       final ResourceDefinition<PlatformUser> definition =
-          _definition(api, platformAdmin: true);
+          _definition(api, platformAdmin: true, activeFirmId: null);
 
       expect(_field(definition, 'global_roles_note'), isNull,
           reason: 'the Roles field above already is their global set');
@@ -214,7 +219,7 @@ void main() {
         ..firmRoleIds = const {'firm-1': ['role-sm']};
 
       final Map<String, dynamic> values =
-          await _definition(api, platformAdmin: true)
+          await _definition(api, platformAdmin: true, activeFirmId: null)
               .loadAssignments!('user-1');
 
       expect(values['firm_roles_note'], 'WHOLE01: SALES_MANAGER');
@@ -224,10 +229,80 @@ void main() {
       final _CreateApi api = _CreateApi()..firmRoleIds = const {};
 
       final Map<String, dynamic> values =
-          await _definition(api, platformAdmin: true)
+          await _definition(api, platformAdmin: true, activeFirmId: null)
               .loadAssignments!('user-1');
 
       expect(values['firm_roles_note'], 'None');
+    });
+  });
+
+  group('a person who also works in another firm', () {
+    // Their profile is platform-wide and not this firm's to change. The
+    // refusal was silent -- a disabled toolbar button, but a double-click on
+    // the row and the context menu's Edit both returned without a word, which
+    // reads as a broken screen rather than a rule.
+    PlatformUser shared({bool elsewhere = true}) => PlatformUser(
+          id: 'user-1',
+          email: 'view@abc.com',
+          fullName: 'View Only',
+          isActive: true,
+          forcePasswordChange: false,
+          expiresAt: '',
+          belongsToOtherFirms: elsewhere,
+        );
+
+    test('editing is refused, and the refusal says why', () {
+      final ResourceDefinition<PlatformUser> definition =
+          _definition(_CreateApi(), platformAdmin: false);
+
+      expect(definition.canEdit!(shared()), isFalse);
+      final String? why = definition.editRefusal!(shared());
+      expect(why, isNotNull);
+      // Naming the way round is the point: the server allows a firm caller to
+      // set a shared user's roles in their own firm, so the only thing
+      // stopping anybody was the door.
+      expect(why, contains('Roles by firm'));
+    });
+
+    test('somebody in this firm alone is edited normally', () {
+      final ResourceDefinition<PlatformUser> definition =
+          _definition(_CreateApi(), platformAdmin: false);
+
+      expect(definition.canEdit!(shared(elsewhere: false)), isTrue);
+      expect(definition.editRefusal!(shared(elsewhere: false)), isNull);
+    });
+
+    testWidgets('Roles by firm is not gated by the same rule',
+        (tester) async {
+      // The whole point of the message above. It needs a selected row like
+      // the other row actions, and nothing else.
+      //
+      // A `testWidgets` with a real `BuildContext`, not a plain `test`:
+      // `userDefinition` omits every dialog-opening action when `context` is
+      // null, so a plain test would run over an empty list and pass whatever
+      // the gate said.
+      late ResourceDefinition<PlatformUser> definition;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) {
+            definition = userDefinition(
+              _CreateApi(),
+              _permissions(
+                platformAdmin: false,
+                codes: const ['ROLE_ASSIGN', 'ROLE_VIEW'],
+              ),
+              context: context,
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ));
+
+      final ResourceAction<PlatformUser> action = definition.customActions
+          .firstWhere((a) => a.label == 'Roles by firm');
+      expect(action.isEnabled, isNull,
+          reason: 'no extra condition, so a shared user is still reachable');
+      expect(action.needsSelection, isTrue);
     });
   });
 
