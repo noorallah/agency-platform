@@ -347,6 +347,52 @@ every firm's, which would show a user buttons the API then refuses.
   cross-firm role is refused with *"Platform or cross-firm roles cannot be
   assigned."*
 
+### The scope is the caller's, and a platform administrator has none
+
+`_firm_scope` in `app/identity/api/router.py` is the whole rule:
+
+```python
+return None if principal.is_platform_admin else principal.firm_id
+```
+
+So a platform administrator writes `user_roles.firm_id = NULL` **always** —
+selecting a firm in the switcher does not change it, because the designation
+short-circuits the scope before the header is read. **Only a firm
+administrator can produce a firm-scoped assignment**, since only they carry a
+non-null `principal.firm_id`.
+
+At read time `_issue_tokens` collects, for each firm the user belongs to, the
+permissions of every role where `UserRole.firm_id == <that firm>` **or**
+`UserRole.firm_id IS NULL`. So the two kinds stack, and **NULL means every
+firm the person is a member of, including firms they are added to later**.
+
+Measured on the demo data: 16 of 17 live assignments are firm-scoped — the
+seeder writes them that way, which is why `whole01.admin` is `FIRM_ADMIN` in
+WHOLE01 and nowhere else. The one unscoped row belongs to a user created
+through the desktop by a platform administrator, who is consequently
+`FIRM_ADMIN` in all four firms they belong to.
+
+### Giving one person different jobs in two firms
+
+It needs no second user account, and it cannot be done from the platform side:
+
+1. As a **platform administrator**, create the user, give them both firm
+   memberships, and leave their roles **empty** — or set only what should
+   genuinely apply everywhere.
+2. As **firm A's administrator**, set their roles. Scoped to firm A.
+3. As **firm B's administrator**, set their roles. Scoped to firm B.
+
+**Step 1 is the one that goes wrong.** `_replace_scoped_user_roles` deletes
+only rows matching the firm it was given, so a firm administrator's save
+**cannot remove an unscoped row** — from inside the firm that role is
+invisible and unremovable. Grant `SALES_MANAGER` globally and then add
+`SALES_EXECUTIVE` in firm B, and in firm B the person is both. Clear the
+unscoped roles first, as the platform administrator, or the rest does not
+behave as intended.
+
+Nothing in the desktop distinguishes the two: the Roles field shows
+`SALES_MANAGER` whether it is held everywhere or in one firm.
+
 ## Two things that invalidate a token immediately
 
 | Trigger | Mechanism |
