@@ -54,6 +54,28 @@ class _CreateApi extends ApiClient {
   final List<String> scopedFirmIds = [];
 
   @override
+  Future<Json> userAssignmentValues(String userId) async => {
+        'role_ids': '',
+        'firm_ids': 'firm-1',
+        'primary_firm_id': 'firm-1',
+      };
+
+  @override
+  Future<List<String>> userGlobalRoles(String userId) async =>
+      globalRoleIds;
+
+  List<String> globalRoleIds = const ['role-admin'];
+
+  @override
+  Future<List<AssignmentOption>> options(String resource) async =>
+      resource == 'roles'
+          ? const [
+              AssignmentOption(id: 'role-admin', label: 'FIRM_ADMIN'),
+              AssignmentOption(id: 'role-sm', label: 'SALES_MANAGER'),
+            ]
+          : const <AssignmentOption>[];
+
+  @override
   Future<void> setUserFirms(
     String userId,
     List<String> firmIds,
@@ -102,6 +124,50 @@ FieldSpec? _field(ResourceDefinition<PlatformUser> definition, String key) {
 }
 
 void main() {
+  group('the tier a caller cannot edit is still shown', () {
+    test('a firm administrator sees the global grants, read-only', () async {
+      // A global grant applies **in their firm**, so a form showing only
+      // their own tier reports less than the person can do.
+      final _CreateApi api = _CreateApi();
+      final ResourceDefinition<PlatformUser> definition =
+          _definition(api, platformAdmin: false);
+
+      final FieldSpec? note = _field(definition, 'global_roles_note');
+      expect(note, isNotNull);
+      expect(note!.alwaysReadOnly, isTrue);
+      expect(note.editOnly, isTrue);
+
+      final Map<String, dynamic> values =
+          await definition.loadAssignments!('user-1');
+      expect(values['global_roles_note'], 'FIRM_ADMIN');
+    });
+
+    test('none is said rather than left blank', () async {
+      // Blank reads as "not loaded"; None reads as an answer.
+      final _CreateApi api = _CreateApi()..globalRoleIds = const [];
+      final Map<String, dynamic> values =
+          await _definition(api, platformAdmin: false)
+              .loadAssignments!('user-1');
+
+      expect(values['global_roles_note'], 'None');
+    });
+
+    test('a platform administrator is not offered it', () async {
+      // The Roles field above already *is* their global set, and each firm's
+      // own roles are on Roles by firm.
+      final _CreateApi api = _CreateApi();
+      expect(
+        _field(_definition(api, platformAdmin: true), 'global_roles_note'),
+        isNull,
+      );
+      final Map<String, dynamic> values =
+          await _definition(api, platformAdmin: true)
+              .loadAssignments!('user-1');
+      expect(values.containsKey('global_roles_note'), isFalse,
+          reason: 'and they do not pay for the extra read');
+    });
+  });
+
   group('the tier choice on the create form', () {
     test('a platform administrator is asked which firm', () {
       final FieldSpec? field =

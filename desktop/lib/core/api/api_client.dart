@@ -4310,6 +4310,32 @@ class ApiClient {
     };
   }
 
+  /// The global roles a user holds, as readable codes.
+  ///
+  /// For the read-only line on the user form: a firm administrator needs to
+  /// see that a platform grant applies in *their* firm, or the form reports
+  /// less than the person can do. Ids alone would say nothing, so they are
+  /// resolved against the role catalogue; a role the caller cannot see -- a
+  /// platform-tier one -- is counted rather than named, which is the honest
+  /// answer when the name is not theirs to read.
+  Future<String> userGlobalRoleLabels(String userId) async {
+    final List<String> ids = await userGlobalRoles(userId);
+    if (ids.isEmpty) return '';
+    final List<AssignmentOption> catalogue = await options('roles');
+    final Map<String, String> byId = {
+      for (final AssignmentOption role in catalogue) role.id: role.label,
+    };
+    final List<String> named = [
+      for (final String id in ids)
+        if (byId.containsKey(id)) byId[id]!,
+    ]..sort();
+    final int unnamed = ids.length - named.length;
+    if (named.isEmpty) return '$unnamed role(s) set platform-wide';
+    return unnamed == 0
+        ? named.join(', ')
+        : '${named.join(', ')} and $unnamed more';
+  }
+
   Future<Map<String, dynamic>> userFirmAssignmentValues(String userId) async {
     final Json response = await request('GET', '/api/v1/users/$userId/firms');
     final dynamic data = response['data'];

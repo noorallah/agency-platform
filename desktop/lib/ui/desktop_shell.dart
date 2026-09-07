@@ -3262,6 +3262,24 @@ ResourceDefinition<PlatformUser> userDefinition(
         optionsResource: 'roles',
         section: 'Security',
       ),
+      // What a firm administrator cannot edit here but must be able to see.
+      // A global grant applies **in their firm**, so a form that shows only
+      // their own tier reports less than the person can actually do -- the
+      // same under-report the Roles by firm dialog was built to end, and this
+      // is the screen people land on first.
+      //
+      // Not offered to a platform caller: the field above already *is* their
+      // global set, and each firm's own roles are on Roles by firm.
+      if (!permissions.isPlatformAdmin)
+        const FieldSpec(
+          key: 'global_roles_note',
+          label: 'Also applies here',
+          helperText: 'Granted across every firm by a platform administrator. '
+              'Not yours to change.',
+          alwaysReadOnly: true,
+          editOnly: true,
+          section: 'Security',
+        ),
       // Which tier the roles above are written to. A platform caller's grant
       // resolved globally whenever no firm was named, so creating somebody as
       // a cashier made them one in **every** firm they belong to and every
@@ -3466,7 +3484,16 @@ ResourceDefinition<PlatformUser> userDefinition(
             ...userProfilePayload(values),
           },
     partialUpdate: true,
-    loadAssignments: api.userAssignmentValues,
+    // The form's own values, plus the tier this caller may not write. Only
+    // a firm caller pays for the extra read.
+    loadAssignments: (userId) async {
+      final Json values = await api.userAssignmentValues(userId);
+      if (!permissions.isPlatformAdmin) {
+        final String global = await api.userGlobalRoleLabels(userId);
+        values['global_roles_note'] = global.isEmpty ? 'None' : global;
+      }
+      return values;
+    },
     saveAssignments: (id, values) async {
       // **Memberships first.** A role in one firm needs an active membership
       // there -- the token is built per membership, so a grant without one
