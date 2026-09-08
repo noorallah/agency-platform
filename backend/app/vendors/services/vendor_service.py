@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError
@@ -15,6 +17,7 @@ from app.vendors.models import (
     Vendor,
     VendorAddress,
     VendorAttachment,
+    VendorAttributeValue,
     VendorBankAccount,
     VendorCategory,
     VendorContact,
@@ -126,6 +129,8 @@ class VendorService:
             self._reconcile_attachments(vendor, data.attachments, actor_id)
         if data.notes is not None:
             self._reconcile_notes(vendor, data.notes, actor_id)
+        if data.attributes is not None:
+            self._store_attributes(vendor, data.attributes, actor_id=actor_id)
         record_audit(
             self._session,
             action="vendor.updated",
@@ -555,6 +560,7 @@ class VendorService:
         vendor.notes = [self._new_note(item, actor_id) for item in data.notes or []]
         self._repository.add(vendor)
         self._repository.flush()
+        self._store_attributes(vendor, data.attributes or [], actor_id=actor_id)
         record_audit(
             self._session,
             action="vendor.created",
@@ -615,6 +621,37 @@ class VendorService:
             self._session, firm_id, feature="DRUG_LICENSE", values=licences
         )
 
+    def _store_attributes(
+        self,
+        vendor: Vendor,
+        attributes: list[AttributeValueInput],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Validate and persist the vendor's custom fields."""
+        AttributeService(self._session).replace_values(
+            VendorAttributeValue,
+            vendor.id,
+            [
+                AttributeInput(
+                    attribute_definition_id=item.attribute_definition_id,
+                    value=item.value,
+                )
+                for item in attributes
+            ],
+            firm_id=vendor.firm_id,
+            actor_id=actor_id,
+        )
+
+    def attribute_responses(self, vendor: Vendor) -> list[AttributeValueResponse]:
+        """Return one vendor's stored custom fields in response shape."""
+        return [
+            AttributeValueResponse.model_validate(row)
+            for row in AttributeService(self._session).value_rows(
+                VendorAttributeValue, vendor.id
+            )
+        ]
+
     @staticmethod
     def _vendor_values(data: VendorCreate | VendorUpdate) -> dict[str, object]:
         """Return values."""
@@ -626,6 +663,7 @@ class VendorService:
                 "tax",
                 "attachments",
                 "notes",
+                "attributes",
             },
             mode="python",
         )

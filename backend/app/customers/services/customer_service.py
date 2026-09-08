@@ -9,12 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import (
     Customer,
     CustomerAddress,
+    CustomerAttributeValue,
     CustomerContact,
     CustomerReceivableTransaction,
 )
@@ -114,6 +117,7 @@ class CustomerService:
         ]
         self._repository.add(customer)
         self._repository.flush()
+        self._store_attributes(customer, data.attributes, actor_id=actor_id)
         self._record_opening_balance_transaction(
             customer=customer,
             amount=data.opening_balance,
@@ -218,6 +222,11 @@ class CustomerService:
             self._reconcile_addresses(customer, data.addresses, actor_id)
         if "contacts" in data.model_fields_set:
             self._reconcile_contacts(customer, data.contacts, actor_id)
+        # Same rule as the two collections: replaced whole when sent, left
+        # alone when not. A form that does not show the custom fields must
+        # not be able to clear them by saving.
+        if "attributes" in data.model_fields_set:
+            self._store_attributes(customer, data.attributes, actor_id=actor_id)
         record_audit(
             self._session,
             action="customer.updated",
@@ -472,6 +481,37 @@ class CustomerService:
             self._session.commit()
         return row
 
+    def _store_attributes(
+        self,
+        customer: Customer,
+        attributes: list[AttributeValueInput],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Validate and persist the customer's custom fields."""
+        AttributeService(self._session).replace_values(
+            CustomerAttributeValue,
+            customer.id,
+            [
+                AttributeInput(
+                    attribute_definition_id=item.attribute_definition_id,
+                    value=item.value,
+                )
+                for item in attributes
+            ],
+            firm_id=customer.firm_id,
+            actor_id=actor_id,
+        )
+
+    def attribute_responses(self, customer: Customer) -> list[AttributeValueResponse]:
+        """Return one customer's stored custom fields in response shape."""
+        return [
+            AttributeValueResponse.model_validate(row)
+            for row in AttributeService(self._session).value_rows(
+                CustomerAttributeValue, customer.id
+            )
+        ]
+
     def addresses(
         self, customer_id: UUID, *, firm_scope: UUID | None
     ) -> list[CustomerAddress]:
@@ -533,7 +573,9 @@ class CustomerService:
         store, and a new customer needs every column filled.
         """
         values = data.model_dump(
-            exclude={"addresses", "contacts"}, mode="python", exclude_unset=partial
+            exclude={"addresses", "contacts", "attributes"},
+            mode="python",
+            exclude_unset=partial,
         )
         if "customer_type" in values:
             values["customer_type"] = data.customer_type.value

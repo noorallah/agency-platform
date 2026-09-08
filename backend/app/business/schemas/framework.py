@@ -1,6 +1,7 @@
 """Request and response contracts for business profile framework APIs."""
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -188,6 +189,45 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     version: int
     created_at: datetime
     updated_at: datetime
+
+
+class AttributeValueInput(BusinessFrameworkSchema):
+    """One custom-field value submitted with a record.
+
+    The same shape every module takes: products had their own copy and the
+    customer and vendor forms now share this one, so a third module adds a
+    field of this type and nothing else.
+    """
+
+    attribute_definition_id: UUID
+    value: str | int | float | bool | date
+
+
+class AttributeValueResponse(BusinessFrameworkSchema):
+    """One stored custom-field value, in the typed column it lives in."""
+
+    id: UUID
+    attribute_definition_id: UUID
+    value_text: str | None
+    value_number: Decimal | None
+    value_date: date | None
+    value_boolean: bool | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApplicableAttributesResponse(BusinessFrameworkSchema):
+    """The custom fields one entity type carries in the caller's firm.
+
+    Resolved the way a save resolves them -- unscoped definitions plus the
+    ones scoped to the firm's business profile -- so a form offers exactly
+    the fields a save would accept. `mandatory_ids` is what the save will
+    refuse without.
+    """
+
+    entity_type: AttributeEntityType
+    definitions: list[AttributeDefinitionResponse]
+    mandatory_ids: list[UUID]
 
 
 class CategoryAttributeRuleCreate(BusinessFrameworkSchema):

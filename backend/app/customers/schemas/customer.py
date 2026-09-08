@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
 
 
@@ -174,6 +175,9 @@ class CustomerWrite(CustomerSchema):
     notes: str | None = None
     addresses: list[CustomerAddressInput] = Field(default_factory=list, max_length=50)
     contacts: list[CustomerContactInput] = Field(default_factory=list, max_length=50)
+    #: The customer's custom fields, as the business profile defines them.
+    #: Replaced whole when sent; an update that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
     @field_validator("code", "gst_number", "pan_number", "currency_code", mode="before")
     @classmethod
@@ -282,6 +286,7 @@ class CustomerResponse(CustomerSchema):
     deleted_at: datetime | None
     addresses: list[CustomerAddressResponse]
     contacts: list[CustomerContactResponse]
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
 class CustomerSummary(CustomerSchema):

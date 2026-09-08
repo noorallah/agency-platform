@@ -1,4 +1,5 @@
 import 'entities.dart';
+import 'product.dart';
 
 class CustomerAddress {
   const CustomerAddress({
@@ -161,6 +162,7 @@ class Customer {
     required this.isDeleted,
     required this.addresses,
     required this.contacts,
+    this.attributes = const [],
   });
 
   final String id;
@@ -200,6 +202,9 @@ class Customer {
   final bool isDeleted;
   final List<CustomerAddress> addresses;
   final List<CustomerContact> contacts;
+
+  /// The stored custom-field values, one per definition the firm defines.
+  final List<AttributeValueRecord> attributes;
 
   String get city {
     final Iterable<CustomerAddress> defaults =
@@ -250,6 +255,9 @@ class Customer {
         isDeleted: boolValue(json['is_deleted']),
         addresses:
             _objects(json['addresses']).map(CustomerAddress.fromJson).toList(),
+        attributes: _objects(json['attributes'])
+            .map(ProductAttributeValueRecord.fromJson)
+            .toList(),
         contacts:
             _objects(json['contacts']).map(CustomerContact.fromJson).toList(),
       );

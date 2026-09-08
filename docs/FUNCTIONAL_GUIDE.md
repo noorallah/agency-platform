@@ -537,7 +537,7 @@ products because it does not scan barcodes.
 | --- | --- | --- | --- |
 | 1 | Define an attribute — name, data type, entity type, optionally scoped to one profile | `PLATFORM-ADMIN` | Row in `attribute_definitions` |
 | 2 | Make it mandatory for a profile + product category | `PLATFORM-ADMIN` | Row in `category_attribute_rules` |
-| 3 | Users fill it on the record | the module's own code | Value stored in that module's `*_attribute_values` table, in a typed column |
+| 3 | Users fill it on the record | the module's own code | Value stored in that module's `*_attribute_values` table, in a typed column. Products, customers and vendors carry a **Custom fields** tab; the other four entity types have a value table and no form yet |
 
 **Mandatory is stated per profile and category, never globally.** Four
 attributes were once globally mandatory, which asked a pharmacy for an IMEI and

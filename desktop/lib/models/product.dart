@@ -1,5 +1,9 @@
 import 'entities.dart';
 
+/// A stored custom-field value on any record: customers and vendors carry
+/// the same shape products always did.
+typedef AttributeValueRecord = ProductAttributeValueRecord;
+
 class ProductAttributeValueRecord {
   const ProductAttributeValueRecord({
     required this.id,
@@ -380,3 +384,30 @@ List<Json> _objects(dynamic value) => value is List
         .map((item) => Map<String, dynamic>.from(item))
         .toList()
     : const [];
+
+/// The custom fields a form should offer for one entity type, from
+/// `GET /business-framework/attribute-definitions/applicable`.
+class ApplicableAttributesRecord {
+  const ApplicableAttributesRecord({
+    required this.entityType,
+    required this.definitions,
+    required this.mandatoryIds,
+  });
+
+  final String entityType;
+  final List<AttributeDefinitionRecord> definitions;
+  final List<String> mandatoryIds;
+
+  factory ApplicableAttributesRecord.fromJson(Json json) =>
+      ApplicableAttributesRecord(
+        entityType: stringValue(json['entity_type']),
+        definitions: (json['definitions'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => AttributeDefinitionRecord.fromJson(
+                Map<String, dynamic>.from(item)))
+            .toList(),
+        mandatoryIds: (json['mandatory_ids'] as List? ?? const [])
+            .map((item) => stringValue(item))
+            .toList(),
+      );
+}

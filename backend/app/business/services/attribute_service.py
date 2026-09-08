@@ -257,6 +257,26 @@ class AttributeService:
             for value, definition in rows
         ]
 
+    def value_rows(
+        self, model: type[AttributeValueBase], owner_id: UUID
+    ) -> list[AttributeValueBase]:
+        """Return one record's live stored values, oldest first.
+
+        For a response: the typed columns as they are, so the client can put
+        each back into the field it came from. `values_for` resolves them
+        against the definition instead, which is the read for a *rule*.
+        """
+        return list(
+            self._session.scalars(
+                select(model)
+                .where(
+                    model.owner_column() == owner_id,
+                    model.is_deleted.is_(False),
+                )
+                .order_by(model.created_at.asc())
+            ).all()
+        )
+
     def values_for_many(
         self,
         model: type[AttributeValueBase],

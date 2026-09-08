@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
 
 
@@ -195,6 +196,10 @@ class VendorWrite(VendorSchema):
     tax: list[VendorTaxInput] | None = Field(default=None, max_length=20)
     attachments: list[VendorAttachmentInput] | None = Field(default=None, max_length=50)
     notes: list[VendorNoteInput] | None = Field(default=None, max_length=200)
+    #: The vendor's custom fields, as the business profile defines them. The
+    #: same rule as the collections above: `None` leaves them alone, `[]`
+    #: clears them.
+    attributes: list[AttributeValueInput] | None = Field(default=None, max_length=300)
 
     @field_validator(
         "code",
@@ -412,6 +417,7 @@ class VendorResponse(VendorSchema):
     mobile: str | None
     remarks: str | None
     business_attributes: dict[str, object]
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
     created_by: UUID | None
     created_at: datetime
     updated_by: UUID | None
