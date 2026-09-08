@@ -4627,6 +4627,24 @@ class ApiClient {
         : stringValue(response['message']);
   }
 
+  /// The firm's cost centres. A list, not a page: a firm has a handful.
+  Future<PagedResult<FinanceCentre>> costCenters() async {
+    final List<FinanceCentre> items = _unwrapList(
+      await request('GET', '/api/v1/finance/cost-centers'),
+      FinanceCentre.fromJson,
+    );
+    return PagedResult<FinanceCentre>(items: items, total: items.length);
+  }
+
+  /// The firm's profit centres.
+  Future<PagedResult<FinanceCentre>> profitCenters() async {
+    final List<FinanceCentre> items = _unwrapList(
+      await request('GET', '/api/v1/finance/profit-centers'),
+      FinanceCentre.fromJson,
+    );
+    return PagedResult<FinanceCentre>(items: items, total: items.length);
+  }
+
   Future<LedgerAccount> createLedgerAccount(Json data) async =>
       LedgerAccount.fromJson(
         _unwrapMap(await request('POST', '/api/v1/finance/ledger-accounts',

@@ -80,7 +80,7 @@ no seeded row satisfies.
 
 | Module | Routes | Reports | State | Notes |
 | --- | ---: | ---: | --- | --- |
-| Finance `app/finance` | 33 | 0 | **Partial** | Chart of accounts, years, periods, journals, trial balance, P&L, balance sheet. **Eleven modules post automatically.** Cost and profit centres exist and are used by nothing. |
+| Finance `app/finance` | 33 | 0 | **Partial** | Chart of accounts, years, periods, journals, trial balance, P&L, balance sheet. **Eleven modules post automatically.** Cost and profit centres have screens and a journal-line picker since 2026-09-08; no seeded firm uses them. |
 | GST returns `app/gst_returns` | 2 | 0 | Built | GSTR-1 and the outward half of 3B, derived on every read so a cancelled invoice drops out. |
 | E-invoicing `app/einvoice` | 7 | 0 | **Partial** | Registration and e-way bills work in **sandbox**. Live filing needs GSP credentials and one `InvoiceRegistrationPortal`. |
 
@@ -182,7 +182,7 @@ five are not, and each is a code path the demo cannot reach:
 | Credit blocking | `credit_control_settings` | No firm has a policy row, so only the default warn-at-80% path is exercised; `BLOCK` is untested outside unit tests. |
 | Serial numbers | `serial_numbers`, `lots` | `products.track_serial` is false on every product in every store. |
 | Packaging levels | `product_packaging_levels` | Screen, endpoints, barcode lookup and tests all exist; no seeded row reaches them. |
-| Cost and profit centres | `cost_centers`, `profit_centers` | Present in finance with a `ledger_accounts.requires_cost_center` flag that no account sets. Nothing writes either table. |
+| ~~Cost and profit centres~~ | `cost_centers`, `profit_centers` | Screens since 2026-09-08 (Finance › Cost Centres / Profit Centres), the two flags on the chart-of-accounts form, and a picker on a journal line whose account requires one. Still no demo row: a seeded firm has no centre and no account that requires one. |
 
 Asking this question — *which columns does no live row populate?* — found four
 defects in a single day on 2026-09-04:

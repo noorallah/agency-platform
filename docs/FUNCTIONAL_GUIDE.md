@@ -987,7 +987,8 @@ discovered in a report.
 | Open and close years and periods | **Masters › Financial Years** |
 | Post and reverse journal entries | **Finance › Journal Entries** |
 | Trial balance, P&L, balance sheet, ledger statement | **Finance** workspace |
-| Map control accounts | **Nowhere — script only** |
+| Map control accounts | **Finance › Control Accounts** (`ACCOUNT_VIEW` to read, `ACCOUNT_MANAGE` to write) |
+| Cost centres and profit centres | **Finance › Cost Centres**, **Finance › Profit Centres**. An account's *Requires a cost centre* / *Requires a profit centre* flag on the chart makes a journal line on it name one |
 
 ## Tables
 

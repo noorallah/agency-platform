@@ -888,6 +888,17 @@ abstract final class ModuleCatalog {
           label: 'Control Accounts',
           requiredPermissions: ['ACCOUNT_VIEW'],
         ),
+        // Two masters that existed in finance with no screen to write them.
+        ModuleTabDefinition(
+          id: 'cost-centers',
+          label: 'Cost Centres',
+          requiredPermissions: ['ACCOUNT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'profit-centers',
+          label: 'Profit Centres',
+          requiredPermissions: ['ACCOUNT_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'journal-entries',
           label: 'Journal Entries',

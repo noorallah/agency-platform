@@ -40,6 +40,32 @@ class ControlAccountMapping {
       );
 }
 
+/// A cost centre or a profit centre: the same four columns, two tables.
+///
+/// Both existed in finance with a `requires_cost_center` flag no account
+/// set and no screen to write either table. A line on an account that
+/// requires one is refused at posting without it.
+class FinanceCentre {
+  const FinanceCentre({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.description,
+    required this.isActive,
+  });
+
+  final String id, code, name, description;
+  final bool isActive;
+
+  factory FinanceCentre.fromJson(Json json) => FinanceCentre(
+        id: stringValue(json['id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        description: stringValue(json['description']),
+        isActive: boolValue(json['is_active'], fallback: true),
+      );
+}
+
 /// One account in the firm's chart of accounts.
 class LedgerAccount {
   const LedgerAccount({

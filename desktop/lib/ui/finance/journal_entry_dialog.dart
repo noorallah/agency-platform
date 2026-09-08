@@ -13,12 +13,19 @@ class JournalDraftLine {
     this.debit = '',
     this.credit = '',
     this.description = '',
+    this.costCenterId = '',
+    this.profitCenterId = '',
   });
 
   String ledgerAccountId;
   String debit;
   String credit;
   String description;
+
+  /// Where the amount is attributed. Offered only when the account requires
+  /// it, and the engine refuses the line without it when it does.
+  String costCenterId;
+  String profitCenterId;
 
   double get debitValue => double.tryParse(debit.trim()) ?? 0;
   double get creditValue => double.tryParse(credit.trim()) ?? 0;
@@ -40,6 +47,8 @@ class JournalDraftLine {
         'debit_amount': debitValue.toStringAsFixed(2),
         'credit_amount': creditValue.toStringAsFixed(2),
         if (description.trim().isNotEmpty) 'description': description.trim(),
+        if (costCenterId.isNotEmpty) 'cost_center_id': costCenterId,
+        if (profitCenterId.isNotEmpty) 'profit_center_id': profitCenterId,
       };
 }
 
@@ -93,6 +102,8 @@ class JournalEntryDialog extends StatefulWidget {
     required this.periods,
     required this.journalTypes,
     required this.voucherTypes,
+    this.costCenters = const [],
+    this.profitCenters = const [],
   });
 
   final ApiClient api;
@@ -100,6 +111,10 @@ class JournalEntryDialog extends StatefulWidget {
   final List<AccountingPeriod> periods;
   final List<FinanceTypeRef> journalTypes;
   final List<FinanceTypeRef> voucherTypes;
+
+  /// Offered on a line whose account requires one.
+  final List<FinanceCentre> costCenters;
+  final List<FinanceCentre> profitCenters;
 
   @override
   State<JournalEntryDialog> createState() => _JournalEntryDialogState();
@@ -126,6 +141,55 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
   double get _creditTotal =>
       _lines.fold(0, (sum, line) => sum + line.creditValue);
   double get _difference => _debitTotal - _creditTotal;
+
+  LedgerAccount? _accountOf(JournalDraftLine line) {
+    for (final LedgerAccount account in widget.accounts) {
+      if (account.id == line.ledgerAccountId) return account;
+    }
+    return null;
+  }
+
+  /// The centre picker a line needs, or nothing. Keyed per line and per
+  /// kind so a test can find it; a line whose account needs no centre shows
+  /// no picker, because an empty box is a question nobody asked.
+  Widget? _centrePicker(int index, {required bool profit}) {
+    final LedgerAccount? account = _accountOf(_lines[index]);
+    if (account == null) return null;
+    final bool required =
+        profit ? account.requiresProfitCenter : account.requiresCostCenter;
+    if (!required) return null;
+    final List<FinanceCentre> centres =
+        profit ? widget.profitCenters : widget.costCenters;
+    final String current =
+        profit ? _lines[index].profitCenterId : _lines[index].costCenterId;
+    return SizedBox(
+      width: 180,
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('${profit ? 'profit' : 'cost'}-centre-$index'),
+        initialValue: current.isEmpty ? null : current,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: profit ? 'Profit centre *' : 'Cost centre *',
+          helperText: centres.isEmpty ? 'None defined yet' : null,
+        ),
+        items: [
+          for (final FinanceCentre centre in centres)
+            DropdownMenuItem<String>(
+              value: centre.id,
+              child: Text('${centre.code} ${centre.name}',
+                  overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (value) => setState(() {
+          if (profit) {
+            _lines[index].profitCenterId = value ?? '';
+          } else {
+            _lines[index].costCenterId = value ?? '';
+          }
+        }),
+      ),
+    );
+  }
 
   String _accountLabel(String id) {
     for (final LedgerAccount account in widget.accounts) {
@@ -405,6 +469,14 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                         setState(() => _lines[index].description = value),
                   ),
                 ),
+                if (_centrePicker(index, profit: false) case final Widget cost) ...[
+                  const SizedBox(width: AppSpacing.md),
+                  cost,
+                ],
+                if (_centrePicker(index, profit: true) case final Widget profit) ...[
+                  const SizedBox(width: AppSpacing.md),
+                  profit,
+                ],
                 IconButton(
                   tooltip: 'Remove line',
                   // Two lines is the floor: an entry with one line cannot
