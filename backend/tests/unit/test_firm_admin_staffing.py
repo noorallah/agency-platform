@@ -310,10 +310,11 @@ def test_a_platform_caller_still_replaces_the_whole_list() -> None:
 
 
 def test_a_short_term_is_refused() -> None:
-    """`"a"` must not return the platform.
+    """`"a"` must not return the platform -- to a firm caller.
 
-    The lookup reaches across firms, so it is a lookup and not a directory.
-    The minimum term is the first of the limits that makes that true.
+    The lookup reaches across firms, so for them it is a lookup and not a
+    directory. The minimum term is the first of the limits that makes that
+    true, and an empty term is the shortest of all.
     """
     service, session = _service()
     firm = _firm(session, "F1")
@@ -321,9 +322,12 @@ def test_a_short_term_is_refused() -> None:
 
     with pytest.raises(ValidationError):
         service.lookup_users("as", firm.id)
+    with pytest.raises(ValidationError):
+        service.lookup_users("", firm.id)
 
     # Three is enough.
-    assert service.lookup_users("ash", firm.id)
+    rows, total = service.lookup_users("ash", firm.id)
+    assert rows and total == 1
 
 
 def test_a_lookup_finds_somebody_in_another_firm_by_name_and_by_email() -> None:
@@ -340,8 +344,8 @@ def test_a_lookup_finds_somebody_in_another_firm_by_name_and_by_email() -> None:
     _member(session, outsider, theirs)
     session.commit()
 
-    by_name = service.lookup_users("Asha", mine.id)
-    by_email = service.lookup_users("elsewhere.example", mine.id)
+    by_name, _ = service.lookup_users("Asha", mine.id)
+    by_email, _ = service.lookup_users("elsewhere.example", mine.id)
 
     assert [row.id for row, _ in by_name] == [outsider.id]
     assert [row.id for row, _ in by_email] == [outsider.id]
@@ -377,9 +381,8 @@ def test_a_lookup_marks_the_callers_own_people() -> None:
     outside = _user(service, "outside@example.com")
     session.commit()
 
-    found = dict(
-        (row.id, member) for row, member in service.lookup_users("example", firm.id)
-    )
+    rows, _ = service.lookup_users("example", firm.id)
+    found = dict((row.id, member) for row, member in rows)
 
     assert found[inside.id] is True
     assert found[outside.id] is False
@@ -393,23 +396,89 @@ def test_a_lookup_never_returns_a_platform_administrator() -> None:
     session.add(PlatformAdmin(user_id=boss.id, created_by=ACTOR, updated_by=ACTOR))
     session.commit()
 
-    assert service.lookup_users("boss", firm.id) == []
+    assert service.lookup_users("boss", firm.id) == ([], 0)
+    # Not to a platform caller either: their accounts are not a firm's to hire.
+    assert service.lookup_users("boss", None, hiring_firm_id=firm.id) == ([], 0)
 
 
-def test_a_lookup_is_capped_and_does_not_page() -> None:
-    """A lookup answers "is this them?", not "who works here?".
+def test_a_firm_callers_lookup_is_capped_and_does_not_page() -> None:
+    """A firm caller's lookup answers "is this them?", not "who works here?".
 
-    There is deliberately no page parameter, so the result is not a directory
-    somebody can walk.
+    The page arguments are ignored for them and anything past the first page
+    is empty, so the result is not a directory somebody can walk.
     """
     service, session = _service()
     firm = _firm(session, "F1")
     for index in range(service.LOOKUP_LIMIT + 5):
         _user(service, f"many{index:02d}@example.com")
 
-    found = service.lookup_users("many", firm.id)
-
+    found, total = service.lookup_users("many", firm.id, page=1, page_size=100)
     assert len(found) == service.LOOKUP_LIMIT
+    assert total == service.LOOKUP_LIMIT
+
+    assert service.lookup_users("many", firm.id, page=2, page_size=100) == ([], 0)
+
+
+def test_a_platform_caller_lists_everyone_not_yet_in_the_firm() -> None:
+    """The directory is theirs anyway, so an empty term lists it.
+
+    Everybody with an account who is **not already in the firm being
+    staffed**: the firm's own people are in the grid beside the button, so
+    they are left out rather than flagged. Platform administrators still never
+    appear.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    inside = _user(service, "inside@example.com")
+    _member(session, inside, firm)
+    outside = _user(service, "outside@example.com")
+    nowhere = _user(service, "nowhere@example.com")
+    boss = _user(service, "boss@example.com")
+    session.add(PlatformAdmin(user_id=boss.id, created_by=ACTOR, updated_by=ACTOR))
+    session.commit()
+
+    rows, total = service.lookup_users("", None, hiring_firm_id=firm.id)
+
+    assert {row.id for row, _ in rows} == {outside.id, nowhere.id}
+    assert total == 2
+    assert all(member is False for _, member in rows)
+
+
+def test_a_platform_callers_list_is_paged_and_filtered() -> None:
+    """A real directory pages, and a term narrows it rather than gating it."""
+    service, session = _service()
+    firm = _firm(session, "F1")
+    for index in range(5):
+        _user(service, f"person{index}@example.com")
+    _user(service, "asha@example.com")
+
+    first, total = service.lookup_users(
+        "", None, hiring_firm_id=firm.id, page=1, page_size=4
+    )
+    second, _ = service.lookup_users(
+        "", None, hiring_firm_id=firm.id, page=2, page_size=4
+    )
+    assert total == 6
+    assert len(first) == 4 and len(second) == 2
+    assert {row.id for row, _ in first}.isdisjoint({row.id for row, _ in second})
+
+    narrowed, narrowed_total = service.lookup_users("ash", None, hiring_firm_id=firm.id)
+    assert [row.email for row, _ in narrowed] == ["asha@example.com"]
+    assert narrowed_total == 1
+
+
+def test_a_platform_caller_with_no_firm_in_context_excludes_nobody() -> None:
+    """Nothing to leave out when no firm is being staffed."""
+    service, session = _service()
+    firm = _firm(session, "F1")
+    inside = _user(service, "inside@example.com")
+    _member(session, inside, firm)
+    outside = _user(service, "outside@example.com")
+
+    rows, total = service.lookup_users("", None)
+
+    assert {row.id for row, _ in rows} == {inside.id, outside.id}
+    assert total == 2
 
 
 # --------------------------------------------------------------------------

@@ -2905,8 +2905,18 @@ ResourceDefinition<Firm> firmDefinition(
 /// The membership is **added**, never replaced: the server merges within the
 /// caller's reach, so the firms this administrator cannot see are carried
 /// through untouched.
-Future<String> _addExistingUser(BuildContext context, ApiClient api) async {
-  final HireExistingPerson? hire = await findPersonToHire(context, api);
+///
+/// A platform caller opens on the whole list of people not yet in the firm
+/// and filters it; a firm caller types at least three characters first. The
+/// directory is the platform's to read and not a firm's, and the server
+/// answers each accordingly -- this only decides what the screen asks for.
+Future<String> _addExistingUser(
+  BuildContext context,
+  ApiClient api, {
+  required bool listsEveryone,
+}) async {
+  final HireExistingPerson? hire =
+      await findPersonToHire(context, api, listsEveryone: listsEveryone);
   if (hire == null) return '';
   final String firmId = api.activeFirmId?.call() ?? '';
   if (firmId.isEmpty) return 'Select a firm first.';
@@ -3107,7 +3117,11 @@ ResourceDefinition<PlatformUser> userDefinition(
           needsSelection: false,
           isVisible: (_) => permissions
               .hasAllPermissions(['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW']),
-          onInvoke: (_) => _addExistingUser(context, api),
+          onInvoke: (_) => _addExistingUser(
+            context,
+            api,
+            listsEveryone: permissions.isPlatformAdmin,
+          ),
         ),
         ResourceAction<PlatformUser>(
           label: 'Hire like this person',

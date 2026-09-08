@@ -594,6 +594,11 @@ elsewhere. Sign in as `whole01.admin`.
 | 24.13 **(SQL)** | Check their ELEC01 roles | Unchanged. Adding them to WHOLE01 touches nothing in ELEC01. |
 | 24.14 | As `whole01.sales1`, look for Add existing user | Not offered. It needs `USER_CREATE`. |
 | 24.15 **(HTTP)** | `GET /api/v1/users/lookup?q=elec` with a `whole01.sales1` token | `403`. `USER_VIEW` deliberately does not reach it. |
+| 24.16 **(HTTP)** | `GET /api/v1/users/lookup?q=` as `whole01.admin` | `422`: "Type at least 3 characters". An empty term is the shortest of all, and a firm caller gets a lookup, not the directory. |
+| 24.17 | Sign in as `master.ops`, select **WHOLE01**, Users → **Add existing user** | The dialog **opens already listing** everyone with an account who is not in WHOLE01, with no typing. The helper reads "Leave blank to list everyone not yet in this firm." WHOLE01's own people are **not** listed — they are in the grid beside the button — and neither is any platform administrator. |
+| 24.18 | Type `e` | Filtered on one character; the three-character rule is a firm caller's. Clear the box and the full list returns. |
+| 24.19 | Pick somebody, Add | Added to WHOLE01, and gone from the dialog's list next time it opens. |
+| 24.20 **(HTTP)** | `GET /api/v1/users/lookup?q=&page=1&page_size=2` as `master.ops` with `X-Firm-ID: WHOLE01` | Two rows and a `pagination` block whose `total_records` is everybody not in WHOLE01. The route pages for a platform caller and caps at ten for a firm one, whatever `page` says. |
 
 > **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the
 > membership and the WHOLE01 roles afterwards, or reseed.

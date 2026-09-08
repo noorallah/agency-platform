@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../models/entities.dart';
+import '../workspace/paged_fetch.dart';
 
 /// Who to hire, and into which job.
 class HireExistingPerson {
@@ -23,26 +24,38 @@ class HireExistingPerson {
 /// TextEditingController was used after being disposed" -- written twice in
 /// this repository before `askForReason` existed.
 ///
+/// `listsEveryone` is the platform caller's version: the directory is theirs
+/// anyway, so the dialog opens already listing everybody not yet in the firm
+/// and the box filters it. A firm caller must type at least three characters,
+/// because the people outside their firm are other firms' staff -- the server
+/// enforces both and this only decides what the screen asks for.
+///
 /// Returns null for a dismissal.
-Future<HireExistingPerson?> findPersonToHire(BuildContext context, ApiClient api) =>
+Future<HireExistingPerson?> findPersonToHire(
+  BuildContext context,
+  ApiClient api, {
+  bool listsEveryone = false,
+}) =>
     showDialog<HireExistingPerson>(
       context: context,
-      builder: (_) => _FindPersonDialog(api: api),
+      builder: (_) => _FindPersonDialog(api: api, listsEveryone: listsEveryone),
     );
 
 class _FindPersonDialog extends StatefulWidget {
-  const _FindPersonDialog({required this.api});
+  const _FindPersonDialog({required this.api, required this.listsEveryone});
 
   final ApiClient api;
+  final bool listsEveryone;
 
   @override
   State<_FindPersonDialog> createState() => _FindPersonDialogState();
 }
 
 class _FindPersonDialogState extends State<_FindPersonDialog> {
-  /// What the server refuses below. Checked here too, so somebody typing two
-  /// letters gets guidance rather than a 422 rendered as a failure.
-  static const int _minimumTerm = 3;
+  /// What the server refuses a firm caller below. Checked here too, so
+  /// somebody typing two letters gets guidance rather than a 422 rendered as
+  /// a failure. Zero for a platform caller, whose empty term is a request.
+  int get _minimumTerm => widget.listsEveryone ? 0 : 3;
 
   final TextEditingController _term = TextEditingController();
   Timer? _debounce;
@@ -54,10 +67,16 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
   String? _error;
   bool _searched = false;
 
+  /// Which search is the latest. The opening list can run to several pages
+  /// while a typed filter answers in one, so without this a slow, earlier
+  /// answer could land on top of a faster, later one.
+  int _searchSeq = 0;
+
   @override
   void initState() {
     super.initState();
     unawaited(_loadTemplates());
+    if (widget.listsEveryone) unawaited(_search(''));
   }
 
   @override
@@ -95,13 +114,20 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
       });
       return;
     }
+    final int seq = ++_searchSeq;
     setState(() {
       _searching = true;
       _error = null;
     });
     try {
-      final List<UserLookupResult> found = await widget.api.lookupUsers(term);
-      if (!mounted) return;
+      // Every page: a platform caller's empty term can run to a few hundred
+      // people, and a list that silently stops at page one is a list somebody
+      // will conclude a person is missing from. A firm caller's answer is
+      // capped at ten server-side, so for them this is one page.
+      final List<UserLookupResult> found = await fetchAllPages(
+        (page) => widget.api.lookupUsers(term, page: page),
+      );
+      if (!mounted || seq != _searchSeq) return;
       setState(() {
         _results = found;
         _searching = false;
@@ -110,7 +136,7 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
         if (!found.any((row) => row.id == _selectedId)) _selectedId = null;
       });
     } on ApiException catch (exception) {
-      if (!mounted) return;
+      if (!mounted || seq != _searchSeq) return;
       setState(() {
         _searching = false;
         _searched = true;
@@ -138,9 +164,13 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Search by name or email for somebody who already has an '
-              'account. Adding them here does not change anything in any '
-              'other firm they work in.',
+              widget.listsEveryone
+                  ? 'Everyone with an account who is not yet in this firm. '
+                      'Type to filter by name or email. Adding them here does '
+                      'not change anything in any other firm they work in.'
+                  : 'Search by name or email for somebody who already has an '
+                      'account. Adding them here does not change anything in '
+                      'any other firm they work in.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
@@ -150,7 +180,9 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
               onChanged: _onTermChanged,
               decoration: InputDecoration(
                 labelText: 'Name or email',
-                helperText: 'At least $_minimumTerm characters.',
+                helperText: widget.listsEveryone
+                    ? 'Leave blank to list everyone not yet in this firm.'
+                    : 'At least $_minimumTerm characters.',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _searching
                     ? const Padding(
@@ -217,9 +249,17 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
   Widget _emptyState(ThemeData theme) {
     final String message = _error ??
         (!_searched
-            ? 'Type a name or email to search.'
-            : 'Nobody matches. They may not have an account yet — use New to '
-                'create one.');
+            ? (widget.listsEveryone
+                ? 'Loading everyone not yet in this firm…'
+                : 'Type a name or email to search.')
+            : (widget.listsEveryone && _term.text.trim().isEmpty
+                // An empty list with nothing typed means the firm already
+                // holds every account there is -- a different fact from a
+                // filter that matched nobody, and a different next step.
+                ? 'Everyone with an account is already in this firm. Use New '
+                    'to create somebody.'
+                : 'Nobody matches. They may not have an account yet — use New '
+                    'to create one.'));
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(16),

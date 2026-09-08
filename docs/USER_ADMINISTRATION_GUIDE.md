@@ -205,6 +205,11 @@ here. You are not told which other firms they work in — that is the one thing 
 firm does not learn about another, and it is why this is a lookup rather than a
 list you can page through.
 
+A **platform administrator** gets the list instead: the dialog opens on
+everyone with an account who is not yet in the selected firm, and typing
+filters it. The directory is the platform's to read, so there is nothing to
+hold back from them.
+
 Nothing changes in any firm they already work in. Their memberships and roles
 there are untouched, and they are not told.
 

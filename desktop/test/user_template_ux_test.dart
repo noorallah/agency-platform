@@ -547,16 +547,20 @@ void main() {
 
     Future<List<HireExistingPerson?>> open(
       WidgetTester tester,
-      _LookupApi api,
-    ) async {
+      _LookupApi api, {
+      bool listsEveryone = false,
+    }) async {
       final List<HireExistingPerson?> chosen = <HireExistingPerson?>[];
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: Builder(
               builder: (context) => TextButton(
-                onPressed: () async =>
-                    chosen.add(await findPersonToHire(context, api)),
+                onPressed: () async => chosen.add(await findPersonToHire(
+                  context,
+                  api,
+                  listsEveryone: listsEveryone,
+                )),
                 child: const Text('open'),
               ),
             ),
@@ -567,6 +571,59 @@ void main() {
       await tester.pumpAndSettle();
       return chosen;
     }
+
+    testWidgets('a platform administrator opens on everyone not in the firm',
+        (tester) async {
+      // The directory is theirs anyway. Nothing typed is a request for the
+      // whole of it, and the server leaves out the firm's own people.
+      final _LookupApi api = _LookupApi(results: [
+        _lookupRow(id: 'u-1', name: 'Asha Rao', email: 'asha@elsewhere.example'),
+        _lookupRow(id: 'u-2', name: 'Bala Iyer', email: 'bala@nowhere.example'),
+      ]);
+
+      await open(tester, api, listsEveryone: true);
+
+      expect(api.terms, [''], reason: 'searched once, before anything typed');
+      expect(find.text('Asha Rao'), findsOneWidget);
+      expect(find.text('Bala Iyer'), findsOneWidget);
+      expect(find.textContaining('Leave blank to list everyone'), findsOneWidget);
+      expect(find.text('Type a name or email to search.'), findsNothing);
+    });
+
+    testWidgets('typing filters, and one character is enough', (tester) async {
+      final _LookupApi api = _LookupApi(results: [_lookupRow()]);
+
+      await open(tester, api, listsEveryone: true);
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(api.terms, ['', 'a']);
+    });
+
+    testWidgets('an empty list with nothing typed says the firm has everyone',
+        (tester) async {
+      // A different fact from a filter that matched nobody, with a different
+      // next step: there is nobody to add, so create somebody.
+      await open(tester, _LookupApi(), listsEveryone: true);
+
+      expect(
+        find.textContaining('Everyone with an account is already in this firm'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('may not have an account yet'), findsNothing);
+    });
+
+    testWidgets('a firm administrator does not open on a list', (tester) async {
+      // The people outside their firm are other firms' staff, so nothing is
+      // searched until they type -- the rule the next tests pin.
+      final _LookupApi api = _LookupApi(results: [_lookupRow()]);
+
+      await open(tester, api);
+
+      expect(api.terms, isEmpty);
+      expect(find.text('Type a name or email to search.'), findsOneWidget);
+    });
 
     testWidgets('says a search reaches other firms and changes none of them',
         (tester) async {
@@ -872,9 +929,13 @@ class _LookupApi extends ApiClient {
   final List<String> terms = <String>[];
 
   @override
-  Future<List<UserLookupResult>> lookupUsers(String term) async {
-    terms.add(term);
-    return results;
+  Future<PagedResult<UserLookupResult>> lookupUsers(
+    String term, {
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    if (page == 1) terms.add(term);
+    return PagedResult(items: page == 1 ? results : const [], total: results.length);
   }
 
   @override
