@@ -81,6 +81,16 @@ class _Api extends ApiClient {
   @override
   Future<List<AssignedFirm>> myFirms() async => const [];
 
+  // Sign-in reads `/me` beside the preferences; without an answer here the
+  // whole synchronisation is abandoned and the server document never lands.
+  @override
+  Future<CurrentUser> me() async => const CurrentUser(
+        id: 'u-1',
+        email: 'a@b.c',
+        fullName: 'A B',
+        isPlatformAdmin: false,
+      );
+
   @override
   Future<UserPreferences> updateUserPreferences(Json changes) async {
     patches.add(changes);

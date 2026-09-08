@@ -26,10 +26,12 @@ from app.identity.schemas import (
     ChangePasswordRequest,
     IdentifierList,
     LoginRequest,
+    MeResponse,
     MyFirmResponse,
     PermissionCreate,
     PermissionResponse,
     PermissionUpdate,
+    PrimaryFirmUpdate,
     RefreshRequest,
     RoleCreate,
     RoleResponse,
@@ -289,6 +291,65 @@ def list_my_firms(
             )
             for membership, firm in rows
         ]
+    )
+
+
+@router.get("/me", response_model=ApiResponse[MeResponse], tags=["User preferences"])
+def get_me(
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[MeResponse]:
+    """Return who is signed in.
+
+    Being signed in is the whole gate. `GET /users/{id}` needs `USER_VIEW`,
+    which most people do not hold, and the token carries no name -- so the
+    desktop's user menu could show nothing but the address typed at the login
+    form, and after a restored session not even that.
+    """
+    user, is_platform_admin, primary = _service(db, settings).describe_me(
+        _actor_id(principal)
+    )
+    return ApiResponse(
+        data=MeResponse(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            is_platform_admin=is_platform_admin,
+            primary_firm_id=primary,
+        )
+    )
+
+
+@router.put(
+    "/me/primary-firm",
+    response_model=ApiResponse[MeResponse],
+    tags=["User preferences"],
+)
+def set_my_primary_firm(
+    data: PrimaryFirmUpdate,
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[MeResponse]:
+    """Choose the firm to land in at sign-in, among the firms this user belongs to.
+
+    Where a person lands is their own decision. The administrator's route,
+    `PUT /users/{id}/firms`, sets the same flag but replaces the whole
+    membership list and is held to the caller's reach; this touches the flag
+    alone, for the caller alone.
+    """
+    service = _service(db, settings)
+    service.set_own_primary_firm(_actor_id(principal), data.firm_id)
+    user, is_platform_admin, primary = service.describe_me(_actor_id(principal))
+    return ApiResponse(
+        data=MeResponse(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            is_platform_admin=is_platform_admin,
+            primary_firm_id=primary,
+        )
     )
 
 

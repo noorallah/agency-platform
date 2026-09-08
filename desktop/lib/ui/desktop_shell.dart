@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'identity/firm_roles_dialog.dart';
+import 'identity/primary_firm_dialog.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
@@ -480,6 +481,10 @@ class _DesktopShellState extends State<DesktopShell> {
                     widget.session.logout();
                     return;
                   }
+                  if (value == 'primary-firm') {
+                    unawaited(_choosePrimaryFirm());
+                    return;
+                  }
                   if (value == 'diagnostics') {
                     unawaited(
                       DiagnosticsReportDialog.show(
@@ -498,11 +503,28 @@ class _DesktopShellState extends State<DesktopShell> {
                   }
                 },
                 itemBuilder: (context) => [
-                  PopupMenuItem(
+                  // Who is signed in, from `GET /me`. This used to be the
+                  // address typed at the login form, and after a restored
+                  // session -- no login form -- the literal word "User".
+                  PopupMenuItem<String>(
                     enabled: false,
-                    child: Text(widget.session.attemptedUsername ?? 'User'),
+                    child: _signedInAs(context),
                   ),
                   const PopupMenuDivider(),
+                  // Where the next session starts. Offered only to somebody
+                  // with a choice to make: one firm needs no primary, and a
+                  // platform administrator always starts on Platform.
+                  if (widget.session.firms.length > 1 &&
+                      !widget.session.canWorkWithoutAFirm)
+                    PopupMenuItem<String>(
+                      value: 'primary-firm',
+                      child: ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.home_work_outlined),
+                        title: const Text('Primary firm'),
+                        subtitle: Text(_primaryFirmName() ?? 'Not set'),
+                      ),
+                    ),
                   const PopupMenuItem<String>(
                     value: 'diagnostics',
                     child: ListTile(
@@ -525,6 +547,57 @@ class _DesktopShellState extends State<DesktopShell> {
           ),
         ),
       );
+
+  /// Name over address, or the address alone when there is no name.
+  Widget _signedInAs(BuildContext context) {
+    final CurrentUser? user = widget.session.currentUser;
+    final String? label = widget.session.userLabel;
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label ?? 'Signed in',
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: theme.colorScheme.onSurface,
+          ),
+        ),
+        if (user != null && user.fullName.isNotEmpty)
+          Text(
+            user.email,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+  }
+
+  String? _primaryFirmName() => widget.session.firms
+      .where((firm) => firm.isPrimary)
+      .map((firm) => firm.name)
+      .firstOrNull;
+
+  Future<void> _choosePrimaryFirm() async {
+    final String? chosen =
+        await choosePrimaryFirm(context, firms: widget.session.firms);
+    if (chosen == null || !mounted) return;
+    try {
+      await widget.session.setPrimaryFirm(chosen);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'You will start in ${_primaryFirmName() ?? 'that firm'} next time '
+        'you sign in.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
 
   Widget _firmControl({bool compact = false}) {
     final List<AssignedFirm> firms = widget.session.firms;
@@ -1035,7 +1108,7 @@ class _DesktopShellState extends State<DesktopShell> {
           ConnectionStateIndicator.offline => 'Offline',
           _ => 'Connecting',
         },
-        currentUser: widget.session.attemptedUsername,
+        currentUser: widget.session.userLabel,
         currentFirm: widget.session.currentFirm?.name ??
             (widget.session.canWorkWithoutAFirm
                 ? 'Platform'
@@ -1409,7 +1482,12 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
                         dense: true,
                         leading: const Icon(Icons.business_outlined),
                         title: Text(firm.name),
-                        subtitle: Text(firm.code),
+                        // Says which one the next sign-in starts in, so the
+                        // difference between switching and the primary is
+                        // visible where switching happens.
+                        subtitle: Text(
+                          firm.isPrimary ? '${firm.code}  ·  primary' : firm.code,
+                        ),
                         trailing: firm.id == widget.activeFirmId
                             ? const Icon(Icons.check, size: 18)
                             : null,

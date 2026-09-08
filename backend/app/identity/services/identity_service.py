@@ -1643,6 +1643,80 @@ class IdentityService:
             conditions.append(UserFirm.firm_id.in_(visible_firm_ids))
         return list(self._session.scalars(select(UserFirm).where(*conditions)))
 
+    def describe_me(self, user_id: UUID) -> tuple[User, bool, UUID | None]:
+        """Return the signed-in user, their designation and their primary firm.
+
+        The self-service read behind `GET /me`. It answers for the caller
+        only, so it needs no scope and no permission code: a person is always
+        entitled to know who they are signed in as.
+        """
+        user = self._get_user(user_id)
+        primary = self._session.scalar(
+            select(UserFirm.firm_id)
+            .join(Firm, Firm.id == UserFirm.firm_id)
+            .where(
+                UserFirm.user_id == user_id,
+                UserFirm.is_primary.is_(True),
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+                Firm.is_active.is_(True),
+                Firm.is_deleted.is_(False),
+            )
+        )
+        return user, self._is_platform_admin(user.id), primary
+
+    def set_own_primary_firm(self, user_id: UUID, firm_id: UUID) -> None:
+        """Make one of the caller's own firms the one they land in at sign-in.
+
+        Self-service: `PUT /users/{id}/firms` sets the same flag, but it is an
+        administrator's route, replaces the whole membership list, and a firm
+        administrator of one firm may not move a primary they cannot see.
+        Where a person lands is their own decision, so this touches the flag
+        alone and only among firms they actively belong to.
+
+        The old primary is cleared and **flushed** before the new one is set:
+        `UQ_user_firms_active_primary` is a partial unique index checked per
+        statement, so setting the new flag first would collide with the old.
+        """
+        user = self._get_user_for_update(user_id)
+        memberships = list(
+            self._session.scalars(
+                select(UserFirm)
+                .join(Firm, Firm.id == UserFirm.firm_id)
+                .where(
+                    UserFirm.user_id == user.id,
+                    UserFirm.is_active.is_(True),
+                    UserFirm.is_deleted.is_(False),
+                    Firm.is_active.is_(True),
+                    Firm.is_deleted.is_(False),
+                )
+                .with_for_update()
+            )
+        )
+        chosen = next((row for row in memberships if row.firm_id == firm_id), None)
+        if chosen is None:
+            raise BusinessRuleError(
+                "You can only make a firm you belong to your primary firm."
+            )
+        if chosen.is_primary:
+            return
+        for row in memberships:
+            if row.is_primary:
+                row.is_primary = False
+                row.updated_by = user.id
+        self._session.flush()
+        chosen.is_primary = True
+        chosen.updated_by = user.id
+        record_audit(
+            self._session,
+            action="user.primary_firm_set",
+            entity_type="user",
+            entity_id=user.id,
+            actor_id=user.id,
+            firm_id=firm_id,
+        )
+        self._session.commit()
+
     def list_my_firms(
         self, user_id: UUID, *, every_firm: bool = False
     ) -> list[tuple[UserFirm | None, Firm]]:

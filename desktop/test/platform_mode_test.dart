@@ -28,21 +28,25 @@ void main() {
       _firm('c'),
     ];
 
-    test('an ordinary user lands on the firm they last used', () {
+    test('an ordinary user lands on their primary firm', () {
+      // Over the one they last used: the primary is theirs to choose from
+      // the user menu, and read the other way round the flag meant nothing
+      // to anybody who ever switched. `primary_firm_test.dart` has the rest.
       expect(
         SessionController.resolveLandingFirm(firms, 'c',
                 isPlatformAdmin: false)
             ?.id,
-        'c',
+        'b',
       );
     });
 
-    test('and on their primary firm when they have no preference', () {
+    test('and on the firm they last used when none is primary', () {
+      final List<AssignedFirm> unmarked = [_firm('a'), _firm('b'), _firm('c')];
       expect(
-        SessionController.resolveLandingFirm(firms, null,
+        SessionController.resolveLandingFirm(unmarked, 'c',
                 isPlatformAdmin: false)
             ?.id,
-        'b',
+        'c',
       );
     });
 

@@ -24,6 +24,33 @@ class AssignmentOption {
   final String? group;
 }
 
+/// Who is signed in, as `GET /me` answers.
+class CurrentUser {
+  const CurrentUser({
+    required this.id,
+    required this.email,
+    required this.fullName,
+    required this.isPlatformAdmin,
+    this.primaryFirmId,
+  });
+
+  final String id, email, fullName;
+  final bool isPlatformAdmin;
+
+  /// The firm the next sign-in starts in, or null with none marked.
+  final String? primaryFirmId;
+
+  factory CurrentUser.fromJson(Json json) => CurrentUser(
+        id: stringValue(json['id']),
+        email: stringValue(json['email']),
+        fullName: stringValue(json['full_name']),
+        isPlatformAdmin: boolValue(json['is_platform_admin']),
+        primaryFirmId: json['primary_firm_id'] is String
+            ? json['primary_firm_id'] as String
+            : null,
+      );
+}
+
 class AssignedFirm {
   const AssignedFirm({
     required this.id,
