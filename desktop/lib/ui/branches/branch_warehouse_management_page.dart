@@ -8,6 +8,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/geography.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'branch_warehouse_import_dialog.dart';
 
@@ -998,11 +999,18 @@ class _BranchDialogState extends State<_BranchDialog> {
   /// this form grew them, nothing in the client ever set one.
   Map<GeoLevel, String> _place = const <GeoLevel, String>{};
   bool _isDefault = false;
+
+  /// The branch's custom fields, sent only once the definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('BRANCH'),
+    stored: widget.current?.attributes ?? const [],
+  );
   bool _gstRegistration = false;
 
   @override
   void initState() {
     super.initState();
+    _customFields.start();
     _status = widget.current?.status.isNotEmpty == true
         ? widget.current!.status
         : 'ACTIVE';
@@ -1030,6 +1038,7 @@ class _BranchDialogState extends State<_BranchDialog> {
 
   @override
   void dispose() {
+    _customFields.dispose();
     _code.dispose();
     _name.dispose();
     _displayName.dispose();
@@ -1147,6 +1156,14 @@ class _BranchDialogState extends State<_BranchDialog> {
                   value: _place,
                   onChanged: (value) => setState(() => _place = value),
                 ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Custom fields',
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+                const SizedBox(height: 8),
+                CustomFieldsSection(controller: _customFields, noun: 'branches'),
               ],
             ),
           ),
@@ -1156,7 +1173,21 @@ class _BranchDialogState extends State<_BranchDialog> {
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel')),
           FilledButton(
-            onPressed: () => Navigator.pop(context, {
+            onPressed: () {
+              final String? customField = _customFields.validate();
+              if (customField != null) {
+                NotificationService.show(context, customField,
+                    kind: AppNotificationKind.warning);
+                return;
+              }
+              Navigator.pop(context, _payload());
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      );
+
+  Json _payload() => {
               'code': _code.text.trim().toUpperCase(),
               'name': _name.text.trim(),
               'display_name': _displayName.text.trim().isEmpty
@@ -1183,11 +1214,9 @@ class _BranchDialogState extends State<_BranchDialog> {
               // `working_hours` is deliberately absent: this form does not
               // edit it, and it used to send a fixed 09:00–18:00 that
               // overwrote whatever the firm had set.
-            }),
-            child: const Text('Save'),
-          ),
-        ],
-      );
+              // Only once the definitions arrived: absent leaves them alone.
+              if (_customFields.canSend) 'attributes': _customFields.payload(),
+            };
 
   Widget _typeDropdown() => DropdownButtonFormField<String?>(
         initialValue: _typeId,
@@ -1243,6 +1272,12 @@ class _WarehouseDialog extends StatefulWidget {
 class _WarehouseDialogState extends State<_WarehouseDialog> {
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
+
+  /// The warehouse's custom fields, sent only once the definitions arrived.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('WAREHOUSE'),
+    stored: widget.current?.attributes ?? const [],
+  );
   late final TextEditingController _name =
       TextEditingController(text: widget.current?.name ?? '');
   late final TextEditingController _displayName =
@@ -1291,6 +1326,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
   @override
   void initState() {
     super.initState();
+    _customFields.start();
     _status = widget.current?.status.isNotEmpty == true
         ? widget.current!.status
         : 'ACTIVE';
@@ -1333,6 +1369,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
 
   @override
   void dispose() {
+    _customFields.dispose();
     _code.dispose();
     _name.dispose();
     _displayName.dispose();
@@ -1476,6 +1513,15 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                       ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Custom fields',
+                      style: Theme.of(context).textTheme.titleSmall),
+                ),
+                const SizedBox(height: 8),
+                CustomFieldsSection(
+                    controller: _customFields, noun: 'warehouses'),
               ],
             ),
           ),
@@ -1487,7 +1533,21 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
           FilledButton(
             onPressed: _branchId == null
                 ? null
-                : () => Navigator.pop(context, {
+                : () {
+                    final String? customField = _customFields.validate();
+                    if (customField != null) {
+                      NotificationService.show(context, customField,
+                          kind: AppNotificationKind.warning);
+                      return;
+                    }
+                    Navigator.pop(context, _payload());
+                  },
+            child: const Text('Save'),
+          ),
+        ],
+      );
+
+  Json _payload() => {
                       'branch_id': _branchId,
                       'code': _code.text.trim().toUpperCase(),
                       'name': _name.text.trim(),
@@ -1509,11 +1569,11 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                       'postal_code_id': _at(GeoLevel.postalCode),
                       'locality_id': _at(GeoLevel.locality),
                       ..._flags,
-                    }),
-            child: const Text('Save'),
-          ),
-        ],
-      );
+                      // Only once the definitions arrived: absent leaves them
+                      // alone.
+                      if (_customFields.canSend)
+                        'attributes': _customFields.payload(),
+                    };
 
   Widget _field(TextEditingController controller, String label) => TextField(
         controller: controller,

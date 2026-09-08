@@ -1,4 +1,5 @@
 import 'entities.dart';
+import 'product.dart';
 
 class BranchRecord {
   const BranchRecord({
@@ -30,6 +31,7 @@ class BranchRecord {
     required this.isDeleted,
     required this.warehouseCount,
     required this.createdAt,
+    this.attributes = const [],
   });
 
   final String id;
@@ -67,6 +69,9 @@ class BranchRecord {
   final bool isDefault;
   final bool isDeleted;
   final int warehouseCount;
+
+  /// The stored custom-field values, one per definition the firm defines.
+  final List<AttributeValueRecord> attributes;
   final String createdAt;
 
   factory BranchRecord.fromJson(Json json) => BranchRecord(
@@ -98,6 +103,11 @@ class BranchRecord {
         isDeleted: boolValue(json['is_deleted']),
         warehouseCount: (json['warehouse_count'] as num?)?.toInt() ?? 0,
         createdAt: stringValue(json['created_at']),
+        attributes: (json['attributes'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => ProductAttributeValueRecord.fromJson(
+                Map<String, dynamic>.from(item)))
+            .toList(),
       );
 }
 
@@ -135,6 +145,7 @@ class WarehouseRecord {
     this.hasLoadingDock = false,
     required this.isDeleted,
     required this.createdAt,
+    this.attributes = const [],
   });
 
   final String id;
@@ -174,6 +185,9 @@ class WarehouseRecord {
   final bool hasInspectionArea;
   final bool hasPackingArea;
   final bool hasLoadingDock;
+
+  /// The stored custom-field values, one per definition the firm defines.
+  final List<AttributeValueRecord> attributes;
   final bool isDeleted;
   final String createdAt;
 
@@ -208,6 +222,11 @@ class WarehouseRecord {
         hasInspectionArea: boolValue(json['has_inspection_area']),
         hasPackingArea: boolValue(json['has_packing_area']),
         hasLoadingDock: boolValue(json['has_loading_dock']),
+        attributes: (json['attributes'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => ProductAttributeValueRecord.fromJson(
+                Map<String, dynamic>.from(item)))
+            .toList(),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
       );

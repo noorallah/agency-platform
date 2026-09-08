@@ -10,6 +10,12 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.branches.models import (
+    Branch,
+    BranchAttributeValue,
+    Warehouse,
+    WarehouseAttributeValue,
+)
 from app.branches.schemas import (
     BranchCreate,
     BranchImportRequest,
@@ -38,6 +44,7 @@ from app.branches.schemas import (
     WarehouseUpdate,
 )
 from app.branches.services import BranchWarehouseService
+from app.business.schemas import AttributeValueResponse
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -151,6 +158,22 @@ def _warehouse_filters(
         raise ValidationError(str(error)) from error
 
 
+def _attributes(
+    model: type[BranchAttributeValue] | type[WarehouseAttributeValue],
+    row: Branch | Warehouse,
+    db: Session,
+) -> list[AttributeValueResponse]:
+    """Read the record's custom fields for the response every site builds."""
+    return BranchWarehouseService(db).attribute_responses(model, row)
+
+
+def _warehouse_response(row: Warehouse, db: Session) -> WarehouseResponse:
+    """Build one warehouse response with its custom fields attached."""
+    payload = WarehouseResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(WarehouseAttributeValue, row, db)
+    return WarehouseResponse.model_validate(payload)
+
+
 @router.get("/branches", response_model=PaginatedResponse[BranchResponse])
 def list_branches(
     scope: BranchViewScope,
@@ -197,6 +220,7 @@ def list_branches(
     data = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
+        payload["attributes"] = _attributes(BranchAttributeValue, row, db)
         payload["warehouse_count"] = len(
             [item for item in row.warehouses if not item.is_deleted]
         )
@@ -237,6 +261,7 @@ def create_branch(
         actor_id=scope.actor_id,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(BranchAttributeValue, row, db)
     payload["warehouse_count"] = 0
     return ApiResponse(data=BranchResponse.model_validate(payload))
 
@@ -258,6 +283,7 @@ def import_branches(
     payloads = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
+        payload["attributes"] = _attributes(BranchAttributeValue, row, db)
         payload["warehouse_count"] = 0
         payloads.append(BranchResponse.model_validate(payload))
     return ApiResponse(data=payloads)
@@ -325,6 +351,7 @@ def get_branch(
     )
     set_etag(response, row)
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(BranchAttributeValue, row, db)
     payload["warehouse_count"] = len(
         [item for item in row.warehouses if not item.is_deleted]
     )
@@ -354,6 +381,7 @@ def update_branch(
     )
     set_etag(response, row)
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(BranchAttributeValue, row, db)
     payload["warehouse_count"] = len(
         [item for item in row.warehouses if not item.is_deleted]
     )
@@ -390,6 +418,7 @@ def restore_branch(
         actor_id=scope.actor_id,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(BranchAttributeValue, row, db)
     payload["warehouse_count"] = len(
         [item for item in row.warehouses if not item.is_deleted]
     )
@@ -411,6 +440,7 @@ def duplicate_branch(
         actor_id=scope.actor_id,
     )
     payload = BranchResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = _attributes(BranchAttributeValue, row, db)
     payload["warehouse_count"] = 0
     return ApiResponse(data=BranchResponse.model_validate(payload))
 
@@ -506,7 +536,7 @@ def list_warehouses(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[WarehouseResponse.model_validate(row) for row in rows],
+        data=[_warehouse_response(row, db) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -543,7 +573,7 @@ def create_warehouse(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=WarehouseResponse.model_validate(row))
+    return ApiResponse(data=_warehouse_response(row, db))
 
 
 @router.post(
@@ -560,7 +590,7 @@ def import_warehouses(
     rows = BranchWarehouseService(db).import_warehouses(
         data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=[WarehouseResponse.model_validate(row) for row in rows])
+    return ApiResponse(data=[_warehouse_response(row, db) for row in rows])
 
 
 # Above `/warehouses/{id}` on purpose: FastAPI matches in declaration order, so
@@ -626,7 +656,7 @@ def get_warehouse(
         include_deleted=include_deleted,
     )
     set_etag(response, row)
-    return ApiResponse(data=WarehouseResponse.model_validate(row))
+    return ApiResponse(data=_warehouse_response(row, db))
 
 
 @router.put("/warehouses/{warehouse_id}", response_model=ApiResponse[WarehouseResponse])
@@ -651,7 +681,7 @@ def update_warehouse(
         actor_id=scope.actor_id,
     )
     set_etag(response, row)
-    return ApiResponse(data=WarehouseResponse.model_validate(row))
+    return ApiResponse(data=_warehouse_response(row, db))
 
 
 @router.delete("/warehouses/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -684,7 +714,7 @@ def restore_warehouse(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=WarehouseResponse.model_validate(row))
+    return ApiResponse(data=_warehouse_response(row, db))
 
 
 @router.post(
@@ -702,7 +732,7 @@ def duplicate_warehouse(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=WarehouseResponse.model_validate(row))
+    return ApiResponse(data=_warehouse_response(row, db))
 
 
 @router.post("/warehouses/bulk-delete", response_model=ApiResponse[dict[str, int]])

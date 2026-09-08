@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import validate_email, validate_phone
 
 
@@ -115,6 +116,9 @@ class BranchWrite(BranchWarehouseSchema):
     working_hours: dict[str, object] = Field(default_factory=dict)
     is_default: bool = False
     status: BranchStatus = BranchStatus.ACTIVE
+    #: The branch's custom fields. Replaced whole when sent; an update that
+    #: omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
     @field_validator("code", "pan", "license_number", "currency_code", mode="before")
     @classmethod
@@ -186,6 +190,10 @@ class WarehouseWrite(BranchWarehouseSchema):
     has_packing_area: bool = False
     has_loading_dock: bool = False
     status: WarehouseStatus = WarehouseStatus.ACTIVE
+
+    #: The warehouse's custom fields. Replaced whole when sent; an update
+    #: that omits them leaves them alone.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
     @field_validator("code", "capacity_unit", mode="before")
     @classmethod
@@ -306,6 +314,7 @@ class BranchResponse(BranchWarehouseSchema):
     status: BranchStatus
     is_deleted: bool
     warehouse_count: int = 0
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
 class WarehouseTypeResponse(BranchWarehouseSchema):
@@ -360,6 +369,7 @@ class WarehouseResponse(BranchWarehouseSchema):
     has_loading_dock: bool
     status: WarehouseStatus
     is_deleted: bool
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
 class StorageNodeResponse(BranchWarehouseSchema):
