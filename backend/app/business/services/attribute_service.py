@@ -387,7 +387,14 @@ class AttributeService:
                 except ValueError as error:
                     raise self._type_error(definition, value, "a date") from error
             raise self._type_error(definition, value, "a date")
-        return {**blank, "value_text": str(value)}
+        text = str(value)
+        allowed = definition.allowed_values
+        if allowed and text.strip() not in allowed:
+            raise ValidationError(
+                f"Attribute {definition.code} must be one of: {', '.join(allowed)}.",
+                details={"attribute_code": definition.code, "received": text},
+            )
+        return {**blank, "value_text": text}
 
     def _read(
         self, row: AttributeValueBase, definition: AttributeDefinition

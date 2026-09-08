@@ -716,7 +716,7 @@ Ordered by what blocks the most.
 | 3 | **3 implemented features are ungated** | `TERRITORY`, `APPROVAL_WORKFLOW`, `MULTIPLE_WAREHOUSES` — each needs a product decision first. See above. |
 | 4 | **`vendors.business_attributes` is an untyped JSON blob** | Unvalidated, unlinked to the catalogue, looks like this feature but is not. Should migrate onto the framework before anyone stores data in it. |
 | 5 | *(closed 2026-08-12)* **UOM defaults** | Readable, inherited correctly, editable from the desktop, and applied by pre-filling a new product's units rather than filling them in server-side. See `docs/UOM_FRAMEWORK.md`. |
-| 6 | **No allowed-values list** | A fixed dropdown such as storage temperature (Ambient / Chilled / Frozen) has to be modelled as TEXT today, which will not hold up for reporting. `validation_rule` is an unused JSON column on the definition and is its natural home. |
+| 6 | ~~**No allowed-values list**~~ closed 2026-09-08 | A TEXT definition may carry `validation_rule.allowed_values`, a list of fixed choices: the schema trims and deduplicates it and refuses it on any other data type, `AttributeService` refuses a value outside the list by name, the response exposes `allowed_values`, and every form renders such a field as a dropdown -- with a stored value no longer in the list kept selectable, or the field would assert and save blank. **Allowed values** on the Dynamic Attributes form is the editor, comma-separated. |
 | 7 | **Line-level attributes undecided** | Needs its own design round — see below. |
 
 Fixed on 2026-08-12: `resolve_capabilities` ignored `default_enabled`, so the

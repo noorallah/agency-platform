@@ -191,6 +191,21 @@ class AttributeDefinition(BaseEntity):
     )
     default_value: Mapped[str | None] = mapped_column(Text)
     validation_rule: Mapped[dict[str, object] | None] = mapped_column(JSON)
+
+    @property
+    def allowed_values(self) -> list[str]:
+        """The fixed choices a TEXT field is limited to, or none.
+
+        Read off ``validation_rule["allowed_values"]``, which is where the
+        rule lives; the column existed unused since the framework was written
+        and this is its first meaning. Empty means free text.
+        """
+        rule = self.validation_rule or {}
+        raw = rule.get("allowed_values")
+        if not isinstance(raw, list):
+            return []
+        return [str(item) for item in raw if str(item).strip()]
+
     applicable_category: Mapped[str | None] = mapped_column(String(100))
     applicable_business_profile_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("business_profiles.id")

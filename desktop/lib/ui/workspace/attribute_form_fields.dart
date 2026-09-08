@@ -108,7 +108,40 @@ class _AttributeFormFieldState extends State<AttributeFormField> {
     final AttributeDefinitionRecord definition = controller.definition;
     if (definition.isBoolean) return _boolean(context);
     if (definition.isDate) return _date(context);
+    if (definition.isChoice) return _choice();
     return _text(numeric: definition.isNumber);
+  }
+
+  /// A dropdown over the definition's allowed values.
+  ///
+  /// A stored value that is no longer in the list stays selectable as an
+  /// item of its own, or the field would assert and the record would save
+  /// as blank -- the same trap the geography picker had.
+  Widget _choice() {
+    final List<String> choices = controller.definition.allowedValues;
+    final String current = controller.text.text.trim();
+    final List<String> items = [
+      ...choices,
+      if (current.isNotEmpty && !choices.contains(current)) current,
+    ];
+    return SizedBox(
+      width: width,
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('attribute-${controller.definition.id}'),
+        initialValue: current.isEmpty ? null : current,
+        decoration: InputDecoration(labelText: _label, helperText: 'Choose one'),
+        items: [
+          for (final String choice in items)
+            DropdownMenuItem(value: choice, child: Text(choice)),
+        ],
+        onChanged: readOnly
+            ? null
+            : (value) {
+                controller.text.text = value ?? '';
+                _changed();
+              },
+      ),
+    );
   }
 
   Widget _text({required bool numeric}) => SizedBox(

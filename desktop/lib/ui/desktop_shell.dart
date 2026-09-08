@@ -1726,7 +1726,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
       'attribute-definitions' =>
         ResourceManagementPage<AttributeDefinitionRecord>(
           api: widget.api,
-          definition: _attributeDefinitionDefinition(
+          definition: attributeDefinitionDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -4669,7 +4669,7 @@ ResourceDefinition<CategoryAttributeRuleRecord> categoryAttributeRuleDefinition(
   );
 }
 
-ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
+ResourceDefinition<AttributeDefinitionRecord> attributeDefinitionDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
@@ -4739,6 +4739,12 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
       FieldSpec(key: 'description', label: 'Description', multiline: true),
       FieldSpec(key: 'default_value', label: 'Default value'),
       FieldSpec(
+        key: 'allowed_values',
+        label: 'Allowed values',
+        helperText: 'Comma-separated fixed choices for a TEXT field, such as '
+            'Ambient, Chilled, Frozen. Leave empty for free text.',
+      ),
+      FieldSpec(
         key: 'mandatory',
         label: 'Mandatory',
         boolean: true,
@@ -4783,6 +4789,7 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
               'mandatory': attribute.mandatory,
               'description': attribute.description,
               'default_value': attribute.defaultValue,
+              'allowed_values': attribute.allowedValues.join(', '),
               'is_active': attribute.isActive,
             };
     },
@@ -4798,12 +4805,38 @@ ResourceDefinition<AttributeDefinitionRecord> _attributeDefinitionDefinition(
       'description': _blankToNull(values['description']),
       'default_value': _blankToNull(values['default_value']),
       'is_active': values['is_active'],
-      // Round-tripped, not edited. Omitting it would null a rule the form
-      // never showed.
-      if (!isCreating && editing?.validationRule != null)
-        'validation_rule': editing!.validationRule,
+      // The rest of the rule is round-tripped, not edited -- omitting it
+      // would null what the form never showed -- and `allowed_values` is
+      // the one key the form does edit, written over whatever was there.
+      'validation_rule': _validationRule(
+        isCreating ? null : editing?.validationRule,
+        values['allowed_values'],
+      ),
     },
   );
+}
+
+/// The definition's rule with the form's allowed values folded in.
+///
+/// Null when nothing remains, so a definition with no rule keeps a null
+/// column rather than an empty object.
+Map<String, dynamic>? _validationRule(
+  Map<String, dynamic>? existing,
+  Object? allowedValues,
+) {
+  final Map<String, dynamic> rule = {...?existing};
+  final List<String> choices = (allowedValues ?? '')
+      .toString()
+      .split(',')
+      .map((item) => item.trim())
+      .where((item) => item.isNotEmpty)
+      .toList();
+  if (choices.isEmpty) {
+    rule.remove('allowed_values');
+  } else {
+    rule['allowed_values'] = choices;
+  }
+  return rule.isEmpty ? null : rule;
 }
 
 /// Send null rather than an empty string for an optional column.

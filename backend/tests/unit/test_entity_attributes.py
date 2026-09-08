@@ -509,3 +509,76 @@ def test_number_attributes_keep_six_decimal_places() -> None:
         stored = service.values_for(ProductAttributeValue, product.id)[0].value
         assert stored == expected, raw
         assert isinstance(stored, Decimal), "floats would drift on money maths"
+
+
+def test_a_text_field_can_be_limited_to_fixed_choices() -> None:
+    """A dropdown such as storage temperature is a TEXT field with a list.
+
+    Stored under `validation_rule["allowed_values"]`, the column that had
+    existed unused since the framework was written. A value outside the list
+    is refused by name, so a report on the field never meets a spelling.
+    """
+    session = _session()
+    firm = _firm(session)
+    product = _product(session, firm)
+    storage = _definition(session, "STORAGE_TEMPERATURE")
+    storage.validation_rule = {"allowed_values": ["Ambient", "Chilled", "Frozen"]}
+    session.commit()
+    assert storage.allowed_values == ["Ambient", "Chilled", "Frozen"]
+
+    service = AttributeService(session)
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=storage.id, value="Chilled")],
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+    assert service.values_for(ProductAttributeValue, product.id)[0].value == "Chilled"
+
+    with pytest.raises(ValidationError, match="must be one of: Ambient, Chilled"):
+        service.replace_values(
+            ProductAttributeValue,
+            product.id,
+            [AttributeInput(attribute_definition_id=storage.id, value="Cold")],
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_allowed_values_are_normalised_and_only_for_text() -> None:
+    """The definition schema trims, deduplicates and refuses a list on a number."""
+    from app.business.schemas import AttributeDefinitionCreate
+
+    created = AttributeDefinitionCreate(
+        code="STORAGE_TEMPERATURE",
+        name="Storage temperature",
+        data_type=AttributeDataType.TEXT,
+        validation_rule={"allowed_values": [" Ambient", "Chilled", "Ambient", ""]},
+    )
+    assert created.validation_rule == {"allowed_values": ["Ambient", "Chilled"]}
+
+    # An empty list is no rule at all.
+    cleared = AttributeDefinitionCreate(
+        code="NOTE",
+        name="Note",
+        data_type=AttributeDataType.TEXT,
+        validation_rule={"allowed_values": []},
+    )
+    assert cleared.validation_rule == {}
+
+    with pytest.raises(ValueError, match="Only a TEXT attribute"):
+        AttributeDefinitionCreate(
+            code="LEAD_DAYS",
+            name="Lead days",
+            data_type=AttributeDataType.NUMBER,
+            validation_rule={"allowed_values": ["7", "14"]},
+        )
+    with pytest.raises(ValueError, match="list of strings"):
+        AttributeDefinitionCreate(
+            code="NOTE",
+            name="Note",
+            data_type=AttributeDataType.TEXT,
+            validation_rule={"allowed_values": "Ambient"},
+        )

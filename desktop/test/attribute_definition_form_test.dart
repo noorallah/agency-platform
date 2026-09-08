@@ -10,7 +10,9 @@
 // category and raises nothing at all, so the field simply never applies.
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,6 +112,7 @@ Future<void> _openCreateForm(WidgetTester tester, _FormApi api) async {
 }
 
 void main() {
+  allowedValuesTests();
   group('the record carries every column the API sends', () {
     test('a definition round-trips the fields the edit form used to drop', () {
       final AttributeDefinitionRecord record =
@@ -205,5 +208,45 @@ void main() {
       );
       expect(api.writes.single['applicable_category'], isNot('cat-1'));
     });
+  });
+}
+
+void allowedValuesTests() {
+  test('allowed values round-trip as a comma list and fold into the rule', () {
+    final ResourceDefinition<AttributeDefinitionRecord> definition =
+        attributeDefinitionDefinition(_FormApi(), PermissionService());
+    final AttributeDefinitionRecord record =
+        AttributeDefinitionRecord.fromJson(const {
+      'id': 'attr-1',
+      'code': 'STORAGE_TEMPERATURE',
+      'name': 'Storage temperature',
+      'entity_type': 'PRODUCT',
+      'data_type': 'TEXT',
+      'validation_rule': {
+        'max_length': 20,
+        'allowed_values': ['Ambient', 'Chilled'],
+      },
+    });
+
+    final Map<String, dynamic> values = definition.initialValues(record);
+    expect(values['allowed_values'], 'Ambient, Chilled');
+
+    // Edited: the list is rewritten, the rest of the rule is kept.
+    values['allowed_values'] = ' Ambient , Chilled, Frozen ,';
+    final Map<String, dynamic> payload = definition.payload(values, false);
+    expect(payload['validation_rule'], {
+      'max_length': 20,
+      'allowed_values': ['Ambient', 'Chilled', 'Frozen'],
+    });
+
+    // Cleared: the key goes, the rest stays.
+    values['allowed_values'] = '';
+    expect(definition.payload(values, false)['validation_rule'], {
+      'max_length': 20,
+    });
+
+    // A new definition with no choices sends no rule at all.
+    final Map<String, dynamic> fresh = definition.initialValues(null);
+    expect(definition.payload(fresh, true)['validation_rule'], isNull);
   });
 }

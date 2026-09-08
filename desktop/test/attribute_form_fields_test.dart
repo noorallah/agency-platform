@@ -41,6 +41,7 @@ Future<void> _pump(
     );
 
 void main() {
+  choiceTests();
   testWidgets('a text attribute renders a plain field and sends a string',
       (tester) async {
     final controller = AttributeFieldController(_definition('BATCH_NUMBER'));
@@ -195,5 +196,53 @@ void main() {
     expect(controller.payloadValue, 'value');
     expect(controller.validate(), isNull);
     controller.dispose();
+  });
+}
+
+AttributeDefinitionRecord _choice(String code, List<String> values) =>
+    AttributeDefinitionRecord(
+      id: 'def-$code',
+      code: code,
+      name: code.replaceAll('_', ' '),
+      dataType: 'TEXT',
+      entityType: 'PRODUCT',
+      mandatory: false,
+      isActive: true,
+      applicableCategory: '',
+      description: '',
+      defaultValue: '',
+      applicableBusinessProfileId: '',
+      validationRule: {'allowed_values': values},
+    );
+
+void choiceTests() {
+  testWidgets('a text attribute with allowed values is a dropdown',
+      (tester) async {
+    final controller = AttributeFieldController(
+      _choice('STORAGE_TEMPERATURE', const ['Ambient', 'Chilled', 'Frozen']),
+    );
+    await _pump(tester, controller);
+
+    expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('attribute-def-STORAGE_TEMPERATURE')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chilled').last);
+    await tester.pumpAndSettle();
+
+    expect(controller.payloadValue, 'Chilled');
+  });
+
+  testWidgets('a stored value outside the list stays selectable',
+      (tester) async {
+    // Or the field asserts and the record saves as blank.
+    final controller = AttributeFieldController(
+      _choice('STORAGE_TEMPERATURE', const ['Ambient', 'Chilled']),
+      initialValue: 'Frozen',
+    );
+    await _pump(tester, controller);
+    expect(tester.takeException(), isNull);
+    expect(find.text('Frozen'), findsOneWidget);
+    expect(controller.payloadValue, 'Frozen');
   });
 }
