@@ -297,13 +297,26 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String firmId = '',
+    bool deletedOnly = false,
   }) =>
       _list('/api/v1/users', PlatformUser.fromJson, page, search,
           pageSize: pageSize,
           sortBy: sortBy,
           descending: descending,
-          additionalQuery:
-              firmId.isEmpty ? const {} : {'firm_id': firmId});
+          additionalQuery: {
+            if (firmId.isNotEmpty) 'firm_id': firmId,
+            // Deleted rows instead of live ones. Honoured for a platform
+            // administrator only; the server keeps a firm caller's list to
+            // live rows whatever is sent.
+            if (deletedOnly) 'deleted_only': 'true',
+          });
+
+  /// Bring a soft-deleted user back with their old firms and roles.
+  /// Platform administrators only.
+  Future<PlatformUser> restoreUser(String id) async =>
+      PlatformUser.fromJson(_unwrapMap(
+        await request('POST', '/api/v1/users/$id/restore'),
+      ));
   Future<PagedResult<Role>> roles({
     int page = 1,
     String search = '',

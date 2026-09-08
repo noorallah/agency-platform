@@ -383,26 +383,59 @@ void main() {
       expect(definition.dialogLeadingAction, isNotNull);
     });
 
-    test('a caller who cannot assign roles is not offered it', () {
+    // The footer is built per row now -- a deleted user gets Restore, a live
+    // one Roles by firm -- so the builder is always there and the question is
+    // what it answers for a given caller and row.
+    Future<Widget?> footer(
+      WidgetTester tester,
+      ResourceDefinition<PlatformUser> definition,
+    ) async {
+      Widget? built;
+      await tester.pumpWidget(MaterialApp(
+        home: Builder(
+          builder: (context) {
+            built = definition.dialogLeadingAction!(
+              context,
+              PlatformUser(
+                id: 'user-1',
+                email: 'a@b.c',
+                fullName: 'A',
+                isActive: true,
+                forcePasswordChange: false,
+                expiresAt: '',
+              ),
+            );
+            return built ?? const SizedBox.shrink();
+          },
+        ),
+      ));
+      await tester.pump();
+      return built;
+    }
+
+    testWidgets('a caller who cannot assign roles is not offered it',
+        (tester) async {
       // Giving somebody a role is the privilege this needs, so it must not be
       // reachable by anybody who could not assign one at a time.
-      expect(
+      final Widget? built = await footer(
+        tester,
         _definition(
           _CreateApi(),
           platformAdmin: false,
           codes: const ['USER_VIEW'],
-        ).dialogLeadingAction,
-        isNull,
+        ),
       );
+
+      expect(built, isNull);
     });
 
-    test('a firm administrator who can assign roles is offered it', () {
+    testWidgets('a firm administrator who can assign roles is offered it',
+        (tester) async {
       // Their firm's section is the only one they will see, which is the
       // point: one click to the roles they may actually change.
-      expect(
-        _definition(_CreateApi(), platformAdmin: false).dialogLeadingAction,
-        isNotNull,
-      );
+      await footer(tester, _definition(_CreateApi(), platformAdmin: false));
+
+      expect(find.text('Roles by firm'), findsOneWidget);
     });
   });
 

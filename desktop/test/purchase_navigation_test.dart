@@ -180,6 +180,7 @@ class _RecordingApi extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String firmId = '',
+    bool deletedOnly = false,
   }) async =>
       const PagedResult<PlatformUser>(items: <PlatformUser>[], total: 0);
 

@@ -303,9 +303,14 @@ class PlatformUser {
     this.createdAt = '',
     this.updatedAt = '',
     this.belongsToOtherFirms = false,
+    this.isDeleted = false,
   });
   final String id, email, fullName;
   final bool isActive, forcePasswordChange;
+
+  /// Soft-deleted. Listed only when a platform administrator asks for
+  /// deleted rows, which is how one is found in order to be restored.
+  final bool isDeleted;
 
   /// Whether this person also works in a firm this caller cannot see.
   ///
@@ -351,6 +356,7 @@ class PlatformUser {
         forcePasswordChange: boolValue(json['force_password_change']),
         expiresAt: stringValue(json['expires_at']),
         belongsToOtherFirms: boolValue(json['belongs_to_other_firms']),
+        isDeleted: boolValue(json['is_deleted']),
         personalMobile: stringValue(json['personal_mobile']),
         alternateMobile: stringValue(json['alternate_mobile']),
         personalEmail: stringValue(json['personal_email']),

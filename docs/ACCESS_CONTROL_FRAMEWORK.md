@@ -535,9 +535,10 @@ They find them with `GET /api/v1/users/lookup?q=` — see below.
   re-onboarded, and `users.email` is unique only among live accounts. A
   re-onboarded address is a **new** user with none of the old one's roles,
   firms or history; deletion leaves those rows in place, so the old account
-  can instead be restored -- by hand, since users have no restore route the
-  way customers, branches and warehouses do -- but only while no live account
-  holds the address. `docs/USER_ADMINISTRATION_GUIDE.md` §8b has both.
+  can instead be restored through `POST /api/v1/users/{id}/restore` --
+  platform administrators only, since a deleted user is invisible to a
+  firm's grid -- but only while no live account holds the address.
+  `docs/USER_ADMINISTRATION_GUIDE.md` §8b has both.
 
 ### Platform mode — the switcher is the mode switch
 

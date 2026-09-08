@@ -267,7 +267,12 @@ class ResourceDefinition<T> {
   /// Roles field writes the **global** tier whatever firm is selected, so the
   /// per-firm roles are edited elsewhere -- and closing the form to find a
   /// toolbar action is exactly the step somebody does not know to take.
-  final Widget Function(BuildContext context, T item)? dialogLeadingAction;
+  ///
+  /// May answer null for a given item: what the footer offers can depend on
+  /// the row (a deleted user gets Restore, a live one Roles by firm) and on
+  /// the caller, and a builder that has nothing to offer says so by
+  /// returning nothing rather than an empty widget.
+  final Widget? Function(BuildContext context, T item)? dialogLeadingAction;
 
   /// What this module's records are searchable by, in the user's words —
   /// "Search permissions by name or code" rather than a generic "Search".
@@ -514,12 +519,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     }
   }
 
-  Future<void> _openDialog(CrudDialogMode mode, [T? item]) async {
-    final ToolbarAction action = switch (mode) {
-      CrudDialogMode.create => ToolbarAction.newItem,
-      CrudDialogMode.view => ToolbarAction.view,
-      CrudDialogMode.edit => ToolbarAction.edit,
-    };
+  Future<void> _openDialog(CrudDialogMode requested, [T? item]) async {
+    CrudDialogMode mode = requested;
     if (mode == CrudDialogMode.edit &&
         item != null &&
         !(widget.definition.canEdit?.call(item) ?? true)) {
@@ -528,8 +529,17 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         NotificationService.show(context, why,
             kind: AppNotificationKind.information);
       }
-      return;
+      // The refusal is about writing. The row is still one somebody meant
+      // to look at, and a notice with nothing behind it reads as "the screen
+      // is broken" -- which is how a deleted user's Restore, which lives in
+      // the view dialog's footer, was unreachable from the context menu.
+      mode = CrudDialogMode.view;
     }
+    final ToolbarAction action = switch (mode) {
+      CrudDialogMode.create => ToolbarAction.newItem,
+      CrudDialogMode.view => ToolbarAction.view,
+      CrudDialogMode.edit => ToolbarAction.edit,
+    };
     if (!_hasCapability(action, item) ||
         (mode == CrudDialogMode.create && !widget.definition.canCreate)) {
       return;
