@@ -37,8 +37,6 @@ Future<bool> showFirmSetupDialog(
 const Map<String, String> firmSetupHints = {
   'geography': 'Open this firm, then Territories → Geography Masters. '
       'Applying the GST template adds the country.',
-  'branches': 'Open this firm, then Masters → Branches, and a warehouse '
-      'under the branch.',
   'members': 'Administration → Users → Add existing user, or '
       'User-Firm Assignments.',
 };
@@ -151,6 +149,17 @@ class _FirmSetupDialogState extends State<FirmSetupDialog> {
           label: const Text('Apply GST template'),
         ),
       'business_profile' => _profilePicker(),
+      // A branch and a warehouse are the firm's own to name, so this is a
+      // default and not a decision: HO and MAIN, renamed on their own
+      // screens afterwards. Stock cannot move until both exist.
+      'branches' => FilledButton.tonalIcon(
+          onPressed: _busy
+              ? null
+              : () => _run(
+                  () => widget.api.createFirmDefaultBranch(widget.firm.id)),
+          icon: const Icon(Icons.store_outlined, size: 18),
+          label: const Text('Create head office and main warehouse'),
+        ),
       _ => null,
     };
   }

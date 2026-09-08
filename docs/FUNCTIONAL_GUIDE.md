@@ -269,8 +269,8 @@ panel that shows where a firm stands on every one of them -- storage, business
 profile, books, tax, geography, branches and warehouses, people -- with
 *Required* against the two the platform refuses to post without and
 *Recommended* against the rest, and does four of them from the platform
-side: **Provision storage**, **Open the books**, **Apply GST template** and
-**Assign** a business profile. Until 2026-09-08 step 4 had no screen at all,
+side: **Provision storage**, **Open the books**, **Apply GST template**,
+**Assign** a business profile and **Create head office and main warehouse**. Until 2026-09-08 step 4 had no screen at all,
 and nothing said it was missing until a document refused to post; tax had
 none either, and was five screens by hand. The same list is `GET /api/v1/firms/{id}/readiness` and
 `scripts/check_firm_readiness.py`, from one implementation
@@ -364,10 +364,13 @@ Refused, by name, for a dedicated firm whose storage has not been provisioned.
 The chart is the one the demo firms are built with (`CHART` in
 `app/finance/services/opening_setup.py`), a conventional distribution chart
 and not a claim about any firm's conventions. A firm that wants a different
-one builds it through the finance API and remaps its control accounts --
-**and the mapping still has no screen of its own**: the readiness panel says
-which purposes are unmapped, and opening the books maps them, but re-pointing
-one afterwards is an API call. `docs/BACKLOG.md` §15 has what is left.
+one builds it through the finance API and remaps its control accounts on
+**Finance › Control Accounts**: every purpose, the account it posts to, and
+how many lines have posted there. A purpose with posted lines is **held** --
+re-pointing it would leave two accounts each holding part of one story, so
+the screen shows the count and no picker, and the API refuses by name; a
+transfer entry and a new account from the next period is the way. Read with
+`ACCOUNT_VIEW`, written with `ACCOUNT_MANAGE`, like the chart itself.
 
 From a shell, `scripts/seed_finance_defaults.py --yes` still does the same
 for every active firm at once, in each firm's own store; it is the same
@@ -456,8 +459,12 @@ on the tax screens, and the script now applies the same one. And **the
 business profile is set from the panel**, from the firm's own catalogue, so
 a brand-new firm no longer needs an established one open first.
 
-What is left is a firm's own naming: its first branch and warehouse, and who
-belongs to it. Both have screens; the panel names them.
+The first branch and warehouse are the firm's own to name, so the panel
+offers a **default** rather than deciding: **Create head office and main
+warehouse** makes `HO` as the default branch and `MAIN` under it, renamed
+afterwards on their own screens, and a firm that already named a branch gets
+only the warehouse under it. What is left is who belongs to the firm, which
+the panel names the screen for.
 
 ---
 

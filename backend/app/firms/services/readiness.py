@@ -28,6 +28,8 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
+from app.branches.schemas import BranchCreate, WarehouseCreate
+from app.branches.services import BranchWarehouseService
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
@@ -503,6 +505,86 @@ class FirmReadinessService:
                 actor_id=actor_id,
                 firm_id=firm.id,
                 after_data={"template": template, **created},
+            )
+            self._platform.commit()
+        return created
+
+    def create_default_branch(
+        self, firm: Firm, store: Session, actor_id: UUID
+    ) -> dict[str, str | None]:
+        """Give the firm a head office and a main warehouse to start with.
+
+        A branch and a warehouse are the firm's own to name, so the panel
+        offers this as a default rather than deciding it: code ``HO``,
+        "Head Office", as the default branch, and ``MAIN``, "Main
+        Warehouse", under it -- both renamed afterwards on their own
+        screens like anything else. Stock cannot move until a warehouse
+        exists, and a warehouse needs a branch, which is why the panel
+        treats them as one step.
+
+        Idempotent per half: a firm that already has a branch keeps it and
+        gets only the warehouse, under its default branch; a firm with both
+        gets nothing and is told so.
+
+        Returns:
+            The branch code and warehouse code created, each None when that
+            half already existed.
+
+        Raises:
+            BusinessRuleError: If the firm's storage does not exist yet.
+
+        """
+        if not storage_is_ready(firm):
+            raise BusinessRuleError(
+                "Provision the firm's storage before creating its first branch."
+            )
+        service = BranchWarehouseService(store)
+        created: dict[str, str | None] = {"branch": None, "warehouse": None}
+        branch = store.scalar(
+            select(Branch)
+            .where(Branch.firm_id == firm.id, Branch.is_deleted.is_(False))
+            .order_by(Branch.is_default.desc(), Branch.created_at.asc())
+        )
+        if branch is None:
+            branch = service.create_branch(
+                BranchCreate(
+                    code="HO",
+                    name="Head Office",
+                    display_name="Head Office",
+                    currency_code=firm.currency_code,
+                    is_default=True,
+                ),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            )
+            created["branch"] = branch.code
+        has_warehouse = store.scalar(
+            select(Warehouse.id).where(
+                Warehouse.firm_id == firm.id, Warehouse.is_deleted.is_(False)
+            )
+        )
+        if has_warehouse is None:
+            warehouse = service.create_warehouse(
+                WarehouseCreate(
+                    branch_id=branch.id,
+                    code="MAIN",
+                    name="Main Warehouse",
+                    display_name="Main Warehouse",
+                ),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            )
+            created["warehouse"] = warehouse.code
+        store.commit()
+        if any(created.values()):
+            record_audit(
+                self._platform,
+                action="firm.default_branch_created",
+                entity_type="firm",
+                entity_id=firm.id,
+                actor_id=actor_id,
+                firm_id=firm.id,
+                after_data={key: value for key, value in created.items() if value},
             )
             self._platform.commit()
         return created

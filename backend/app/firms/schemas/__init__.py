@@ -1,6 +1,7 @@
 """Firm schema exports."""
 
 from app.firms.schemas.firm import (
+    DefaultBranchResponse,
     FirmCreate,
     FirmProvisionResponse,
     FirmReadinessResponse,
@@ -14,6 +15,7 @@ from app.firms.schemas.firm import (
 )
 
 __all__ = [
+    "DefaultBranchResponse",
     "FirmCreate",
     "FirmProvisionResponse",
     "FirmReadinessResponse",

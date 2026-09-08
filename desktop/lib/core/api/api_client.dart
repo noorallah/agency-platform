@@ -339,6 +339,18 @@ class ApiClient {
         .toList();
   }
 
+  /// Give a firm a head office and a main warehouse with default names,
+  /// renamed later on their own screens. Idempotent per half.
+  Future<String> createFirmDefaultBranch(String firmId) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/firms/$firmId/create-default-branch',
+    );
+    return stringValue(response['message']).isEmpty
+        ? 'Created.'
+        : stringValue(response['message']);
+  }
+
   /// List users, optionally narrowed to one firm's active members.
   ///
   /// `firmId` answers "who works at this firm?" without switching into it --
@@ -4580,6 +4592,28 @@ class ApiClient {
     final List<LedgerAccount> items =
         _unwrapList(response, LedgerAccount.fromJson);
     return PagedResult<LedgerAccount>(items: items, total: items.length);
+  }
+
+  /// Every posting purpose and the account it lands in, gaps included.
+  Future<List<ControlAccountMapping>> controlAccounts() async => _unwrapList(
+        await request('GET', '/api/v1/finance/control-accounts'),
+        ControlAccountMapping.fromJson,
+      );
+
+  /// Map one purpose to one account. Returns the server's message; refused
+  /// by name once lines have posted to the current account.
+  Future<String> assignControlAccount(
+    String purpose,
+    String ledgerAccountId,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/finance/control-accounts/$purpose',
+      body: {'ledger_account_id': ledgerAccountId},
+    );
+    return stringValue(response['message']).isEmpty
+        ? 'Mapped.'
+        : stringValue(response['message']);
   }
 
   Future<LedgerAccount> createLedgerAccount(Json data) async =>

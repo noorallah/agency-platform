@@ -101,6 +101,7 @@ _EXPECTED = frozenset(
         ("GET", "/api/v1/firms/{firm_id}/readiness"),
         ("POST", "/api/v1/firms/{firm_id}/open-books"),
         ("POST", "/api/v1/firms/{firm_id}/apply-tax-template"),
+        ("POST", "/api/v1/firms/{firm_id}/create-default-branch"),
         # The capability catalogue roles are built from. Roles are
         # configurable per firm; the capabilities are not.
         ("POST", "/api/v1/permissions"),

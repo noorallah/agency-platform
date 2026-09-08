@@ -284,8 +284,9 @@ types and all 24 control-account mappings, in one press, idempotently; it is
 **Apply GST template** gives the firm the whole Indian GST setup -- system,
 components, the slabs as local and interstate profiles, the rules, and the
 country if the store has none -- and the **Business profile** row carries the
-firm's own catalogue with an **Assign** button. The rows with no button say
-which screen they are done on. The same list is
+firm's own catalogue with an **Assign** button, and **Create head office and
+main warehouse** gives the firm `HO` and `MAIN` to rename later. The People
+row names the screen it is done on. The same list is
 `GET /api/v1/firms/{id}/readiness` and `scripts/check_firm_readiness.py`.
 
 **Switch into the firm.** Setting a firm up finishes *inside* it: the business

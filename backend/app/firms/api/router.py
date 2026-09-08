@@ -21,6 +21,7 @@ from app.core.security.authorization import Principal, require_platform_admin
 from app.core.tenancy import DeploymentMode
 from app.firms.models import Firm
 from app.firms.schemas import (
+    DefaultBranchResponse,
     FirmCreate,
     FirmProvisionResponse,
     FirmReadinessResponse,
@@ -293,6 +294,52 @@ def apply_firm_tax_template(
             if already
             else f"GST set up: {created['profiles']} tax profiles and "
             f"{created['rules']} rules."
+        ),
+    )
+
+
+@router.post(
+    "/{firm_id}/create-default-branch",
+    response_model=ApiResponse[DefaultBranchResponse],
+)
+def create_firm_default_branch(
+    firm_id: UUID,
+    principal: PlatformPrincipal,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DefaultBranchResponse]:
+    """Give the firm a head office and a main warehouse, renamed later.
+
+    Stock cannot move until a warehouse exists and a warehouse needs a
+    branch, so the setup panel offers both as one step with default names.
+    Idempotent per half.
+    """
+    firm = FirmService(db).get(firm_id)
+    if not storage_is_ready(firm):
+        raise BusinessRuleError(
+            "Provision the firm's storage before creating its first branch."
+        )
+    with firm_store_session(request, firm.id) as store:
+        created = FirmReadinessService(db).create_default_branch(
+            firm, store, _actor_id(principal)
+        )
+    already = not any(created.values())
+    made = [
+        f"{'branch' if key == 'branch' else 'warehouse'} {value}"
+        for key, value in created.items()
+        if value
+    ]
+    return ApiResponse(
+        data=DefaultBranchResponse(
+            firm_id=firm.id,
+            branch=created["branch"],
+            warehouse=created["warehouse"],
+            already_present=already,
+        ),
+        message=(
+            "The firm already has a branch and a warehouse; nothing was created."
+            if already
+            else "Created " + " and ".join(made) + ". Rename them on their own screens."
         ),
     )
 

@@ -1185,6 +1185,19 @@ first decision rather than the code.
 
 ## 15. A firm cannot be finished without running a script
 
+**Closed 2026-09-08.** The remaining half landed the same day:
+`GET /api/v1/finance/control-accounts` lists all 24 purposes with the account
+each posts to and how many lines have posted there, `PUT
+/api/v1/finance/control-accounts/{purpose}` re-points one, and **Finance ›
+Control Accounts** is the screen (`ACCOUNT_VIEW` to read, `ACCOUNT_MANAGE`
+to write, like the chart). Decisions 3 and 4 below were taken as: a purpose
+with posted lines on its account is **held** -- re-pointing it is refused by
+name with the count, since every existing line would stay put and two
+accounts would each hold part of one story; a transfer entry and a new
+account from the next period is the bookkeeper's way -- and **all 24 are
+required**, which is what the readiness panel reports. The paragraph that
+follows is the original statement, kept for the reasoning.
+
 **Mostly closed 2026-09-08.** `POST /api/v1/firms/{id}/open-books` and
 **Administration › Firms › Set up › Open the books** give a firm the default
 chart, the current financial year, the journal and voucher types and all 24

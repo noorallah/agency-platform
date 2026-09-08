@@ -193,6 +193,16 @@ class TaxTemplateResponse(FirmSchema):
     already_configured: bool
 
 
+class DefaultBranchResponse(FirmSchema):
+    """What creating the firm's first branch and warehouse did."""
+
+    firm_id: UUID
+    #: The code created, or None when that half already existed.
+    branch: str | None
+    warehouse: str | None
+    already_present: bool
+
+
 class FirmResponse(FirmSchema):
     """A persisted firm safe to expose via the REST API."""
 

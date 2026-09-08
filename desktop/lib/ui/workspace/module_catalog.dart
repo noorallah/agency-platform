@@ -881,6 +881,13 @@ abstract final class ModuleCatalog {
           label: 'Chart of Accounts',
           requiredPermissions: ['ACCOUNT_VIEW'],
         ),
+        // Which account each posting purpose lands in. Read with the chart's
+        // code and written with `ACCOUNT_MANAGE`, like the chart itself.
+        ModuleTabDefinition(
+          id: 'control-accounts',
+          label: 'Control Accounts',
+          requiredPermissions: ['ACCOUNT_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'journal-entries',
           label: 'Journal Entries',

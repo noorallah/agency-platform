@@ -483,3 +483,81 @@ def test_the_tax_and_catalogue_routes_are_platform_only() -> None:
 
     assert ("POST", "/api/v1/firms/{firm_id}/apply-tax-template") in _EXPECTED
     assert ("GET", "/api/v1/business-framework/firms/{firm_id}/profiles") in _EXPECTED
+
+
+class TestDefaultBranch:
+    """A head office and a main warehouse, with default names."""
+
+    def test_creates_both_and_readiness_reports_them(self) -> None:
+        session = _session()
+        firm = _firm(session)
+        service = FirmReadinessService(session)
+
+        created = service.create_default_branch(firm, session, _ACTOR)
+
+        assert created == {"branch": "HO", "warehouse": "MAIN"}
+        branch = session.scalar(select(Branch).where(Branch.firm_id == firm.id))
+        assert branch is not None and branch.is_default is True
+        warehouse = session.scalar(
+            select(Warehouse).where(Warehouse.firm_id == firm.id)
+        )
+        assert warehouse is not None and warehouse.branch_id == branch.id
+        assert _step(service.readiness(firm, session), "branches").status is (
+            ReadinessStatus.DONE
+        )
+        rows = session.scalars(
+            select(AuditLog).where(AuditLog.action == "firm.default_branch_created")
+        ).all()
+        assert len(rows) == 1
+
+    def test_keeps_a_branch_the_firm_already_named(self) -> None:
+        session = _session()
+        firm = _firm(session)
+        session.add(
+            Branch(
+                firm_id=firm.id,
+                code="MUM",
+                name="Mumbai",
+                display_name="Mumbai",
+                is_default=True,
+            )
+        )
+        session.commit()
+
+        created = FirmReadinessService(session).create_default_branch(
+            firm, session, _ACTOR
+        )
+
+        assert created == {"branch": None, "warehouse": "MAIN"}
+        warehouse = session.scalar(
+            select(Warehouse).where(Warehouse.firm_id == firm.id)
+        )
+        assert warehouse is not None
+        mumbai = session.scalar(select(Branch).where(Branch.code == "MUM"))
+        assert mumbai is not None and warehouse.branch_id == mumbai.id
+
+    def test_is_idempotent_and_records_only_the_first(self) -> None:
+        session = _session()
+        firm = _firm(session)
+        service = FirmReadinessService(session)
+        service.create_default_branch(firm, session, _ACTOR)
+
+        again = service.create_default_branch(firm, session, _ACTOR)
+
+        assert again == {"branch": None, "warehouse": None}
+        rows = session.scalars(
+            select(AuditLog).where(AuditLog.action == "firm.default_branch_created")
+        ).all()
+        assert len(rows) == 1
+
+    def test_refuses_an_unbuilt_store(self) -> None:
+        session = _session()
+        firm = _firm(session, mode=DeploymentMode.SCHEMA)
+        with pytest.raises(BusinessRuleError, match="Provision the firm's storage"):
+            FirmReadinessService(session).create_default_branch(firm, session, _ACTOR)
+
+
+def test_the_default_branch_route_is_platform_only() -> None:
+    from tests.unit.test_platform_only_routes import _EXPECTED
+
+    assert ("POST", "/api/v1/firms/{firm_id}/create-default-branch") in _EXPECTED

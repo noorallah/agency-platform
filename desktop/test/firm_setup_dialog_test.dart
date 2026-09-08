@@ -89,6 +89,7 @@ class _Api extends ApiClient {
   final List<String> opened = [];
   final List<String> provisioned = [];
   final List<String> taxed = [];
+  final List<String> branched = [];
   final List<(String, String)> assigned = [];
   int catalogueReads = 0;
 
@@ -117,6 +118,12 @@ class _Api extends ApiClient {
   Future<String> applyFirmTaxTemplate(String firmId) async {
     taxed.add(firmId);
     return 'GST set up: 8 tax profiles and 6 rules.';
+  }
+
+  @override
+  Future<String> createFirmDefaultBranch(String firmId) async {
+    branched.add(firmId);
+    return 'Created branch HO and warehouse MAIN. Rename them on their own screens.';
   }
 
   @override
@@ -211,8 +218,11 @@ void main() {
       expect(find.text('Required'), findsNWidgets(2));
       expect(find.text('Recommended'), findsNWidgets(5));
       // A step with no button here says where it is done.
-      expect(find.text(firmSetupHints['branches']!), findsOneWidget);
       expect(find.text(firmSetupHints['members']!), findsOneWidget);
+      expect(
+        find.widgetWithText(FilledButton, 'Create head office and main warehouse'),
+        findsOneWidget,
+      );
       // And the ones with a button offer it.
       expect(find.widgetWithText(FilledButton, 'Open the books'), findsOneWidget);
       expect(
@@ -237,6 +247,21 @@ void main() {
         find.widgetWithText(FilledButton, 'Apply GST template'),
         findsNothing,
       );
+    });
+
+    testWidgets('the default branch and warehouse are one press',
+        (tester) async {
+      final _Api api = _Api(answers: [_readiness(), _readiness(others: 'DONE')]);
+      await _open(tester, api);
+      const String label = 'Create head office and main warehouse';
+
+      await tester.ensureVisible(find.widgetWithText(FilledButton, label));
+      await tester.tap(find.widgetWithText(FilledButton, label));
+      await tester.pumpAndSettle();
+
+      expect(api.branched, ['firm-1']);
+      expect(find.textContaining('Created branch HO'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, label), findsNothing);
     });
 
     testWidgets("the profile is chosen from the firm's own catalogue",
@@ -347,7 +372,10 @@ void main() {
         find.widgetWithText(FilledButton, 'Apply GST template'),
         findsNothing,
       );
-      expect(find.text(firmSetupHints['branches']!), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, 'Create head office and main warehouse'),
+        findsNothing,
+      );
       expect(api.catalogueReads, 0, reason: 'no store to read it from');
 
       await tester.ensureVisible(find.widgetWithText(FilledButton, 'Provision storage'));

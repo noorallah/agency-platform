@@ -437,6 +437,27 @@ class JournalEntryReverse(FinanceSchema):
     journal_date: date | None = None
 
 
+class ControlAccountResponse(FinanceSchema):
+    """One posting purpose and the account it lands in, or the gap."""
+
+    purpose: str
+    label: str
+    #: Account classifications the purpose may post to.
+    expected_types: list[str]
+    ledger_account_id: UUID | None
+    account_code: str | None
+    account_name: str | None
+    #: POSTED journal lines already on the mapped account. Above zero the
+    #: mapping is held and the screen says so.
+    posted_lines: int
+
+
+class ControlAccountAssign(FinanceSchema):
+    """Map one purpose to one of the firm's ledger accounts."""
+
+    ledger_account_id: UUID
+
+
 class JournalEntryFilters(FinanceSchema):
     """Filter the journal entry list."""
 
