@@ -311,6 +311,25 @@ class ApiClient {
             if (deletedOnly) 'deleted_only': 'true',
           });
 
+  /// Set somebody else's password without knowing the current one.
+  ///
+  /// Platform administrators only. Clears a login lock and revokes every
+  /// session; `forceChange` makes the person choose their own at the next
+  /// sign-in, which is the default and the point.
+  Future<PlatformUser> resetUserPassword(
+    String id,
+    String newPassword, {
+    bool forceChange = true,
+  }) async =>
+      PlatformUser.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/users/$id/password',
+        body: {
+          'new_password': newPassword,
+          'force_password_change': forceChange,
+        },
+      )));
+
   /// Bring a soft-deleted user back with their old firms and roles.
   /// Platform administrators only.
   Future<PlatformUser> restoreUser(String id) async =>

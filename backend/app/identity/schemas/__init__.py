@@ -1,6 +1,7 @@
 """Identity domain and API schema exports."""
 
 from app.identity.schemas.api import (
+    AdminPasswordReset,
     ChangePasswordRequest,
     IdentifierList,
     LoginRequest,
@@ -47,6 +48,7 @@ from app.identity.schemas.identity import (
 )
 
 __all__ = [
+    "AdminPasswordReset",
     "ChangePasswordRequest",
     "IdentifierList",
     "IdentitySchema",

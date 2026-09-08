@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'identity/change_password_dialog.dart';
 import 'identity/firm_roles_dialog.dart';
 import 'identity/primary_firm_dialog.dart';
 import 'identity/profile_dialog.dart';
+import 'identity/reset_password_dialog.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
@@ -483,12 +485,7 @@ class _DesktopShellState extends State<DesktopShell> {
                     return;
                   }
                   if (value == 'profile') {
-                    unawaited(showProfileDialog(
-                      context,
-                      api: widget.session.api,
-                      firms: widget.session.firms,
-                      known: widget.session.currentUser,
-                    ));
+                    unawaited(_openProfile());
                     return;
                   }
                   if (value == 'primary-firm') {
@@ -568,6 +565,23 @@ class _DesktopShellState extends State<DesktopShell> {
           ),
         ),
       );
+
+  /// My profile, with Change password on it.
+  ///
+  /// A changed password revokes every session on the server, this one
+  /// included, so the shell ends the session itself and the login screen
+  /// says why -- rather than letting the next request fail with a 401.
+  Future<void> _openProfile() async {
+    final bool passwordChanged = await showProfileDialog(
+      context,
+      api: widget.session.api,
+      firms: widget.session.firms,
+      known: widget.session.currentUser,
+      onChangePassword: (dialogContext) =>
+          changeOwnPassword(dialogContext, api: widget.session.api),
+    );
+    if (passwordChanged) await widget.session.signOutAfterPasswordChange();
+  }
 
   /// Name over address, or the address alone when there is no name.
   Widget _signedInAs(BuildContext context) {
@@ -3709,20 +3723,56 @@ ResourceDefinition<PlatformUser> userDefinition(
           },
         );
       }
-      if (!permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW'])) {
-        return null;
-      }
-      return TextButton.icon(
-        icon: const Icon(Icons.badge_outlined),
-        label: const Text('Roles by firm'),
-        onPressed: () => showFirmRolesDialog(
-          dialogContext,
-          api: api,
-          userId: user.id,
-          userLabel: '${user.fullName} · ${user.email}',
-          firmsResource: firmOptions,
-          staffableFirmIds: staffableFirms,
-        ),
+      final List<Widget> actions = [
+        if (permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW']))
+          TextButton.icon(
+            icon: const Icon(Icons.badge_outlined),
+            label: const Text('Roles by firm'),
+            onPressed: () => showFirmRolesDialog(
+              dialogContext,
+              api: api,
+              userId: user.id,
+              userLabel: '${user.fullName} · ${user.email}',
+              firmsResource: firmOptions,
+              staffableFirmIds: staffableFirms,
+            ),
+          ),
+        // Setting somebody's password without their current one: for the
+        // forgotten, the locked-out, and the account being handed over
+        // after somebody left. Platform administrators only -- a firm
+        // administrator would be taking over an account that may also work
+        // in a firm they cannot see. The server refuses the caller's own
+        // account and says where to go instead.
+        if (permissions.isPlatformAdmin)
+          TextButton.icon(
+            icon: const Icon(Icons.lock_reset_outlined),
+            label: const Text('Reset password'),
+            onPressed: () async {
+              final bool done = await resetUserPassword(
+                dialogContext,
+                api: api,
+                user: user,
+              );
+              if (!done || !dialogContext.mounted) return;
+              NotificationService.show(
+                dialogContext,
+                'Password set for ${user.fullName.isEmpty ? user.email : user.fullName}. '
+                'They are signed out everywhere and any lock is cleared.',
+                kind: AppNotificationKind.success,
+              );
+            },
+          ),
+      ];
+      if (actions.isEmpty) return null;
+      if (actions.length == 1) return actions.single;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (int i = 0; i < actions.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            actions[i],
+          ],
+        ],
       );
     },
     // The form's own values, plus the tier this caller may not write. Each

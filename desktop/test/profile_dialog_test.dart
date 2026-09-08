@@ -146,4 +146,46 @@ void main() {
     expect(find.textContaining('held by your administrator'), findsOneWidget);
     expect(find.byType(TextField), findsNothing, reason: 'read-only');
   });
+
+  testWidgets('Change password is the one thing on it a person can change',
+      (tester) async {
+    // Offered when the caller can act on the result -- a changed password
+    // ends the session -- and the dialog closes with true so it can.
+    int opened = 0;
+    bool? answered;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => answered = await showProfileDialog(
+              context,
+              api: _Api(answer: _me()),
+              firms: _firms,
+              onChangePassword: (_) async {
+                opened += 1;
+                return true;
+              },
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Change password'));
+    await tester.pumpAndSettle();
+
+    expect(opened, 1);
+    expect(answered, isTrue);
+    expect(find.text('My profile'), findsNothing, reason: 'closed with it');
+  });
+
+  testWidgets('without a way to act on it, the button is not offered',
+      (tester) async {
+    await _pump(tester, _Api(answer: _me()));
+
+    expect(find.text('Change password'), findsNothing);
+  });
 }

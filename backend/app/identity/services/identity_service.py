@@ -519,6 +519,60 @@ class IdentityService:
         )
         self._session.commit()
 
+    def reset_password(
+        self,
+        user_id: UUID,
+        new_password: str,
+        actor_id: UUID,
+        *,
+        force_change: bool = True,
+    ) -> User:
+        """Set somebody else's password, as a platform administrator.
+
+        The self-service change needs the current password; this is for the
+        cases where nobody can supply it -- forgotten, locked out, or the
+        person has left and the account is being handed over. It also clears
+        a login lock, since a reset is what a locked-out person asks for, and
+        revokes every session, since whoever held the old password no longer
+        holds one.
+
+        The old hash goes into the history so the reset cannot be undone by
+        changing back to it. The new one is validated against the policy but
+        **not** against the history: an administrator choosing a temporary
+        password should not have to know what the person used before.
+
+        Refused for the caller's own account -- My profile is that route, and
+        it asks for the current password for a reason.
+        """
+        if user_id == actor_id:
+            raise BusinessRuleError(
+                "Change your own password from My profile, where the current "
+                "one is asked for."
+            )
+        user = self._get_user_for_update(user_id)
+        validate_password_policy(new_password)
+        self._session.add(
+            PasswordHistory(
+                user_id=user.id, password_hash=user.password_hash, created_by=actor_id
+            )
+        )
+        user.password_hash = self._passwords.hash_password(new_password)
+        user.force_password_change = force_change
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        user.updated_by = actor_id
+        self._revoke_user_tokens(user.id)
+        record_audit(
+            self._session,
+            action="user.password_reset",
+            entity_type="user",
+            entity_id=user.id,
+            actor_id=actor_id,
+            after_data={"force_password_change": force_change},
+        )
+        self._session.commit()
+        return user
+
     def restore_user(self, user_id: UUID, actor_id: UUID) -> User:
         """Bring a soft-deleted user back, with everything they had.
 

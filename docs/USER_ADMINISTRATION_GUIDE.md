@@ -473,6 +473,24 @@ an uppercase letter, a lowercase letter, a digit and a symbol, and may not
 repeat the current one or the last **5**. Changing it signs the person out
 of every machine.
 
+**Changing your own password** at any other time: account menu (top right)
+→ **My profile** → **Change password**. Same rules, same ending -- you are
+signed out everywhere, this window included, and sign in again with the new
+one.
+
+**Resetting somebody else's password** is a **platform administrator's**
+action, for the person who forgot it, is locked out, or has left with the
+account being handed over: Users → open the person → **Reset password** in
+the dialog's footer, beside Roles by firm. No current password is asked for.
+Any login lock is cleared, every session is revoked, and by default the
+person must choose their own password at the next sign-in -- untick that
+only for a handover, where whoever takes the account will keep the password
+you set. Tell them the password yourself; nothing is sent anywhere. A firm
+administrator is not offered it, since the account may also work in a firm
+they cannot see; and you cannot reset your own, which is what My profile is
+for. The API is `POST /api/v1/users/{id}/password`, audited as
+`user.password_reset`.
+
 **Sessions ending.** The desktop signs out after **30 minutes** without
 activity. Changing somebody's roles, firms or password signs them out
 everywhere at once -- their next request re-authenticates. Sign out revokes

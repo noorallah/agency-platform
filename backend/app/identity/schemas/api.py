@@ -33,6 +33,19 @@ class ChangePasswordRequest(ApiSchema):
     new_password: str = Field(min_length=1, max_length=256)
 
 
+class AdminPasswordReset(ApiSchema):
+    """A platform administrator setting somebody else's password.
+
+    No current password: the point is that the person cannot supply one --
+    they forgot it, they are locked out, or they have left and the account
+    is being handed over. `force_password_change` defaults on, so a password
+    an administrator chose is a way in and not a password the person keeps.
+    """
+
+    new_password: str = Field(min_length=1, max_length=256)
+    force_password_change: bool = True
+
+
 class TokenResponse(ApiSchema):
     """A signed access/refresh token pair."""
 
