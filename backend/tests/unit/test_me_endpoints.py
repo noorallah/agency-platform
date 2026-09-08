@@ -24,7 +24,7 @@ from app.core.config.settings import Settings
 from app.core.database.base import Base
 from app.core.exceptions import BusinessRuleError
 from app.firms.models import Firm
-from app.identity.models import PlatformAdmin, User, UserFirm
+from app.identity.models import PlatformAdmin, Role, User, UserFirm
 from app.identity.schemas.api import UserCreate
 from app.identity.services import IdentityService
 from app.identity.system_seed import seed_system_rbac
@@ -85,6 +85,13 @@ def _member(session: Session, user: User, firm: Firm, *, primary: bool = False) 
     session.commit()
 
 
+def _role_id(session: Session, code: str) -> UUID:
+    """Return one seeded role's id."""
+    role = session.scalar(select(Role).where(Role.code == code))
+    assert role is not None, code
+    return role.id
+
+
 def _primaries(session: Session, user_id: UUID) -> set[UUID]:
     """Return the firms flagged primary for one user."""
     return set(
@@ -111,6 +118,33 @@ def test_me_names_the_person_and_where_they_start() -> None:
     assert (user.email, user.full_name) == ("asha@example.com", "Asha Rao")
     assert is_platform_admin is False
     assert primary == two.id
+
+
+def test_me_lists_every_role_with_the_firm_it_is_held_in() -> None:
+    """The global tier with no firm, each firm's own with its code.
+
+    More than a firm administrator's scoped read would show of the same
+    person, because it is the person asking about themselves.
+    """
+    service, session = _service()
+    one, two = _firm(session, "F1"), _firm(session, "F2")
+    person = _user(service, "asha@example.com")
+    _member(session, person, one, primary=True)
+    _member(session, person, two)
+    service.set_user_roles(person.id, [_role_id(session, "VIEWER")], ACTOR, None)
+    service.set_user_firm_roles(
+        person.id, one.id, [_role_id(session, "SALES_MANAGER")], ACTOR
+    )
+    service.set_user_firm_roles(
+        person.id, two.id, [_role_id(session, "CASHIER")], ACTOR
+    )
+
+    held = {
+        (role.code, firm.code if firm is not None else None)
+        for role, firm in service.list_my_roles(person.id)
+    }
+
+    assert held == {("VIEWER", None), ("SALES_MANAGER", "F1"), ("CASHIER", "F2")}
 
 
 def test_me_says_when_somebody_is_a_platform_administrator() -> None:

@@ -28,6 +28,7 @@ from app.identity.schemas import (
     LoginRequest,
     MeResponse,
     MyFirmResponse,
+    MyRoleResponse,
     PermissionCreate,
     PermissionResponse,
     PermissionUpdate,
@@ -44,6 +45,7 @@ from app.identity.schemas import (
     UserLookupResponse,
     UserPreferencesResponse,
     UserPreferencesUpdate,
+    UserProfileFields,
     UserResponse,
     UserTemplateApply,
     UserTemplateCreate,
@@ -307,17 +309,29 @@ def get_me(
     desktop's user menu could show nothing but the address typed at the login
     form, and after a restored session not even that.
     """
-    user, is_platform_admin, primary = _service(db, settings).describe_me(
-        _actor_id(principal)
-    )
-    return ApiResponse(
-        data=MeResponse(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            is_platform_admin=is_platform_admin,
-            primary_firm_id=primary,
-        )
+    return ApiResponse(data=_me_response(_service(db, settings), _actor_id(principal)))
+
+
+def _me_response(service: IdentityService, user_id: UUID) -> MeResponse:
+    """Assemble what a person may know about themselves."""
+    user, is_platform_admin, primary = service.describe_me(user_id)
+    return MeResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_platform_admin=is_platform_admin,
+        primary_firm_id=primary,
+        last_login_at=user.last_login_at,
+        profile=UserProfileFields.model_validate(user),
+        roles=[
+            MyRoleResponse(
+                code=role.code,
+                name=role.name,
+                firm_id=firm.id if firm is not None else None,
+                firm_code=firm.code if firm is not None else None,
+            )
+            for role, firm in service.list_my_roles(user_id)
+        ],
     )
 
 
@@ -341,16 +355,7 @@ def set_my_primary_firm(
     """
     service = _service(db, settings)
     service.set_own_primary_firm(_actor_id(principal), data.firm_id)
-    user, is_platform_admin, primary = service.describe_me(_actor_id(principal))
-    return ApiResponse(
-        data=MeResponse(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            is_platform_admin=is_platform_admin,
-            primary_firm_id=primary,
-        )
-    )
+    return ApiResponse(data=_me_response(service, _actor_id(principal)))
 
 
 @router.get("/users", response_model=PaginatedResponse[UserResponse], tags=["Users"])

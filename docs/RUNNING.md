@@ -266,6 +266,14 @@ flutter test
 hand. Read its header first — firm-owned tables exist once per store, so the
 schema you query decides which firm's data you see.
 
+`scripts\sql\check_identity_data.sql` is its companion for user and firm
+administration: one user's account, firms, roles, effective permissions,
+sign-ins and preferences; one firm's registry row, storage, people, roles and
+templates; the platform audit trail for either; and a set of invariants that
+should list nothing. It takes two `psql` variables, `user_email` and
+`firm_code`, and reads the platform schema only, since every table it touches
+is a platform table.
+
 For manual testing, `docs/MANUAL_UI_TEST_PLAN.md` has the full case list.
 
 ---

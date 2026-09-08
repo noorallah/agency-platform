@@ -380,6 +380,15 @@ class MyFirmResponse(ApiSchema):
     is_primary: bool
 
 
+class MyRoleResponse(ApiSchema):
+    """One role the signed-in user holds, and where."""
+
+    code: str
+    name: str
+    firm_id: UUID | None
+    firm_code: str | None
+
+
 class MeResponse(ApiSchema):
     """Who is signed in, for the user menu and the profile view.
 
@@ -397,6 +406,14 @@ class MeResponse(ApiSchema):
     #: The firm this person lands in at sign-in, or None with no membership
     #: marked primary. Their own to change through `PUT /me/primary-firm`.
     primary_firm_id: UUID | None
+    last_login_at: datetime | None = None
+    #: The HR fields an administrator recorded, read-only here: a person may
+    #: see what is held about them without holding `USER_VIEW`, and changing
+    #: it stays an administrator's job.
+    profile: UserProfileFields
+    #: Every role held, with the firm it is held in -- `firm_id` None for the
+    #: global tier. A person is entitled to know what they may do.
+    roles: list[MyRoleResponse] = Field(default_factory=list)
 
 
 class PrimaryFirmUpdate(ApiSchema):
