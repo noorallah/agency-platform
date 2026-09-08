@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/vendor.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 
 class VendorManagementPage extends StatefulWidget {
@@ -406,7 +407,14 @@ class _VendorEditorDialog extends StatefulWidget {
 
 class _VendorEditorDialogState extends State<_VendorEditorDialog>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 6, vsync: this);
+  late final TabController _tabs = TabController(length: 7, vsync: this);
+
+  /// The vendor's custom fields, loaded for this firm. Sent only once the
+  /// definitions arrived: absent leaves the stored values alone.
+  late final CustomFieldsController _customFields = CustomFieldsController(
+    load: () => widget.api.applicableAttributeDefinitions('VENDOR'),
+    stored: widget.vendor?.attributes ?? const [],
+  );
 
   /// The vendor's addresses, edited in place.
   ///
@@ -479,6 +487,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   @override
   void initState() {
     super.initState();
+    _customFields.start();
     _status = widget.vendor?.status.isNotEmpty == true
         ? widget.vendor!.status
         : 'ACTIVE';
@@ -543,6 +552,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
 
   @override
   void dispose() {
+    _customFields.dispose();
     for (final row in _contacts) {
       row.dispose();
     }
@@ -587,6 +597,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                   Tab(text: 'Banking'),
                   Tab(text: 'Tax'),
                   Tab(text: 'Notes'),
+                  Tab(text: 'Custom fields'),
                 ],
               ),
               const SizedBox(height: 12),
@@ -601,6 +612,13 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     _bankTab(),
                     _taxTab(),
                     _notesTab(),
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.all(8),
+                      child: CustomFieldsSection(
+                        controller: _customFields,
+                        noun: 'vendors',
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -613,7 +631,15 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, _payload()),
+            onPressed: () {
+              final String? customField = _customFields.validate();
+              if (customField != null) {
+                NotificationService.show(context, customField,
+                    kind: AppNotificationKind.warning);
+                return;
+              }
+              Navigator.pop(context, _payload());
+            },
             child: const Text('Save'),
           ),
         ],
@@ -1143,6 +1169,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'banking': [for (final row in _banks) row.toJson()],
         'tax': [for (final row in _taxes) row.toJson()],
         'notes': [for (final row in _notes) row.toJson()],
+        // Only once the definitions arrived: absent means "leave them alone".
+        if (_customFields.canSend) 'attributes': _customFields.payload(),
       };
 }
 

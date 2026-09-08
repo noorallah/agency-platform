@@ -7,7 +7,9 @@ import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/geography.dart';
+import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_settings_dialog.dart';
 import 'customer_group_dialog.dart';
@@ -210,6 +212,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         loadRoutes: customer == null
             ? null
             : () => widget.api.customerRoutes(customer.id),
+        loadAttributes: () =>
+            widget.api.applicableAttributeDefinitions('CUSTOMER'),
       ),
     );
     if (saved == null || !mounted) return;
@@ -672,6 +676,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     required this.onSave,
     required this.loadPlaces,
     this.loadRoutes,
+    this.loadAttributes,
   });
 
   final CustomerDialogMode mode;
@@ -686,6 +691,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The rounds that call this shop. Null while creating, since a customer
   /// that does not exist yet is on nothing.
   final Future<List<CustomerRouteRecord>> Function()? loadRoutes;
+
+  /// The custom fields a customer carries in this firm. Null means the
+  /// caller supplies none, and the dialog offers no Custom fields tab.
+  final Future<ApplicableAttributesRecord> Function()? loadAttributes;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -728,6 +737,12 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           .toList();
   late String _customerType = widget.customer?.customerType ?? 'BUSINESS';
   late String _status = widget.customer?.status ?? 'ACTIVE';
+  late final CustomFieldsController? _customFields = widget.loadAttributes == null
+      ? null
+      : CustomFieldsController(
+          load: widget.loadAttributes!,
+          stored: widget.customer?.attributes ?? const [],
+        );
   int _tab = 0;
   bool _saving = false;
   bool _dirty = false;
@@ -743,6 +758,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   @override
   void initState() {
     super.initState();
+    _customFields?.start();
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -756,6 +772,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
 
   @override
   void dispose() {
+    _customFields?.dispose();
     for (final TextEditingController controller in _fields.values) {
       controller
         ..removeListener(_markDirty)
@@ -811,6 +828,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       setState(() => _error = 'Correct the highlighted fields before saving.');
       return;
     }
+    final String? customField = _customFields?.validate();
+    if (customField != null) {
+      setState(() => _error = customField);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -860,6 +882,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'notes': _nullable('notes'),
         'addresses': _addresses.map((address) => address.toJson()).toList(),
         'contacts': _contacts.map((contact) => contact.toJson()).toList(),
+        // Only once the definitions arrived: absent means "leave them alone"
+        // and an empty list means "clear them", so a form that could not
+        // read the fields must not send the empty one.
+        if (_customFields?.canSend ?? false)
+          'attributes': _customFields!.payload(),
       };
 
   String? _nullable(String key) {
@@ -889,6 +916,18 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           WorkspaceDialogTab(label: 'Address', child: _addressTab()),
           WorkspaceDialogTab(label: 'Contacts', child: _contactTab()),
           WorkspaceDialogTab(label: 'Financial', child: _financialTab()),
+          if (_customFields != null)
+            WorkspaceDialogTab(
+              label: 'Custom fields',
+              child: _tabPage([
+                CustomFieldsSection(
+                  controller: _customFields,
+                  noun: 'customers',
+                  readOnly: _readOnly,
+                  onChanged: () => setState(() => _dirty = true),
+                ),
+              ]),
+            ),
           WorkspaceDialogTab(label: 'Routes', child: _routesTab()),
           WorkspaceDialogTab(label: 'Audit', child: _auditTab()),
         ],

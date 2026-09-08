@@ -711,7 +711,7 @@ Ordered by what blocks the most.
 
 | # | Gap | Why it matters |
 | --- | --- | --- |
-| 1 | **Only `products` reads and writes custom fields** | Every declared entity has a value table (`20260810_0063`) and `AttributeService` stores and returns values for all of them. The last mile is missing: only `ProductService` calls `replace_values`/`values_for`, so the other six modules' create, update and read paths ignore attributes entirely. Each needs the same ~10 lines products already has, plus a schema field. |
+| 1 | **Four of the seven entity types still ignore custom fields** | Every declared entity has a value table (`20260810_0063`) and `AttributeService` stores and returns values for all of them. Products always read and wrote them; **customers and vendors joined on 2026-09-08** -- `attributes` on the write schema (replaced when sent, left alone when absent), `attributes` on the response, a Custom fields tab on each form, and `GET /business-framework/attribute-definitions/applicable?entity_type=` to tell a form which fields to offer. Branches, warehouses, UOMs and tax profiles still need the same ~10 lines each, plus the tab. |
 | 2 | **`require_module` is applied nowhere** | A firm whose profile disables a module can still call its endpoints. The gate is written and tested; no route uses it. |
 | 3 | **3 implemented features are ungated** | `TERRITORY`, `APPROVAL_WORKFLOW`, `MULTIPLE_WAREHOUSES` — each needs a product decision first. See above. |
 | 4 | **`vendors.business_attributes` is an untyped JSON blob** | Unvalidated, unlinked to the catalogue, looks like this feature but is not. Should migrate onto the framework before anyone stores data in it. |

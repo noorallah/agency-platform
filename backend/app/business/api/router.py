@@ -10,10 +10,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.business.models import BusinessProfile, CategoryAttributeRule
+from app.business.models import (
+    AttributeEntityType,
+    BusinessProfile,
+    CategoryAttributeRule,
+)
 from app.business.schemas import (
     ActiveFeatureResponse,
     ActiveModuleResponse,
+    ApplicableAttributesResponse,
     AttributeDefinitionCreate,
     AttributeDefinitionResponse,
     AttributeDefinitionUpdate,
@@ -35,7 +40,7 @@ from app.business.schemas import (
     FirmProfileAssignmentRow,
     IdentifierList,
 )
-from app.business.services import BusinessProfileFrameworkService
+from app.business.services import AttributeService, BusinessProfileFrameworkService
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
@@ -298,6 +303,41 @@ def list_attribute_definitions(
     return PaginatedResponse(
         data=[AttributeDefinitionResponse.model_validate(row) for row in rows],
         pagination=params.metadata(total),
+    )
+
+
+@router.get(
+    "/attribute-definitions/applicable",
+    response_model=ApiResponse[ApplicableAttributesResponse],
+)
+def applicable_attribute_definitions(
+    entity_type: AttributeEntityType,
+    principal: Annotated[Principal, Depends(require_authenticated())],
+    db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
+    x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
+) -> ApiResponse[ApplicableAttributesResponse]:
+    """Answer which custom fields a form should offer for one entity type.
+
+    `GET /attribute-definitions` is the platform's catalogue, every
+    definition for every profile, and the product form already had a
+    firm-resolved answer in `/products/metadata`. Customers and vendors
+    needed the same question answered without a product in it. Membership
+    of the firm is the whole gate: what fields a record carries is not a
+    privilege, filling them in is, and that is checked on the save.
+    """
+    firm_id = _resolve_firm_scope(principal, platform_db, x_firm_id, None)
+    if firm_id is None:
+        raise AuthorizationError("Select a firm to read its custom fields.")
+    attributes = AttributeService(db)
+    rows = attributes.definitions_for(entity_type.value, firm_id=firm_id)
+    mandatory = attributes.mandatory_ids(entity_type.value, firm_id=firm_id)
+    return ApiResponse(
+        data=ApplicableAttributesResponse(
+            entity_type=entity_type,
+            definitions=[AttributeDefinitionResponse.model_validate(r) for r in rows],
+            mandatory_ids=sorted(mandatory, key=str),
+        )
     )
 
 

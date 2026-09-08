@@ -19,6 +19,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.vendors.models import Vendor
 from app.vendors.schemas import (
     VendorCategoryResponse,
     VendorCategoryWrite,
@@ -115,6 +116,17 @@ def _filters(
         raise ValidationError(str(error)) from error
 
 
+def _response(row: Vendor, db: Session) -> VendorResponse:
+    """Build one vendor response with its custom fields attached.
+
+    The values live in their own table and `VendorResponse` cannot reach them
+    through the row, so every site goes through here.
+    """
+    payload = VendorResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = VendorService(db).attribute_responses(row)
+    return VendorResponse.model_validate(payload)
+
+
 @router.get("", response_model=PaginatedResponse[VendorResponse])
 def list_vendors(
     scope: VendorViewScope,
@@ -161,7 +173,7 @@ def list_vendors(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[VendorResponse.model_validate(row) for row in rows],
+        data=[_response(row, db) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -238,7 +250,7 @@ def create_vendor(
     vendor = VendorService(db).create(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=VendorResponse.model_validate(vendor))
+    return ApiResponse(data=_response(vendor, db))
 
 
 @router.post(
@@ -259,7 +271,7 @@ def import_vendors(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[VendorResponse.model_validate(item) for item in vendors])
+    return ApiResponse(data=[_response(item, db) for item in vendors])
 
 
 # The two masters come first on purpose. FastAPI matches in declaration
@@ -450,7 +462,7 @@ def get_vendor(
         include_deleted=include_deleted,
     )
     set_etag(response, vendor)
-    return ApiResponse(data=VendorResponse.model_validate(vendor))
+    return ApiResponse(data=_response(vendor, db))
 
 
 @router.put("/{vendor_id}", response_model=ApiResponse[VendorResponse])
@@ -480,7 +492,7 @@ def update_vendor(
         actor_id=scope.actor_id,
     )
     set_etag(response, vendor)
-    return ApiResponse(data=VendorResponse.model_validate(vendor))
+    return ApiResponse(data=_response(vendor, db))
 
 
 @router.delete("/{vendor_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -506,7 +518,7 @@ def restore_vendor(
     vendor = VendorService(db).restore(
         vendor_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=VendorResponse.model_validate(vendor))
+    return ApiResponse(data=_response(vendor, db))
 
 
 @router.post("/{vendor_id}/duplicate", response_model=ApiResponse[VendorResponse])
@@ -521,7 +533,7 @@ def duplicate_vendor(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=VendorResponse.model_validate(vendor))
+    return ApiResponse(data=_response(vendor, db))
 
 
 @router.post("/bulk-delete", response_model=ApiResponse[dict[str, int]])

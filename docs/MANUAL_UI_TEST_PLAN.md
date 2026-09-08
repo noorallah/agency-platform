@@ -827,6 +827,17 @@ what put an IMEI on a pharmacy's products in `20260801_0011`.
 | 27.35 | Change the profile back | The field and its value reappear. Nothing was lost -- it stopped being *read*. |
 | 27.36 | Change a definition's **data type** after a product carries a value | Accepted with no warning, and the value stops being read -- it sits in the old typed column. Record this as expected-but-wrong; it is §16's first lifecycle guard. |
 
+**Customers and vendors carry the same fields as of 2026-09-08.** Stay in
+the same firm.
+
+| # | Case | Expect |
+| --- | --- | --- |
+| 27.36a | Dynamic Attributes → New → entity type `CUSTOMER`, code `DRUG_LICENCE_NO`, TEXT, mandatory **off**; then Masters → Customers → New | A **Custom fields** tab with one box, Drug licence no. Type `DL-4471`, fill the rest, Save. Reopen: the value is there. **(HTTP)** `GET /api/v1/customers/{id}`: `attributes` carries one row with `value_text: "DL-4471"`. |
+| 27.36b | Edit the same customer's phone from the General tab and Save | The licence is still there. The form sends `attributes` only once it has read the definitions; an update that omits them leaves them alone. |
+| 27.36c | Set the definition **mandatory**, then Customers → New with the box empty → Save | Refused on the form: "Drug licence no is required." Nothing sent. **(HTTP)** `POST /api/v1/customers` without it: **422**, "Required attributes are missing." |
+| 27.36d | New definition, entity type `VENDOR`, `SUPPLIER_TIER`, NUMBER; Masters → Vendors → Edit a vendor → **Custom fields** | One numeric box, Supplier tier. Type `2`, Save, reopen: `2`. The customer form does **not** offer it, and **(HTTP)** sending its id on a customer answers **422**, "One or more attributes do not apply to this record." |
+| 27.36e **(HTTP)** | `GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=CUSTOMER` with `X-Firm-ID`, as `whole01.sales1` | 200: the customer definitions this firm's profile allows and `mandatory_ids`. Membership of the firm is the whole gate. Without `X-Firm-ID`: **403**, "Select a firm to read its custom fields." |
+
 **If the firm is `SHARED`**, one more case, and it is the reason §16 exists:
 
 | # | Case | Expect |

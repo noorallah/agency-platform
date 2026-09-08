@@ -584,6 +584,17 @@ class ApiClient {
         descending: descending,
       );
 
+  /// The custom fields a form should offer for one entity type, resolved
+  /// for the current firm the way a save resolves them.
+  Future<ApplicableAttributesRecord> applicableAttributeDefinitions(
+    String entityType,
+  ) async =>
+      ApplicableAttributesRecord.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/business-framework/attribute-definitions/applicable',
+        query: {'entity_type': entityType},
+      )));
+
   Future<PagedResult<TaxSystemRecord>> taxSystems({
     int page = 1,
     int pageSize = 20,

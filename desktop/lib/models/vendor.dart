@@ -1,4 +1,5 @@
 import 'entities.dart';
+import 'product.dart';
 
 class VendorContact {
   const VendorContact({
@@ -285,6 +286,7 @@ class Vendor {
     this.bankAccounts = const [],
     this.taxDetails = const [],
     this.notes = const [],
+    this.attributes = const [],
   });
 
   final String id;
@@ -322,6 +324,9 @@ class Vendor {
   final List<VendorBankAccount> bankAccounts;
   final List<VendorTaxDetail> taxDetails;
   final List<VendorNote> notes;
+
+  /// The stored custom-field values, one per definition the firm defines.
+  final List<AttributeValueRecord> attributes;
 
   factory Vendor.fromJson(Json json) => Vendor(
         id: stringValue(json['id']),
@@ -361,6 +366,9 @@ class Vendor {
         taxDetails:
             _objects(json['tax_details']).map(VendorTaxDetail.fromJson).toList(),
         notes: _objects(json['notes']).map(VendorNote.fromJson).toList(),
+        attributes: _objects(json['attributes'])
+            .map(ProductAttributeValueRecord.fromJson)
+            .toList(),
       );
 }
 

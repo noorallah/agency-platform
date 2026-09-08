@@ -19,6 +19,7 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.customers.models import Customer
 from app.customers.schemas import (
     CreditControlSettingsResponse,
     CreditControlSettingsWrite,
@@ -115,6 +116,19 @@ def _filters(
         raise ValidationError(str(error)) from error
 
 
+def _response(row: Customer, db: Session) -> CustomerResponse:
+    """Build one customer response with its custom fields attached.
+
+    The values live in their own table and `CustomerResponse` cannot reach
+    them through the row, so every site goes through here -- the product
+    router does the same, and a site that skipped it would answer an empty
+    list for a customer that has values.
+    """
+    payload = CustomerResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = CustomerService(db).attribute_responses(row)
+    return CustomerResponse.model_validate(payload)
+
+
 @router.get("", response_model=PaginatedResponse[CustomerResponse])
 def list_customers(
     scope: CustomerViewScope,
@@ -157,7 +171,7 @@ def list_customers(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[CustomerResponse.model_validate(row) for row in rows],
+        data=[_response(row, db) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -236,7 +250,7 @@ def create_customer(
     customer = CustomerService(db).create(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=CustomerResponse.model_validate(customer))
+    return ApiResponse(data=_response(customer, db))
 
 
 @router.post(
@@ -257,9 +271,7 @@ def import_customers(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(
-        data=[CustomerResponse.model_validate(customer) for customer in customers]
-    )
+    return ApiResponse(data=[_response(customer, db) for customer in customers])
 
 
 # Declared with the other literals above `/{customer_id}`: FastAPI matches in
@@ -418,7 +430,7 @@ def get_customer(
         include_deleted=include_deleted,
     )
     set_etag(response, customer)
-    return ApiResponse(data=CustomerResponse.model_validate(customer))
+    return ApiResponse(data=_response(customer, db))
 
 
 @router.put("/{customer_id}", response_model=ApiResponse[CustomerResponse])
@@ -447,7 +459,7 @@ def update_customer(
         actor_id=scope.actor_id,
     )
     set_etag(response, customer)
-    return ApiResponse(data=CustomerResponse.model_validate(customer))
+    return ApiResponse(data=_response(customer, db))
 
 
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -473,7 +485,7 @@ def restore_customer(
     customer = CustomerService(db).restore(
         customer_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=CustomerResponse.model_validate(customer))
+    return ApiResponse(data=_response(customer, db))
 
 
 @router.get(
