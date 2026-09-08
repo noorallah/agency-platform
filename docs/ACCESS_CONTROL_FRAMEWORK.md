@@ -670,6 +670,18 @@ Four things to know:
   afterwards is an ordinary role set, edited in the ordinary way, and **nothing
   on the user records which template they came from** — a user who has since
   been edited is no longer described by it.
+- **It overwrites one tier and never touches the other.** `set_user_roles`
+  replaces the global rows for a platform caller and one firm's rows for a
+  firm caller (see *Each save replaces only its own tier* above), and a
+  template goes through it unchanged. So a firm administrator applying one
+  overwrites the person's roles in that firm and leaves their global roles
+  and every other firm's alone; a platform administrator applying one from
+  the desktop overwrites the global roles and leaves every firm tier alone.
+  The desktop never sends `firm_id` on the call; only the API can name a firm
+  for a platform caller, which then writes that firm's tier instead. Within
+  the tier written it is a replacement, not a merge — two old roles and a
+  template of two new ones leaves the two new ones in that tier, and whatever
+  the other tier held on top.
 - **The bundle is validated at creation**, not only at apply, or a template
   naming an unassignable role fails on whoever uses it weeks later with nothing
   to say the template was wrong rather than their permissions. `PLATFORM_ADMIN`

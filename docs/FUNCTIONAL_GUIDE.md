@@ -168,7 +168,7 @@ Three separate grants, held by different people on purpose:
 | --- | --- | --- | --- | --- |
 | 1 | Create the user account | User admin | `USER_CREATE` | Nothing yet — an account with no membership can sign in and open nothing |
 | 2 | Assign roles | Role admin | `ROLE_ASSIGN` | *What* they may do — the permission codes behind those roles |
-| 3 | Assign firms | Platform admin | `PLATFORM-ADMIN` | *Whose data* they may do it to, and which firm opens by default (`is_primary`) |
+| 3 | Assign firms | User admin | `USER_UPDATE`, plus `USER_CREATE` in each firm named; a platform admin reaches every firm | *Whose data* they may do it to, and which firm opens by default (`is_primary`) |
 
 ### C. Sign in and pick a firm
 
@@ -177,7 +177,9 @@ Three separate grants, held by different people on purpose:
 | 1 | Log in | *(open)* | Writes `login_history`; too many failures lock the account for the configured window |
 | 2 | Choose a firm | authenticated | The client's firm switcher; every later request carries that firm's id |
 | 3 | Work | per-screen code + membership | Both are checked. **A platform admin still has to pick a firm** to open firm-owned screens |
-| 4 | Change password | authenticated | A user flagged to change their password fails **every** permission check until they do — so a forced reset locks the whole application, not just one screen |
+| 4 | Change password | authenticated | A user flagged to change their password fails **every** permission check until they do — so a forced reset locks the whole application, not just one screen. Otherwise it is **My profile › Change password** in the account menu, and it ends every session |
+| 5 | Choose a primary firm | authenticated | **Primary firm** in the account menu, offered to somebody in more than one firm. The next sign-in lands there; the switcher is for the session only |
+| 6 | See their own record | authenticated | **My profile**: the details held about them and every role they hold, read-only, without `USER_VIEW` |
 
 ## How to use it
 
@@ -185,7 +187,9 @@ Three separate grants, held by different people on purpose:
 | --- | --- |
 | Create, edit, provision firms | **Masters › Firms** (`FIRM_VIEW`) |
 | A firm's own details and preferences | **Masters › Firm Settings** (`FIRM_VIEW`) |
-| Create users, reset passwords | **Administration › Users** (`USER_VIEW`) |
+| Create, edit, delete users; unlock a login; assign roles in every firm or in one | **Administration › Users** (`USER_VIEW`) |
+| Reset somebody's password, restore a deleted user | **Administration › Users**, platform administrators only |
+| Your own profile, password, primary firm | The account menu (top right), signed in |
 | Define roles | **Administration › Roles & Permissions › Roles** (`ROLE_VIEW`) |
 | See the permission catalogue | **Administration › Roles & Permissions › Permissions** (`PERMISSION_VIEW`) |
 | Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE`, platform administrators only); a firm administrator uses **Users › Edit › Firms** or **Add existing user** |
@@ -365,7 +369,7 @@ Three grants, deliberately held by different people (module 1):
 | --- | --- | --- |
 | Create the account | **Administration › Users** | `USER_CREATE` |
 | Assign roles — *what* they may do | **Administration › Roles & Permissions › Roles** | `ROLE_ASSIGN` |
-| Assign the firm — *whose data* | **Administration › User-Firm Assignments** | platform admin |
+| Assign the firm — *whose data* | **Administration › User-Firm Assignments** (platform admin), or **Users › Edit › Firms** | `USER_UPDATE` plus `USER_CREATE` in the firm |
 
 Mark one membership `is_primary`: that is the firm that opens by default. A
 platform admin still has to pick a firm to open firm-owned screens.

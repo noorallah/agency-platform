@@ -417,6 +417,8 @@ the platform's. Sign in as `whole01.admin`.
 | 17.4d | Edit an existing user | **No** Job template field — it is create-only. Use Apply job template on the grid instead. |
 | 17.5 | Administration → Users → select a user → **Apply job template** | A picker listing each job with the roles beside it, and a line saying the person's roles are **replaced** and editable afterwards. |
 | 17.6 | Choose Counter Sales → Apply | Their roles become exactly `BILLING_EXECUTIVE` and `CASHIER`. |
+| 17.6a | As `master.ops`, give a user two global roles and, under **Roles by firm**, two WHOLE01 roles. Then as `whole01.admin`, Apply job template → Counter Sales | The WHOLE01 tier becomes exactly `BILLING_EXECUTIVE` and `CASHIER`; the two **global** roles are still there. Open the user as `master.ops`: Roles in every firm unchanged, Roles in specific firms shows the two from the template. A template overwrites the tier its caller writes and never touches the other. |
+| 17.6b | Same starting point, but apply the template as `master.ops` from the grid | The reverse: the **global** tier becomes the template's two roles, and the two WHOLE01 roles under Roles by firm are untouched. Four roles, a different four. The desktop never names a firm on this call for a platform administrator. |
 | 17.7 | Edit that user's roles by hand afterwards | Works normally. A template is where you start, not where you stay — nothing on the user records which template they came from. |
 | 17.8 | Retire `night-counter`, then re-open the user from 17.6 | The user is untouched. Retiring is a decision about future hires. |
 | 17.9 | Sign in as `whole01.sales1` → Administration | No User Templates tab. It needs `ROLE_VIEW`. |
@@ -689,26 +691,26 @@ selected and every one of those screens refused its first request.
 | 26.9 | Sign in as `superadmin@agency.local` | Also `ALL_FIRMS`, but a member of all four. Still starts on **Platform**; the switcher looks the same as before. |
 | 26.10 | Sign in as `whole01.admin@agency.local` | **No** Platform entry anywhere, one firm, lands in it as always. Nothing about a firm user's experience changed. |
 
-## 27. The user menu: who you are, and where you start
+## 26a. The user menu: who you are, and where you start
 
 `GET /api/v1/me` names the signed-in person; `PUT /api/v1/me/primary-firm` is
 theirs to call. Use a user who belongs to **two** firms.
 
 | # | Step | Expect |
 | --- | --- | --- |
-| 27.1 | Sign in, open the account menu (top right) | The first row is your **full name** with your **email** under it -- not the address you typed, and not the word "User". The status bar shows the same name. |
-| 27.2 | Close the app with "remember me" on, relaunch | Still your name. This used to read "User", because a restored session never passes through the login form. |
-| 27.3 | Account menu → **Primary firm** | A dialog listing your firms with the current primary selected and **Save** dead. Choose the other, Save. A notice says which firm you will start in next time. Nothing on screen switched. |
-| 27.4 | Open the firm switcher | The primary is labelled `primary` beside its code. |
-| 27.5 | Switch to the non-primary firm, work there, sign out, sign in | You land in the **primary** firm, not the one you were last in. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who ever switched. |
-| 27.6 | As a user with **one** firm, open the account menu | No **Primary firm** entry -- there is nothing to choose. Same for a platform administrator, who always starts on Platform. |
-| 27.7 **(HTTP)** | `PUT /api/v1/me/primary-firm` with a firm you do not belong to | Refused: "You can only make a firm you belong to your primary firm." |
-| 27.8 | Account menu → **My profile**, as `whole01.sales1` (no `USER_VIEW`) | Opens. Name and email at the top; Work, Contact, Firms, Access and Sign-in sections; unset fields read **Not set**; roles grouped as **In every firm** and **In WHOLE01**; the primary firm marked **Primary**. No boxes to type in, and a line saying these are the administrator's to change. |
-| 27.9 | Same as `master.ops` | A **Platform administrator** chip under the name. |
-| 27.10 **(HTTP)** | `GET /api/v1/me` as `whole01.sales1` | 200 with `profile` and `roles`, on a token that cannot call `GET /users/{id}`. |
-| 27.11 | My profile → **Change password**: a new password of 8 characters, then one with no symbol | Refused beside the box with the rule named; nothing sent. |
-| 27.12 | Same, wrong current password, otherwise valid | The server's refusal shown in the dialog; it stays open for another try. |
-| 27.13 | Same, correct current password, `Str0ng-Passw0rd!` twice | Both dialogs close, you land on the login screen with "Password changed. Sign in with your new password." Any other window you were signed in on is signed out on its next request. Sign in with the new password; set it back afterwards. |
+| 26a.1 | Sign in, open the account menu (top right) | The first row is your **full name** with your **email** under it -- not the address you typed, and not the word "User". The status bar shows the same name. |
+| 26a.2 | Close the app with "remember me" on, relaunch | Still your name. This used to read "User", because a restored session never passes through the login form. |
+| 26a.3 | Account menu → **Primary firm** | A dialog listing your firms with the current primary selected and **Save** dead. Choose the other, Save. A notice says which firm you will start in next time. Nothing on screen switched. |
+| 26a.4 | Open the firm switcher | The primary is labelled `primary` beside its code. |
+| 26a.5 | Switch to the non-primary firm, work there, sign out, sign in | You land in the **primary** firm, not the one you were last in. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who ever switched. |
+| 26a.6 | As a user with **one** firm, open the account menu | No **Primary firm** entry -- there is nothing to choose. Same for a platform administrator, who always starts on Platform. |
+| 26a.7 **(HTTP)** | `PUT /api/v1/me/primary-firm` with a firm you do not belong to | Refused: "You can only make a firm you belong to your primary firm." |
+| 26a.8 | Account menu → **My profile**, as `whole01.sales1` (no `USER_VIEW`) | Opens. Name and email at the top; Work, Contact, Firms, Access and Sign-in sections; unset fields read **Not set**; roles grouped as **In every firm** and **In WHOLE01**; the primary firm marked **Primary**. No boxes to type in, and a line saying these are the administrator's to change. |
+| 26a.9 | Same as `master.ops` | A **Platform administrator** chip under the name. |
+| 26a.10 **(HTTP)** | `GET /api/v1/me` as `whole01.sales1` | 200 with `profile` and `roles`, on a token that cannot call `GET /users/{id}`. |
+| 26a.11 | My profile → **Change password**: a new password of 8 characters, then one with no symbol | Refused beside the box with the rule named; nothing sent. |
+| 26a.12 | Same, wrong current password, otherwise valid | The server's refusal shown in the dialog; it stays open for another try. |
+| 26a.13 | Same, correct current password, `Str0ng-Passw0rd!` twice | Both dialogs close, you land on the login screen with "Password changed. Sign in with your new password." Any other window you were signed in on is signed out on its next request. Sign in with the new password; set it back afterwards. |
 
 **(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
 with `is_primary: false` — no membership row, so nobody's primary. The same
