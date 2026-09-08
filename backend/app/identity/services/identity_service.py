@@ -1665,6 +1665,28 @@ class IdentityService:
         )
         return user, self._is_platform_admin(user.id), primary
 
+    def list_my_roles(self, user_id: UUID) -> list[tuple[Role, Firm | None]]:
+        """Return every role the signed-in user holds, with the firm it is in.
+
+        The global tier comes back with no firm. Self-service, so no scope
+        applies: a person is entitled to know what they may do, in every firm
+        they belong to, which is more than a firm administrator's scoped read
+        of them would show.
+        """
+        rows = self._session.execute(
+            select(Role, Firm)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .outerjoin(Firm, Firm.id == UserRole.firm_id)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.is_deleted.is_(False),
+                Role.is_deleted.is_(False),
+                Role.is_active.is_(True),
+            )
+            .order_by(UserRole.firm_id.is_not(None), Role.code.asc())
+        )
+        return [(row[0], row[1]) for row in rows]
+
     def set_own_primary_firm(self, user_id: UUID, firm_id: UUID) -> None:
         """Make one of the caller's own firms the one they land in at sign-in.
 

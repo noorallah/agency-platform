@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'identity/firm_roles_dialog.dart';
 import 'identity/primary_firm_dialog.dart';
+import 'identity/profile_dialog.dart';
 
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
@@ -481,6 +482,15 @@ class _DesktopShellState extends State<DesktopShell> {
                     widget.session.logout();
                     return;
                   }
+                  if (value == 'profile') {
+                    unawaited(showProfileDialog(
+                      context,
+                      api: widget.session.api,
+                      firms: widget.session.firms,
+                      known: widget.session.currentUser,
+                    ));
+                    return;
+                  }
                   if (value == 'primary-firm') {
                     unawaited(_choosePrimaryFirm());
                     return;
@@ -511,6 +521,17 @@ class _DesktopShellState extends State<DesktopShell> {
                     child: _signedInAs(context),
                   ),
                   const PopupMenuDivider(),
+                  // What is held about this person, shown to them without
+                  // `USER_VIEW`. Read-only: changing it is an administrator's
+                  // job, and the dialog says so.
+                  const PopupMenuItem<String>(
+                    value: 'profile',
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.badge_outlined),
+                      title: Text('My profile'),
+                    ),
+                  ),
                   // Where the next session starts. Offered only to somebody
                   // with a choice to make: one firm needs no primary, and a
                   // platform administrator always starts on Platform.

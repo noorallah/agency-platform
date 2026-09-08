@@ -24,7 +24,33 @@ class AssignmentOption {
   final String? group;
 }
 
+/// One role the signed-in person holds, and where: `firmId` null is the
+/// global tier, held in every firm they belong to.
+class MyRole {
+  const MyRole({
+    required this.code,
+    required this.name,
+    this.firmId,
+    this.firmCode,
+  });
+
+  final String code, name;
+  final String? firmId, firmCode;
+
+  factory MyRole.fromJson(Json json) => MyRole(
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        firmId: json['firm_id'] is String ? json['firm_id'] as String : null,
+        firmCode:
+            json['firm_code'] is String ? json['firm_code'] as String : null,
+      );
+}
+
 /// Who is signed in, as `GET /me` answers.
+///
+/// The profile fields are what an administrator recorded, blank when unset,
+/// and read-only here: a person may see what is held about them without
+/// holding `USER_VIEW`, and changing it stays an administrator's job.
 class CurrentUser {
   const CurrentUser({
     required this.id,
@@ -32,6 +58,18 @@ class CurrentUser {
     required this.fullName,
     required this.isPlatformAdmin,
     this.primaryFirmId,
+    this.lastLoginAt = '',
+    this.personalMobile = '',
+    this.alternateMobile = '',
+    this.officeEmail = '',
+    this.personalEmail = '',
+    this.employeeCode = '',
+    this.department = '',
+    this.designation = '',
+    this.reportingManager = '',
+    this.employmentType = '',
+    this.joiningDate = '',
+    this.roles = const [],
   });
 
   final String id, email, fullName;
@@ -39,16 +77,51 @@ class CurrentUser {
 
   /// The firm the next sign-in starts in, or null with none marked.
   final String? primaryFirmId;
+  final String lastLoginAt;
+  final String personalMobile,
+      alternateMobile,
+      officeEmail,
+      personalEmail,
+      employeeCode,
+      department,
+      designation,
+      reportingManager,
+      employmentType,
+      joiningDate;
+  final List<MyRole> roles;
 
-  factory CurrentUser.fromJson(Json json) => CurrentUser(
-        id: stringValue(json['id']),
-        email: stringValue(json['email']),
-        fullName: stringValue(json['full_name']),
-        isPlatformAdmin: boolValue(json['is_platform_admin']),
-        primaryFirmId: json['primary_firm_id'] is String
-            ? json['primary_firm_id'] as String
-            : null,
-      );
+  factory CurrentUser.fromJson(Json json) {
+    final Json profile = json['profile'] is Map
+        ? Map<String, dynamic>.from(json['profile'] as Map)
+        : const {};
+    final List<dynamic> roles = json['roles'] is List
+        ? json['roles'] as List<dynamic>
+        : const [];
+    return CurrentUser(
+      id: stringValue(json['id']),
+      email: stringValue(json['email']),
+      fullName: stringValue(json['full_name']),
+      isPlatformAdmin: boolValue(json['is_platform_admin']),
+      primaryFirmId: json['primary_firm_id'] is String
+          ? json['primary_firm_id'] as String
+          : null,
+      lastLoginAt: stringValue(json['last_login_at']),
+      personalMobile: stringValue(profile['personal_mobile']),
+      alternateMobile: stringValue(profile['alternate_mobile']),
+      officeEmail: stringValue(profile['office_email']),
+      personalEmail: stringValue(profile['personal_email']),
+      employeeCode: stringValue(profile['employee_code']),
+      department: stringValue(profile['department']),
+      designation: stringValue(profile['designation']),
+      reportingManager: stringValue(profile['reporting_manager']),
+      employmentType: stringValue(profile['employment_type']),
+      joiningDate: stringValue(profile['joining_date']),
+      roles: [
+        for (final dynamic row in roles)
+          if (row is Map) MyRole.fromJson(Map<String, dynamic>.from(row)),
+      ],
+    );
+  }
 }
 
 class AssignedFirm {

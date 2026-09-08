@@ -239,6 +239,12 @@ them to firms, which is where a new hire's first primary comes from. Somebody
 with one firm has nothing to choose and sees no such entry; a platform
 administrator always starts on Platform.
 
+**My profile**, in the same menu, shows a person what is held about them --
+name, employee code, department, contact details, the firms they belong to
+and the roles they hold in each -- without any permission at all. It is
+read-only: those details are yours to change from Users → Edit, and the
+dialog says so.
+
 ## 4. Hiring somebody to do what an existing person does
 
 The more common case: you have a person in mind rather than a written-down job.
@@ -425,6 +431,93 @@ always done — their reach is every firm, so "replace within your reach" and
 "replace everything" are the same thing.
 
 ---
+
+## 8b. Signing in, lockouts, unlocking and deleting
+
+The numbers below are the defaults; the settings that change them are in
+`docs/ACCESS_CONTROL_FRAMEWORK.md` under configuration.
+
+**Signing in.** Email and password on the login screen. A session is a
+15-minute access token behind a 7-day refresh token; **Remember me** keeps
+only the refresh token, in the Windows credential vault, so a relaunch
+signs in without a password. Every refusal reads the same -- *Invalid email
+or password* -- whether the address is unknown, the password is wrong, or the
+account is locked, inactive or expired. That is deliberate: a different
+message per case would tell a stranger which addresses exist. The real
+reason is in the login history (`scripts/sql/check_identity_data.sql`,
+section 5): `invalid_credentials`, `account_locked` or
+`account_unavailable`.
+
+**Failed attempts and the lock.** Each wrong password counts one. On the
+**5th** the account locks for **15 minutes**; while locked, even the right
+password is refused. The lock lifts by itself, and a successful sign-in
+resets the count to zero. The count is *not* reset by the lock lifting --
+only by a successful sign-in or an unlock.
+
+**Unlocking early.** Administration → Users → Edit the person → tick **Clear
+login lock** under Security → Save. Needs `USER_UPDATE`. A firm administrator
+can unlock their own firm's people; somebody who also belongs to another
+firm is a platform administrator's to unlock, like the rest of their profile.
+There is no self-service unlock, and rightly: the person locked out is the
+one who cannot get in.
+
+**Other reasons a sign-in is refused**, all set from Users → Edit:
+*Inactive* (the Active box off) and *Expired* (an **Expires at** in the
+past). A deleted user's address simply no longer exists.
+
+**Forced password change.** A new user is created with **Require password
+change** on, and a cloned user always is. The sign-in succeeds, but the
+change-password screen is shown before anything else and every other action
+is refused until it is done. The new password needs **12 characters** with
+an uppercase letter, a lowercase letter, a digit and a symbol, and may not
+repeat the current one or the last **5**. Changing it signs the person out
+of every machine.
+
+**Sessions ending.** The desktop signs out after **30 minutes** without
+activity. Changing somebody's roles, firms or password signs them out
+everywhere at once -- their next request re-authenticates. Sign out revokes
+the refresh token on the server and clears it from the vault.
+
+**Deleting.** Administration → Users → select → **Delete**. Needs
+`USER_DELETE`. It is a soft delete: the row and its audit trail stay, every
+session is revoked, and the email address is released so the same person can
+be onboarded again later. Always refused for a platform administrator, and
+refused for a firm administrator when the person also belongs to another
+firm -- that one needs a platform administrator.
+
+**Bringing a deleted user back.** There are two ways, and they are not the
+same thing.
+
+*Reuse the email.* Users → **New** with the same address works the moment
+the old account is deleted, because the uniqueness rule counts live
+accounts only. It is a **new person to the system**: a new id, no roles, no
+firms, no preferences and no history. Set them up as a new hire. The old row
+stays, marked deleted, so the audit trail for what the old account did still
+resolves to a name; the grid shows only the live one.
+
+*Restore the old account.* There is no screen or route for this yet -- the
+branches, warehouses and customers have a restore, users do not. Deletion
+leaves the memberships, roles and preferences untouched, so a restore is one
+statement on the platform database:
+
+```sql
+UPDATE platform.users
+   SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
+ WHERE email = 'person@example.com' AND is_deleted;
+```
+
+They sign in with their old password and have their old firms and roles
+back. Two cautions: it fails on the unique index if a new account has since
+taken the address, so **restore before re-onboarding**, not after; and a hand
+restore writes no audit row, so note it somewhere.
+
+Reuse the email when the person is genuinely being re-onboarded and should
+start clean. Restore when it is the same person coming back to the same job.
+
+**The bootstrap administrator**, `platform-admin@agency.local`, signs in with
+the password in `config/.env` and is then forced to change it. Do not rotate
+it just to get a token: the file stops matching. The seeded demo accounts are
+the ones to use for testing.
 
 ## 9. Who can press what
 

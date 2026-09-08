@@ -150,6 +150,15 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 2.4 | Leave the app idle past the access-token lifetime, then click anything | It refreshes silently and the action completes. You should not be asked to log in again. |
 | 2.5 | Log out, then press Back | No cached screen is reachable. |
 | 2.6 | Log in with a wrong password three times | Each refusal takes about as long as a correct one. A wrong address and a wrong password should not feel different. |
+| 2.7 | Two more wrong passwords (five in all), then the **right** one | Still refused, with the same message. The account is locked for 15 minutes. `scripts/sql/check_identity_data.sql` §5 shows the fifth attempt as `locked` and the sixth as `account_locked`. |
+| 2.8 | As `whole01.admin` (or `master.ops`), Users → Edit that person → tick **Clear login lock** → Save, then sign in as them with the right password | Signs in at once. The lock cleared and the failed count reset. |
+| 2.9 | Do nothing else and wait 15 minutes instead of unlocking, then sign in | Also signs in: the lock lifts by itself. |
+| 2.10 | Users → Edit → untick **Active**, save; sign in as them | Refused with the same message. History says `account_unavailable`. Retick Active. |
+| 2.11 | Users → New with **Require password change** on; sign in as the new user | The change-password screen, and nothing else reachable. A password of 8 characters, or one with no symbol, is refused with the rule named; 12 characters with upper, lower, digit and symbol is accepted, and the app opens. |
+| 2.12 | Change your own roles as `master.ops` while signed in on another window as that user | The other window is signed out on its next request. Roles, firms and password changes all revoke sessions. |
+| 2.13 | Users → select that user → **Delete**; then Users → New with the same email | Deleted from the grid; the audit trail keeps the row. The address is accepted again: soft delete releases it. The new user has **no** roles or firms -- a new person to the system, not the old one back. |
+| 2.13b **(SQL)** | Delete a user, then run the restore statement from `docs/USER_ADMINISTRATION_GUIDE.md` §8b, then sign in as them | Back in the grid with their old firms and roles, and the old password works. Repeat after creating a new user with the same address first: the statement fails on the unique index -- restore before re-onboarding, not after. |
+| 2.14 | As `whole01.admin`, try to delete somebody who also belongs to ELEC01, and try to delete `master.ops` as anybody | Both refused, with the reason: a shared user's profile is a platform administrator's, and a platform administrator cannot be deleted at all. |
 
 ## 3. Firm isolation — the core of this application
 
@@ -689,6 +698,9 @@ theirs to call. Use a user who belongs to **two** firms.
 | 27.5 | Switch to the non-primary firm, work there, sign out, sign in | You land in the **primary** firm, not the one you were last in. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who ever switched. |
 | 27.6 | As a user with **one** firm, open the account menu | No **Primary firm** entry -- there is nothing to choose. Same for a platform administrator, who always starts on Platform. |
 | 27.7 **(HTTP)** | `PUT /api/v1/me/primary-firm` with a firm you do not belong to | Refused: "You can only make a firm you belong to your primary firm." |
+| 27.8 | Account menu → **My profile**, as `whole01.sales1` (no `USER_VIEW`) | Opens. Name and email at the top; Work, Contact, Firms, Access and Sign-in sections; unset fields read **Not set**; roles grouped as **In every firm** and **In WHOLE01**; the primary firm marked **Primary**. No boxes to type in, and a line saying these are the administrator's to change. |
+| 27.9 | Same as `master.ops` | A **Platform administrator** chip under the name. |
+| 27.10 **(HTTP)** | `GET /api/v1/me` as `whole01.sales1` | 200 with `profile` and `roles`, on a token that cannot call `GET /users/{id}`. |
 
 **(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
 with `is_primary: false` — no membership row, so nobody's primary. The same
