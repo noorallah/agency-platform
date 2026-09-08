@@ -230,13 +230,10 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
   }
 
   void _loadPreferences() {
+    // This machine's own state, kept apart from the server document whose
+    // cache every sign-in replaces.
     final Map<String, dynamic> raw =
-        widget.preferences.current.serverPreferences[_preferencesKey] is Map
-            ? Map<String, dynamic>.from(
-                widget.preferences.current.serverPreferences[_preferencesKey]
-                    as Map,
-              )
-            : const {};
+        widget.preferences.workspaceState(_preferencesKey);
     _lastDirectory = stringValue(raw['last_directory']).isEmpty
         ? null
         : stringValue(raw['last_directory']);
@@ -256,16 +253,13 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
   }
 
   Future<void> _persistPreferences() =>
-      widget.preferences.cacheServerPreferences({
-        ...widget.preferences.current.serverPreferences,
-        _preferencesKey: {
-          'last_directory': _lastDirectory,
-          'reference_prefix': _referencePrefix.text.trim(),
-          'default_posting_date': _defaultPostingDate.text.trim(),
-          'auto_post_opening_stock': _autoPostOpeningStock,
-          'successful_signatures': _successfulSignatures.take(30).toList(),
-          'last_type': _type.name,
-        },
+      widget.preferences.saveWorkspaceState(_preferencesKey, {
+        'last_directory': _lastDirectory,
+        'reference_prefix': _referencePrefix.text.trim(),
+        'default_posting_date': _defaultPostingDate.text.trim(),
+        'auto_post_opening_stock': _autoPostOpeningStock,
+        'successful_signatures': _successfulSignatures.take(30).toList(),
+        'last_type': _type.name,
       });
 
   Future<void> _pickFile() async {

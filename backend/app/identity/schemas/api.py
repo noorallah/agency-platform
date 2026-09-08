@@ -44,6 +44,7 @@ class TokenResponse(ApiSchema):
 
 ThemeName = Literal["light", "dark", "blue", "green", "high_contrast"]
 ThemeModeName = Literal["system", "light", "dark"]
+PaletteName = Literal["neutral", "blue", "green"]
 DateFormat = Literal["yyyy-MM-dd", "dd/MM/yyyy", "MM/dd/yyyy"]
 TimeFormat = Literal["12h", "24h"]
 NumberFormat = Literal["1,234.56", "1.234,56"]
@@ -57,14 +58,23 @@ class UserPreferencesUpdate(ApiSchema):
     preferred_theme: ThemeName | None = None
     preferred_theme_mode: ThemeModeName | None = None
     preferred_high_contrast: bool | None = None
+    # The third of the desktop's three appearance fields. It was sent for a
+    # month before it was accepted, and because this schema forbids unknown
+    # fields the other two were refused with it -- see the model.
+    # `tests/unit/test_desktop_preference_payloads_are_accepted.py` now
+    # compares what the client sends with what this schema declares.
+    preferred_palette: PaletteName | None = None
     language: str | None = Field(default=None, pattern=r"^[a-z]{2,3}(-[A-Z]{2})?$")
     date_format: DateFormat | None = None
     time_format: TimeFormat | None = None
     number_format: NumberFormat | None = None
     currency_format: CurrencyFormat | None = None
     default_firm_id: UUID | None = None
+    # A workspace location, `module` or `module/tab`. The desktop's module
+    # names are Dart enum members -- `goodsReceipts`, `salesOrders` -- so the
+    # pattern admits uppercase; it was lowercase-only while nothing sent one.
     default_landing_page: str | None = Field(
-        default=None, min_length=1, max_length=100, pattern=r"^[a-z0-9._/-]+$"
+        default=None, min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._/-]+$"
     )
     rows_per_page: int | None = Field(default=None, ge=10, le=100)
     notification_preferences: dict[str, Any] | None = Field(
@@ -80,6 +90,7 @@ class UserPreferencesResponse(ApiSchema):
     preferred_theme: ThemeName
     preferred_theme_mode: ThemeModeName = "system"
     preferred_high_contrast: bool = False
+    preferred_palette: PaletteName = "neutral"
     language: str
     date_format: DateFormat
     time_format: TimeFormat

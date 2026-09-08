@@ -382,6 +382,7 @@ class IdentityService:
             "preferred_theme": "light",
             "preferred_theme_mode": "system",
             "preferred_high_contrast": False,
+            "preferred_palette": "neutral",
             "language": "en",
             "date_format": "yyyy-MM-dd",
             "time_format": "24h",

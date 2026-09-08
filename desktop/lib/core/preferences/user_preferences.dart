@@ -3,6 +3,13 @@
 /// A server that predates the palette/mode split sends only `preferred_theme`.
 /// "blue" and "green" were palettes there and stay palettes here; "dark" and
 /// "light" were modes and imply no palette at all.
+///
+/// A server carries `preferred_palette` since 2026-09-08. For a month before
+/// that the desktop *sent* it to a server that had never declared it, and the
+/// server refused the whole request -- so no appearance choice was ever
+/// stored, and each sign-in wrote the server's defaults over the local copy.
+/// `backend/tests/unit/test_desktop_preference_payloads_are_accepted.py` now
+/// compares what is sent and read here with what the server declares.
 String? _legacyPalette(Map<String, dynamic> json) {
   final Object? current = json['preferred_palette'];
   if (current is String && current.isNotEmpty) return current;

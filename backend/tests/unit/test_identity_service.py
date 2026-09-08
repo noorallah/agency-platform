@@ -698,6 +698,7 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
     defaults = service.get_user_preferences(user.id)
     assert defaults.preferences_version == 1
     assert defaults.preferred_theme == "light"
+    assert defaults.preferred_palette == "neutral"
     assert session.query(UserPreferences).count() == 1
 
     service.set_user_firms(
@@ -714,12 +715,24 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
         user.id,
         UserPreferencesUpdate(
             preferred_theme="green",
+            preferred_palette="green",
+            preferred_theme_mode="dark",
+            preferred_high_contrast=True,
             default_firm_id=active_firm.id,
+            # The desktop's last screen, `module/tab`, where the module is a
+            # Dart enum member and so may carry an uppercase letter.
+            default_landing_page="goodsReceipts/goods-receipts",
             rows_per_page=50,
             dashboard_layout={"widgets": ["summary"]},
         ),
     )
+    assert updated.default_landing_page == "goodsReceipts/goods-receipts"
     assert updated.preferred_theme == "green"
+    # The three appearance fields the desktop actually sends, together --
+    # the shape of the request that was refused for a month.
+    assert updated.preferred_palette == "green"
+    assert updated.preferred_theme_mode == "dark"
+    assert updated.preferred_high_contrast is True
     assert updated.default_firm_id == active_firm.id
     assert updated.rows_per_page == 50
 
@@ -730,6 +743,7 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
 
     reset = service.reset_user_preferences(user.id)
     assert reset.preferred_theme == "light"
+    assert reset.preferred_palette == "neutral"
     assert reset.default_firm_id is None
     assert reset.dashboard_layout == {}
 
