@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import (
     Branch,
+    BranchAttributeValue,
     BranchType,
     Warehouse,
+    WarehouseAttributeValue,
     WarehouseStorageNode,
     WarehouseType,
 )
@@ -31,6 +33,8 @@ from app.branches.schemas import (
     WarehouseTypeWrite,
     WarehouseUpdate,
 )
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -88,6 +92,7 @@ class BranchWarehouseService:
         )
         self._repository.add(row)
         self._repository.flush()
+        self._store_attributes(BranchAttributeValue, row, data.attributes, actor_id)
         record_audit(
             self._session,
             action="branch.created",
@@ -166,6 +171,8 @@ class BranchWarehouseService:
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
+        if "attributes" in data.model_fields_set:
+            self._store_attributes(BranchAttributeValue, row, data.attributes, actor_id)
         record_audit(
             self._session,
             action="branch.updated",
@@ -377,6 +384,7 @@ class BranchWarehouseService:
         )
         self._repository.add(row)
         self._repository.flush()
+        self._store_attributes(WarehouseAttributeValue, row, data.attributes, actor_id)
         record_audit(
             self._session,
             action="warehouse.created",
@@ -456,6 +464,10 @@ class BranchWarehouseService:
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
+        if "attributes" in data.model_fields_set:
+            self._store_attributes(
+                WarehouseAttributeValue, row, data.attributes, actor_id
+            )
         record_audit(
             self._session,
             action="warehouse.updated",
@@ -773,6 +785,39 @@ class BranchWarehouseService:
         """Return the firm's branch types."""
         return self._repository.list_branch_types(firm_id, include_deleted)
 
+    def _store_attributes(
+        self,
+        model: type[BranchAttributeValue] | type[WarehouseAttributeValue],
+        row: Branch | Warehouse,
+        attributes: list[AttributeValueInput],
+        actor_id: UUID,
+    ) -> None:
+        """Validate and persist a branch's or warehouse's custom fields."""
+        AttributeService(self._session).replace_values(
+            model,
+            row.id,
+            [
+                AttributeInput(
+                    attribute_definition_id=item.attribute_definition_id,
+                    value=item.value,
+                )
+                for item in attributes
+            ],
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
+
+    def attribute_responses(
+        self,
+        model: type[BranchAttributeValue] | type[WarehouseAttributeValue],
+        row: Branch | Warehouse,
+    ) -> list[AttributeValueResponse]:
+        """Return one record's stored custom fields in response shape."""
+        return [
+            AttributeValueResponse.model_validate(value)
+            for value in AttributeService(self._session).value_rows(model, row.id)
+        ]
+
     def create_branch_type(
         self, data: BranchTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> BranchType:
@@ -1038,7 +1083,9 @@ class BranchWarehouseService:
         of the result, so they are left alone rather than reset to their
         defaults -- see `_warehouse_values` for why that mattered.
         """
-        values = data.model_dump(mode="python", exclude_unset=partial)
+        values = data.model_dump(
+            mode="python", exclude_unset=partial, exclude={"attributes"}
+        )
         if "status" in values:
             values["status"] = data.status.value
         if "display_name" in values or "name" in values:
@@ -1057,7 +1104,9 @@ class BranchWarehouseService:
         flag and its GST registration. `partial` dumps only what was actually
         sent, so absent means leave alone and an explicit `null` still clears.
         """
-        values = data.model_dump(mode="python", exclude_unset=partial)
+        values = data.model_dump(
+            mode="python", exclude_unset=partial, exclude={"attributes"}
+        )
         if "status" in values:
             values["status"] = data.status.value
         if "display_name" in values or "name" in values:
