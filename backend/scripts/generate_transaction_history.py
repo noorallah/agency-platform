@@ -146,6 +146,7 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnLineWrite,
@@ -2240,7 +2241,16 @@ class HistoryBuilder:
                 firm_id=firm_id,
                 actor_id=ACTOR,
             )
-            orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
+            try:
+                orders.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
+            except ValidationError as error:
+                # Credit control refuses an approval under a BLOCK policy once
+                # the customer's exposure crosses their limit. The order stays
+                # where it was refused, unapproved, and the sale stops here --
+                # which is what the refusal means for the person at the desk.
+                self._tally.sales_orders += 1
+                self._tally.skipped.append(f"{on} credit block: {error}")
+                return
         self._tally.sales_orders += 1
         self._state_in_advance(order=order, on=on, firm_id=firm_id)
         advance = self._take_a_deposit(
@@ -2251,76 +2261,105 @@ class HistoryBuilder:
             select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
         )
         assert so_line is not None
-        notes = DeliveryNoteService(self._session)
-        note = notes.create_note(
-            DeliveryNoteCreate(
-                sales_order_id=order.id,
-                delivery_date=on,
-                bill_discount_percent=(
-                    None
-                    if bill_discount_percent is None
-                    else Decimal(bill_discount_percent)
+        # A firm that leaves the delivery note to the service bills the order
+        # and the invoice dispatches the goods itself. Until 2026-09-08 every
+        # seeded firm typed all four documents, so `SalesChainService` -- the
+        # one path that moves stock from an invoice -- had never run on any
+        # store. FOOD01 is that firm now. Either way the bill then meets the
+        # same deposit, points, collection, return and credit note below.
+        ships_by_hand = (
+            SalesWorkflowService(self._session)
+            .settings_for(firm_id)
+            .delivery_note_stage
+        )
+        if not ships_by_hand:
+            if not invoice:
+                return
+            approved = self._bill_the_order(
+                order=order,
+                so_line=so_line,
+                customer=customer,
+                branch=branch,
+                on=on,
+                quantity=quantity,
+                unit_price=unit_price,
+                bill_discount_percent=bill_discount_percent,
+                freight=freight,
+                firm_id=firm_id,
+            )
+        else:
+            notes = DeliveryNoteService(self._session)
+            note = notes.create_note(
+                DeliveryNoteCreate(
+                    sales_order_id=order.id,
+                    delivery_date=on,
+                    bill_discount_percent=(
+                        None
+                        if bill_discount_percent is None
+                        else Decimal(bill_discount_percent)
+                    ),
+                    freight_amount=None if freight is None else Decimal(freight),
+                    lines=[
+                        DeliveryNoteLineWrite(
+                            sales_order_line_id=so_line.id,
+                            line_number=1,
+                            current_delivery_quantity=Decimal(quantity),
+                            free_quantity=Decimal(free_quantity),
+                            unit_price=Decimal(unit_price),
+                            warehouse_id=warehouse.id,
+                        )
+                    ],
                 ),
-                freight_amount=None if freight is None else Decimal(freight),
-                lines=[
-                    DeliveryNoteLineWrite(
-                        sales_order_line_id=so_line.id,
-                        line_number=1,
-                        current_delivery_quantity=Decimal(quantity),
-                        free_quantity=Decimal(free_quantity),
-                        unit_price=Decimal(unit_price),
-                        warehouse_id=warehouse.id,
-                    )
-                ],
-            ),
-            firm_id=firm_id,
-            actor_id=ACTOR,
-        )
-        notes.approve_note(note.id, firm_scope=firm_id, actor_id=ACTOR)
-        notes.dispatch_note(note.id, firm_scope=firm_id, actor_id=ACTOR)
-        self._tally.delivery_notes += 1
-        self._session.commit()
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            notes.approve_note(note.id, firm_scope=firm_id, actor_id=ACTOR)
+            notes.dispatch_note(note.id, firm_scope=firm_id, actor_id=ACTOR)
+            self._tally.delivery_notes += 1
+            self._session.commit()
 
-        if not invoice:
-            return
+            if not invoice:
+                return
 
-        from app.delivery_note.models import DeliveryNoteLine
+            from app.delivery_note.models import DeliveryNoteLine
 
-        dn_line = self._session.scalar(
-            select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
-        )
-        assert dn_line is not None
-        invoices = SalesInvoiceService(self._session)
-        raised = invoices.create_invoice(
-            SalesInvoiceCreate(
-                customer_id=customer.id,
-                branch_id=branch.id,
-                invoice_date=on,
-                bill_discount_percent=(
-                    None
-                    if bill_discount_percent is None
-                    else Decimal(bill_discount_percent)
+            dn_line = self._session.scalar(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == note.id
+                )
+            )
+            assert dn_line is not None
+            invoices = SalesInvoiceService(self._session)
+            raised = invoices.create_invoice(
+                SalesInvoiceCreate(
+                    customer_id=customer.id,
+                    branch_id=branch.id,
+                    invoice_date=on,
+                    bill_discount_percent=(
+                        None
+                        if bill_discount_percent is None
+                        else Decimal(bill_discount_percent)
+                    ),
+                    freight_amount=None if freight is None else Decimal(freight),
+                    lines=[
+                        SalesInvoiceLineWrite(
+                            source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                            source_document_id=note.id,
+                            source_document_line_id=dn_line.id,
+                            line_number=1,
+                            current_invoice_quantity=Decimal(quantity),
+                            unit_price=Decimal(unit_price),
+                        )
+                    ],
                 ),
-                freight_amount=None if freight is None else Decimal(freight),
-                lines=[
-                    SalesInvoiceLineWrite(
-                        source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
-                        source_document_id=note.id,
-                        source_document_line_id=dn_line.id,
-                        line_number=1,
-                        current_invoice_quantity=Decimal(quantity),
-                        unit_price=Decimal(unit_price),
-                    )
-                ],
-            ),
-            firm_id=firm_id,
-            actor_id=ACTOR,
-        )
-        approved = invoices.approve_invoice(
-            raised.id, firm_scope=firm_id, actor_id=ACTOR
-        )
-        self._tally.sales_invoices += 1
-        self._session.commit()
+                firm_id=firm_id,
+                actor_id=ACTOR,
+            )
+            approved = invoices.approve_invoice(
+                raised.id, firm_scope=firm_id, actor_id=ACTOR
+            )
+            self._tally.sales_invoices += 1
+            self._session.commit()
         # Before the collection: a deposit already taken is the first money
         # against the bill, and applying it afterwards would leave the
         # ordinary receipt clearing an invoice the deposit had already paid.
@@ -2344,6 +2383,55 @@ class HistoryBuilder:
             on=on + timedelta(days=11),
             firm_id=firm_id,
         )
+
+    def _bill_the_order(
+        self,
+        *,
+        order: SalesOrder,
+        so_line: SalesOrderLine,
+        customer: Customer,
+        branch: Branch,
+        on: date,
+        quantity: str,
+        unit_price: str,
+        bill_discount_percent: str | None,
+        freight: str | None,
+        firm_id: UUID,
+    ) -> SalesInvoiceResponse:
+        """Invoice an approved order directly; the service raises the note."""
+        invoices = SalesInvoiceService(self._session)
+        raised = invoices.create_invoice(
+            SalesInvoiceCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                invoice_date=on,
+                bill_discount_percent=(
+                    None
+                    if bill_discount_percent is None
+                    else Decimal(bill_discount_percent)
+                ),
+                freight_amount=None if freight is None else Decimal(freight),
+                lines=[
+                    SalesInvoiceLineWrite(
+                        source_document_type=SalesInvoiceSourceType.SALES_ORDER,
+                        source_document_id=order.id,
+                        source_document_line_id=so_line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal(quantity),
+                        unit_price=Decimal(unit_price),
+                    )
+                ],
+            ),
+            firm_id=firm_id,
+            actor_id=ACTOR,
+        )
+        approved = invoices.approve_invoice(
+            raised.id, firm_scope=firm_id, actor_id=ACTOR
+        )
+        self._tally.sales_invoices += 1
+        self._tally.delivery_notes += 1  # raised by the service, still real
+        self._session.commit()
+        return approved
 
     def _quote_and_convert(
         self,
@@ -2623,7 +2711,18 @@ class HistoryBuilder:
         share = self._collection_cycle % 4
         if share == 0:
             return
-        total = Decimal(str(invoice.grand_total or "0")).quantize(Decimal("0.01"))
+        # What the bill still owes, not what it was for: a deposit applied to
+        # it has already cleared part, and collecting the whole total again is
+        # refused as more than the invoice owes. The two cycles happened to
+        # line up until the credit block began skipping sales, which is when
+        # a deposited bill first met a full collection.
+        owed = {
+            record.invoice_id: record.outstanding_amount
+            for record in ReceiptService(self._session).outstanding_invoices(
+                firm_id=firm_id, party_id=customer.id
+            )
+        }
+        total = owed.get(invoice.id, Decimal("0")).quantize(Decimal("0.01"))
         if total <= 0:
             return
         amount = (total / 2).quantize(Decimal("0.01")) if share == 2 else total

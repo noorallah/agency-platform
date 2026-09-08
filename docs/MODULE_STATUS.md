@@ -178,11 +178,11 @@ five are not, and each is a code path the demo cannot reach:
 
 | What | Table | Consequence |
 | --- | --- | --- |
-| Shortened sales chains | `sales_workflow_settings` | Every firm types all four documents, so `SalesChainService` — which raises the skipped ones for real, moving stock and cost — has never run on seeded data. |
-| Credit blocking | `credit_control_settings` | No firm has a policy row, so only the default warn-at-80% path is exercised; `BLOCK` is untested outside unit tests. |
-| Serial numbers | `serial_numbers`, `lots` | `products.track_serial` is false on every product in every store. |
-| Packaging levels | `product_packaging_levels` | Screen, endpoints, barcode lookup and tests all exist; no seeded row reaches them. |
-| ~~Cost and profit centres~~ | `cost_centers`, `profit_centers` | Screens since 2026-09-08 (Finance › Cost Centres / Profit Centres), the two flags on the chart-of-accounts form, and a picker on a journal line whose account requires one. Still no demo row: a seeded firm has no centre and no account that requires one. |
+| ~~Shortened sales chains~~ | `sales_workflow_settings` | **Seeded 2026-09-08**: FOOD01 leaves the delivery note to the service, so every one of its invoices is billed off the order and `SalesChainService` dispatches the goods. The other three firms still type all four. |
+| ~~Credit blocking~~ | `credit_control_settings` | **Seeded 2026-09-08**: every firm has a policy row, MEDI01's is `BLOCK`, and CityMed Clinic sits on a 20,000 limit the history crosses -- the refused approvals appear in the seeder's notes and the orders stay unapproved. |
+| ~~Serial numbers~~ | `serial_numbers`, `lots` | **Seeded 2026-09-08**: ELEC01's mixer grinder is serialised and carries up to twenty serials with warranty dates, laid onto the stock the history left. `lots` still holds nothing. |
+| ~~Packaging levels~~ | `product_packaging_levels` | **Seeded 2026-09-08**: each firm's first product carries a `Case` level with a barcode. |
+| ~~Cost and profit centres~~ | `cost_centers`, `profit_centers` | Screens since 2026-09-08 (Finance › Cost Centres / Profit Centres), the two flags on the chart-of-accounts form, and a picker on a journal line whose account requires one. **Seeded 2026-09-08**: two cost centres, two profit centres and one posted expense journal naming them, per firm. No seeded account requires one, deliberately -- the automatic postings name no centre and would be refused. |
 
 Asking this question — *which columns does no live row populate?* — found four
 defects in a single day on 2026-09-04:

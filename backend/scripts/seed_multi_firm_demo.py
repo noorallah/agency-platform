@@ -28,6 +28,8 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_settings
 from app.batch_serial import models as batch_serial_models
+from app.batch_serial.schemas import SerialCreate, SerialStatus
+from app.batch_serial.services import BatchSerialService
 from app.branches.models import (
     Branch,
     BranchType,
@@ -71,20 +73,31 @@ from app.core.tenancy import (
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.customers.schemas import (
+    CreditControlSettingsWrite,
+    CreditEnforcement,
     CustomerAddressInput,
     CustomerContactInput,
     CustomerCreate,
 )
 from app.customers.schemas.customer import AddressType as CustomerAddressType
 from app.customers.schemas.customer import CustomerStatus, CustomerType
+from app.customers.services.credit_control import CreditControlService
 from app.customers.services.customer_service import CustomerService
+from app.finance.models import AccountingPeriod, JournalEntry, JournalType, VoucherType
+from app.finance.schemas import CostCenterCreate, ProfitCenterCreate
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
+from app.finance.services.finance_service import FinanceService
+from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
 from app.firms.models import Firm
 from app.firms.schemas import FirmCreate
 from app.firms.services.firm_service import FirmService
 from app.identity.models import PlatformAdmin, Role, User, UserFirm
 from app.identity.schemas.api import UserCreate, UserFirmAssignment
 from app.identity.services.identity_service import IdentityService
-from app.inventory.models import OpeningStockBatch
+from app.inventory.models import InventoryRecord, OpeningStockBatch
 from app.inventory.schemas import OpeningStockBatchCreate, OpeningStockLineCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product, ProductCategory
@@ -117,10 +130,12 @@ from app.sales.schemas import (
 )
 from app.sales.schemas.territory import SalesmanAssignmentInput, VisitFrequency
 from app.sales.services import SalesTerritoryService
+from app.sales_order.schemas import SalesWorkflowSettingsWrite
+from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.tax.models import TaxProfile
 from app.tax.services.gst_template import apply_india_gst_template
-from app.uom.models import ConversionRule, Uom
-from app.uom.schemas import ConversionRuleCreate
+from app.uom.models import ConversionRule, PackagingType, ProductPackagingLevel, Uom
+from app.uom.schemas import ConversionRuleCreate, PackagingLevelCreate
 from app.uom.services import UomService
 from app.vendors.models import Vendor, VendorCategory, VendorType
 from app.vendors.schemas import (
@@ -187,6 +202,10 @@ class ProductSeed:
     #: the seeded data has untracked stock beside the tracked kind rather than
     #: making every row look the same.
     requires_batch: bool = False
+    #: Whether every unit is tracked by its own serial number -- an appliance
+    #: with a warranty. Set on one product in one firm, so a serialised line
+    #: sits beside plain ones rather than making every row look the same.
+    requires_serial: bool = False
 
 
 @dataclass(frozen=True)
@@ -211,6 +230,15 @@ class FirmBlueprint:
     products: tuple[ProductSeed, ...]
     vendor_names: tuple[str, ...]
     customer_names: tuple[str, ...]
+    #: Whether the firm types its own delivery notes. False leaves the note to
+    #: the service, which raises it when the invoice is approved -- the one
+    #: path that moves stock from an invoice, and one no seeded firm had ever
+    #: taken until FOOD01 stopped shipping by hand on 2026-09-08.
+    ships_by_hand: bool = True
+    #: What happens when a customer nears their limit. BLOCK on one firm, and
+    #: one of that firm's customers on a limit the history will cross, so the
+    #: refusal is a thing the demo actually contains.
+    credit_enforcement: CreditEnforcement = CreditEnforcement.WARN
 
 
 FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
@@ -241,6 +269,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
             "GreenCross Hospital",
             "CityMed Clinic",
         ),
+        credit_enforcement=CreditEnforcement.BLOCK,
         products=(
             ProductSeed(
                 code="AMOX500",
@@ -315,6 +344,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
             "Spice Garden Restaurant",
             "Metro Mart Retail",
         ),
+        ships_by_hand=False,
         products=(
             ProductSeed(
                 code="SONA25KG",
@@ -475,6 +505,7 @@ FIRM_BLUEPRINTS: tuple[FirmBlueprint, ...] = (
                 purchase_price=Decimal("1450"),
                 selling_price=Decimal("1780"),
                 mrp=Decimal("1899"),
+                requires_serial=True,
             ),
             ProductSeed(
                 code="LED9W",
@@ -644,6 +675,11 @@ def main() -> int:
                     salesman_ids=target.salesman_ids,
                 )
                 _seed_products(tenant_session, firm, blueprint, actor_id)
+                _seed_packaging_levels(tenant_session, firm, blueprint, actor_id)
+                # Before the history, because both decide what the history
+                # does: which documents a sale raises, and which approvals
+                # the credit policy refuses.
+                _seed_workflow_and_credit(tenant_session, firm, blueprint, actor_id)
                 # Clear the old trading history *before* laying down opening
                 # stock, not after. `reset_history` counts opening stock as
                 # history and deletes it, so seeding it first and resetting
@@ -672,6 +708,11 @@ def main() -> int:
                         print(f"  note: {note}")
                     if len(tally.skipped) > 5:
                         print(f"  note: ...and {len(tally.skipped) - 5} more")
+                    # After the history: serials sit on stock the history put
+                    # there, and a journal needs the books the history opened.
+                    _seed_serial_numbers(tenant_session, firm, blueprint, actor_id)
+                    _seed_centres(tenant_session, firm, actor_id)
+                    _print_untouched_paths(tenant_session, firm)
 
         _print_summary(platform, settings)
     finally:
@@ -1475,7 +1516,16 @@ def _seed_business_framework(
             "BATCH_TRACKING",
         },
         "WHOLESALE": {"BARCODE", "ATTACHMENTS"},
-        "ELECTRONICS": {"BARCODE", "QR_CODE", "ATTACHMENTS"},
+        # SERIAL_NUMBER and WARRANTY since 2026-09-08: the mixer grinder is
+        # serialised, and a serial carries warranty dates the WARRANTY gate
+        # would otherwise refuse.
+        "ELECTRONICS": {
+            "BARCODE",
+            "QR_CODE",
+            "ATTACHMENTS",
+            "SERIAL_NUMBER",
+            "WARRANTY",
+        },
     }.get(blueprint.profile_code, {"BARCODE", "ATTACHMENTS"})
     for code in feature_definitions:
         relationship = session.scalar(
@@ -2306,6 +2356,13 @@ def _seed_products(
                 existing.require_batch_on_receipt = product.requires_batch
                 existing.require_batch_on_issue = product.requires_batch
                 changed = True
+            # The serial flag is the fourth field to reach a store seeded
+            # before it existed. Tracking only: receipts and issues do not
+            # demand the numbers, so the two years of history are unaffected
+            # and the serials are laid onto the stock afterwards.
+            if existing.track_serial != product.requires_serial:
+                existing.track_serial = product.requires_serial
+                changed = True
             if not (existing.hsn_sac or "").strip() and product.hsn_sac:
                 existing.hsn_sac = product.hsn_sac
                 changed = True
@@ -2365,6 +2422,7 @@ def _seed_products(
                 mrp=product.mrp,
                 status=ProductStatus.ACTIVE,
                 track_batch=product.requires_batch,
+                track_serial=product.requires_serial,
                 # Both sides. Opening stock carries a batch now, so a traced
                 # product has no untracked stock to strand: everything it holds
                 # arrived in a batch and can therefore leave from one.
@@ -2542,6 +2600,308 @@ def _seed_inventory_opening_stock(
         actor_id=actor_id,
     )
     service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
+
+
+def _seed_workflow_and_credit(
+    session: Session, firm: FirmRef, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
+    """Set the firm's sales stages and credit policy from its blueprint.
+
+    Both tables held zero rows in every store, so the shortened sales chain
+    and the credit block had run on nothing but the unit suite. Written only
+    when the store does not already say what the blueprint says, so a policy
+    somebody changed by hand survives a re-run of the masters.
+    """
+    workflow = SalesWorkflowService(session)
+    current = workflow.settings_response(firm.id)
+    if (
+        not current.is_configured
+        or current.delivery_note_stage != blueprint.ships_by_hand
+    ):
+        workflow.update_settings(
+            SalesWorkflowSettingsWrite(
+                quotation_stage=True,
+                sales_order_stage=True,
+                delivery_note_stage=blueprint.ships_by_hand,
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    credit = CreditControlService(session)
+    policy = credit.settings_response(firm.id)
+    if not policy.is_configured:
+        credit.update_settings(
+            CreditControlSettingsWrite(
+                enforcement=blueprint.credit_enforcement,
+                warn_at_percent=Decimal("80"),
+                block_at_percent=Decimal("100"),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    if blueprint.credit_enforcement is CreditEnforcement.BLOCK:
+        # One customer on a limit two years of trading will cross, so the
+        # block is something the history actually meets: their exposure
+        # peaks near 25,000 with three bills in four collected, and 40,000 --
+        # the first figure tried -- refused nothing in two years. Only
+        # lowered from the seeded default, never over a figure somebody set
+        # by hand.
+        customer = session.scalar(
+            select(Customer).where(
+                Customer.firm_id == firm.id,
+                Customer.name == blueprint.customer_names[-1],
+                Customer.is_deleted.is_(False),
+            )
+        )
+        if customer is not None and customer.credit_limit == Decimal("250000"):
+            customer.credit_limit = Decimal("20000")
+            session.commit()
+
+
+def _seed_packaging_levels(
+    session: Session, firm: FirmRef, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
+    """Give each firm's first product a case, so the packaging screen has a row.
+
+    `product_packaging_levels` had a screen, endpoints, a barcode lookup and
+    tests, and no seeded row reached any of it. One level per firm, on the
+    first product only, so the others show what a product without a
+    hierarchy looks like.
+    """
+    seed = blueprint.products[0]
+    product = session.scalar(
+        select(Product).where(
+            Product.firm_id == firm.id,
+            Product.code == seed.code,
+            Product.is_deleted.is_(False),
+        )
+    )
+    if product is None:
+        return
+    existing = session.scalar(
+        select(ProductPackagingLevel.id).where(
+            ProductPackagingLevel.firm_id == firm.id,
+            ProductPackagingLevel.product_id == product.id,
+            ProductPackagingLevel.is_deleted.is_(False),
+        )
+    )
+    if existing is not None:
+        return
+    case_type = session.scalar(
+        select(PackagingType).where(
+            PackagingType.code == "CASE", PackagingType.is_deleted.is_(False)
+        )
+    )
+    uoms = _uom_map(session)
+    case_uom = uoms.get("CASE")
+    UomService(session).create_packaging_level(
+        firm_scope=firm.id,
+        product_id=product.id,
+        data=PackagingLevelCreate(
+            packaging_type_id=case_type.id if case_type is not None else None,
+            uom_id=case_uom.id if case_uom is not None else None,
+            level_name="Case",
+            # Twelve sales units to a case, stated in base units: a strip of
+            # ten tablets makes a case of 120, a 25 kg bag a case of 300.
+            conversion_to_base_factor=seed.sales_uom_factor * Decimal("12"),
+            barcode=f"890{abs(hash(seed.code)) % 10**9:09d}",
+            display_order=1,
+        ),
+        actor_id=actor_id,
+    )
+
+
+def _seed_serial_numbers(
+    session: Session, firm: FirmRef, blueprint: FirmBlueprint, actor_id: UUID
+) -> None:
+    """Lay serial numbers onto the stock a serialised product actually holds.
+
+    `products.track_serial` was false on every product in every store, so
+    `serial_numbers` held nothing. The numbers are written against the
+    inventory record the history left, capped at twenty per product so the
+    grid is a page and not a wall; an existing serial on the product means a
+    re-run leaves them alone.
+    """
+    service = BatchSerialService(session)
+    for seed in blueprint.products:
+        if not seed.requires_serial:
+            continue
+        product = session.scalar(
+            select(Product).where(
+                Product.firm_id == firm.id,
+                Product.code == seed.code,
+                Product.is_deleted.is_(False),
+            )
+        )
+        if product is None:
+            continue
+        already = session.scalar(
+            select(func.count())
+            .select_from(batch_serial_models.SerialNumber)
+            .where(
+                batch_serial_models.SerialNumber.firm_id == firm.id,
+                batch_serial_models.SerialNumber.product_id == product.id,
+                batch_serial_models.SerialNumber.is_deleted.is_(False),
+            )
+        )
+        if already:
+            continue
+        stock = session.scalar(
+            select(InventoryRecord)
+            .where(
+                InventoryRecord.firm_id == firm.id,
+                InventoryRecord.product_id == product.id,
+                InventoryRecord.is_deleted.is_(False),
+                InventoryRecord.available_quantity > 0,
+            )
+            .order_by(InventoryRecord.available_quantity.desc())
+        )
+        if stock is None:
+            print(f"  note: {seed.code} has no stock on hand, no serials laid")
+            continue
+        count = min(20, int(stock.available_quantity))
+        today = utc_now().date()
+        for index in range(1, count + 1):
+            service.create_serial(
+                firm_scope=firm.id,
+                actor_id=actor_id,
+                data=SerialCreate(
+                    product_id=product.id,
+                    inventory_id=stock.id,
+                    warehouse_id=stock.warehouse_id,
+                    branch_id=stock.branch_id,
+                    serial_number=f"{seed.code}-{today.year}-{index:04d}",
+                    status=SerialStatus.AVAILABLE,
+                    warranty_start=today,
+                    warranty_end=date(today.year + 1, today.month, today.day),
+                    remarks="Seeded onto stock on hand.",
+                ),
+            )
+
+
+def _seed_centres(session: Session, firm: FirmRef, actor_id: UUID) -> None:
+    """Two cost centres, two profit centres, and one journal that names them.
+
+    Both tables were present in finance with a flag no account set and
+    nothing writing either. The journal is a manual expense -- the only kind
+    that carries a centre, since the automatic postings name none -- so the
+    ledger has a line to report by centre. Idempotent by reference.
+    """
+    finance = FinanceService(session)
+    cost_ids: dict[str, UUID] = {}
+    for centre in finance.list_cost_centers(firm_id=firm.id):
+        cost_ids[centre.code] = centre.id
+    for code, name in (("SALES", "Sales team"), ("OPS", "Operations")):
+        if code not in cost_ids:
+            cost_ids[code] = finance.create_cost_center(
+                CostCenterCreate(code=code, name=name),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            ).id
+    profit_ids: dict[str, UUID] = {}
+    for centre in finance.list_profit_centers(firm_id=firm.id):
+        profit_ids[centre.code] = centre.id
+    for code, name in (("NORTH", "North region"), ("SOUTH", "South region")):
+        if code not in profit_ids:
+            profit_ids[code] = finance.create_profit_center(
+                ProfitCenterCreate(code=code, name=name),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            ).id
+    session.commit()
+
+    reference = "JV-CENTRES-1"
+    if session.scalar(
+        select(JournalEntry.id).where(
+            JournalEntry.firm_id == firm.id,
+            JournalEntry.reference_number == reference,
+            JournalEntry.is_deleted.is_(False),
+        )
+    ):
+        return
+    today = utc_now().date()
+    period = session.scalar(
+        select(AccountingPeriod)
+        .where(
+            AccountingPeriod.firm_id == firm.id,
+            AccountingPeriod.is_deleted.is_(False),
+            AccountingPeriod.status == "OPEN",
+            AccountingPeriod.starts_on <= today,
+        )
+        .order_by(AccountingPeriod.starts_on.desc())
+    )
+    journal_type = session.scalar(
+        select(JournalType).where(
+            JournalType.firm_id == firm.id, JournalType.is_deleted.is_(False)
+        )
+    )
+    voucher_type = session.scalar(
+        select(VoucherType).where(
+            VoucherType.firm_id == firm.id, VoucherType.is_deleted.is_(False)
+        )
+    )
+    if period is None or journal_type is None or voucher_type is None:
+        print(f"  note: {firm.code} has no open period; centre journal not posted")
+        return
+    controls = ControlAccountService(session)
+    expense = controls.resolve(firm.id, ControlAccountPurpose.DISCOUNT_ALLOWED)
+    cash = controls.resolve(firm.id, ControlAccountPurpose.CASH)
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=journal_type.id,
+        voucher_type_id=voucher_type.id,
+        accounting_period_id=period.id,
+        journal_date=min(today, period.ends_on),
+        reference_number=reference,
+        description="Trade show stall, paid in cash",
+        lines=[
+            JournalLineData(
+                ledger_account_id=expense,
+                debit_amount=Decimal("1250.00"),
+                cost_center_id=cost_ids["SALES"],
+                profit_center_id=profit_ids["NORTH"],
+                description="Stall hire",
+            ),
+            JournalLineData(ledger_account_id=cash, credit_amount=Decimal("1250.00")),
+        ],
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+
+def _print_untouched_paths(session: Session, firm: FirmRef) -> None:
+    """Say which of the once-empty tables this firm now populates."""
+
+    def count(model: type, *conditions: object) -> int:
+        return int(
+            session.scalar(select(func.count()).select_from(model).where(*conditions))
+            or 0
+        )
+
+    from app.customers.models import CreditControlSettings
+    from app.sales_order.models import SalesWorkflowSettings
+
+    workflow = count(SalesWorkflowSettings, SalesWorkflowSettings.firm_id == firm.id)
+    credit = count(CreditControlSettings, CreditControlSettings.firm_id == firm.id)
+    serials = count(
+        batch_serial_models.SerialNumber,
+        batch_serial_models.SerialNumber.firm_id == firm.id,
+        batch_serial_models.SerialNumber.is_deleted.is_(False),
+    )
+    levels = count(
+        ProductPackagingLevel,
+        ProductPackagingLevel.firm_id == firm.id,
+        ProductPackagingLevel.is_deleted.is_(False),
+    )
+    centres = len(FinanceService(session).list_cost_centers(firm_id=firm.id)) + len(
+        FinanceService(session).list_profit_centers(firm_id=firm.id)
+    )
+    print(
+        f"{firm.code} once-empty paths: workflow={workflow} credit={credit} "
+        f"serials={serials} packaging_levels={levels} centres={centres}"
+    )
 
 
 def _business_profile(session: Session, profile_code: str) -> BusinessProfile:

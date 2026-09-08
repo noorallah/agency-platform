@@ -126,6 +126,11 @@ first non-NULL row.
 
 ## Firms, profiles and settings
 
+The firm's own entities -- profile, attributes, units, tax, branches,
+warehouses, products, customers, vendors, territory -- are mapped in
+[`FIRM_DOMAIN_MODEL.md`](FIRM_DOMAIN_MODEL.md); this section covers only
+the platform side of the firm.
+
 Two tables in the platform schema decide that a firm exists and where its rows
 live. Everything that configures it lives inside the firm's own store —
 including the catalogue it is configured *from*.
