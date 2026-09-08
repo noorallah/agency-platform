@@ -229,6 +229,16 @@ the other firm's staff. Their row shows this, and **Edit** is disabled.
 | Name, email, mobile, password, active | a platform administrator's |
 | Anything in another firm | not yours, and not visible |
 
+## 3d. Where a person starts, and who decides
+
+A sign-in lands in the person's **primary firm**. Switching firms in the
+header is for the session; the primary is for next time, and it is **the
+person's own to choose** from the account menu (top right → **Primary firm**),
+among the firms they belong to. An administrator can still set it when adding
+them to firms, which is where a new hire's first primary comes from. Somebody
+with one firm has nothing to choose and sees no such entry; a platform
+administrator always starts on Platform.
+
 ## 4. Hiring somebody to do what an existing person does
 
 The more common case: you have a person in mind rather than a written-down job.

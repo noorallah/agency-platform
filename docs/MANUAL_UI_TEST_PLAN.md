@@ -675,6 +675,21 @@ selected and every one of those screens refused its first request.
 | 26.9 | Sign in as `superadmin@agency.local` | Also `ALL_FIRMS`, but a member of all four. Still starts on **Platform**; the switcher looks the same as before. |
 | 26.10 | Sign in as `whole01.admin@agency.local` | **No** Platform entry anywhere, one firm, lands in it as always. Nothing about a firm user's experience changed. |
 
+## 27. The user menu: who you are, and where you start
+
+`GET /api/v1/me` names the signed-in person; `PUT /api/v1/me/primary-firm` is
+theirs to call. Use a user who belongs to **two** firms.
+
+| # | Step | Expect |
+| --- | --- | --- |
+| 27.1 | Sign in, open the account menu (top right) | The first row is your **full name** with your **email** under it -- not the address you typed, and not the word "User". The status bar shows the same name. |
+| 27.2 | Close the app with "remember me" on, relaunch | Still your name. This used to read "User", because a restored session never passes through the login form. |
+| 27.3 | Account menu → **Primary firm** | A dialog listing your firms with the current primary selected and **Save** dead. Choose the other, Save. A notice says which firm you will start in next time. Nothing on screen switched. |
+| 27.4 | Open the firm switcher | The primary is labelled `primary` beside its code. |
+| 27.5 | Switch to the non-primary firm, work there, sign out, sign in | You land in the **primary** firm, not the one you were last in. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who ever switched. |
+| 27.6 | As a user with **one** firm, open the account menu | No **Primary firm** entry -- there is nothing to choose. Same for a platform administrator, who always starts on Platform. |
+| 27.7 **(HTTP)** | `PUT /api/v1/me/primary-firm` with a firm you do not belong to | Refused: "You can only make a firm you belong to your primary firm." |
+
 **(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
 with `is_primary: false` — no membership row, so nobody's primary. The same
 call as `whole01.admin` still returns one.

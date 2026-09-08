@@ -380,6 +380,31 @@ class MyFirmResponse(ApiSchema):
     is_primary: bool
 
 
+class MeResponse(ApiSchema):
+    """Who is signed in, for the user menu and the profile view.
+
+    The login response carries tokens only, the token's claims carry roles and
+    permissions and never a name, and `GET /users/{id}` needs `USER_VIEW` --
+    so until this existed the desktop could show a signed-in person nothing
+    but the address they typed at the login form, and after a restored session
+    not even that. Self-service, gated on being signed in and nothing else.
+    """
+
+    id: UUID
+    email: str
+    full_name: str
+    is_platform_admin: bool
+    #: The firm this person lands in at sign-in, or None with no membership
+    #: marked primary. Their own to change through `PUT /me/primary-firm`.
+    primary_firm_id: UUID | None
+
+
+class PrimaryFirmUpdate(ApiSchema):
+    """The firm a user wants to land in at sign-in."""
+
+    firm_id: UUID
+
+
 class FinancialYearStart(ApiSchema):
     """A date value retained for generated API documentation reuse."""
 

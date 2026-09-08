@@ -69,6 +69,7 @@ class SessionController extends ChangeNotifier {
   String? _error;
   String? _notice;
   String? _attemptedUsername;
+  CurrentUser? _currentUser;
   Future<bool>? _refreshOperation;
   Timer? _sessionTimer;
   UserPreferences? _serverPreferences;
@@ -86,6 +87,22 @@ class SessionController extends ChangeNotifier {
   List<AssignedFirm> get firms => List.unmodifiable(_firms);
   AssignedFirm? get currentFirm => _currentFirm;
   int get firmContextVersion => _firmContextVersion;
+
+  /// Who is signed in, once `GET /me` has answered.
+  CurrentUser? get currentUser => _currentUser;
+
+  /// What to call the signed-in person on screen.
+  ///
+  /// Their name, then their address, then whatever they typed at the login
+  /// form -- which is all the menu used to have, and after a restored session
+  /// it had nothing, because `attemptedUsername` is set only by `login`.
+  String? get userLabel {
+    final CurrentUser? user = _currentUser;
+    if (user != null) {
+      return user.fullName.isNotEmpty ? user.fullName : user.email;
+    }
+    return _attemptedUsername;
+  }
   /// Where the shell opens: the screen this **user** was last on.
   ///
   /// The server's `default_landing_page` first, because it is the user's and
@@ -310,6 +327,17 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Choose the firm this user lands in at sign-in.
+  ///
+  /// Their own decision, made among the firms they belong to; the server
+  /// refuses any other. The firm list is re-read afterwards so the `isPrimary`
+  /// flags on screen say what the server now says. Nothing about the current
+  /// session moves: switching is for now, the primary is for next time.
+  Future<void> setPrimaryFirm(String firmId) async {
+    _currentUser = await api.setPrimaryFirm(firmId);
+    await refreshFirms();
+  }
+
   /// Whether this session may work with no firm selected.
   ///
   /// Only a platform administrator can: for anybody else a null firm means an
@@ -378,6 +406,7 @@ class SessionController extends ChangeNotifier {
     try {
       final UserPreferences preferences = await api.getUserPreferences();
       final List<AssignedFirm> firms = await api.myFirms();
+      _currentUser = await api.me();
       _firms = firms;
       _currentFirm = _resolveCurrentFirm(firms, preferences.defaultFirmId);
       final UserPreferences synchronizedPreferences =
@@ -403,6 +432,7 @@ class SessionController extends ChangeNotifier {
     _accessToken = null;
     _refreshToken = null;
     _serverPreferences = null;
+    _currentUser = null;
     _firms = const [];
     _currentFirm = null;
     _firmContextVersion++;
@@ -452,6 +482,15 @@ class SessionController extends ChangeNotifier {
 
   /// Which firm a fresh session lands on, if any.
   ///
+  /// **The primary firm first.** It is the one the user chose to start in --
+  /// their own to set, from the user menu -- so it wins over the firm they
+  /// happened to be in when they signed out. Switching is for the session;
+  /// the primary is for next time. Until 2026-09-08 it was the other way
+  /// round, which made the primary flag mean nothing to anybody who ever
+  /// switched: the last firm always came back. `default_firm_id` still
+  /// decides for a person with no primary, and the first firm for one with
+  /// no preference at all.
+  ///
   /// A platform administrator lands on **none**, every time, whatever they
   /// were last working in. Their designation reaches every firm's books, so
   /// restoring a firm would drop them straight into somebody's ledgers on a
@@ -471,10 +510,10 @@ class SessionController extends ChangeNotifier {
   }) {
     if (firms.isEmpty || isPlatformAdmin) return null;
     for (final AssignedFirm firm in firms) {
-      if (firm.id == preferredFirmId) return firm;
+      if (firm.isPrimary) return firm;
     }
     for (final AssignedFirm firm in firms) {
-      if (firm.isPrimary) return firm;
+      if (firm.id == preferredFirmId) return firm;
     }
     return firms.first;
   }

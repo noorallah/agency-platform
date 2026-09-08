@@ -153,6 +153,23 @@ class ApiClient {
     return UserPreferences.fromJson(_unwrapMap(response));
   }
 
+  /// Who is signed in: name, email, designation and primary firm.
+  ///
+  /// The login response carries tokens only and the token carries no name,
+  /// so this is the one read the user menu has. Gated on being signed in and
+  /// nothing else.
+  Future<CurrentUser> me() async =>
+      CurrentUser.fromJson(_unwrapMap(await request('GET', '/api/v1/me')));
+
+  /// Choose the firm to land in at sign-in, among the ones this user belongs
+  /// to. Self-service; the administrator's route is `setUserFirms`.
+  Future<CurrentUser> setPrimaryFirm(String firmId) async =>
+      CurrentUser.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/me/primary-firm',
+        body: {'firm_id': firmId},
+      )));
+
   Future<List<AssignedFirm>> myFirms() async {
     final Json response = await request('GET', '/api/v1/me/firms');
     final dynamic data = response['data'];
