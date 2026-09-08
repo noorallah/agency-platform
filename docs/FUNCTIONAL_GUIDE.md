@@ -186,9 +186,9 @@ Three separate grants, held by different people on purpose:
 | Create, edit, provision firms | **Masters › Firms** (`FIRM_VIEW`) |
 | A firm's own details and preferences | **Masters › Firm Settings** (`FIRM_VIEW`) |
 | Create users, reset passwords | **Administration › Users** (`USER_VIEW`) |
-| Define roles | **Administration › Roles** (`ROLE_VIEW`) |
-| See the permission catalogue | **Administration › Permissions** (`PERMISSION_VIEW`) |
-| Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE` + `FIRM_VIEW`) |
+| Define roles | **Administration › Roles & Permissions › Roles** (`ROLE_VIEW`) |
+| See the permission catalogue | **Administration › Roles & Permissions › Permissions** (`PERMISSION_VIEW`) |
+| Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE`, platform administrators only); a firm administrator uses **Users › Edit › Firms** or **Add existing user** |
 | Read who changed what | **Settings › Audit Log** (`AUDIT_LOG_VIEW`) |
 
 The firm switcher lives in the shell header and lists only firms the signed-in
@@ -364,7 +364,7 @@ Three grants, deliberately held by different people (module 1):
 | Step | Where | Permission |
 | --- | --- | --- |
 | Create the account | **Administration › Users** | `USER_CREATE` |
-| Assign roles — *what* they may do | **Administration › Roles** | `ROLE_ASSIGN` |
+| Assign roles — *what* they may do | **Administration › Roles & Permissions › Roles** | `ROLE_ASSIGN` |
 | Assign the firm — *whose data* | **Administration › User-Firm Assignments** | platform admin |
 
 Mark one membership `is_primary`: that is the firm that opens by default. A

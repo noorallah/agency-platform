@@ -563,6 +563,29 @@ void main() {
       expect(permissions.isPlatformAdmin, isFalse);
     });
 
+    test('User-Firm Assignments is marked the same way, at tab level', () {
+      // The tab-level twin. The screen is a subset of the Users form, so a
+      // firm administrator gains nothing from it -- and holds the two codes
+      // it asks for, so the permission list alone would offer it.
+      final ModuleTabDefinition tab = ModuleCatalog.modules
+          .firstWhere((module) => module.id == AppModule.administration)
+          .tabs
+          .firstWhere((tab) => tab.id == 'user-firms');
+      expect(tab.requiresPlatformAdmin, isTrue);
+
+      final PermissionService permissions =
+          token([...firmAdmin, 'USER_UPDATE'], roles: ['FIRM_ADMIN']);
+      expect(
+        permissions.canUseTab(
+          tab.requiredPermissions,
+          requiresAny: tab.requiresAnyPermission,
+        ),
+        isTrue,
+        reason: 'so the permission list cannot be what hides it',
+      );
+      expect(permissions.isPlatformAdmin, isFalse);
+    });
+
     test('a platform administrator is recognised', () {
       expect(
         token(firmAdmin, platformAdmin: true).isPlatformAdmin,

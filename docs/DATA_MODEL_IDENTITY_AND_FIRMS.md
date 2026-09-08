@@ -120,7 +120,8 @@ only the second varies per person. See "Assigning roles" in
 `docs/ACCESS_CONTROL_FRAMEWORK.md` for which caller writes which.
 
 As seeded here, all 16 roles carry `roles.firm_id = NULL` and `is_system =
-true`; a firm writing its own role through Administration → Roles produces the
+true`; a firm writing its own role through Administration → Roles & Permissions
+→ Roles produces the
 first non-NULL row.
 
 ## Firms, profiles and settings

@@ -74,6 +74,12 @@ _MODULES_THAT_OPEN_EMPTY: frozenset[tuple[str, str]] = frozenset()
 #: left the catalogue entry alone -- two gates on one screen, one of them
 #: moved, and the screen still unreachable. This list exists so the next such
 #: tab fails the build instead of waiting to be noticed on somebody's screen.
+#:
+#: It is platform-only again as of 2026-09-08, and **not** on this list: the
+#: catalogue says so itself with a tab-level `requiresPlatformAdmin`, which
+#: `_modules` reads the way it reads the module-level flag. A flag in the
+#: catalogue is the reason; a name here beside it would be a second copy of
+#: the same fact, and the two would drift.
 _TABS_NO_FIRM_ROLE_CAN_OPEN = frozenset(
     {
         # All six are the business-profile framework, gated on `PLATFORM_VIEW`
@@ -112,6 +118,13 @@ def _modules() -> tuple[tuple[str, frozenset[str], bool, bool, tuple], ...]:
                 r"requiredPermissions: (?:const )?\[(.*?)\]", tab, re.S
             )
             if tab_label is None:
+                continue
+            if "requiresPlatformAdmin: true" in tab:
+                # A tab flagged for platform administrators is closed to every
+                # firm role on purpose, the way a flagged module is. Left out
+                # rather than carried with a fourth field so the two questions
+                # below -- does some tab open the module, and is any tab dead
+                # -- keep asking about the tabs a firm role could ever reach.
                 continue
             if tab_gate is None:
                 # A tab naming no codes inherits the module's list and flag.
@@ -246,7 +259,8 @@ def test_no_tab_is_closed_to_every_firm_role() -> None:
     worked, and the twelfth -- the one for assigning people to firms -- asked
     for a platform code and was invisible to every firm administrator.
 
-    When this fails, either gate the tab on something a firm role holds, or
+    When this fails, either gate the tab on something a firm role holds, flag
+    it `requiresPlatformAdmin` if it is a platform administrator's screen, or
     add it to `_TABS_NO_FIRM_ROLE_CAN_OPEN` with the reason.
     """
     firm_roles = {
@@ -269,8 +283,10 @@ def test_no_tab_is_closed_to_every_firm_role() -> None:
         "no seeded firm role can open these tabs, so nobody in a firm will "
         "ever see them:\n  "
         + "\n  ".join(unexpected)
-        + "\n\nGate the tab on a code a firm role holds, or record it in "
-        "`_TABS_NO_FIRM_ROLE_CAN_OPEN` with the reason. Note there are **two** "
+        + "\n\nGate the tab on a code a firm role holds, flag it "
+        "`requiresPlatformAdmin` if it is a platform administrator's screen, or "
+        "record it in `_TABS_NO_FIRM_ROLE_CAN_OPEN` with the reason. Note there "
+        "are **two** "
         "gates per tab -- `requiredPermissions` in `module_catalog.dart` and "
         "`canUseAction` on the definition -- and moving one without the other "
         "leaves the screen unreachable, which is how `user-firms` survived a "

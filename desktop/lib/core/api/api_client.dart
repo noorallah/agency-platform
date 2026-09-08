@@ -313,21 +313,23 @@ class ApiClient {
 
   /// Finds somebody who already has an account, to hire them into this firm.
   ///
-  /// A **lookup, not a directory**: the server refuses a term under three
-  /// characters, caps the result, does not page, and never says which firms
-  /// somebody belongs to. `list_users` stays scoped to the caller's own firm.
-  Future<List<UserLookupResult>> lookupUsers(String term) async {
+  /// Two callers, two answers. For a **firm** caller it is a lookup, not a
+  /// directory: the server refuses a term under three characters, caps the
+  /// result at ten whatever the page says, and never says which firms
+  /// somebody belongs to. For a **platform** caller an empty term lists
+  /// everybody not yet in the firm on `X-Firm-ID`, paged, and a term filters
+  /// it. `list_users` stays scoped to the caller's own firm.
+  Future<PagedResult<UserLookupResult>> lookupUsers(
+    String term, {
+    int page = 1,
+    int pageSize = 100,
+  }) async {
     final Json response = await request(
       'GET',
       '/api/v1/users/lookup',
-      query: {'q': term},
+      query: {'q': term, 'page': '$page', 'page_size': '$pageSize'},
     );
-    final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return [
-      for (final dynamic row in data)
-        if (row is Map<String, dynamic>) UserLookupResult.fromJson(row),
-    ];
+    return parsePagedResponse(response, UserLookupResult.fromJson);
   }
 
   /// Hires somebody to do what an existing person does.

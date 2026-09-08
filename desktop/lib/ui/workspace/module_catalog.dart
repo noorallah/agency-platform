@@ -40,6 +40,8 @@ class ModuleTabDefinition {
     this.requiredPermissions = const [],
     this.requiresAnyPermission = false,
     this.requiresFirm = true,
+    this.requiresPlatformAdmin = false,
+    this.group,
   });
 
   final String id;
@@ -47,6 +49,38 @@ class ModuleTabDefinition {
   final bool available;
   final List<String> requiredPermissions;
   final bool requiresAnyPermission;
+
+  /// The sidebar entry this tab shares with others, or null for one of its
+  /// own.
+  ///
+  /// Tabs naming the same group are **one** entry in the sidebar and one page
+  /// with a tab strip inside it, in catalogue order. Each tab keeps its own
+  /// id -- which is its address: what Ctrl+K opens, what the router carries,
+  /// what the remembered last screen restores -- its own permission gate and
+  /// its own header description. Only how it is reached changes.
+  ///
+  /// Why not a parent node with children: clicking a parent only expands it,
+  /// so that shape is two clicks and *more* sidebar rows, and the point of a
+  /// group is fewer. Roles and Permissions are the first: both are reference
+  /// screens somebody opens a few times a year, and each rarely used entry is
+  /// one more row in a menu that has to be scanned every day.
+  final String? group;
+
+  /// Whether only a platform administrator may open this tab.
+  ///
+  /// The tab-level twin of [ModuleDefinition.requiresPlatformAdmin], for the
+  /// same reason: a screen that exists for the platform's own administration
+  /// cannot be expressed as a permission list, because a platform
+  /// administrator passes permission checks by designation rather than by
+  /// holding codes -- so any list a firm role happens to satisfy lets that
+  /// role through, and naming a code no firm role holds (`FIRM_VIEW`) hides
+  /// the tab from *everybody* the moment the definition behind it stops
+  /// asking for that code. Both happened to User-Firm Assignments.
+  ///
+  /// A flag says what is meant. `requiredPermissions` still applies beside
+  /// it, so the toolbar inside the screen stays honest if the flag is ever
+  /// removed.
+  final bool requiresPlatformAdmin;
 
   /// Whether this tab's data lives in a firm's store.
   ///
@@ -108,9 +142,20 @@ class ModuleDefinition {
   /// It defaults to true because most modules are a firm's own business. The
   /// four that are not say so.
   final bool requiresFirm;
+
+  /// The tabs sharing one sidebar entry, in catalogue order.
+  ///
+  /// See [ModuleTabDefinition.group]. The order matters twice: the first
+  /// visible member is the entry's path, and the tab strip inside the page
+  /// lists them in this order.
+  List<ModuleTabDefinition> groupMembers(String group) =>
+      [for (final ModuleTabDefinition tab in tabs) if (tab.group == group) tab];
 }
 
 abstract final class ModuleCatalog {
+  /// The one sidebar entry Roles and Permissions share.
+  static const String rolesAndPermissions = 'Roles & Permissions';
+
   static const List<ModuleDefinition> modules = [
     ModuleDefinition(
       id: AppModule.dashboard,
@@ -181,12 +226,15 @@ abstract final class ModuleCatalog {
             id: 'roles',
             label: 'Roles',
             requiredPermissions: ['ROLE_VIEW'],
-            requiresFirm: false),
+            requiresFirm: false,
+            // One sidebar entry with Permissions; see `group`.
+            group: rolesAndPermissions),
         ModuleTabDefinition(
           id: 'permissions',
           label: 'Permissions',
           requiredPermissions: ['PERMISSION_VIEW'],
           requiresFirm: false,
+          group: rolesAndPermissions,
         ),
         ModuleTabDefinition(
           id: 'user-templates',
@@ -199,13 +247,22 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'user-firms',
           label: 'User-Firm Assignments',
-          // Not `FIRM_VIEW`. It is a platform code `FIRM_ADMIN` can never
-          // hold, so this tab was invisible to the one role whose job it is
-          // -- and #249 fixed only the *other* half, the definition's
-          // `canUseAction`, leaving the tab itself unreachable. Two gates on
-          // one screen and only one of them moved.
+          // A platform administrator's tab, by flag. The screen is a strict
+          // subset of the Users form -- the same two fields, Firms and
+          // Primary firm, and the same single write -- so for a firm
+          // administrator it was a third door onto one room beside
+          // Users → Edit → Firms and Add existing user. For a platform
+          // administrator attaching people to firms across the platform it
+          // is the lighter tool, and stays.
+          //
+          // A flag and not `FIRM_VIEW`: that code hid the tab from the one
+          // role whose job it then was, while #249 fixed only the *other*
+          // half, the definition's `canUseAction` -- two gates on one screen
+          // and one of them moved. The codes below stay so the toolbar inside
+          // is still gated on something if the flag is ever removed.
           requiredPermissions: ['USER_VIEW', 'USER_UPDATE'],
           requiresFirm: false,
+          requiresPlatformAdmin: true,
         ),
         ModuleTabDefinition(
           id: 'numbering-series',
@@ -1037,6 +1094,15 @@ abstract final class ModuleCatalog {
     Set<String> visibleTabIds,
   ) {
     bool hasAny(List<String> ids) => ids.any(visibleTabIds.contains);
+    // The visible members of one tab group, in catalogue order. The entry's
+    // path is the first, so a caller holding only `PERMISSION_VIEW` gets an
+    // entry that opens Permissions rather than one that opens nothing.
+    List<String> groupIds(String group) => [
+          for (final ModuleTabDefinition tab
+              in byId(AppModule.administration).groupMembers(group))
+            if (visibleTabIds.contains(tab.id)) tab.id,
+        ];
+    final List<String> rolesGroup = groupIds(rolesAndPermissions);
     return [
       if (visibleTabIds.contains('users'))
         const WorkspaceNavigationNode(
@@ -1044,17 +1110,16 @@ abstract final class ModuleCatalog {
           path: 'users',
           icon: Icons.person_outline,
         ),
-      if (visibleTabIds.contains('roles'))
-        const WorkspaceNavigationNode(
-          label: 'Roles',
-          path: 'roles',
+      // One entry for two tabs. Each keeps its own id as its address; the
+      // entry stays highlighted whichever is open, because a leaf that opens
+      // a page holding several addressable tabs must not go dark the moment
+      // somebody switches the inner tab or arrives by Ctrl+K.
+      if (rolesGroup.isNotEmpty)
+        WorkspaceNavigationNode(
+          label: rolesAndPermissions,
+          path: rolesGroup.first,
           icon: Icons.badge_outlined,
-        ),
-      if (visibleTabIds.contains('permissions'))
-        const WorkspaceNavigationNode(
-          label: 'Permissions',
-          path: 'permissions',
-          icon: Icons.key_outlined,
+          alsoSelectedBy: rolesGroup.skip(1).toList(),
         ),
       if (visibleTabIds.contains('firms'))
         const WorkspaceNavigationNode(

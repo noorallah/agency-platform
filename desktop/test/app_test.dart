@@ -160,6 +160,16 @@ void main() {
         'Profile Assignment',
       ]),
     );
+    // Roles and Permissions keep their own tabs -- their ids are what Ctrl+K
+    // and the router address -- and share one sidebar entry by group.
+    expect(
+      [
+        for (final ModuleTabDefinition tab
+            in ModuleCatalog.byId(AppModule.administration).tabs)
+          if (tab.group == ModuleCatalog.rolesAndPermissions) tab.id,
+      ],
+      ['roles', 'permissions'],
+    );
     // Nothing is offered that cannot be opened. Every tab greyed out as
     // "coming soon" has been removed or given the screen it advertised, so a
     // catalog entry now means a working destination.

@@ -100,10 +100,11 @@ class ModuleVisibility {
   /// A tab naming no permissions **inherits the module's list and its any/all
   /// flag**, which is why a module gate is not enough on its own.
   ///
-  /// The platform-admin gate is applied here too. It was not, and while that
-  /// is harmless today -- the only such module has no tabs -- the next one
-  /// with tabs would have leaked every one of them to anybody who satisfied
-  /// the module's permission list.
+  /// The module-level platform-admin gate is applied here too. It was not,
+  /// and while that was harmless at the time -- the only such module had no
+  /// tabs -- the next one with tabs would have leaked every one of them to
+  /// anybody who satisfied the module's permission list. The tab-level flag
+  /// is applied in [tabsFor], where every workspace's tab strip reads it.
   Set<String> tabIds(ModuleDefinition module) {
     if (!allows(module)) {
       return const {};
@@ -139,6 +140,10 @@ class ModuleVisibility {
           // Administration holds tabs of both kinds, so a module that opens
           // without a firm still hides the tabs that need one.
           .where((tab) => hasActiveFirm || !tab.requiresFirm)
+          // A platform administrator's tab is hidden from everybody else
+          // **before** the permission list is consulted, because a firm role
+          // can satisfy that list and still not be the intended caller.
+          .where((tab) => !tab.requiresPlatformAdmin || permissions.isPlatformAdmin)
           .where(
             (tab) => permissions.canUseTab(
               tab.requiredPermissions.isEmpty

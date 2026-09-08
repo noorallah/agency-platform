@@ -356,15 +356,17 @@ def create_user(
 
 @router.get(
     "/users/lookup",
-    response_model=ApiResponse[list[UserLookupResponse]],
+    response_model=PaginatedResponse[UserLookupResponse],
     tags=["Users"],
 )
 def lookup_users(
     principal: UserCreatePrincipal,
-    q: Annotated[str, Query(min_length=1, max_length=320)],
+    q: Annotated[str, Query(max_length=320)] = "",
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
-) -> ApiResponse[list[UserLookupResponse]]:
+) -> PaginatedResponse[UserLookupResponse]:
     """Find somebody who already has an account, to hire them into this firm.
 
     **Declared above `/users/{user_id}` and it must stay there.** FastAPI
@@ -377,9 +379,21 @@ def lookup_users(
     open an account has no use for it. `USER_VIEW` deliberately does not
     reach it -- reading your own firm's people and reaching across firms are
     different privileges.
+
+    A firm caller must send at least three characters and gets at most ten,
+    whatever `page` says. A platform caller may send nothing and gets
+    everybody not yet in the firm named by `X-Firm-ID`, paged -- see
+    `IdentityService.lookup_users` for why the two differ.
     """
-    found = _service(db, settings).lookup_users(q, _firm_scope(principal))
-    return ApiResponse(
+    params = PaginationParams(page=page, page_size=page_size)
+    found, total = _service(db, settings).lookup_users(
+        q,
+        _firm_scope(principal),
+        hiring_firm_id=principal.firm_id,
+        page=params.page,
+        page_size=params.page_size,
+    )
+    return PaginatedResponse(
         data=[
             UserLookupResponse(
                 id=user.id,
@@ -388,7 +402,8 @@ def lookup_users(
                 already_a_member=is_member,
             )
             for user, is_member in found
-        ]
+        ],
+        pagination=params.metadata(total),
     )
 
 

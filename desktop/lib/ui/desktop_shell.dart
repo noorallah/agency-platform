@@ -77,6 +77,7 @@ import 'workspace/enterprise_sidebar.dart';
 import 'administration/apply_template_dialog.dart';
 import 'administration/clone_user_dialog.dart';
 import 'administration/find_person_dialog.dart';
+import 'administration/tab_group_page.dart';
 import 'workspace/desktop_framework.dart';
 
 /// What each Administration screen is for, where the module's own sentence is
@@ -117,19 +118,22 @@ class AdministrationHeader {
 /// Derives the header from the selected tab.
 ///
 /// This used to be built from the module, with a `const` breadcrumb, so every
-/// screen under Administration -- Users, Roles, Permissions -- rendered the same
-/// heading and the same trail and nothing said which one was open.
+/// screen under Administration -- Users, Roles, User Templates -- rendered the
+/// same heading and the same trail and nothing said which one was open.
 ///
 /// The label comes from the catalog rather than a switch, so renaming a tab
-/// cannot leave the heading behind.
+/// cannot leave the heading behind. A tab that shares a sidebar entry with
+/// others takes the entry's name as its title -- the heading names the page
+/// somebody opened, and the strip inside it names the half -- while the
+/// description stays the tab's own, so the two halves still say different
+/// things.
 AdministrationHeader administrationHeaderFor(String tabId) {
   final ModuleDefinition module = ModuleCatalog.byId(AppModule.administration);
-  final String title = module.tabs
-      .firstWhere(
-        (tab) => tab.id == tabId,
-        orElse: () => ModuleTabDefinition(id: tabId, label: module.label),
-      )
-      .label;
+  final ModuleTabDefinition tab = module.tabs.firstWhere(
+    (tab) => tab.id == tabId,
+    orElse: () => ModuleTabDefinition(id: tabId, label: module.label),
+  );
+  final String title = tab.group ?? tab.label;
   return AdministrationHeader(
     title: title,
     description: _administrationDescriptions[tabId] ?? module.description,
@@ -1529,21 +1533,33 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             context: context,
           ),
         ),
-      'roles' => ResourceManagementPage<Role>(
-          api: widget.api,
-          definition: _roleDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'permissions' => ResourceManagementPage<Permission>(
-          api: widget.api,
-          definition: permissionDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
+      // One page for the two, chosen by the router's tab so the sidebar
+      // entry, the heading and the remembered screen all agree on which
+      // half is open. Each half keeps its own definition and its own id.
+      'roles' || 'permissions' => TabGroupPage(
+          members: [
+            for (final ModuleTabDefinition tab in visibleTabs)
+              if (tab.group == ModuleCatalog.rolesAndPermissions) tab,
+          ],
+          current: tabId,
+          onSelect: widget.router.selectTab,
+          builder: (id) => id == 'roles'
+              ? ResourceManagementPage<Role>(
+                  api: widget.api,
+                  definition: _roleDefinition(
+                    widget.api,
+                    widget.permissions,
+                    showFrame: false,
+                  ),
+                )
+              : ResourceManagementPage<Permission>(
+                  api: widget.api,
+                  definition: permissionDefinition(
+                    widget.api,
+                    widget.permissions,
+                    showFrame: false,
+                  ),
+                ),
         ),
       'user-templates' => ResourceManagementPage<UserTemplate>(
           api: widget.api,
@@ -2905,8 +2921,18 @@ ResourceDefinition<Firm> firmDefinition(
 /// The membership is **added**, never replaced: the server merges within the
 /// caller's reach, so the firms this administrator cannot see are carried
 /// through untouched.
-Future<String> _addExistingUser(BuildContext context, ApiClient api) async {
-  final HireExistingPerson? hire = await findPersonToHire(context, api);
+///
+/// A platform caller opens on the whole list of people not yet in the firm
+/// and filters it; a firm caller types at least three characters first. The
+/// directory is the platform's to read and not a firm's, and the server
+/// answers each accordingly -- this only decides what the screen asks for.
+Future<String> _addExistingUser(
+  BuildContext context,
+  ApiClient api, {
+  required bool listsEveryone,
+}) async {
+  final HireExistingPerson? hire =
+      await findPersonToHire(context, api, listsEveryone: listsEveryone);
   if (hire == null) return '';
   final String firmId = api.activeFirmId?.call() ?? '';
   if (firmId.isEmpty) return 'Select a firm first.';
@@ -3107,7 +3133,11 @@ ResourceDefinition<PlatformUser> userDefinition(
           needsSelection: false,
           isVisible: (_) => permissions
               .hasAllPermissions(['USER_CREATE', 'ROLE_ASSIGN', 'ROLE_VIEW']),
-          onInvoke: (_) => _addExistingUser(context, api),
+          onInvoke: (_) => _addExistingUser(
+            context,
+            api,
+            listsEveryone: permissions.isPlatformAdmin,
+          ),
         ),
         ResourceAction<PlatformUser>(
           label: 'Hire like this person',
@@ -3584,7 +3614,15 @@ ResourceDefinition<PlatformUser> userDefinition(
   );
 }
 
-/// The User-Firm Assignments grid.
+/// The User-Firm Assignments grid: a platform administrator's tool for
+/// attaching people to firms without the whole user form.
+///
+/// A strict subset of [userDefinition] -- the same two fields, Firms and
+/// Primary firm, and the same single write -- which is why the tab is
+/// `requiresPlatformAdmin` in the catalogue: a firm administrator already
+/// reaches that write from Users → Edit → Firms and from Add existing user,
+/// and a third door onto one room is what makes a screen feel inconsistent.
+/// The firm list is therefore always `/firms`, the platform's own.
 ///
 /// Public for the reason [userDefinition] is: no test instantiates
 /// `DesktopShell`, so a private definition is one nothing can interrogate.
@@ -3592,9 +3630,7 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
   ApiClient api,
   PermissionService permissions,
 ) {
-  // `/firms` lists every firm on the platform and only a platform
-  // administrator may read it; everybody else gets their own.
-  final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
+  const String firmOptions = 'firms';
   return ResourceDefinition(
     title: 'User-Firm Assignments',
     resource: 'users',
@@ -3617,17 +3653,15 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
     id: (user) => user.id,
     load: api.users,
     // The tab is *about* which firms somebody may work in, so "who is active
-    // in this firm?" is the question it exists to answer. Platform only, for
-    // the reason on the users grid.
-    filters: permissions.isPlatformAdmin
-        ? const [
-            ResourceFilter(
-              key: 'firm_id',
-              label: 'Firm',
-              optionsResource: 'firms',
-            ),
-          ]
-        : const [],
+    // in this firm?" is the question it exists to answer. Unconditional here
+    // because the tab itself is platform-only.
+    filters: const [
+      ResourceFilter(
+        key: 'firm_id',
+        label: 'Firm',
+        optionsResource: 'firms',
+      ),
+    ],
     loadPage: ({
       int page = 1,
       int pageSize = 20,
@@ -3644,10 +3678,12 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
       descending: descending,
       firmId: filters['firm_id'] ?? '',
     ),
-    // `FIRM_VIEW` is a platform code `FIRM_ADMIN` can never hold, so this
-    // whole tab was dead for the one role whose job it is -- the same fault
-    // #240 fixed on the users grid, in the tab next door. The pickers were
-    // the second half of it: `/firms` is platform-only and came back empty.
+    // Codes rather than the designation, even though the tab is platform-only
+    // by flag: a platform administrator passes these by short-circuit, and if
+    // the flag is ever removed the toolbar is still gated on something. Not
+    // `FIRM_VIEW` -- that once hid the whole tab from firm administrators
+    // while the catalogue entry said otherwise, two gates on one screen
+    // disagreeing (#240, #249), which is the history behind the flag.
     canUseAction: (action, _) => _canUseResourceAction(
       permissions,
       action,

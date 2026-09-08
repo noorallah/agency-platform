@@ -866,7 +866,7 @@ operate, not what any one firm does.
 | **Which profile a firm gets** | Administration › Profile Assignment, or Masters › Firm Settings | `PUT /business-framework/firms/{id}/profile-assignment` |
 | Firms, and their storage provisioning | Masters › Firms | `/api/v1/firms`, `POST /firms/{id}/provision` |
 | Attaching people to firms | Administration › User-Firm Assignments | `PUT /api/v1/users/{id}/firms` |
-| The permission catalogue itself | Administration › Permissions (read is `PERMISSION_VIEW`) | `/api/v1/permissions` |
+| The permission catalogue itself | Administration › Roles & Permissions › Permissions (read is `PERMISSION_VIEW`) | `/api/v1/permissions` |
 
 `is_implemented = false` on a feature means the platform has no code behind it;
 the service **refuses to enable it**. That flag is a fact about the codebase and
@@ -967,7 +967,7 @@ platform caller runs it, so step 3 can be skipped.
 Do **not** edit a system role — it is immutable through the API and shared by
 every firm. Instead:
 
-1. Administration › Roles › **New**, with a lowercase code that is not reserved
+1. Administration › Roles & Permissions › Roles › **New**, with a lowercase code that is not reserved
    (`ROLE_CREATE`). A firm caller's role is owned by their firm automatically.
 2. Attach the codes it should grant (`ROLE_ASSIGN`). A firm caller cannot attach
    any of the 22 platform codes.
@@ -1111,7 +1111,12 @@ never been added to it, so a firm administrator held **none** of:
 | `einvoice` | `EINVOICE_VIEW`, `_MANAGE` | Sales › E-Invoice | granted |
 | `loyalty` | `LOYALTY_VIEW`, `_MANAGE`, `_MANAGE_SETTINGS` | Masters › Loyalty | granted |
 | `tcs` | `TCS_VIEW`, `_MANAGE` | Sales › TCS | granted |
-| `firm` | `FIRM_VIEW` and the five others | Masters › Firms, Firm Settings, User-Firm Assignments | **still withheld, deliberately** |
+| `firm` | `FIRM_VIEW` and the five others | Administration › Firms, Firm Settings | **still withheld, deliberately** |
+
+User-Firm Assignments is no longer in that row: it asks for `USER_VIEW` and
+`USER_UPDATE`, which a firm administrator holds, and is platform-only by a
+tab-level `requiresPlatformAdmin` flag instead -- a subset of the Users form
+that a firm administrator reaches anyway from Users › Edit › Firms.
 
 `SALES_MANAGER` held most of the first five, so the screens were reachable by
 somebody — just not by the role whose description is "runs the firm and every

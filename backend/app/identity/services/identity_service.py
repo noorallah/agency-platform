@@ -1934,84 +1934,138 @@ class IdentityService:
         for role_id in set(role_ids):
             self._revoke_role_users(role_id)
 
-    #: The shortest term a lookup will act on. `"a"` must not return the
-    #: platform.
+    #: The shortest term a **firm** caller's lookup will act on. `"a"` must
+    #: not return the platform.
     LOOKUP_MINIMUM_TERM = 3
 
-    #: How many a lookup answers with. A lookup answers "is this them?", not
-    #: "who works here?" -- there is deliberately no paging, so the result is
-    #: not a directory somebody can walk.
+    #: How many a **firm** caller's lookup answers with. It answers "is this
+    #: them?", not "who works here?" -- there is deliberately no paging for
+    #: them, so the result is not a directory somebody can walk.
     LOOKUP_LIMIT = 10
 
     def lookup_users(
-        self, term: str, firm_scope: UUID | None = None
-    ) -> list[tuple[User, bool]]:
+        self,
+        term: str,
+        firm_scope: UUID | None = None,
+        *,
+        hiring_firm_id: UUID | None = None,
+        page: int = 1,
+        page_size: int = LOOKUP_LIMIT,
+    ) -> tuple[list[tuple[User, bool]], int]:
         """Find people by name or email, across firms, for hiring.
 
         `list_users` is scoped to the caller's own firm, deliberately -- and
         that leaves a firm administrator unable to hire somebody who already
-        has an account, or even to learn that they exist. This is the narrow
-        opening for that one job.
+        has an account, or even to learn that they exist. This is the opening
+        for that one job, and it answers two callers differently, because the
+        two are entitled to different things.
 
-        It reaches across firms, so it is a **lookup and not a directory**.
-        The limits are the design: a minimum term, a hard cap with no paging,
-        and a result that says who somebody is and **never which firms they
-        belong to** -- that last is the fact one firm must not learn about
-        another. Platform administrators never appear, mirroring `list_users`.
+        **A firm caller gets a lookup, not a directory.** The people outside
+        their firm are other firms' staff, so the limits are the design: a
+        minimum term, a hard cap with no paging (`page` and `page_size` are
+        ignored and anything past the first page is empty), and a result that
+        says who somebody is and **never which firms they belong to** -- that
+        last is the fact one firm must not learn about another. Their own
+        members are returned and flagged rather than hidden, so a name that
+        matches nothing is not mistaken for a person with no account.
 
-        Enumeration by walking prefixes remains possible. That is accepted and
-        written down rather than defended against: `create_user` already
-        answers 409 on a duplicate email and is a narrower oracle of the same
-        kind.
+        **A platform caller gets the directory**, which is theirs anyway: an
+        empty term lists everybody with an account who is **not already in
+        `hiring_firm_id`** (the firm selected in the switcher), paged, and a
+        term filters that list. Members are excluded rather than flagged --
+        the ask is "who can I add", and the firm's own people are in the grid
+        beside the button. With no firm in context nothing is excluded.
+
+        Platform administrators never appear for either caller, mirroring
+        `list_users`. Enumeration by walking prefixes remains possible for a
+        firm caller; that is accepted and written down rather than defended
+        against, since `create_user` already answers 409 on a duplicate email
+        and is a narrower oracle of the same kind.
 
         Args:
-            term: What the administrator typed -- a name or an email.
+            term: What the administrator typed -- a name or an email, or
+                nothing at all.
             firm_scope: The caller's firm, or None for a platform caller.
+            hiring_firm_id: The firm being staffed, for a platform caller.
+            page: Which page, for a platform caller.
+            page_size: How many per page, for a platform caller.
 
         Returns:
-            Up to `LOOKUP_LIMIT` people, each with whether they are already a
-            member of the caller's firm.
+            The people on this page, each with whether they are already a
+            member of the caller's firm, and how many match in all.
 
         Raises:
-            ValidationError: If the term is too short to act on.
+            ValidationError: If a firm caller's term is too short to act on.
 
         """
         needle = term.strip()
-        if len(needle) < self.LOOKUP_MINIMUM_TERM:
+        if firm_scope is not None and len(needle) < self.LOOKUP_MINIMUM_TERM:
             raise ValidationError(
                 f"Type at least {self.LOOKUP_MINIMUM_TERM} characters to look "
                 "somebody up."
             )
-        pattern = f"%{needle}%"
+        not_a_platform_admin = ~User.id.in_(
+            select(PlatformAdmin.user_id).where(PlatformAdmin.is_deleted.is_(False))
+        )
+        conditions: list[ColumnElement[bool]] = [
+            User.is_deleted.is_(False),
+            not_a_platform_admin,
+        ]
+        if needle:
+            pattern = f"%{needle}%"
+            conditions.append(
+                or_(User.email.ilike(pattern), User.full_name.ilike(pattern))
+            )
+
+        if firm_scope is not None:
+            if page > 1:
+                return [], 0
+            rows = list(
+                self._session.scalars(
+                    select(User)
+                    .where(*conditions)
+                    .order_by(User.full_name.asc(), User.email.asc())
+                    .limit(self.LOOKUP_LIMIT)
+                )
+            )
+            members = set(
+                self._session.scalars(
+                    select(UserFirm.user_id).where(
+                        UserFirm.user_id.in_([row.id for row in rows]),
+                        UserFirm.firm_id == firm_scope,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                )
+            )
+            return [(row, row.id in members) for row in rows], len(rows)
+
+        if hiring_firm_id is not None:
+            conditions.append(
+                ~User.id.in_(
+                    select(UserFirm.user_id).where(
+                        UserFirm.firm_id == hiring_firm_id,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                )
+            )
+        total = int(
+            self._session.scalar(
+                select(func.count()).select_from(User).where(*conditions)
+            )
+            or 0
+        )
         rows = list(
             self._session.scalars(
                 select(User)
-                .where(
-                    User.is_deleted.is_(False),
-                    or_(User.email.ilike(pattern), User.full_name.ilike(pattern)),
-                    ~User.id.in_(
-                        select(PlatformAdmin.user_id).where(
-                            PlatformAdmin.is_deleted.is_(False)
-                        )
-                    ),
-                )
+                .where(*conditions)
                 .order_by(User.full_name.asc(), User.email.asc())
-                .limit(self.LOOKUP_LIMIT)
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             )
         )
-        if firm_scope is None:
-            return [(row, False) for row in rows]
-        members = set(
-            self._session.scalars(
-                select(UserFirm.user_id).where(
-                    UserFirm.user_id.in_([row.id for row in rows]),
-                    UserFirm.firm_id == firm_scope,
-                    UserFirm.is_active.is_(True),
-                    UserFirm.is_deleted.is_(False),
-                )
-            )
-        )
-        return [(row, row.id in members) for row in rows]
+        return [(row, False) for row in rows], total
 
     def shared_user_ids(
         self, user_ids: list[UUID], firm_scope: UUID | None
