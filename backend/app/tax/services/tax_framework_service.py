@@ -11,6 +11,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.business.services import AttributeInput, AttributeService
 from app.common.audit.models.audit_log import AuditLog
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
@@ -23,6 +25,7 @@ from app.tax.models import (
     TaxCountryMapping,
     TaxMigrationMapping,
     TaxProfile,
+    TaxProfileAttributeValue,
     TaxProfileComponent,
     TaxSettings,
     TaxSystem,
@@ -424,6 +427,7 @@ class TaxFrameworkService:
         )
         self._session.add(row)
         self._flush_conflicts("Tax profile code already exists in this firm.")
+        self._store_profile_attributes(row, data.attributes or [], actor_id)
         record_audit(
             self._session,
             action="tax.profile.created",
@@ -472,6 +476,8 @@ class TaxFrameworkService:
             tax_system_id=data.tax_system_id,
         )
         self._flush_conflicts("Tax profile code already exists in this firm.")
+        if data.attributes is not None:
+            self._store_profile_attributes(row, data.attributes, actor_id)
         record_audit(
             self._session,
             action="tax.profile.updated",
@@ -485,6 +491,35 @@ class TaxFrameworkService:
         self._commit()
         self._session.refresh(row)
         return row
+
+    def _store_profile_attributes(
+        self, row: TaxProfile, attributes: list[AttributeValueInput], actor_id: UUID
+    ) -> None:
+        """Validate and persist a tax profile's custom fields."""
+        AttributeService(self._session).replace_values(
+            TaxProfileAttributeValue,
+            row.id,
+            [
+                AttributeInput(
+                    attribute_definition_id=item.attribute_definition_id,
+                    value=item.value,
+                )
+                for item in attributes
+            ],
+            firm_id=row.firm_id,
+            actor_id=actor_id,
+        )
+
+    def profile_attribute_responses(
+        self, row: TaxProfile
+    ) -> list[AttributeValueResponse]:
+        """Return one tax profile's stored custom fields in response shape."""
+        return [
+            AttributeValueResponse.model_validate(value)
+            for value in AttributeService(self._session).value_rows(
+                TaxProfileAttributeValue, row.id
+            )
+        ]
 
     def create_country_mapping(
         self, data: TaxCountryMappingWrite, *, firm_id: UUID, actor_id: UUID

@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+
 
 class TaxStatus(StrEnum):
     """Supported status values for tax entities."""
@@ -175,6 +177,8 @@ class TaxProfileWrite(EffectiveDatedSchema):
     components: list[TaxProfileComponentInput] = Field(
         default_factory=list, max_length=50
     )
+    #: The profile's custom fields. None leaves them alone; a list replaces.
+    attributes: list[AttributeValueInput] | None = Field(default=None, max_length=300)
 
     @field_validator("code", mode="before")
     @classmethod
@@ -458,6 +462,7 @@ class TaxProfileResponse(TaxFrameworkSchema):
     created_at: datetime
     updated_at: datetime
     components: list[TaxProfileComponentResponse] = Field(default_factory=list)
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
 
 
 class TaxRuleConditionResponse(TaxFrameworkSchema):
