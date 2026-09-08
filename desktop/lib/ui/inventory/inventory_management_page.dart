@@ -164,13 +164,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   }
 
   void _loadPreferences() {
+    // This machine's own view state, kept apart from the server document
+    // whose cache every sign-in replaces.
     final Map<String, dynamic> raw =
-        widget.preferences.current.serverPreferences[_preferencesKey] is Map
-            ? Map<String, dynamic>.from(
-                widget.preferences.current.serverPreferences[_preferencesKey]
-                    as Map,
-              )
-            : const {};
+        widget.preferences.workspaceState(_preferencesKey);
     _status =
         stringValue(raw['status']).isEmpty ? null : stringValue(raw['status']);
     _transactionType = stringValue(raw['transaction_type']).isEmpty
@@ -197,21 +194,18 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   }
 
   Future<void> _persistPreferences() =>
-      widget.preferences.cacheServerPreferences({
-        ...widget.preferences.current.serverPreferences,
-        _preferencesKey: {
-          'status': _status,
-          'transaction_type': _transactionType,
-          'branch_id': _branchId,
-          'warehouse_id': _warehouseId,
-          'product_id': _productId,
-          'include_deleted': _includeDeleted,
-          'low_stock_only': _lowStockOnly,
-          'out_of_stock_only': _outOfStockOnly,
-          'negative_only': _negativeOnly,
-          'default_post_after_save': _defaultPostAfterSave,
-          'default_export_format': _defaultExportFormat,
-        },
+      widget.preferences.saveWorkspaceState(_preferencesKey, {
+        'status': _status,
+        'transaction_type': _transactionType,
+        'branch_id': _branchId,
+        'warehouse_id': _warehouseId,
+        'product_id': _productId,
+        'include_deleted': _includeDeleted,
+        'low_stock_only': _lowStockOnly,
+        'out_of_stock_only': _outOfStockOnly,
+        'negative_only': _negativeOnly,
+        'default_post_after_save': _defaultPostAfterSave,
+        'default_export_format': _defaultExportFormat,
       });
 
   Future<void> _loadLookups() async {

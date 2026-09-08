@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/notifications/notification_service.dart';
 import '../core/preferences/desktop_preferences_service.dart';
 import '../core/theme/theme_manager.dart';
 
@@ -14,6 +15,27 @@ class ThemeSelector extends StatelessWidget {
 
   final ThemeManager manager;
   final bool compact;
+
+  /// Apply a choice, and say so if the server refused to keep it.
+  ///
+  /// The choice is applied and saved locally before the server is asked, so
+  /// the screen changes whatever happens next. For a month the server refused
+  /// every appearance save, the failure went to the crash log, and the user
+  /// saw a theme that worked until their next sign-in. A refusal is now said
+  /// where the choice was made.
+  Future<void> _choose(BuildContext context, Future<void> Function() change) async {
+    try {
+      await change();
+    } catch (error) {
+      if (!context.mounted) return;
+      NotificationService.show(
+        context,
+        'Appearance changed on this machine only. The server did not keep '
+        'it: $error',
+        kind: AppNotificationKind.warning,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +52,7 @@ class ThemeSelector extends StatelessWidget {
                   : null,
             ),
             trailingIcon: manager.mode == mode ? const Icon(Icons.check, size: 16) : null,
-            onPressed: () => manager.selectMode(mode),
+            onPressed: () => _choose(context, () => manager.selectMode(mode)),
             child: Text(mode.label),
           ),
         const Divider(height: 8),
@@ -40,7 +62,8 @@ class ThemeSelector extends StatelessWidget {
             leadingIcon: _Swatch(color: palette.seed),
             trailingIcon:
                 manager.palette == palette ? const Icon(Icons.check, size: 16) : null,
-            onPressed: () => manager.selectPalette(palette),
+            onPressed: () =>
+                _choose(context, () => manager.selectPalette(palette)),
             child: Text(palette.label),
           ),
         const Divider(height: 8),
@@ -58,7 +81,10 @@ class ThemeSelector extends StatelessWidget {
           leadingIcon: const Icon(Icons.contrast, size: 18),
           trailingIcon:
               manager.highContrast ? const Icon(Icons.check, size: 16) : null,
-          onPressed: () => manager.setHighContrast(!manager.highContrast),
+          onPressed: () => _choose(
+            context,
+            () => manager.setHighContrast(!manager.highContrast),
+          ),
           child: const Text('Higher contrast'),
         ),
       ],

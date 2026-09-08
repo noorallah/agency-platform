@@ -122,6 +122,15 @@ String _themeModeFrom(Map<String, dynamic> json) {
   };
 }
 
+/// The keys an older build kept inside [DesktopPreferences.serverPreferences]
+/// that were never the server's. Lifted into [DesktopPreferences.workspaceState]
+/// once, on the first load after the split.
+const List<String> _legacyWorkspaceStateKeys = [
+  'workspace.global_search',
+  'inventory_management',
+  'inventory_import_wizard',
+];
+
 class DesktopPreferences {
   const DesktopPreferences({
     this.version = 1,
@@ -137,6 +146,7 @@ class DesktopPreferences {
     this.windowState = const {},
     this.lastWorkspace,
     this.serverPreferences = const {},
+    this.workspaceState = const {},
     this.sidebarCollapsed = false,
     this.gridDensity = GridDensity.comfortable,
     this.defaultLandingPage = 'dashboard',
@@ -157,7 +167,20 @@ class DesktopPreferences {
   final bool cachedHighContrast;
   final Map<String, dynamic> windowState;
   final String? lastWorkspace;
+
+  /// The server's preference document, cached as it was last received.
+  ///
+  /// Replaced wholesale at every sign-in, which is right for a cache and was
+  /// destructive for the three screens that kept their own state inside it:
+  /// saved searches and the inventory views came back empty after every
+  /// sign-in. That state lives in [workspaceState] now, which the server
+  /// never touches.
   final Map<String, dynamic> serverPreferences;
+
+  /// Per-screen state that is this machine's and nobody else's, keyed by
+  /// screen: recent and saved searches, the inventory filters, the import
+  /// wizard's last directory.
+  final Map<String, dynamic> workspaceState;
   final bool sidebarCollapsed;
   final GridDensity gridDensity;
   final String defaultLandingPage;
@@ -172,6 +195,19 @@ class DesktopPreferences {
     final List<String> recentUsernames =
         strings(json['recent_usernames']).toList(growable: false);
     final String? cachedUsername = optionalString(json['cached_username']);
+    final Map<String, dynamic> serverPreferences =
+        object(json['server_preferences']);
+    Map<String, dynamic> workspaceState = object(json['workspace_state']);
+    if (workspaceState.isEmpty) {
+      // First load after the split: carry across what an older build kept
+      // inside the server cache, so nobody loses their saved searches to the
+      // fix for losing their saved searches.
+      workspaceState = {
+        for (final String key in _legacyWorkspaceStateKeys)
+          if (serverPreferences[key] is Map)
+            key: Map<String, dynamic>.from(serverPreferences[key] as Map),
+      };
+    }
     return DesktopPreferences(
       version: (json['version'] as num?)?.toInt() ?? 1,
       rememberUsername: json['remember_username'] == true,
@@ -190,7 +226,8 @@ class DesktopPreferences {
           optionalString(json['cached_theme']) == 'high_contrast',
       windowState: object(json['window_state']),
       lastWorkspace: optionalString(json['last_workspace']),
-      serverPreferences: object(json['server_preferences']),
+      serverPreferences: serverPreferences,
+      workspaceState: workspaceState,
       sidebarCollapsed: json['sidebar_collapsed'] == true,
       gridDensity:
           GridDensityDetails.fromWireName(optionalString(json['grid_density'])),
@@ -213,6 +250,7 @@ class DesktopPreferences {
         'window_state': windowState,
         'last_workspace': lastWorkspace,
         'server_preferences': serverPreferences,
+        'workspace_state': workspaceState,
         'sidebar_collapsed': sidebarCollapsed,
         'grid_density': gridDensity.wireName,
         'default_landing_page': defaultLandingPage,
@@ -233,6 +271,7 @@ class DesktopPreferences {
     String? lastWorkspace,
     bool clearLastWorkspace = false,
     Map<String, dynamic>? serverPreferences,
+    Map<String, dynamic>? workspaceState,
     bool? sidebarCollapsed,
     GridDensity? gridDensity,
     String? defaultLandingPage,
@@ -253,6 +292,7 @@ class DesktopPreferences {
         lastWorkspace:
             clearLastWorkspace ? null : lastWorkspace ?? this.lastWorkspace,
         serverPreferences: serverPreferences ?? this.serverPreferences,
+        workspaceState: workspaceState ?? this.workspaceState,
         sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
         gridDensity: gridDensity ?? this.gridDensity,
         defaultLandingPage: defaultLandingPage ?? this.defaultLandingPage,
@@ -357,8 +397,27 @@ class DesktopPreferencesService {
         clearLastWorkspace: workspace == null,
       ));
 
+  /// Keep the server's preference document as last received.
+  ///
+  /// A replace, not a merge: this is a cache of a document the server owns.
+  /// Anything a screen wants to keep on this machine goes through
+  /// [saveWorkspaceState], where a sign-in cannot reach it.
   Future<void> cacheServerPreferences(Map<String, dynamic> preferences) =>
       _save(_preferences.copyWith(serverPreferences: preferences));
+
+  /// One screen's own state, or an empty map.
+  Map<String, dynamic> workspaceState(String key) {
+    final dynamic raw = _preferences.workspaceState[key];
+    return raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+  }
+
+  /// Keep one screen's own state on this machine.
+  Future<void> saveWorkspaceState(String key, Map<String, dynamic> value) =>
+      _save(
+        _preferences.copyWith(
+          workspaceState: {..._preferences.workspaceState, key: value},
+        ),
+      );
 
   Future<void> saveSidebarCollapsed(bool collapsed) =>
       _save(_preferences.copyWith(sidebarCollapsed: collapsed));

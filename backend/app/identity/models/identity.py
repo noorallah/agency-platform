@@ -418,6 +418,18 @@ class UserPreferences(BaseEntity):
     preferred_high_contrast: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    #: The accent: neutral, blue or green. Its own column since 2026-09-08.
+    #:
+    #: The desktop split appearance into palette, mode and contrast on
+    #: 2026-08-10 and sent all three -- but only two were ever added here, and
+    #: ``ApiSchema`` forbids an unknown field, so **every** appearance save
+    #: answered 422 and stored nothing. The next sign-in then handed the
+    #: client this row's untouched defaults, which it wrote over its own
+    #: correct local copy: a theme chosen on Monday was gone on Tuesday, and
+    #: nothing on screen said the save had failed.
+    preferred_palette: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="neutral", server_default="neutral"
+    )
     language: Mapped[str] = mapped_column(
         String(16), nullable=False, default="en", server_default="en"
     )

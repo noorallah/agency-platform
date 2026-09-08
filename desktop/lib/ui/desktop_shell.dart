@@ -862,23 +862,18 @@ class _DesktopShellState extends State<DesktopShell> {
     return raw.whereType<String>().where((value) => value.isNotEmpty).toList();
   }
 
+  // This machine's own state, kept apart from the server document. It used
+  // to sit inside that document's cache, which every sign-in replaces, so
+  // the saved searches were gone each morning.
   Future<void> _saveSearches(String key, List<String> values) async {
     final Map<String, dynamic> preferences = _searchPreferences();
     preferences[key] = values;
-    await widget.preferences.cacheServerPreferences({
-      ...widget.preferences.current.serverPreferences,
-      _globalSearchPreferencesKey: preferences,
-    });
+    await widget.preferences
+        .saveWorkspaceState(_globalSearchPreferencesKey, preferences);
   }
 
-  Map<String, dynamic> _searchPreferences() {
-    final dynamic raw = widget
-        .preferences.current.serverPreferences[_globalSearchPreferencesKey];
-    if (raw is! Map) {
-      return <String, dynamic>{};
-    }
-    return Map<String, dynamic>.from(raw);
-  }
+  Map<String, dynamic> _searchPreferences() =>
+      widget.preferences.workspaceState(_globalSearchPreferencesKey);
 
   Future<List<InventoryRecord>> _searchInventoryDirect(String query) async {
     final PagedResult<InventoryRecord> result =

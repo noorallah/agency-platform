@@ -86,7 +86,15 @@ class SessionController extends ChangeNotifier {
   List<AssignedFirm> get firms => List.unmodifiable(_firms);
   AssignedFirm? get currentFirm => _currentFirm;
   int get firmContextVersion => _firmContextVersion;
+  /// Where the shell opens: the screen this **user** was last on.
+  ///
+  /// The server's `default_landing_page` first, because it is the user's and
+  /// travels with them; the local file is one per Windows account, so on a
+  /// shared machine it holds whoever signed in last, and used to be the only
+  /// answer -- user B landed on user A's screen. The local copy is still the
+  /// fallback for a session whose preferences could not be read.
   String? get lastWorkspace =>
+      _serverPreferences?.defaultLandingPage ??
       _preferences.current.lastWorkspace ??
       _preferences.current.defaultLandingPage;
 
@@ -248,6 +256,13 @@ class SessionController extends ChangeNotifier {
   /// `preferred_theme` is still sent so an older server keeps working: it gets
   /// the closest single value it understands, while a current server reads the
   /// three explicit fields and ignores it.
+  ///
+  /// Every key here must be one the server declares -- it forbids unknown
+  /// fields, so one stray key fails the whole request, and for a month
+  /// `preferred_palette` was exactly that key: no appearance choice reached
+  /// the server, and every sign-in restored its defaults over the local copy.
+  /// `backend/tests/unit/test_desktop_preference_payloads_are_accepted.py`
+  /// reads this method and asks the schema.
   Future<void> updatePreferredAppearance({
     required String palette,
     required String themeMode,
@@ -331,8 +346,27 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveLastWorkspace(String location) =>
-      _preferences.saveLastWorkspace(location);
+  /// Remember the screen the user is on, here and on the server.
+  ///
+  /// Locally first, so it is kept even when the server is unreachable; then
+  /// as the user's own `default_landing_page`, which is what [lastWorkspace]
+  /// reads back at the next sign-in on any machine. A refusal is logged and
+  /// not shown: nothing the user did has failed, and the local copy stands.
+  Future<void> saveLastWorkspace(String location) async {
+    await _preferences.saveLastWorkspace(location);
+    if (_accessToken == null) return;
+    if (_serverPreferences?.defaultLandingPage == location) return;
+    try {
+      final UserPreferences updated =
+          await api.updateUserPreferences({'default_landing_page': location});
+      _serverPreferences = updated;
+      await _preferences.cacheServerPreferences(updated.toJson());
+    } on ApiException catch (error) {
+      AppLog.warn('Last screen not saved on the server: ${error.message}');
+    } on FormatException catch (error) {
+      AppLog.warn('Last screen not saved on the server: ${error.message}');
+    }
+  }
 
   void registerActivity() {
     if (_accessToken == null) return;
