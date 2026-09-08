@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.business.models import AttributeDataType, AttributeEntityType
 
@@ -165,6 +165,40 @@ class AttributeDefinitionCreate(BusinessFrameworkSchema):
     def _normalize_upper(cls, value: str) -> str:
         return value.strip().upper()
 
+    @model_validator(mode="after")
+    def _check_allowed_values(self) -> "AttributeDefinitionCreate":
+        """Normalise ``validation_rule.allowed_values`` and tie it to TEXT.
+
+        A fixed-choice field -- storage temperature, Ambient / Chilled /
+        Frozen -- had to be modelled as free text, which does not hold up for
+        reporting. The choices live under the rule column that has existed
+        unused since the framework was written. Trimmed, deduplicated in
+        order, never empty strings, and only on a TEXT field: a NUMBER with a
+        list of words is a mistake worth refusing at definition time rather
+        than at the first save.
+        """
+        rule = self.validation_rule
+        if not rule or "allowed_values" not in rule:
+            return self
+        raw = rule.get("allowed_values")
+        if raw is None:
+            rule.pop("allowed_values")
+            return self
+        if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
+            raise ValueError("allowed_values must be a list of strings.")
+        seen: list[str] = []
+        for item in raw:
+            text = item.strip()
+            if text and text not in seen:
+                seen.append(text)
+        if not seen:
+            rule.pop("allowed_values")
+            return self
+        if self.data_type is not AttributeDataType.TEXT:
+            raise ValueError("Only a TEXT attribute can carry allowed values.")
+        rule["allowed_values"] = seen
+        return self
+
 
 class AttributeDefinitionUpdate(AttributeDefinitionCreate):
     """Payload for replacing an attribute definition."""
@@ -182,6 +216,8 @@ class AttributeDefinitionResponse(BusinessFrameworkSchema):
     mandatory: bool
     default_value: str | None
     validation_rule: dict[str, object] | None
+    #: The fixed choices a TEXT field is limited to; empty means free text.
+    allowed_values: list[str] = Field(default_factory=list)
     applicable_category: str | None
     applicable_business_profile_id: UUID | None
     is_active: bool

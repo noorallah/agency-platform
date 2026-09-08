@@ -795,6 +795,15 @@ class AttributeDefinitionRecord {
   bool get isDate => _type == 'DATE';
   bool get isBoolean => _type == 'BOOLEAN';
 
+  /// The fixed choices a TEXT field is limited to; empty means free text.
+  List<String> get allowedValues {
+    final dynamic raw = validationRule?['allowed_values'];
+    if (raw is! List) return const [];
+    return raw.map((item) => item.toString()).where((s) => s.isNotEmpty).toList();
+  }
+
+  bool get isChoice => allowedValues.isNotEmpty;
+
   factory AttributeDefinitionRecord.fromJson(Json json) =>
       AttributeDefinitionRecord(
         id: stringValue(json['id']),
