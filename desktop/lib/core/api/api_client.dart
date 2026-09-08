@@ -285,6 +285,60 @@ class ApiClient {
         : stringValue(response['message']);
   }
 
+  /// Where a firm's setup stands: storage, profile, books, tax, geography,
+  /// branches and people, each read from wherever it lives.
+  Future<FirmReadiness> firmReadiness(String firmId) async =>
+      FirmReadiness.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/firms/$firmId/readiness')),
+      );
+
+  /// Give a firm its chart of accounts, financial year, periods and every
+  /// control-account mapping -- the one setup step that had no screen.
+  ///
+  /// Returns the server's message, which says which year was opened or that
+  /// the books were already open. Safe to call again.
+  Future<String> openFirmBooks(String firmId) async {
+    final Json response =
+        await request('POST', '/api/v1/firms/$firmId/open-books');
+    return stringValue(response['message']).isEmpty
+        ? 'Books opened.'
+        : stringValue(response['message']);
+  }
+
+  /// Give a firm its whole tax setup from a template -- Indian GST today.
+  ///
+  /// Returns the server's message, which counts what was created or says
+  /// the firm already had a tax system. Safe to call again.
+  Future<String> applyFirmTaxTemplate(String firmId) async {
+    final Json response = await request(
+      'POST',
+      '/api/v1/firms/$firmId/apply-tax-template',
+      body: const {'template': 'IN_GST'},
+    );
+    return stringValue(response['message']).isEmpty
+        ? 'GST set up.'
+        : stringValue(response['message']);
+  }
+
+  /// The business profiles one firm may be assigned, from that firm's own
+  /// store -- `businessProfiles()` reads the caller's, which in platform
+  /// mode is none.
+  Future<List<BusinessProfileRecord>> firmProfileCatalogue(
+    String firmId,
+  ) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/business-framework/firms/$firmId/profiles',
+    );
+    final dynamic data = response['data'];
+    if (data is! List) return const [];
+    return data
+        .whereType<Map>()
+        .map((item) =>
+            BusinessProfileRecord.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
   /// List users, optionally narrowed to one firm's active members.
   ///
   /// `firmId` answers "who works at this firm?" without switching into it --

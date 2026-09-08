@@ -1185,6 +1185,19 @@ first decision rather than the code.
 
 ## 15. A firm cannot be finished without running a script
 
+**Mostly closed 2026-09-08.** `POST /api/v1/firms/{id}/open-books` and
+**Administration › Firms › Set up › Open the books** give a firm the default
+chart, the current financial year, the journal and voucher types and all 24
+mappings in one press, through the existing `seed_finance_setup`; and
+`GET /api/v1/firms/{id}/readiness` behind the same panel says which of
+seven steps a firm still lacks, before the first document. Of the four
+decisions below, the first two were taken as written -- the screen builds
+the chart, from the seed, and the job is the platform administrator's,
+beside Provision storage. The third and fourth are still open, and so is the
+screen they need: **a mapping cannot be re-pointed except through the
+API**, and there is no per-purpose screen. What follows is the original
+statement, kept for the two decisions it still carries.
+
 A firm created through the product accepts masters and lets documents be
 drafted, and then **refuses every posting action** -- approving an invoice,
 completing a goods receipt. `DocumentPostingService` refuses rather than

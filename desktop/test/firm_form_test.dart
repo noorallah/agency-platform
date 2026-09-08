@@ -288,8 +288,8 @@ void _firmSetupTests() {
     });
 
     test('creating one names the step it could not perform', () {
-      // The profile lives in the firm's own store, so this screen cannot set
-      // it -- and a firm with none silently trades as GENERIC.
+      // A firm that has only been created cannot post and trades as GENERIC;
+      // the setup panel is where both are seen and one of them is done.
       final String followUp = firmDefinition(
         _FirmApi(),
         PermissionService(),
@@ -298,7 +298,7 @@ void _firmSetupTests() {
       ).createFollowUp!(const <String, dynamic>{})!;
 
       expect(followUp, contains('Open this firm'));
-      expect(followUp, contains('Firm Settings'));
+      expect(followUp, contains('Set up'));
     });
   });
 }

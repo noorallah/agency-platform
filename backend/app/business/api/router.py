@@ -510,6 +510,29 @@ def assign_profile_to_firm(
 
 
 @router.get(
+    "/firms/{firm_id}/profiles",
+    response_model=ApiResponse[list[BusinessProfileResponse]],
+)
+def list_firm_profile_catalogue(
+    firm_id: UUID,
+    principal: PlatformPrincipal,
+    request: Request,
+) -> ApiResponse[list[BusinessProfileResponse]]:
+    """List the profiles one firm may be assigned, from **that firm's** store.
+
+    `GET /profiles` reads the caller's own store, which in platform mode is
+    none at all -- so the Firms setup panel, which assigns a profile to a firm
+    the administrator is not inside, had nothing to offer. The catalogue is
+    per store, so a dedicated firm's list is its own.
+    """
+    with firm_store_session(request, firm_id) as db:
+        rows, _ = _service(db).list_profiles(1, MAX_PAGE_SIZE, None, "code", False)
+        return ApiResponse(
+            data=[BusinessProfileResponse.model_validate(row) for row in rows]
+        )
+
+
+@router.get(
     "/firms/{firm_id}/profile-assignment",
     response_model=ApiResponse[FirmBusinessProfileResponse | None],
 )

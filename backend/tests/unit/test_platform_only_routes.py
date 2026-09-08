@@ -94,6 +94,13 @@ _EXPECTED = frozenset(
         ("GET", "/api/v1/firms/{firm_id}"),
         ("PUT", "/api/v1/firms/{firm_id}"),
         ("POST", "/api/v1/firms/{firm_id}/provision"),
+        # Whether a firm is finished, and the one step that finishes it. Both
+        # reach across every firm's store from the platform side, which is
+        # what setting a firm up is; a firm administrator sees the result as
+        # their own chart of accounts and financial years.
+        ("GET", "/api/v1/firms/{firm_id}/readiness"),
+        ("POST", "/api/v1/firms/{firm_id}/open-books"),
+        ("POST", "/api/v1/firms/{firm_id}/apply-tax-template"),
         # The capability catalogue roles are built from. Roles are
         # configurable per firm; the capabilities are not.
         ("POST", "/api/v1/permissions"),
@@ -127,6 +134,7 @@ _EXPECTED = frozenset(
         ("PUT", "/api/v1/business-framework/features/{feature_id}"),
         ("GET", "/api/v1/business-framework/firm-profile-assignments"),
         ("GET", "/api/v1/business-framework/firms/{firm_id}/profile-assignment"),
+        ("GET", "/api/v1/business-framework/firms/{firm_id}/profiles"),
         ("PUT", "/api/v1/business-framework/firms/{firm_id}/profile-assignment"),
         ("GET", "/api/v1/business-framework/modules"),
         ("POST", "/api/v1/business-framework/modules"),

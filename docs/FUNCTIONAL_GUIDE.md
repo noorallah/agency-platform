@@ -27,7 +27,8 @@ never typed: `uv run python scripts/dump_route_permissions.py --markdown <module
 
 **In a hurry?** [Runbook — a new firm, from nothing to trading](#runbook--a-new-firm-from-nothing-to-trading)
 is the five steps that take an empty installation to a firm that can raise and
-settle a document, and it names the one step that has no screen.
+settle a document. **Administration › Firms › Set up** shows where a firm
+stands on all of them and does two of them in place.
 
 ## The order
 
@@ -263,9 +264,18 @@ than assuming.
 
 # Runbook — a new firm, from nothing to trading
 
-Five steps. **Step 4 is the one that catches people**, because there is no
-screen for it and nothing tells you it is missing until a document refuses to
-post.
+Five steps. **Administration › Firms › select the firm › Set up** is the
+panel that shows where a firm stands on every one of them -- storage, business
+profile, books, tax, geography, branches and warehouses, people -- with
+*Required* against the two the platform refuses to post without and
+*Recommended* against the rest, and does four of them from the platform
+side: **Provision storage**, **Open the books**, **Apply GST template** and
+**Assign** a business profile. Until 2026-09-08 step 4 had no screen at all,
+and nothing said it was missing until a document refused to post; tax had
+none either, and was five screens by hand. The same list is `GET /api/v1/firms/{id}/readiness` and
+`scripts/check_firm_readiness.py`, from one implementation
+(`app/firms/services/readiness.py`), so the screen and the shell cannot
+disagree about what finished means.
 
 ## 1. Record the firm
 
@@ -324,33 +334,50 @@ service's seed hook has no handler wired to it.
 
 ## 3. Assign a business profile
 
-**Administration › Profile Assignment** (module 2). Decides the firm's features,
-modules and custom fields.
+**Administration › Firms › Set up › Business profile row › choose › Assign**,
+or **Administration › Configuration › Business Profiles › Profile
+Assignment** (module 2). Decides the firm's features, modules and custom
+fields. The panel reads the catalogue from the firm's **own** store
+(`GET /api/v1/business-framework/firms/{id}/profiles`), which is why it works
+from platform mode where the Profile Assignment screen needs some firm open.
 
 Skip it and the firm falls back to the store's default profile (GENERIC); if the
 store has no default either, **nothing is enforced at all**.
 
-## 4. Seed the finance setup — no screen exists for this
+## 4. Open the books
 
-```powershell
-uv run python scripts/seed_finance_defaults.py --yes
-```
+**Administration › Firms › select the firm › Set up › Open the books**
+(platform administrator), or `POST /api/v1/firms/{id}/open-books`. One
+press gives the firm the default chart of accounts (24 accounts in five
+groups), the financial year running now with twelve monthly periods, a
+journal type and a voucher type, and a mapped control account for each of
+the **24 posting purposes**. It is idempotent -- a second press creates
+nothing and says the books were already open -- and it is audited as
+`firm.books_opened`, with the year and the counts, on the platform trail.
 
-It walks every active firm **in its own store**, resolved through the tenancy
-provider, so it works across all three deployment modes. It creates the account
-groups, the chart of accounts, twelve monthly periods from the financial-year
-start, the journal and voucher types, and the **control-account mapping**.
-Idempotent — re-running reports zeros. There is deliberately no `--dry-run`,
-because `FinanceService` commits inside each mutating method and a preview would
-write the chart and then claim it had not.
+The year opened is the one **today falls in**, aligned to the firm's own
+year start: a firm set up in September with an April year end gets April to
+March of the current year, and a firm founded years ago does not get its
+founding year. `year_starts_on` on the request body opens a different one.
+Refused, by name, for a dedicated firm whose storage has not been provisioned.
+
+The chart is the one the demo firms are built with (`CHART` in
+`app/finance/services/opening_setup.py`), a conventional distribution chart
+and not a claim about any firm's conventions. A firm that wants a different
+one builds it through the finance API and remaps its control accounts --
+**and the mapping still has no screen of its own**: the readiness panel says
+which purposes are unmapped, and opening the books maps them, but re-pointing
+one afterwards is an API call. `docs/BACKLOG.md` §15 has what is left.
+
+From a shell, `scripts/seed_finance_defaults.py --yes` still does the same
+for every active firm at once, in each firm's own store; it is the same
+seeder behind the same idempotency, and is what the demo data uses.
 
 **Why this step is load-bearing.** `firm_control_accounts` is what tells posting
-which ledger account is Inventory, Trade Receivables or Output Tax, and it has
-**no endpoint among the 33 finance routes and no desktop screen**. Financial
-years, periods, account groups and ledger accounts can all be created through
-the API; the mapping cannot. And a failed posting is allowed to fail the
-document action that triggered it, on purpose — stock that moved with no
-accounting entry behind it is the gap that rule closes.
+which ledger account is Inventory, Trade Receivables or Output Tax, and a
+failed posting is allowed to fail the document action that triggered it, on
+purpose — stock that moved with no accounting entry behind it is the gap that
+rule closes.
 
 So a firm that skips step 4 can enter masters and raise drafts, and then:
 
@@ -405,16 +432,32 @@ exactly that, with the ledger lines each step raises.
 
 ## What this runbook says about the product
 
-Two gaps are worth stating plainly rather than working around silently:
+Two gaps were worth stating plainly rather than working around silently,
+and both closed on 2026-09-08:
 
-- **Finance setup has no UI path.** A firm created entirely through the desktop
-  is not able to post anything until somebody with shell access runs a script.
-  Either the control-account mapping needs an endpoint and a screen, or
-  provisioning should seed it.
-- **Nothing tells a firm it is missing.** The refusal arrives at the first
-  dispatch or invoice approval, far from the setup step that was skipped. A
-  readiness check on the firm record — chart present, period open, mapping
-  complete — would move the message to where the decision was made.
+- ~~**Finance setup has no UI path.**~~ **Open the books** on the Firms
+  setup panel is the UI path. What remains is narrower: a mapping, once
+  made, can only be re-pointed through the API, and there is no screen for
+  the 24 purposes. `docs/BACKLOG.md` §15.
+- ~~**Nothing tells a firm it is missing.**~~ The setup panel does, before
+  the first document: every step with done or missing, required or
+  recommended, and the verdict *can post* or *cannot post yet*. The refusal
+  at approval is unchanged; it is no longer the first anybody hears of it.
+
+Two more closed the same day. **Tax has a template**: every tax table is
+per firm, so a new firm has no system, no components, no profiles and no
+rules, and until then the only thing that built a working GST setup was
+`scripts/seed_tax_sample_data.py`. **Apply GST template** on the panel
+(`POST /api/v1/firms/{id}/apply-tax-template`, `app/tax/services/gst_template.py`)
+gives it the Indian GST system, CGST/SGST/IGST/CESS, the 0, 5, 12 and 18
+percent slabs as local and interstate profiles plus exempt, the six rules,
+and the country if the store has none -- a starting point, edited afterwards
+on the tax screens, and the script now applies the same one. And **the
+business profile is set from the panel**, from the firm's own catalogue, so
+a brand-new firm no longer needs an established one open first.
+
+What is left is a firm's own naming: its first branch and warehouse, and who
+belongs to it. Both have screens; the panel names them.
 
 ---
 

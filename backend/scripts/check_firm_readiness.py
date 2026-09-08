@@ -7,7 +7,12 @@ will post anything -- it refuses rather than guesses, so an unfinished firm
 accepts masters and drafts and then declines to approve an invoice.
 
 That is easy to mistake for a bug, so this answers the question directly.
-It is **read-only**: it opens each store, counts, and writes nothing.
+It is **read-only**: it opens each store, counts, and writes nothing. The
+steps come from ``FirmReadinessService`` -- the same list
+``GET /api/v1/firms/{id}/readiness`` answers with and the desktop's Firm setup
+panel shows -- so this script and the screen cannot disagree about what
+finished means. Opening the books is ``POST /api/v1/firms/{id}/open-books``,
+or the setup panel's button.
 
 Run from ``backend`` with a firm code, or with none for every firm::
 
@@ -20,15 +25,13 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 import app.core.database.all_models  # noqa: F401,E402
-from app.business.models import BusinessProfile, FirmBusinessProfile  # noqa: E402
 from app.core.config.settings import Settings  # noqa: E402
 from app.core.database.engine import DatabaseManager, EngineFactory  # noqa: E402
 from app.core.tenancy import (  # noqa: E402
@@ -38,66 +41,49 @@ from app.core.tenancy import (  # noqa: E402
     MultiTenantDatabaseProvider,
     TenantContext,
 )
-from app.finance.models import (  # noqa: E402
-    AccountingPeriod,
-    FinancialYear,
-    LedgerAccount,
-)
-from app.finance.services.control_accounts import (  # noqa: E402
-    ControlAccountPurpose,
-    ControlAccountService,
-)
 from app.firms.models import Firm, FirmStorageMapping  # noqa: E402
+from app.firms.services.readiness import (  # noqa: E402
+    FirmReadinessService,
+    ReadinessStatus,
+    storage_is_ready,
+)
 
 
-def _count(session: Session, model: type, firm_id: UUID) -> int:
-    """Count a firm's live rows in one of its own tables."""
-    return (
-        session.scalar(
-            select(func.count())
-            .select_from(model)
-            .where(model.firm_id == firm_id, model.is_deleted.is_(False))
-        )
-        or 0
-    )
+def _print_steps(platform: Session, store: Session | None, firm: Firm) -> bool:
+    """Print every step for one firm and return whether it can post."""
+    readiness = FirmReadinessService(platform).readiness(firm, store)
+    for step in readiness.steps:
+        marker = {
+            ReadinessStatus.DONE: "ok ",
+            ReadinessStatus.MISSING: "-- ",
+            ReadinessStatus.BLOCKED: "?? ",
+        }[step.status]
+        need = "required" if step.required else "recommended"
+        print(f"  {marker}{step.label:<24}: {step.detail}  [{need}]")
+    return readiness.can_post
 
 
-def _report_store(session: Session, firm_id: UUID) -> bool:
-    """Print what the firm's own store holds, and whether it can post."""
-    profile = session.scalar(
-        select(BusinessProfile.code)
-        .join(
-            FirmBusinessProfile,
-            FirmBusinessProfile.business_profile_id == BusinessProfile.id,
-        )
-        .where(
-            FirmBusinessProfile.firm_id == firm_id,
-            FirmBusinessProfile.is_deleted.is_(False),
-        )
-    )
-    # A firm with no assignment is not misconfigured -- it resolves to the
-    # platform default -- but a wholesaler running as GENERIC is rarely meant.
-    print(f"  business profile      : {profile or 'none (runs as GENERIC)'}")
-
-    accounts = _count(session, LedgerAccount, firm_id)
-    years = _count(session, FinancialYear, firm_id)
-    periods = _count(session, AccountingPeriod, firm_id)
-    print(f"  ledger accounts       : {accounts}")
-    print(f"  financial years       : {years}")
-    print(f"  accounting periods    : {periods}")
-
-    purposes = tuple(ControlAccountPurpose)
-    missing = ControlAccountService(session).missing(firm_id, purposes)
-    if missing:
-        shown = ", ".join(sorted(p.value for p in missing)[:5])
-        print(
-            f"  control accounts      : {len(missing)} of {len(purposes)} "
-            f"unmapped ({shown}...)"
-        )
+def _tenant_context(
+    settings: Settings, firm: Firm, mapping: FirmStorageMapping
+) -> TenantContext:
+    """Build the routing for one firm's store."""
+    mode = DeploymentMode(mapping.deployment_mode)
+    # A SHARED firm carries no names of its own: its rows live in the
+    # configured shared store, and reading the NULLs off the mapping resolves
+    # to no schema at all.
+    if mode is DeploymentMode.SHARED:
+        database_name = settings.tenancy.shared_database_name
+        schema_name = settings.tenancy.shared_schema_name
     else:
-        print(f"  control accounts      : all {len(purposes)} mapped")
-
-    return bool(accounts and years and periods and not missing)
+        database_name = mapping.database_name
+        schema_name = mapping.schema_name
+    return TenantContext(
+        firm_id=firm.id,
+        deployment_mode=mode,
+        database_name=database_name,
+        schema_name=schema_name,
+        database_type=mapping.database_type,
+    )
 
 
 def main() -> int:
@@ -108,80 +94,57 @@ def main() -> int:
 
     settings = Settings()
     platform = DatabaseManager(EngineFactory.database_config_from_settings(settings))
-    # `firms` lives only in the platform schema, so this session has to say so.
-    with platform.sessions(schema="platform").session() as psession:
-        statement = select(Firm, FirmStorageMapping).join(
-            FirmStorageMapping, FirmStorageMapping.firm_id == Firm.id
-        )
-        statement = statement.where(
-            Firm.is_deleted.is_(False), FirmStorageMapping.is_deleted.is_(False)
-        )
-        if args.code:
-            statement = statement.where(Firm.code == args.code.upper())
-        rows = []
-        for firm, mapping in psession.execute(statement).all():
-            mode = DeploymentMode(mapping.deployment_mode)
-            # A SHARED firm carries no names of its own: its rows live in the
-            # configured shared store, and reading the NULLs off the mapping
-            # resolves to no schema at all.
-            if mode is DeploymentMode.SHARED:
-                database_name = settings.tenancy.shared_database_name
-                schema_name = settings.tenancy.shared_schema_name
-            else:
-                database_name = mapping.database_name
-                schema_name = mapping.schema_name
-            rows.append(
-                (
-                    firm.id,
-                    firm.code,
-                    firm.name,
-                    firm.is_active,
-                    firm.provisioned_at,
-                    TenantContext(
-                        firm_id=firm.id,
-                        deployment_mode=mode,
-                        database_name=database_name,
-                        schema_name=schema_name,
-                        database_type=mapping.database_type,
-                    ),
-                )
-            )
-
-    if not rows:
-        print(f"No firm found{f' with code {args.code}' if args.code else ''}.")
-        platform.dispose()
-        return 1
-
     provider = MultiTenantDatabaseProvider(
         platform,
         FirmConnectionResolver(platform, settings.tenancy.connection_profiles),
         FirmSchemaResolver(),
     )
     not_ready = 0
+    # `firms` lives only in the platform schema, so this session has to say
+    # so -- and it stays open across the loop, because the firm's routing is
+    # read off a relationship that a detached row cannot load.
     try:
-        for firm_id, code, name, active, provisioned, context in rows:
-            print(f"\n{code}  {name}")
-            print(f"  active                : {active}")
-            print(f"  deployment mode       : {context.deployment_mode.value}")
-            print(f"  storage provisioned   : {provisioned or 'NO'}")
-            # A dedicated store that was never built holds no tables at all,
-            # so reading it would raise rather than report.
-            if (
-                context.deployment_mode is not DeploymentMode.SHARED
-                and provisioned is None
-            ):
-                print("\n  VERDICT: not provisioned -- run Provision storage first")
-                not_ready += 1
-                continue
-            manager = provider.manager_for(context)
-            with manager.sessions(schema=provider.schema_for(context)).session() as s:
-                ready = _report_store(s, firm_id)
-            print(
-                "\n  VERDICT: "
-                + ("can post documents" if ready else "CANNOT post -- books not open")
+        with platform.sessions(schema="platform").session() as psession:
+            statement = select(Firm, FirmStorageMapping).join(
+                FirmStorageMapping, FirmStorageMapping.firm_id == Firm.id
             )
-            if not ready:
-                not_ready += 1
+            statement = statement.where(
+                Firm.is_deleted.is_(False), FirmStorageMapping.is_deleted.is_(False)
+            )
+            if args.code:
+                statement = statement.where(Firm.code == args.code.upper())
+            rows = psession.execute(statement).all()
+            if not rows:
+                suffix = f" with code {args.code}" if args.code else ""
+                print(f"No firm found{suffix}.")
+                return 1
+            for firm, mapping in rows:
+                print(f"\n{firm.code}  {firm.name}")
+                print(f"  active                : {firm.is_active}")
+                print(f"  deployment mode       : {mapping.deployment_mode}")
+                print(f"  storage provisioned   : {firm.provisioned_at or 'NO'}")
+                # A dedicated store that was never built holds no tables at
+                # all, so reading it would raise rather than report.
+                if not storage_is_ready(firm):
+                    _print_steps(psession, None, firm)
+                    print("\n  VERDICT: not provisioned -- run Provision storage first")
+                    not_ready += 1
+                    continue
+                context = _tenant_context(settings, firm, mapping)
+                manager = provider.manager_for(context)
+                schema = provider.schema_for(context)
+                with manager.sessions(schema=schema).session() as store:
+                    ready = _print_steps(psession, store, firm)
+                print(
+                    "\n  VERDICT: "
+                    + (
+                        "can post documents"
+                        if ready
+                        else "CANNOT post -- books not open"
+                    )
+                )
+                if not ready:
+                    not_ready += 1
     finally:
         provider.dispose()
         platform.dispose()

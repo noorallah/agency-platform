@@ -1086,10 +1086,21 @@ class TaxRuleService:
 
     @staticmethod
     def _normalize_compare(value: object) -> str:
+        """Fold both sides of an EQUALS/IN comparison to one spelling.
+
+        A condition's value is stored as text and the context carries typed
+        values, so the two sides of `tax_profile_id EQUALS <id>` arrive as a
+        string and a UUID. The string was uppercased and the UUID rendered
+        lowercase, so an id condition could never match: every interstate
+        sale in every seeded firm was charged CGST and SGST instead of IGST,
+        and the simulator reported "tax_profile_id failed EQUALS" for a rule
+        naming exactly the profile it was given. Found 2026-09-08 by driving
+        the GST template. Both sides are uppercased now.
+        """
         if value is None:
             return ""
         if isinstance(value, UUID):
-            return str(value)
+            return str(value).upper()
         if isinstance(value, str):
             return value.strip().upper()
         if isinstance(value, bool):

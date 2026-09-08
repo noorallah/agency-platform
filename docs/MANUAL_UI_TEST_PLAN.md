@@ -777,19 +777,28 @@ Profiles → Profile Assignment**, and it needs a firm selected.
 | 27.21 | Sign in as `whole01.admin@agency.local` → Administration | **No** Firms tab and **no** Business Profiles group. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold. |
 | 27.22 **(HTTP)** | As `whole01.admin`, `GET` and `POST /api/v1/firms` | **403** for both. Measured 2026-09-06. No permission code can grant this. |
 
-### 27e. The firm is not finished — check before reporting a bug
+### 27e. The firm is not finished — the setup panel says what it needs
 
 A provisioned firm with a profile still cannot trade. It needs a chart of
 accounts, a financial year, open periods, journal and voucher types, and a
-mapped control account for each of the 24 posting purposes -- and **no screen
-or endpoint reaches the mapping**. See `docs/BACKLOG.md` §15.
+mapped control account for each of the 24 posting purposes. As of 2026-09-08
+**Set up** on the Firms grid shows every step and opens the books itself.
 
 | # | Case | Expect |
 | --- | --- | --- |
-| 27.23 | From `backend`, run `.\.venv\Scripts\python.exe scripts\check_firm_readiness.py SNTEST02` | Reports the mode, whether storage is provisioned, the profile, the counts of accounts, years and periods, how many control purposes are unmapped, and a verdict. For a new firm: **`CANNOT post -- books not open`**. |
+| 27.23 | Administration → Firms, select `SNTEST02` → **Set up** | A panel titled `Set up SNTEST02`. The verdict reads **Cannot post documents yet.** Seven rows: Storage, Business profile, Books, Tax, Geography, Branches and warehouses, People. Storage and Books say **Required**, the rest **Recommended**. Books says "No chart of accounts" with an **Open the books** button; the rows with no button name the screen they are done on. |
+| 27.23a **(HTTP)** | `GET /api/v1/firms/{id}/readiness` as `master.ops` | 200, `can_post: false`, the same seven steps with `status` DONE / MISSING and `required`. As `whole01.admin`: **403**. |
+| 27.23b | From `backend`, run `.\.venv\Scripts\python.exe scripts\check_firm_readiness.py SNTEST02` | The same seven rows, from the same implementation, and **`CANNOT post -- books not open`**. |
+| 27.23c | Press **Open the books** | The notice names the year: "Books opened for the year starting 2026-04-01" (the year *today* falls in, aligned to the firm's year start -- not the firm's `financial_year_start` if that is years old). The list re-reads: Books is done, "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today", the button is gone, and the verdict reads **Can post documents. The recommended steps are still open.** |
+| 27.23d | Press **Refresh**, then **(HTTP)** `POST /api/v1/firms/{id}/open-books` again | Nothing changes; the response says "The books were already open; nothing was created." with `already_open: true`. Settings → Audit Logs on the platform trail shows **one** `firm.books_opened` row with the counts, not two. |
+| 27.23e | Create a `SCHEMA` firm, do **not** provision it, open **Set up** | Storage is **missing** with a **Provision storage** button on the row; every store-side step reads "Cannot be checked until the firm's storage is provisioned" with no button and no hint. Press it: the list re-reads and Books now offers **Open the books**. **(HTTP)** `POST .../open-books` on such a firm before provisioning: **422**, "Provision the firm's storage before opening its books." |
+| 27.23f | On the panel, Tax row → **Apply GST template** | The notice reads "GST set up: 8 tax profiles and 6 rules." Tax re-reads as done, "1 tax system, 8 profiles, 6 rules", and **Geography** flips to done too -- the template adds India if the store has no country. Press it again **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template`: "The firm already has a tax system; nothing was created.", `already_configured: true`, and one `firm.tax_template_applied` audit row, not two. Open this firm → Administration → Configuration → Tax Configuration: the system, four components and eight profiles are there, editable. |
+| 27.23g | Business profile row → choose **Wholesale** in the dropdown → **Assign** | "Business profile set to Wholesale." and the row re-reads as "Assigned: WHOLESALE" with the picker gone. The dropdown listed the **firm's own** catalogue (`GET /api/v1/business-framework/firms/{id}/profiles`), so this works from platform mode with no firm open -- Profile Assignment still needs one. Assign is dead until a profile is chosen. |
+| 27.23h | **(HTTP)** `POST .../apply-tax-template` with `{"template": "US"}` | **422**. Only `IN_GST` exists. |
 | 27.24 | In the new firm, create a customer and a product | Both save. Masters do not need the books. |
-| 27.25 | Raise a sales invoice in the new firm and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- do not report it as one. |
-| 27.26 | Run the same readiness check against `WHOLE01` | **`can post documents`** -- 24 accounts, 3 years, 36 periods, all 24 control purposes mapped. The contrast is the point: it shows what "finished" looks like. |
+| 27.25 | On a firm whose books are **not** open, raise a sales invoice and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- open the books first. |
+| 27.26 | **Set up** on `WHOLE01` | **Finished. Every step is done.** -- 24 accounts, 3 financial years, 36 periods, all 24 control accounts mapped; a profile, tax, a country, a branch and a warehouse, and members. No buttons. The contrast is the point: it shows what "finished" looks like. |
+| 27.26a | Sign in as `whole01.admin` → Administration | No Firms tab, so no panel; and **(HTTP)** both routes answer **403**. Their result is visible to a firm administrator as their own Finance → Chart of Accounts and Financial Years. |
 
 ### 27f. Custom fields and mandatory fields
 
