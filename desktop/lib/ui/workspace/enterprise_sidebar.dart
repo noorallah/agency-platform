@@ -417,11 +417,11 @@ class CollapsibleGroupTile extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final int depth;
 
-  bool get _selected => node.path != null && selectedPath == node.path;
+  bool get _selected => node.isSelectedBy(selectedPath);
 
   bool get _hasSelectedDescendant {
     bool search(WorkspaceNavigationNode current) => current.children.any(
-          (child) => child.path == selectedPath || search(child),
+          (child) => child.isSelectedBy(selectedPath) || search(child),
         );
     return search(node);
   }

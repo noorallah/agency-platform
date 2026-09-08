@@ -11,6 +11,7 @@ class WorkspaceNavigationNode {
     this.children = const [],
     this.available = true,
     this.badge,
+    this.alsoSelectedBy = const [],
   });
 
   final String label;
@@ -20,7 +21,21 @@ class WorkspaceNavigationNode {
   final bool available;
   final String? badge;
 
+  /// Other paths this leaf stands for.
+  ///
+  /// A leaf that opens a page holding several addressable tabs -- Roles &
+  /// Permissions is one entry over `roles` and `permissions` -- must stay
+  /// selected whichever of them is current, or it reads as broken the moment
+  /// somebody switches the inner tab or arrives by Ctrl+K. Tapping the leaf
+  /// still opens [path]; this only decides when it is drawn as selected.
+  final List<String> alsoSelectedBy;
+
   bool get isLeaf => children.isEmpty;
+
+  /// Whether [selectedPath] is this node's own page.
+  bool isSelectedBy(String? selectedPath) =>
+      path != null &&
+      (selectedPath == path || alsoSelectedBy.contains(selectedPath));
 }
 
 class WorkspaceNavigationTree extends StatelessWidget {
@@ -66,17 +81,18 @@ class _NavigationNodeTile extends StatelessWidget {
   final int depth;
 
   bool get _selected =>
-      node.path != null &&
-      (selectedPath == node.path ||
-          (selectedPath != null && selectedPath!.startsWith('${node.path}/')));
+      node.isSelectedBy(selectedPath) ||
+      (node.path != null &&
+          selectedPath != null &&
+          selectedPath!.startsWith('${node.path}/'));
 
   bool get _hasSelectedDescendant {
     bool hasSelectedDescendant(WorkspaceNavigationNode current) {
       for (final WorkspaceNavigationNode child in current.children) {
-        final bool childSelected = child.path != null &&
-            (selectedPath == child.path ||
-                (selectedPath != null &&
-                    selectedPath!.startsWith('${child.path}/')));
+        final bool childSelected = child.isSelectedBy(selectedPath) ||
+            (child.path != null &&
+                selectedPath != null &&
+                selectedPath!.startsWith('${child.path}/'));
         if (childSelected || hasSelectedDescendant(child)) {
           return true;
         }

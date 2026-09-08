@@ -866,7 +866,7 @@ operate, not what any one firm does.
 | **Which profile a firm gets** | Administration › Profile Assignment, or Masters › Firm Settings | `PUT /business-framework/firms/{id}/profile-assignment` |
 | Firms, and their storage provisioning | Masters › Firms | `/api/v1/firms`, `POST /firms/{id}/provision` |
 | Attaching people to firms | Administration › User-Firm Assignments | `PUT /api/v1/users/{id}/firms` |
-| The permission catalogue itself | Administration › Permissions (read is `PERMISSION_VIEW`) | `/api/v1/permissions` |
+| The permission catalogue itself | Administration › Roles & Permissions › Permissions (read is `PERMISSION_VIEW`) | `/api/v1/permissions` |
 
 `is_implemented = false` on a feature means the platform has no code behind it;
 the service **refuses to enable it**. That flag is a fact about the codebase and
@@ -967,7 +967,7 @@ platform caller runs it, so step 3 can be skipped.
 Do **not** edit a system role — it is immutable through the API and shared by
 every firm. Instead:
 
-1. Administration › Roles › **New**, with a lowercase code that is not reserved
+1. Administration › Roles & Permissions › Roles › **New**, with a lowercase code that is not reserved
    (`ROLE_CREATE`). A firm caller's role is owned by their firm automatically.
 2. Attach the codes it should grant (`ROLE_ASSIGN`). A firm caller cannot attach
    any of the 22 platform codes.

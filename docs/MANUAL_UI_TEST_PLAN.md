@@ -324,7 +324,9 @@ Do this whole section in order; each step feeds the next.
 | 13.6 | Reports workspace → open **every** report in the list | Each renders. A report that errors is a defect; a report that is legitimately empty should say so rather than showing a blank grid. There are 56 as of 2026-09-05; `report_catalog.dart` is the list. |
 | 13.7 | Ctrl+K from inside a firm, search anything | Results across modules. **No 503.** |
 | 13.8 | Audit logs, with a firm chosen | That firm's trail. Without a firm and with platform authority, the platform trail. |
-| 13.9 | Administration → Users, Roles, Permissions | All load. A role's permissions can be changed; a system role cannot. |
+| 13.9 | Administration → Users, then Roles & Permissions (both tabs) | All load. A role's permissions can be changed; a system role cannot. |
+| 13.9b | Look at the Administration sidebar | **One** entry, **Roles & Permissions**, where Roles and Permissions used to be two. Open it: the Roles grid with a Roles / Permissions strip above it. Switch to Permissions: the sidebar entry stays highlighted and the heading still reads Roles & Permissions. |
+| 13.9c | Ctrl+K, type a permission code, open the result | Lands on the **Permissions** tab directly, not on Roles — each half keeps its own address. Sign out and in: the last screen restores to the same half. |
 | 13.10 | Help → Report a problem, from a screen that has errored | The report carries the request id and joins to the server-side traceback under Diagnostics. |
 
 ---
@@ -378,7 +380,7 @@ one, because the tier cannot be tested without one.
 | # | Case | Expected |
 | --- | --- | --- |
 | 16.1 **(SQL)** | `UPDATE platform.platform_admins SET scope = 'PLATFORM' WHERE user_id = (SELECT id FROM platform.users WHERE email = 'superadmin@agency.local');` then sign out and back in | Necessary setup. Put it back to `ALL_FIRMS` when you are done, or that account loses every firm. |
-| 16.2 | As that user: Dashboard, Administration → Users, Roles, Firms | All offered. Running the platform is their job. |
+| 16.2 | As that user: Dashboard, Administration → Users, Roles & Permissions, Firms | All offered. Running the platform is their job. |
 | 16.3 | As that user: Sales, Purchases, Finance, Inventory in the sidebar | **Not offered.** Their token carries 33 permission codes, none operational. |
 | 16.4 **(HTTP)** | `GET /api/v1/customers` with their token and `X-Firm-ID` | `403`. Not by a rule of its own — they are simply not exempt from the membership check. |
 | 16.5 | Sign in as `master.ops@agency.local` (tier 2) and switch between firms | Unchanged from before. Every firm, no membership needed. |
@@ -405,7 +407,7 @@ the platform's. Sign in as `whole01.admin`.
 | 17.8 | Retire `night-counter`, then re-open the user from 17.6 | The user is untouched. Retiring is a decision about future hires. |
 | 17.9 | Sign in as `whole01.sales1` → Administration | No User Templates tab. It needs `ROLE_VIEW`. |
 | 17.10 **(HTTP)** | `POST /api/v1/user-templates` with `role_ids` naming the `PLATFORM_ADMIN` role, using `whole01.admin`'s token | `422`, "A template cannot bundle platform or cross-firm roles." That role carries every permission code. |
-| 17.11 | Administration → **Roles** as `whole01.admin` | Lists the twelve firm roles and any of this firm's own. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. This list was platform-admin-only until #237. |
+| 17.11 | Administration → Roles & Permissions → **Roles** as `whole01.admin` | Lists the twelve firm roles and any of this firm's own. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. This list was platform-admin-only until #237. |
 
 ---
 
@@ -599,7 +601,7 @@ elsewhere. Sign in as `whole01.admin`.
 | 24.18 | Type `e` | Filtered on one character; the three-character rule is a firm caller's. Clear the box and the full list returns. |
 | 24.19 | Pick somebody, Add | Added to WHOLE01, and gone from the dialog's list next time it opens. |
 | 24.20 **(HTTP)** | `GET /api/v1/users/lookup?q=&page=1&page_size=2` as `master.ops` with `X-Firm-ID: WHOLE01` | Two rows and a `pagination` block whose `total_records` is everybody not in WHOLE01. The route pages for a platform caller and caps at ten for a firm one, whatever `page` says. |
-| 24.21 | As `whole01.admin`, open Administration | Users, Roles, Permissions, User Templates — and **no User-Firm Assignments**. That tab is a platform administrator's; Users → Edit → Firms and Add existing user are the firm administrator's ways to the same thing. |
+| 24.21 | As `whole01.admin`, open Administration | Users, Roles & Permissions, User Templates — and **no User-Firm Assignments**. That tab is a platform administrator's; Users → Edit → Firms and Add existing user are the firm administrator's ways to the same thing. |
 | 24.22 | As `master.ops`, with or without a firm selected, open Administration | **User-Firm Assignments** is there, with the Firm filter. |
 
 > **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the
@@ -615,7 +617,7 @@ administrator may write both. Sign in as `whole01.admin`.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 25.1 | Administration → **Roles** | The twelve firm roles. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. |
+| 25.1 | Administration → Roles & Permissions → **Roles** | The twelve firm roles. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. |
 | 25.2 | New → code `night-desk`, name `Night Desk` → Save | Created, and it belongs to WHOLE01. |
 | 25.3 | Open it → **Permissions** | **167** to choose from. Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
 | 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** The 22 platform codes are not offered, so there is nothing to get wrong. |
@@ -664,7 +666,7 @@ selected and every one of those screens refused its first request.
 | --- | --- | --- |
 | 26.1 | Sign in | The header firm control reads **Platform**, and so does the status bar. |
 | 26.2 | Look at the sidebar | Dashboard, Administration, Settings (and Licensing if seeded). **No** Sales, Purchases, Inventory, Masters, Finance or Reports. |
-| 26.3 | Open Administration | **Firms**, Users, Roles, Permissions, User Templates, User-Firm Assignments. **No** Tax, UOM, Business Profiles or Numbering Series — those live in a firm's own store. |
+| 26.3 | Open Administration | **Firms**, Users, Roles & Permissions, User Templates, User-Firm Assignments. **No** Tax, UOM, Business Profiles or Numbering Series — those live in a firm's own store. |
 | 26.4 | Open the firm control | A **Platform** entry at the top with a tick beside it, then all four firms — even though this account is a member of none. |
 | 26.5 | Pick `WHOLE01` | Notification names the firm; the sidebar grows Sales, Purchases, Inventory, Masters, Finance, Reports; Administration gains its configuration tabs. |
 | 26.6 | Open Sales → Sales Orders | Real rows. Before this change the module was offered and this screen failed. |

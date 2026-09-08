@@ -261,7 +261,8 @@ stay invisible.
 ## 5. Writing your own role
 
 A template can only give what its roles carry, so if none of the twelve seeded
-roles fits the job, write one. **Administration → Roles → New.** Needs
+roles fits the job, write one. **Administration → Roles & Permissions → Roles →
+New.** Needs
 `ROLE_CREATE`; `FIRM_ADMIN` has it.
 
 | Field | Notes |

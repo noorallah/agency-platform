@@ -77,6 +77,7 @@ import 'workspace/enterprise_sidebar.dart';
 import 'administration/apply_template_dialog.dart';
 import 'administration/clone_user_dialog.dart';
 import 'administration/find_person_dialog.dart';
+import 'administration/tab_group_page.dart';
 import 'workspace/desktop_framework.dart';
 
 /// What each Administration screen is for, where the module's own sentence is
@@ -117,19 +118,22 @@ class AdministrationHeader {
 /// Derives the header from the selected tab.
 ///
 /// This used to be built from the module, with a `const` breadcrumb, so every
-/// screen under Administration -- Users, Roles, Permissions -- rendered the same
-/// heading and the same trail and nothing said which one was open.
+/// screen under Administration -- Users, Roles, User Templates -- rendered the
+/// same heading and the same trail and nothing said which one was open.
 ///
 /// The label comes from the catalog rather than a switch, so renaming a tab
-/// cannot leave the heading behind.
+/// cannot leave the heading behind. A tab that shares a sidebar entry with
+/// others takes the entry's name as its title -- the heading names the page
+/// somebody opened, and the strip inside it names the half -- while the
+/// description stays the tab's own, so the two halves still say different
+/// things.
 AdministrationHeader administrationHeaderFor(String tabId) {
   final ModuleDefinition module = ModuleCatalog.byId(AppModule.administration);
-  final String title = module.tabs
-      .firstWhere(
-        (tab) => tab.id == tabId,
-        orElse: () => ModuleTabDefinition(id: tabId, label: module.label),
-      )
-      .label;
+  final ModuleTabDefinition tab = module.tabs.firstWhere(
+    (tab) => tab.id == tabId,
+    orElse: () => ModuleTabDefinition(id: tabId, label: module.label),
+  );
+  final String title = tab.group ?? tab.label;
   return AdministrationHeader(
     title: title,
     description: _administrationDescriptions[tabId] ?? module.description,
@@ -1529,21 +1533,33 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             context: context,
           ),
         ),
-      'roles' => ResourceManagementPage<Role>(
-          api: widget.api,
-          definition: _roleDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
-        ),
-      'permissions' => ResourceManagementPage<Permission>(
-          api: widget.api,
-          definition: permissionDefinition(
-            widget.api,
-            widget.permissions,
-            showFrame: false,
-          ),
+      // One page for the two, chosen by the router's tab so the sidebar
+      // entry, the heading and the remembered screen all agree on which
+      // half is open. Each half keeps its own definition and its own id.
+      'roles' || 'permissions' => TabGroupPage(
+          members: [
+            for (final ModuleTabDefinition tab in visibleTabs)
+              if (tab.group == ModuleCatalog.rolesAndPermissions) tab,
+          ],
+          current: tabId,
+          onSelect: widget.router.selectTab,
+          builder: (id) => id == 'roles'
+              ? ResourceManagementPage<Role>(
+                  api: widget.api,
+                  definition: _roleDefinition(
+                    widget.api,
+                    widget.permissions,
+                    showFrame: false,
+                  ),
+                )
+              : ResourceManagementPage<Permission>(
+                  api: widget.api,
+                  definition: permissionDefinition(
+                    widget.api,
+                    widget.permissions,
+                    showFrame: false,
+                  ),
+                ),
         ),
       'user-templates' => ResourceManagementPage<UserTemplate>(
           api: widget.api,
