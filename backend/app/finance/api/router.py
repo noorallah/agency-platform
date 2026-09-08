@@ -21,6 +21,8 @@ from app.finance.schemas import (
     AccountingPeriodUpdate,
     AccountSummary,
     BalanceSheetReport,
+    ControlAccountAssign,
+    ControlAccountResponse,
     CostCenterCreate,
     CostCenterResponse,
     CostCenterUpdate,
@@ -50,6 +52,11 @@ from app.finance.services import (
     GeneralLedgerService,
     JournalEntryEngine,
     JournalLineData,
+)
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+    ControlAccountView,
 )
 
 router = APIRouter(
@@ -289,6 +296,66 @@ def list_ledger_accounts(
         is_active=is_active,
     )
     return ApiResponse(data=[LedgerAccountResponse.model_validate(r) for r in rows])
+
+
+def _control_account_response(view: ControlAccountView) -> ControlAccountResponse:
+    return ControlAccountResponse(
+        purpose=view.purpose.value,
+        label=view.label,
+        expected_types=list(view.expected_types),
+        ledger_account_id=view.ledger_account_id,
+        account_code=view.account_code,
+        account_name=view.account_name,
+        posted_lines=view.posted_lines,
+    )
+
+
+@router.get(
+    "/control-accounts", response_model=ApiResponse[list[ControlAccountResponse]]
+)
+def list_control_accounts(
+    scope: MasterViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[ControlAccountResponse]]:
+    """Every posting purpose and the account it lands in, gaps included.
+
+    `firm_control_accounts` is what tells posting which account is Inventory,
+    Trade Receivables or Output Tax, and until 2026-09-08 it had no endpoint
+    and no screen: opening the books mapped all 24, and re-pointing one was
+    an SQL statement. Read with `ACCOUNT_VIEW`, written with `ACCOUNT_MANAGE`,
+    like the chart itself.
+    """
+    views = ControlAccountService(db).overview(scope.firm_id)
+    return ApiResponse(data=[_control_account_response(view) for view in views])
+
+
+@router.put(
+    "/control-accounts/{purpose}",
+    response_model=ApiResponse[ControlAccountResponse],
+)
+def assign_control_account(
+    purpose: ControlAccountPurpose,
+    payload: ControlAccountAssign,
+    scope: MasterManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ControlAccountResponse]:
+    """Map one purpose to one account.
+
+    Refused by name once lines have posted to the current account: every
+    existing line would stay where it is, and two accounts would each hold
+    part of one story. A transfer entry and a new account from the next
+    period is the way, and that is the bookkeeper's decision to make.
+    """
+    service = ControlAccountService(db)
+    service.reassign(
+        scope.firm_id, purpose, payload.ledger_account_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    view = next(v for v in service.overview(scope.firm_id) if v.purpose is purpose)
+    return ApiResponse(
+        data=_control_account_response(view),
+        message=f"{view.label} posts to {view.account_code} {view.account_name}.",
+    )
 
 
 @router.patch(

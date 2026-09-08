@@ -1,5 +1,45 @@
 import 'entities.dart';
 
+/// One posting purpose and the account it lands in, from
+/// `GET /finance/control-accounts`.
+class ControlAccountMapping {
+  const ControlAccountMapping({
+    required this.purpose,
+    required this.label,
+    required this.expectedTypes,
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.postedLines,
+  });
+
+  final String purpose, label;
+  final List<String> expectedTypes;
+  final String? ledgerAccountId;
+  final String accountCode, accountName;
+
+  /// POSTED journal lines already on the mapped account. Above zero the
+  /// mapping is held and the screen offers no picker.
+  final int postedLines;
+
+  bool get isMapped => ledgerAccountId != null && ledgerAccountId!.isNotEmpty;
+  bool get isHeld => postedLines > 0;
+
+  factory ControlAccountMapping.fromJson(Json json) => ControlAccountMapping(
+        purpose: stringValue(json['purpose']),
+        label: stringValue(json['label']),
+        expectedTypes: (json['expected_types'] as List? ?? const [])
+            .map((item) => stringValue(item))
+            .toList(),
+        ledgerAccountId: json['ledger_account_id'] == null
+            ? null
+            : stringValue(json['ledger_account_id']),
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        postedLines: int.tryParse('${json['posted_lines'] ?? 0}') ?? 0,
+      );
+}
+
 /// One account in the firm's chart of accounts.
 class LedgerAccount {
   const LedgerAccount({

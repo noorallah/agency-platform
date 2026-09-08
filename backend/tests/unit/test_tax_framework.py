@@ -1158,3 +1158,116 @@ def test_a_tax_system_refuses_a_write_aimed_at_an_older_version() -> None:
         actor_id=actor_id,
     )
     assert system.name == "GST final"
+
+
+def test_a_condition_written_against_a_profile_id_matches_that_profile() -> None:
+    """The seeded interstate rules are `tax_profile_id EQUALS <id>`, and none fired.
+
+    The condition's value is stored as text and the context carries a UUID;
+    the text was uppercased and the UUID rendered lowercase, so the two never
+    compared equal. Every interstate sale on every seeded firm was charged
+    CGST and SGST instead of IGST. Driving the GST template on 2026-09-08 is
+    what found it -- the simulator said "tax_profile_id failed EQUALS" for a
+    rule naming exactly the profile it had been given.
+    """
+    factory = _session_factory()
+    session = factory()
+    actor_id = uuid4()
+    firm = _firm(session)
+    country = _country(session, actor_id)
+    business_profile = _profile(session, actor_id)
+
+    framework_service = TaxFrameworkService(session)
+    system = framework_service.create_system(
+        TaxSystemWrite(country_id=country.id, code="GST", name="GST"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def component(code: str) -> object:
+        return framework_service.create_component(
+            TaxComponentWrite(
+                tax_system_id=system.id, code=code, name=code, label=code
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    cgst, sgst, igst = component("CGST"), component("SGST"), component("IGST")
+
+    def profile(code: str, rows: list[tuple[object, str]]) -> object:
+        return framework_service.create_profile(
+            TaxProfileWrite(
+                tax_system_id=system.id,
+                business_profile_id=business_profile.id,
+                code=code,
+                name=code,
+                components=[
+                    {
+                        "tax_component_id": getattr(item, "id"),  # noqa: B009
+                        "percentage": rate,
+                        "calculation_order": index,
+                    }
+                    for index, (item, rate) in enumerate(rows, start=1)
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    local = profile("GST_18_LOCAL", [(cgst, "9"), (sgst, "9")])
+    interstate = profile("GST_18_INTERSTATE", [(igst, "18")])
+
+    rule_service = TaxRuleService(session)
+    rule_service.create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            business_profile_id=business_profile.id,
+            code="INTERSTATE_GST_18",
+            name="Interstate sale switches 18 percent GST to IGST",
+            priority=12,
+            status="ACTIVE",
+            conditions=[
+                {
+                    "sequence": 1,
+                    "field_key": "transaction_type",
+                    "operator": "EQUALS",
+                    "value_text": "SALES_INTERSTATE",
+                },
+                {
+                    "sequence": 2,
+                    "field_key": "tax_profile_id",
+                    "operator": "EQUALS",
+                    # As the seed writes it: the id rendered as text.
+                    "value_text": str(getattr(local, "id")),  # noqa: B009
+                },
+            ],
+            actions=[
+                {
+                    "sequence": 1,
+                    "action_type": "APPLY_TAX_PROFILE",
+                    "target_tax_profile_id": getattr(interstate, "id"),  # noqa: B009
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    result = rule_service.simulate(
+        TaxRuleSimulationRequest(
+            transaction_type="SALES_INTERSTATE",
+            transaction_date=date(2026, 6, 1),
+            country_id=country.id,
+            business_profile_id=business_profile.id,
+            tax_profile_id=getattr(local, "id"),  # noqa: B009
+            invoice_value="1000",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert result.matched_rule_id is not None, result.decisions
+    assert result.applied_tax_profile_id == getattr(interstate, "id")  # noqa: B009
+    assert {item.code for item in result.applied_components} == {"IGST"}
+    assert result.total_tax_amount == Decimal("180")

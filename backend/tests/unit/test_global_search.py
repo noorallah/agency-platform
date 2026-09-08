@@ -342,6 +342,10 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         # The reader and the scope dependency that resolve against platform.
         "app/common/firm_metadata.py",
         "app/common/scope.py",
+        # Takes two sessions by name -- the platform one for the firm record
+        # and its memberships, the firm's own store for everything else --
+        # and its routes are platform paths under /api/v1/firms.
+        "app/firms/services/readiness.py",
     }
     # Known offenders, kept empty. Five instances of this defect shipped before
     # the guard existed; all are fixed. Anything added here needs a fix, not a

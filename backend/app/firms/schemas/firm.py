@@ -1,6 +1,7 @@
 """Request and response contracts for firm administration."""
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -121,6 +122,85 @@ class FirmProvisionResponse(FirmSchema):
     connection_profile: str | None
     provisioned_at: datetime | None
     already_provisioned: bool
+
+
+class FirmReadinessStep(FirmSchema):
+    """One thing a firm needs before it can trade, and whether it has it."""
+
+    key: str
+    label: str
+    #: DONE, MISSING, or BLOCKED -- the last only for a dedicated firm whose
+    #: store has not been built, so nothing in it can be counted yet.
+    status: str
+    detail: str
+    #: True when the platform refuses to post without it; False when trading
+    #: merely goes wrong without it.
+    required: bool
+
+
+class FirmReadinessResponse(FirmSchema):
+    """Where a firm's setup stands, step by step."""
+
+    firm_id: UUID
+    code: str
+    name: str
+    deployment_mode: DeploymentMode
+    storage_provisioned: bool
+    #: Every required step is done, so documents can post.
+    can_post: bool
+    #: Every step, required or recommended, is done.
+    ready: bool
+    steps: list[FirmReadinessStep]
+
+
+class OpenBooksRequest(FirmSchema):
+    """Which financial year to open. Empty means the one running now."""
+
+    year_starts_on: date | None = None
+
+
+class OpenBooksResponse(FirmSchema):
+    """What opening the books created, and for which year."""
+
+    firm_id: UUID
+    year_starts_on: date
+    groups: int
+    accounts: int
+    periods: int
+    types: int
+    mappings: int
+    #: Nothing was created: the books were already open.
+    already_open: bool
+
+
+class TaxTemplateRequest(FirmSchema):
+    """Which tax template to apply. Only Indian GST exists today."""
+
+    template: Literal["IN_GST"] = "IN_GST"
+
+
+class TaxTemplateResponse(FirmSchema):
+    """What applying a tax template created."""
+
+    firm_id: UUID
+    template: str
+    countries: int
+    systems: int
+    components: int
+    profiles: int
+    rules: int
+    #: Nothing was created: the firm already held a tax system.
+    already_configured: bool
+
+
+class DefaultBranchResponse(FirmSchema):
+    """What creating the firm's first branch and warehouse did."""
+
+    firm_id: UUID
+    #: The code created, or None when that half already existed.
+    branch: str | None
+    warehouse: str | None
+    already_present: bool
 
 
 class FirmResponse(FirmSchema):

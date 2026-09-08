@@ -271,8 +271,23 @@ stores, so `PUT /api/v1/firms/{id}` rejects any change to `deployment_mode`,
 ### 3b. Making the firm ready to trade
 
 A provisioned firm has tables. It cannot trade yet, and the remaining steps
-are easy to miss because nothing fails until somebody tries to approve
-something.
+were easy to miss because nothing failed until somebody tried to approve
+something. **Select the firm on Administration → Firms and press Set up**:
+the panel lists every step -- storage, business profile, books, tax,
+geography, branches and warehouses, people -- as done or missing, marks the
+two the platform refuses to post without as *Required*, and does two of them
+in place. **Provision storage** is the same action as the toolbar button.
+**Open the books** gives the firm the default chart of accounts, the
+financial year running now with twelve periods, the journal and voucher
+types and all 24 control-account mappings, in one press, idempotently; it is
+`POST /api/v1/firms/{id}/open-books` and is audited as `firm.books_opened`.
+**Apply GST template** gives the firm the whole Indian GST setup -- system,
+components, the slabs as local and interstate profiles, the rules, and the
+country if the store has none -- and the **Business profile** row carries the
+firm's own catalogue with an **Assign** button, and **Create head office and
+main warehouse** gives the firm `HO` and `MAIN` to rename later. The People
+row names the screen it is done on. The same list is
+`GET /api/v1/firms/{id}/readiness` and `scripts/check_firm_readiness.py`.
 
 **Switch into the firm.** Setting a firm up finishes *inside* it: the business
 profile, the financial year and the chart of accounts live in the firm's own

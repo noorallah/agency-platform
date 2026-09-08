@@ -23,7 +23,6 @@ from decimal import Decimal
 from uuid import UUID
 
 from generate_transaction_history import generate_history, reset_history
-from seed_tax_sample_data import TaxSeedContext, _seed_firm_tax_data
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -118,7 +117,8 @@ from app.sales.schemas import (
 )
 from app.sales.schemas.territory import SalesmanAssignmentInput, VisitFrequency
 from app.sales.services import SalesTerritoryService
-from app.tax.models import TaxProfile, TaxSystem
+from app.tax.models import TaxProfile
+from app.tax.services.gst_template import apply_india_gst_template
 from app.uom.models import ConversionRule, Uom
 from app.uom.schemas import ConversionRuleCreate
 from app.uom.services import UomService
@@ -979,15 +979,9 @@ def _seed_business_profile_assignment(
 
 
 def _seed_tax_data(session: Session, firm: Firm, actor_id: UUID) -> None:
-    existing = session.scalar(
-        select(TaxSystem.id).where(
-            TaxSystem.firm_id == firm.id,
-            TaxSystem.is_deleted.is_(False),
-        )
-    )
-    if existing is not None:
-        return
-    _seed_firm_tax_data(session, firm, TaxSeedContext(actor_id=actor_id))
+    # The same template the Firms setup panel applies; it skips a firm that
+    # already holds a tax system.
+    apply_india_gst_template(session, firm_id=firm.id, actor_id=actor_id)
 
 
 def _seed_branching(

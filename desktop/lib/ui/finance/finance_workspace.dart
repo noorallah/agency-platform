@@ -9,6 +9,7 @@ import '../resource_management_page.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'balance_sheet_page.dart';
+import 'control_accounts_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'profit_loss_page.dart';
@@ -147,6 +148,11 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
         description: 'Accounts, and whether the books balance.',
         breadcrumbs: const ['Workspace', 'Finance'],
         child: switch (widget.tabId) {
+          'control-accounts' => ControlAccountsPage(
+              api: widget.api,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
           'journal-entries' => JournalEntriesPage(
               api: widget.api,
               permissions: widget.permissions,

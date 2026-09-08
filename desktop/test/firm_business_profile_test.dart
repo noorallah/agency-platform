@@ -257,7 +257,7 @@ void main() {
     final String? followUp = definition.createFollowUp?.call(const {});
 
     expect(followUp, isNotNull);
-    expect(followUp, contains('Firm Settings'));
+    expect(followUp, contains('Set up'));
   });
 
   testWidgets('assignment is read-only without FIRM_UPDATE', (tester) async {

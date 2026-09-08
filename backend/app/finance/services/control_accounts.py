@@ -15,14 +15,22 @@ A purpose with no mapping is an error naming the purpose, never a fallback: a
 journal posted to a guessed account is worse than a journal refused.
 """
 
+from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ValidationError
-from app.finance.models import FirmControlAccount, LedgerAccount
+from app.common.audit.services import record_audit
+from app.core.exceptions import BusinessRuleError, ValidationError
+from app.finance.models import (
+    FirmControlAccount,
+    JournalEntry,
+    JournalLine,
+    JournalStatus,
+    LedgerAccount,
+)
 
 
 class ControlAccountPurpose(StrEnum):
@@ -106,6 +114,52 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),
     ControlAccountPurpose.BANK: frozenset({"ASSET"}),
 }
+
+
+#: What each purpose means to somebody reading the screen, in the order the
+#: enum declares them. The code is the key everywhere else; this is the label.
+PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
+    ControlAccountPurpose.ACCOUNTS_RECEIVABLE: "Accounts receivable",
+    ControlAccountPurpose.ACCOUNTS_PAYABLE: "Accounts payable",
+    ControlAccountPurpose.SALES_REVENUE: "Sales revenue",
+    ControlAccountPurpose.SALES_RETURNS: "Sales returns",
+    ControlAccountPurpose.PURCHASE_EXPENSE: "Purchases",
+    ControlAccountPurpose.PURCHASE_RETURNS: "Purchase returns",
+    ControlAccountPurpose.OUTPUT_TAX: "Output tax",
+    ControlAccountPurpose.INPUT_TAX: "Input tax",
+    ControlAccountPurpose.INVENTORY: "Inventory",
+    ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED: "Goods received not invoiced",
+    ControlAccountPurpose.COST_OF_GOODS_SOLD: "Cost of goods sold",
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE: "Purchase price variance",
+    ControlAccountPurpose.INVENTORY_ADJUSTMENT: "Inventory adjustment",
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY: "Opening balance equity",
+    ControlAccountPurpose.DISCOUNT_ALLOWED: "Discount allowed",
+    ControlAccountPurpose.COMMISSION_EXPENSE: "Commission expense",
+    ControlAccountPurpose.COMMISSION_PAYABLE: "Commission payable",
+    ControlAccountPurpose.TCS_PAYABLE: "TCS payable",
+    ControlAccountPurpose.LOYALTY_EXPENSE: "Loyalty expense",
+    ControlAccountPurpose.LOYALTY_PAYABLE: "Loyalty payable",
+    ControlAccountPurpose.DISCOUNT_RECEIVED: "Discount received",
+    ControlAccountPurpose.ROUNDING: "Rounding",
+    ControlAccountPurpose.CASH: "Cash",
+    ControlAccountPurpose.BANK: "Bank",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ControlAccountView:
+    """One purpose as the mapping screen shows it."""
+
+    purpose: ControlAccountPurpose
+    label: str
+    expected_types: tuple[str, ...]
+    ledger_account_id: UUID | None
+    account_code: str | None
+    account_name: str | None
+    #: Lines already posted to the mapped account. Once there are any, the
+    #: mapping is held: re-pointing it would leave two accounts each holding
+    #: part of one story, with nothing to say which a report should believe.
+    posted_lines: int
 
 
 class ControlAccountService:
@@ -203,6 +257,117 @@ class ControlAccountService:
         row.ledger_account_id = ledger_account_id
         row.updated_by = actor_id
         self._session.flush()
+        return row
+
+    def posted_lines(self, firm_id: UUID, ledger_account_id: UUID) -> int:
+        """Count the POSTED journal lines on one of the firm's accounts."""
+        return int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(JournalLine)
+                .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+                .where(
+                    JournalEntry.firm_id == firm_id,
+                    JournalEntry.status == JournalStatus.POSTED.value,
+                    JournalEntry.is_deleted.is_(False),
+                    JournalLine.ledger_account_id == ledger_account_id,
+                    JournalLine.is_deleted.is_(False),
+                )
+            )
+            or 0
+        )
+
+    def overview(self, firm_id: UUID) -> list[ControlAccountView]:
+        """Every purpose, mapped or not, in declaration order.
+
+        The whole list rather than only the mapped rows, because the screen's
+        job is to show the gaps: an unmapped purpose is the one that refuses
+        a document at approval.
+        """
+        configured = self.mapping(firm_id)
+        accounts = {
+            row.id: row
+            for row in self._session.scalars(
+                select(LedgerAccount).where(
+                    LedgerAccount.id.in_(list(configured.values())),
+                    LedgerAccount.firm_id == firm_id,
+                )
+            )
+        }
+        views: list[ControlAccountView] = []
+        for purpose in ControlAccountPurpose:
+            account_id = configured.get(purpose.value)
+            account = accounts.get(account_id) if account_id else None
+            views.append(
+                ControlAccountView(
+                    purpose=purpose,
+                    label=PURPOSE_LABELS[purpose],
+                    expected_types=tuple(sorted(EXPECTED_TYPE[purpose])),
+                    ledger_account_id=account_id,
+                    account_code=account.code if account else None,
+                    account_name=account.name if account else None,
+                    posted_lines=(
+                        self.posted_lines(firm_id, account_id) if account_id else 0
+                    ),
+                )
+            )
+        return views
+
+    def reassign(
+        self,
+        firm_id: UUID,
+        purpose: ControlAccountPurpose,
+        ledger_account_id: UUID,
+        *,
+        actor_id: UUID,
+    ) -> FirmControlAccount:
+        """Map a purpose from the screen, with the guard `assign` does not carry.
+
+        `assign` is what the seed and the tests use and it re-points freely.
+        A person re-pointing a purpose that already has postings behind it is
+        a different case: every existing line stays on the old account, so
+        the trial balance still balances while two accounts each hold part
+        of one story. Refused by name, with the count -- a transfer entry and
+        a new account in the next period is the way, and that is a decision
+        for whoever keeps the books rather than something to do quietly.
+
+        Mapping an unmapped purpose, or re-pointing one nothing has posted
+        to, is an ordinary edit. Choosing the same account again is a no-op.
+
+        Raises:
+            BusinessRuleError: If the current account has posted lines and
+                a different one was chosen.
+            ValidationError: If the account is not the firm's, inactive, or
+                the wrong classification (from `assign`).
+
+        """
+        current = self.mapping(firm_id).get(purpose.value)
+        if current is not None and current != ledger_account_id:
+            posted = self.posted_lines(firm_id, current)
+            if posted:
+                account = self._session.get(LedgerAccount, current)
+                name = f"{account.code} {account.name}" if account else "its account"
+                raise BusinessRuleError(
+                    f"{PURPOSE_LABELS[purpose]} has {posted} posted "
+                    f"line{'' if posted == 1 else 's'} on {name}. Re-pointing it "
+                    "would leave two accounts each holding part of one story; "
+                    "post a transfer entry and map the new account from the "
+                    "next period instead."
+                )
+        row = self.assign(firm_id, purpose, ledger_account_id, actor_id=actor_id)
+        record_audit(
+            self._session,
+            action="control_account.assigned",
+            entity_type="firm_control_account",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"ledger_account_id": str(current) if current else None},
+            after_data={
+                "purpose": purpose.value,
+                "ledger_account_id": str(ledger_account_id),
+            },
+        )
         return row
 
     def missing(

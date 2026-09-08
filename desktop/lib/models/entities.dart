@@ -143,6 +143,77 @@ class AssignedFirm {
       );
 }
 
+/// One thing a firm needs before it can trade, and whether it has it.
+///
+/// `status` is DONE, MISSING or BLOCKED -- the last only for a dedicated
+/// firm whose store has not been built, so nothing in it can be counted yet.
+class FirmReadinessStep {
+  const FirmReadinessStep({
+    required this.key,
+    required this.label,
+    required this.status,
+    required this.detail,
+    required this.required,
+  });
+
+  final String key, label, status, detail;
+
+  /// True when the platform refuses to post without it; false when trading
+  /// merely goes wrong without it.
+  final bool required;
+
+  bool get isDone => status == 'DONE';
+  bool get isBlocked => status == 'BLOCKED';
+  bool get isMissing => status == 'MISSING';
+
+  factory FirmReadinessStep.fromJson(Json json) => FirmReadinessStep(
+        key: stringValue(json['key']),
+        label: stringValue(json['label']),
+        status: stringValue(json['status']),
+        detail: stringValue(json['detail']),
+        required: boolValue(json['required']),
+      );
+}
+
+/// Where a firm's setup stands, from `GET /api/v1/firms/{id}/readiness`.
+class FirmReadiness {
+  const FirmReadiness({
+    required this.firmId,
+    required this.code,
+    required this.name,
+    required this.deploymentMode,
+    required this.storageProvisioned,
+    required this.canPost,
+    required this.ready,
+    required this.steps,
+  });
+
+  final String firmId, code, name, deploymentMode;
+  final bool storageProvisioned;
+
+  /// Every required step is done, so documents can post.
+  final bool canPost;
+
+  /// Every step, required or recommended, is done.
+  final bool ready;
+  final List<FirmReadinessStep> steps;
+
+  factory FirmReadiness.fromJson(Json json) => FirmReadiness(
+        firmId: stringValue(json['firm_id']),
+        code: stringValue(json['code']),
+        name: stringValue(json['name']),
+        deploymentMode: stringValue(json['deployment_mode']),
+        storageProvisioned: boolValue(json['storage_provisioned']),
+        canPost: boolValue(json['can_post']),
+        ready: boolValue(json['ready']),
+        steps: (json['steps'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) =>
+                FirmReadinessStep.fromJson(Map<String, dynamic>.from(item)))
+            .toList(),
+      );
+}
+
 class Firm {
   const Firm({
     required this.id,

@@ -66,6 +66,7 @@ import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
 import 'firms/firm_settings_page.dart';
+import 'firms/firm_setup_dialog.dart';
 import 'dashboard_page.dart';
 import 'finance/finance_workspace.dart';
 import 'inventory/physical_count_page.dart';
@@ -1684,6 +1685,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             widget.permissions,
             showFrame: false,
             onOpenFirm: widget.onOpenFirm,
+            context: context,
           ),
         ),
       'user-firms' => ResourceManagementPage<PlatformUser>(
@@ -2787,6 +2789,9 @@ ResourceDefinition<Firm> firmDefinition(
   PermissionService permissions, {
   bool showFrame = true,
   Future<String> Function(Firm firm)? onOpenFirm,
+  // Only for the setup panel, which is a dialog and therefore needs one.
+  // Optional so the definition is still constructible without a tree.
+  BuildContext? context,
 }) =>
     ResourceDefinition(
       title: 'Firms',
@@ -2814,17 +2819,32 @@ ResourceDefinition<Firm> firmDefinition(
         firm.isStorageReady ? 'Ready' : 'Not provisioned',
         firm.isActive ? 'Active' : 'Inactive',
       ],
-      // A firm with no business profile silently runs as the platform default,
-      // so a wholesale business can end up operating as GENERIC. The profile
-      // cannot be set from here, so the next step is named instead.
+      // A firm that has only been created can hold masters and drafts and
+      // refuses every posting, and runs as GENERIC until it has a profile.
+      // Neither can be done from this form, so the next step is named.
       createFollowUp: (_) => onOpenFirm == null
-          ? 'Created. Switch into this firm, then set its business profile in '
-              'Masters → Firm Settings. Until then it runs on the '
-              'platform default.'
-          : 'Created. Use "Open this firm" to switch into it, then set its '
-              'business profile in Masters → Firm Settings. Until then '
-              'it runs on the platform default.',
+          ? 'Created. Select it and press "Set up" to see what it still '
+              'needs: storage, its books, a business profile.'
+          : 'Created. Select it and press "Set up" to see what it still '
+              'needs, or "Open this firm" to switch into it. Until its '
+              'books are opened it cannot post a document.',
       customActions: [
+        // Everything a firm needs before it can trade, on one panel, with
+        // the two steps that can be done from the platform side done there:
+        // provisioning storage and opening the books. Until 2026-09-08 the
+        // books could only be opened by a script, and nothing said they were
+        // shut until the first invoice approval was refused.
+        if (context != null)
+          ResourceAction<Firm>(
+            label: 'Set up',
+            icon: Icons.checklist_outlined,
+            onInvoke: (firm) async {
+              await showFirmSetupDialog(context, api: api, firm: firm!);
+              // The panel reports its own outcomes; the grid reloads
+              // regardless, since provisioning changes the Storage column.
+              return '';
+            },
+          ),
         ResourceAction<Firm>(
           label: 'Provision storage',
           icon: Icons.dns_outlined,
