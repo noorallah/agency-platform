@@ -808,6 +808,7 @@ amendment? Treat it as its own design round.
 
 ## Related
 
+- `docs/FIRM_DOMAIN_MODEL.md` — where the profile sits among the firm's other entities, and which tier each one lives in
 - `app/business/gating.py` — capability resolution and both gate shapes
 - `app/business/services/attribute_service.py` — custom fields
 - `app/business/services/framework_service.py` — profile administration API

@@ -190,6 +190,7 @@ per-module ruff, mypy, unit-test and desktop coverage.
 
 - [`RUNNING.md`](RUNNING.md) — get it running, with demo logins
 - [`MODULE_REVIEW_CHECKLIST.md`](MODULE_REVIEW_CHECKLIST.md) — per-module debt and what has broken
+- [`FIRM_DOMAIN_MODEL.md`](FIRM_DOMAIN_MODEL.md) — the firm's entities, who creates each and which tier it lives in
 - [`BUSINESS_PROFILE_FRAMEWORK.md`](BUSINESS_PROFILE_FRAMEWORK.md) — capabilities and custom fields
 - [`MULTI_INDUSTRY_ERP_ARCHITECTURE.md`](MULTI_INDUSTRY_ERP_ARCHITECTURE.md) — the wider design
 - `desktop/docs/DESKTOP_FRAMEWORK.md` — the client, once you start reading UI
