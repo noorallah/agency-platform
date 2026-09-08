@@ -368,6 +368,47 @@ void main() {
       expect(view.allows(ModuleCatalog.byId(AppModule.settings)), isTrue);
     });
 
+    test('a platform-only tab is hidden from a firm administrator who '
+        'satisfies its permission list', () {
+      // User-Firm Assignments is a strict subset of the Users form, so for a
+      // firm administrator it was a third door onto one room. It is flagged
+      // `requiresPlatformAdmin` on the tab, and the flag has to be read where
+      // every tab strip is built or it is the #249 shape again: a gate in the
+      // catalogue nobody consults.
+      final ModuleDefinition administration =
+          ModuleCatalog.byId(AppModule.administration);
+      final ModuleTabDefinition tab =
+          administration.tabs.firstWhere((t) => t.id == 'user-firms');
+      expect(tab.requiresPlatformAdmin, isTrue);
+
+      final PermissionService firmAdmin =
+          _service(permissions: const ['USER_VIEW', 'USER_UPDATE']);
+      // The property the flag exists for: the code list alone would let
+      // them through.
+      expect(firmAdmin.canUseTab(tab.requiredPermissions), isTrue);
+      expect(firmAdmin.isPlatformAdmin, isFalse);
+
+      final Set<String> firmTabs = ModuleVisibility(
+        permissions: firmAdmin,
+        hasActiveFirm: true,
+      ).tabIds(administration);
+      expect(firmTabs, contains('users'),
+          reason: 'the same codes still open the Users tab');
+      expect(firmTabs, isNot(contains('user-firms')));
+
+      // And the caller it is for still has it, with or without a firm.
+      expect(platformMode().tabIds(administration), contains('user-firms'));
+      final Set<String> platformInFirm = ModuleVisibility(
+        permissions: _service(
+          permissions: _everyGatedCode().toList(),
+          platformAdmin: true,
+          platformScope: 'ALL_FIRMS',
+        ),
+        hasActiveFirm: true,
+      ).tabIds(administration);
+      expect(platformInFirm, contains('user-firms'));
+    });
+
     test("Administration offers its platform tabs and hides the firm's", () {
       // The module that makes a tab-level answer necessary: users and roles
       // are platform tables, the tax and UOM configuration is each firm's

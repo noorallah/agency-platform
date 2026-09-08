@@ -1111,7 +1111,12 @@ never been added to it, so a firm administrator held **none** of:
 | `einvoice` | `EINVOICE_VIEW`, `_MANAGE` | Sales › E-Invoice | granted |
 | `loyalty` | `LOYALTY_VIEW`, `_MANAGE`, `_MANAGE_SETTINGS` | Masters › Loyalty | granted |
 | `tcs` | `TCS_VIEW`, `_MANAGE` | Sales › TCS | granted |
-| `firm` | `FIRM_VIEW` and the five others | Masters › Firms, Firm Settings, User-Firm Assignments | **still withheld, deliberately** |
+| `firm` | `FIRM_VIEW` and the five others | Administration › Firms, Firm Settings | **still withheld, deliberately** |
+
+User-Firm Assignments is no longer in that row: it asks for `USER_VIEW` and
+`USER_UPDATE`, which a firm administrator holds, and is platform-only by a
+tab-level `requiresPlatformAdmin` flag instead -- a subset of the Users form
+that a firm administrator reaches anyway from Users › Edit › Firms.
 
 `SALES_MANAGER` held most of the first five, so the screens were reachable by
 somebody — just not by the role whose description is "runs the firm and every

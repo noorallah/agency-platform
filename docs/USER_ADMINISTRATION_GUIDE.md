@@ -365,7 +365,7 @@ own administrator's.
 
 ## 7b. Which firm somebody belongs to
 
-Five ways a person ends up in a firm, and it is worth knowing which is which. The last two are the same act on two screens — assign from the user, or assign from the assignments menu:
+Four ways a person ends up in a firm, and it is worth knowing which is which:
 
 | How | What happens |
 | --- | --- |
@@ -373,7 +373,11 @@ Five ways a person ends up in a firm, and it is worth knowing which is which. Th
 | **Add existing user** | They keep every firm they already had, and gain yours. |
 | **Hire like this person** | They get the same firms as the person you copied, within your reach. |
 | **Users → Edit → Firms** | You set which of *your* firms they are in. |
-| **Administration → User-Firm Assignments** | The same thing on its own screen: pick a person, set their firms. Use this when assigning firms is all you are doing. |
+
+**Administration → User-Firm Assignments** is a platform administrator's
+screen: the same Firms and Primary firm boxes on their own, for attaching
+people to firms across the platform without the whole user form. It is not
+offered to a firm administrator, who has the four ways above.
 
 **A user with no firm is allowed.** They can sign in but reach nothing — no
 firm means no firm-owned screen and an empty firm switcher — and they do not

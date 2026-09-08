@@ -599,6 +599,8 @@ elsewhere. Sign in as `whole01.admin`.
 | 24.18 | Type `e` | Filtered on one character; the three-character rule is a firm caller's. Clear the box and the full list returns. |
 | 24.19 | Pick somebody, Add | Added to WHOLE01, and gone from the dialog's list next time it opens. |
 | 24.20 **(HTTP)** | `GET /api/v1/users/lookup?q=&page=1&page_size=2` as `master.ops` with `X-Firm-ID: WHOLE01` | Two rows and a `pagination` block whose `total_records` is everybody not in WHOLE01. The route pages for a platform caller and caps at ten for a firm one, whatever `page` says. |
+| 24.21 | As `whole01.admin`, open Administration | Users, Roles, Permissions, User Templates — and **no User-Firm Assignments**. That tab is a platform administrator's; Users → Edit → Firms and Add existing user are the firm administrator's ways to the same thing. |
+| 24.22 | As `master.ops`, with or without a firm selected, open Administration | **User-Firm Assignments** is there, with the Firm filter. |
 
 > **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the
 > membership and the WHOLE01 roles afterwards, or reseed.

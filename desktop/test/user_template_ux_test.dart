@@ -1017,15 +1017,16 @@ void _firmFilterTests() {
     test('a firm administrator is not', () {
       // Their list is already their own firm's people. A filter with one
       // choice is noise, and the server refuses them the parameter anyway.
+      //
+      // Only the Users grid is asked: User-Firm Assignments is a platform
+      // administrator's tab now (`requiresPlatformAdmin` on the tab, pinned
+      // in `module_visibility_test.dart`), so a firm administrator never
+      // reaches its definition and it carries the filter unconditionally.
       final PermissionService firmAdmin = _permissions(
         const ['USER_VIEW', 'USER_CREATE', 'USER_UPDATE', 'ROLE_VIEW'],
       );
 
       expect(firmFilter(userDefinition(_FirmFilterApi(), firmAdmin)), isNull);
-      expect(
-        firmFilter(userFirmAssignmentDefinition(_FirmFilterApi(), firmAdmin)),
-        isNull,
-      );
     });
 
     test('choosing a firm reaches the request', () async {

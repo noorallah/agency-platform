@@ -188,7 +188,7 @@ Three separate grants, held by different people on purpose:
 | Create users, reset passwords | **Administration › Users** (`USER_VIEW`) |
 | Define roles | **Administration › Roles** (`ROLE_VIEW`) |
 | See the permission catalogue | **Administration › Permissions** (`PERMISSION_VIEW`) |
-| Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE` + `FIRM_VIEW`) |
+| Attach people to firms | **Administration › User-Firm Assignments** (`USER_VIEW` + `USER_UPDATE`, platform administrators only); a firm administrator uses **Users › Edit › Firms** or **Add existing user** |
 | Read who changed what | **Settings › Audit Log** (`AUDIT_LOG_VIEW`) |
 
 The firm switcher lives in the shell header and lists only firms the signed-in

@@ -3598,7 +3598,15 @@ ResourceDefinition<PlatformUser> userDefinition(
   );
 }
 
-/// The User-Firm Assignments grid.
+/// The User-Firm Assignments grid: a platform administrator's tool for
+/// attaching people to firms without the whole user form.
+///
+/// A strict subset of [userDefinition] -- the same two fields, Firms and
+/// Primary firm, and the same single write -- which is why the tab is
+/// `requiresPlatformAdmin` in the catalogue: a firm administrator already
+/// reaches that write from Users → Edit → Firms and from Add existing user,
+/// and a third door onto one room is what makes a screen feel inconsistent.
+/// The firm list is therefore always `/firms`, the platform's own.
 ///
 /// Public for the reason [userDefinition] is: no test instantiates
 /// `DesktopShell`, so a private definition is one nothing can interrogate.
@@ -3606,9 +3614,7 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
   ApiClient api,
   PermissionService permissions,
 ) {
-  // `/firms` lists every firm on the platform and only a platform
-  // administrator may read it; everybody else gets their own.
-  final String firmOptions = permissions.isPlatformAdmin ? 'firms' : 'me/firms';
+  const String firmOptions = 'firms';
   return ResourceDefinition(
     title: 'User-Firm Assignments',
     resource: 'users',
@@ -3631,17 +3637,15 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
     id: (user) => user.id,
     load: api.users,
     // The tab is *about* which firms somebody may work in, so "who is active
-    // in this firm?" is the question it exists to answer. Platform only, for
-    // the reason on the users grid.
-    filters: permissions.isPlatformAdmin
-        ? const [
-            ResourceFilter(
-              key: 'firm_id',
-              label: 'Firm',
-              optionsResource: 'firms',
-            ),
-          ]
-        : const [],
+    // in this firm?" is the question it exists to answer. Unconditional here
+    // because the tab itself is platform-only.
+    filters: const [
+      ResourceFilter(
+        key: 'firm_id',
+        label: 'Firm',
+        optionsResource: 'firms',
+      ),
+    ],
     loadPage: ({
       int page = 1,
       int pageSize = 20,
@@ -3658,10 +3662,12 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
       descending: descending,
       firmId: filters['firm_id'] ?? '',
     ),
-    // `FIRM_VIEW` is a platform code `FIRM_ADMIN` can never hold, so this
-    // whole tab was dead for the one role whose job it is -- the same fault
-    // #240 fixed on the users grid, in the tab next door. The pickers were
-    // the second half of it: `/firms` is platform-only and came back empty.
+    // Codes rather than the designation, even though the tab is platform-only
+    // by flag: a platform administrator passes these by short-circuit, and if
+    // the flag is ever removed the toolbar is still gated on something. Not
+    // `FIRM_VIEW` -- that once hid the whole tab from firm administrators
+    // while the catalogue entry said otherwise, two gates on one screen
+    // disagreeing (#240, #249), which is the history behind the flag.
     canUseAction: (action, _) => _canUseResourceAction(
       permissions,
       action,
