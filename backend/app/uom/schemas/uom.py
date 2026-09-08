@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+
 
 class UomSchema(BaseModel):
     """Shared strict schema behavior."""
@@ -22,6 +24,9 @@ class UomCreate(UomSchema):
     dimension: str = Field(default="COUNT", min_length=1, max_length=30)
     status: str = Field(default="ACTIVE", min_length=1, max_length=20)
     is_decimal_allowed: bool = True
+    #: The unit's custom fields, held per firm even though the unit is
+    #: shared. Replaced whole when sent.
+    attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
 
 class UomUpdate(UomSchema):
@@ -33,6 +38,8 @@ class UomUpdate(UomSchema):
     dimension: str | None = Field(default=None, min_length=1, max_length=30)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     is_decimal_allowed: bool | None = None
+    #: None leaves the firm's values alone; a list replaces them.
+    attributes: list[AttributeValueInput] | None = Field(default=None, max_length=300)
 
 
 class UomResponse(UomSchema):
@@ -47,6 +54,8 @@ class UomResponse(UomSchema):
     is_decimal_allowed: bool
     is_deleted: bool
     #: Optimistic-concurrency counter, echoed back as ``If-Match``.
+    #: The calling firm's custom-field values on this unit.
+    attributes: list[AttributeValueResponse] = Field(default_factory=list)
     version: int
     created_at: datetime
     updated_at: datetime

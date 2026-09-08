@@ -16,6 +16,7 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.tax.models import TaxProfile
 from app.tax.schemas import (
     BulkTaxStatusRequest,
     BulkUuidRequest,
@@ -81,6 +82,13 @@ TaxRuleRestoreScope = Annotated[
 TaxRuleSimulateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("TAX_SIMULATE")
 ]
+
+
+def _profile_response(row: TaxProfile, db: Session) -> TaxProfileResponse:
+    """Build one tax profile response with its custom fields attached."""
+    payload = TaxProfileResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = TaxFrameworkService(db).profile_attribute_responses(row)
+    return TaxProfileResponse.model_validate(payload)
 
 
 @router.get("/systems", response_model=PaginatedResponse[TaxSystemResponse])
@@ -281,7 +289,7 @@ def create_tax_setup(
         data=TaxSetupResponse(
             system=TaxSystemResponse.model_validate(system),
             components=[TaxComponentResponse.model_validate(c) for c in components],
-            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+            profiles=[_profile_response(p, db) for p in profiles],
         )
     )
 
@@ -314,7 +322,7 @@ def update_tax_setup(
         data=TaxSetupResponse(
             system=TaxSystemResponse.model_validate(system),
             components=[TaxComponentResponse.model_validate(c) for c in components],
-            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+            profiles=[_profile_response(p, db) for p in profiles],
         )
     )
 
@@ -339,7 +347,7 @@ def get_tax_setup(
         data=TaxSetupResponse(
             system=TaxSystemResponse.model_validate(system),
             components=[TaxComponentResponse.model_validate(c) for c in components],
-            profiles=[TaxProfileResponse.model_validate(p) for p in profiles],
+            profiles=[_profile_response(p, db) for p in profiles],
         )
     )
 
@@ -502,7 +510,7 @@ def list_tax_profiles(
         include_deleted=include_deleted,
     )
     return PaginatedResponse(
-        data=[TaxProfileResponse.model_validate(row) for row in rows],
+        data=[_profile_response(row, db) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -523,7 +531,7 @@ def create_tax_profile(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=TaxProfileResponse.model_validate(row))
+    return ApiResponse(data=_profile_response(row, db))
 
 
 @router.put("/profiles/{profile_id}", response_model=ApiResponse[TaxProfileResponse])
@@ -544,7 +552,7 @@ def update_tax_profile(
         expected_version=expected_version,
     )
     set_etag(response, row)
-    return ApiResponse(data=TaxProfileResponse.model_validate(row))
+    return ApiResponse(data=_profile_response(row, db))
 
 
 @router.delete("/profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -576,7 +584,7 @@ def restore_tax_profile(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=TaxProfileResponse.model_validate(row))
+    return ApiResponse(data=_profile_response(row, db))
 
 
 @router.post("/profiles/bulk-delete", response_model=ApiResponse[dict[str, int]])

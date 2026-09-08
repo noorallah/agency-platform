@@ -15,6 +15,7 @@ from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.uom.models import Uom
 from app.uom.schemas import (
     BarcodeLookupResponse,
     BusinessProfileUomDefaultResponse,
@@ -60,6 +61,13 @@ ConversionManageScope = Annotated[
 ]
 
 
+def _uom_response(service: UomService, row: Uom, firm_id: UUID) -> UomResponse:
+    """Build one unit response with the calling firm's custom fields."""
+    payload = UomResponse.model_validate(row).model_dump(mode="python")
+    payload["attributes"] = service.attribute_responses(row, firm_id=firm_id)
+    return UomResponse.model_validate(payload)
+
+
 @router.get("/uoms", response_model=ApiResponse[list[UomResponse]])
 def list_uoms(
     scope: UomViewScope,
@@ -67,8 +75,11 @@ def list_uoms(
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[UomResponse]]:
     """List the unit catalogue."""
-    rows = UomService(db).list_uoms(include_inactive=include_inactive)
-    return ApiResponse(data=[UomResponse.model_validate(row) for row in rows])
+    service = UomService(db)
+    rows = service.list_uoms(include_inactive=include_inactive)
+    return ApiResponse(
+        data=[_uom_response(service, row, scope.firm_id) for row in rows]
+    )
 
 
 @router.post(
@@ -82,8 +93,9 @@ def create_uom(
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomResponse]:
     """Add a unit to the catalogue."""
-    row = UomService(db).create_uom(data, actor_id=scope.actor_id)
-    return ApiResponse(data=UomResponse.model_validate(row))
+    service = UomService(db)
+    row = service.create_uom(data, actor_id=scope.actor_id, firm_id=scope.firm_id)
+    return ApiResponse(data=_uom_response(service, row, scope.firm_id))
 
 
 @router.put("/uoms/{uom_id}", response_model=ApiResponse[UomResponse])
@@ -96,14 +108,16 @@ def update_uom(
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[UomResponse]:
     """Change a unit in the catalogue."""
-    row = UomService(db).update_uom(
+    service = UomService(db)
+    row = service.update_uom(
         uom_id,
         data,
         actor_id=scope.actor_id,
         expected_version=expected_version,
+        firm_id=scope.firm_id,
     )
     set_etag(response, row)
-    return ApiResponse(data=UomResponse.model_validate(row))
+    return ApiResponse(data=_uom_response(service, row, scope.firm_id))
 
 
 @router.delete("/uoms/{uom_id}", status_code=status.HTTP_204_NO_CONTENT)

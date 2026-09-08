@@ -21,6 +21,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.business.gating import resolve_profile_id
+from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -33,6 +35,7 @@ from app.uom.models import (
     PackagingType,
     ProductPackagingLevel,
     Uom,
+    UomAttributeValue,
     UomGroup,
     UomGroupUnit,
 )
@@ -84,8 +87,14 @@ class UomService:
             statement = statement.where(Uom.status == "ACTIVE")
         return list(self._session.scalars(statement.order_by(Uom.name.asc())).all())
 
-    def create_uom(self, data: UomCreate, *, actor_id: UUID) -> Uom:
-        """Add a unit to the catalogue."""
+    def create_uom(
+        self, data: UomCreate, *, actor_id: UUID, firm_id: UUID | None = None
+    ) -> Uom:
+        """Add a unit to the catalogue.
+
+        The unit is shared by every firm in the store; its custom-field
+        values are the calling firm's own, which is why the firm is named.
+        """
         row = Uom(
             code=data.code.strip().upper(),
             name=data.name.strip(),
@@ -98,8 +107,43 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("UOM code already exists.")
+        if firm_id is not None and data.attributes:
+            self._store_attributes(row, data.attributes, firm_id, actor_id)
         self._session.commit()
         return row
+
+    def _store_attributes(
+        self,
+        row: Uom,
+        attributes: list[AttributeValueInput],
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Validate and persist the calling firm's custom fields on a unit."""
+        AttributeService(self._session).replace_values(
+            UomAttributeValue,
+            row.id,
+            [
+                AttributeInput(
+                    attribute_definition_id=item.attribute_definition_id,
+                    value=item.value,
+                )
+                for item in attributes
+            ],
+            firm_id=firm_id,
+            actor_id=actor_id,
+        )
+
+    def attribute_responses(
+        self, row: Uom, *, firm_id: UUID
+    ) -> list[AttributeValueResponse]:
+        """Return the calling firm's stored custom fields on a unit."""
+        return [
+            AttributeValueResponse.model_validate(value)
+            for value in AttributeService(self._session).value_rows(
+                UomAttributeValue, row.id, firm_id=firm_id
+            )
+        ]
 
     def update_uom(
         self,
@@ -108,11 +152,14 @@ class UomService:
         *,
         actor_id: UUID,
         expected_version: int | None = None,
+        firm_id: UUID | None = None,
     ) -> Uom:
         """Change a unit in the catalogue."""
         row = self.get_uom(uom_id)
         assert_version(row.version, expected_version)
-        payload = data.model_dump(exclude_unset=True)
+        payload = data.model_dump(exclude_unset=True, exclude={"attributes"})
+        if firm_id is not None and data.attributes is not None:
+            self._store_attributes(row, data.attributes, firm_id, actor_id)
         for field, value in payload.items():
             if isinstance(value, str):
                 value = value.strip()

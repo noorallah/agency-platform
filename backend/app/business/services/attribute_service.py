@@ -258,23 +258,30 @@ class AttributeService:
         ]
 
     def value_rows(
-        self, model: type[AttributeValueBase], owner_id: UUID
+        self,
+        model: type[AttributeValueBase],
+        owner_id: UUID,
+        *,
+        firm_id: UUID | None = None,
     ) -> list[AttributeValueBase]:
         """Return one record's live stored values, oldest first.
 
         For a response: the typed columns as they are, so the client can put
         each back into the field it came from. `values_for` resolves them
         against the definition instead, which is the read for a *rule*.
+
+        `firm_id` matters where the owner is shared: `uoms` carries no firm
+        and one row serves every SHARED-mode firm, so a unit's values are
+        per firm and a read without the firm would hand one firm another's.
         """
+        statement = select(model).where(
+            model.owner_column() == owner_id,
+            model.is_deleted.is_(False),
+        )
+        if firm_id is not None:
+            statement = statement.where(model.firm_id == firm_id)
         return list(
-            self._session.scalars(
-                select(model)
-                .where(
-                    model.owner_column() == owner_id,
-                    model.is_deleted.is_(False),
-                )
-                .order_by(model.created_at.asc())
-            ).all()
+            self._session.scalars(statement.order_by(model.created_at.asc())).all()
         )
 
     def values_for_many(
