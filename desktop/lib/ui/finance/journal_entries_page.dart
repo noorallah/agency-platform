@@ -46,6 +46,8 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
   // Loaded only when the editor is opened: an entry cannot be written without
   // them, and nobody reading the list needs them.
   List<LedgerAccount> _accounts = const [];
+  List<FinanceCentre> _costCenters = const [];
+  List<FinanceCentre> _profitCenters = const [];
   List<AccountingPeriod> _periods = const [];
   List<FinanceTypeRef> _journalTypes = const [];
   List<FinanceTypeRef> _voucherTypes = const [];
@@ -111,6 +113,8 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
         widget.api.accountingPeriods(),
         widget.api.journalTypes(),
         widget.api.voucherTypes(),
+        widget.api.costCenters(),
+        widget.api.profitCenters(),
       ]);
       if (!mounted) return false;
       final List<AccountingPeriod> periods =
@@ -122,6 +126,14 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
         _periods = periods.where((period) => period.status == 'OPEN').toList();
         _journalTypes = results[2] as List<FinanceTypeRef>;
         _voucherTypes = results[3] as List<FinanceTypeRef>;
+        _costCenters = (results[4] as PagedResult<FinanceCentre>)
+            .items
+            .where((centre) => centre.isActive)
+            .toList();
+        _profitCenters = (results[5] as PagedResult<FinanceCentre>)
+            .items
+            .where((centre) => centre.isActive)
+            .toList();
       });
       return true;
     } on ApiException catch (exception) {
@@ -150,6 +162,8 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
         periods: _periods,
         journalTypes: _journalTypes,
         voucherTypes: _voucherTypes,
+        costCenters: _costCenters,
+        profitCenters: _profitCenters,
       ),
     );
     if (created == null || !mounted) return;

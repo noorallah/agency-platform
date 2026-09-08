@@ -80,6 +80,19 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
           choices: ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'],
         ),
         const FieldSpec(key: 'description', label: 'Description', multiline: true),
+        // A line on the account must name a centre; the engine refuses it
+        // otherwise. Set here, offered on the journal line, satisfied on
+        // Cost Centres / Profit Centres.
+        const FieldSpec(
+          key: 'requires_cost_center',
+          label: 'Requires a cost centre',
+          boolean: true,
+        ),
+        const FieldSpec(
+          key: 'requires_profit_center',
+          label: 'Requires a profit centre',
+          boolean: true,
+        ),
         const FieldSpec(key: 'is_active', label: 'Active', boolean: true),
       ],
       initialValues: (account) => {
@@ -88,6 +101,8 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
         'name': account?.name ?? '',
         'account_type': account?.accountType ?? 'ASSET',
         'description': account?.description ?? '',
+        'requires_cost_center': account?.requiresCostCenter ?? false,
+        'requires_profit_center': account?.requiresProfitCenter ?? false,
         'is_active': account?.isActive ?? true,
       },
       payload: (values, isCreating) => {
@@ -98,6 +113,8 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
         if (isCreating) 'account_type': values['account_type'],
         if ('${values['description'] ?? ''}'.isNotEmpty)
           'description': values['description'],
+        'requires_cost_center': values['requires_cost_center'] ?? false,
+        'requires_profit_center': values['requires_profit_center'] ?? false,
         'is_active': values['is_active'] ?? true,
       },
       details: (account) => [
@@ -112,6 +129,87 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
         DetailLine('Status', account.isActive ? 'Active' : 'Inactive'),
       ],
     );
+
+/// A cost centre or a profit centre, as a plain REST resource.
+///
+/// One definition builder for both: the tables are the same shape and the
+/// only differences are the noun and the route. `PATCH`, not `PUT`, because
+/// the endpoints take a partial update; no delete, because a centre with
+/// journal lines against it cannot go without taking history with it, and
+/// the API offers none -- deactivating is the way.
+ResourceDefinition<FinanceCentre> financeCentreDefinition(
+  ApiClient api,
+  PermissionService permissions, {
+  required bool profit,
+  bool showFrame = true,
+}) {
+  final String noun = profit ? 'Profit Centres' : 'Cost Centres';
+  return ResourceDefinition<FinanceCentre>(
+    title: noun,
+    resource: profit ? 'finance/profit-centers' : 'finance/cost-centers',
+    showFrame: showFrame,
+    description: profit
+        ? 'Where revenue is attributed. A journal line on an account that '
+            'requires a profit centre is refused without one.'
+        : 'Where cost is attributed. A journal line on an account that '
+            'requires a cost centre is refused without one.',
+    headers: const ['Code', 'Name', 'Description', 'Status'],
+    sortFields: const ['code', 'name', null, null],
+    cells: (centre) => [
+      centre.code,
+      centre.name,
+      centre.description,
+      centre.isActive ? 'Active' : 'Inactive',
+    ],
+    id: (centre) => centre.id,
+    load: ({
+      int page = 1,
+      String search = '',
+      String sortBy = 'created_at',
+      bool descending = true,
+    }) =>
+        profit ? api.profitCenters() : api.costCenters(),
+    searchHint: 'Search by code or name',
+    canUseAction: (action, _) => switch (action) {
+      ToolbarAction.newItem ||
+      ToolbarAction.edit =>
+        permissions.hasPermission('ACCOUNT_MANAGE'),
+      ToolbarAction.delete => false,
+      _ => permissions.hasPermission('ACCOUNT_VIEW'),
+    },
+    partialUpdate: true,
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Code',
+        requiredOnCreate: true,
+        readOnlyWhenEditing: true,
+      ),
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(key: 'description', label: 'Description', multiline: true),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (centre) => {
+      'code': centre?.code ?? '',
+      'name': centre?.name ?? '',
+      'description': centre?.description ?? '',
+      'is_active': centre?.isActive ?? true,
+    },
+    payload: (values, isCreating) => {
+      if (isCreating) 'code': values['code'],
+      'name': values['name'],
+      if ('${values['description'] ?? ''}'.isNotEmpty)
+        'description': values['description'],
+      'is_active': values['is_active'] ?? true,
+    },
+    details: (centre) => [
+      DetailLine('Code', centre.code),
+      DetailLine('Name', centre.name),
+      DetailLine('Description', centre.description),
+      DetailLine('Status', centre.isActive ? 'Active' : 'Inactive'),
+    ],
+  );
+}
 
 /// The accounting workspace: what the finance API has been recording all along.
 ///
@@ -148,6 +246,24 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
         description: 'Accounts, and whether the books balance.',
         breadcrumbs: const ['Workspace', 'Finance'],
         child: switch (widget.tabId) {
+          'cost-centers' => ResourceManagementPage<FinanceCentre>(
+              api: widget.api,
+              definition: financeCentreDefinition(
+                widget.api,
+                widget.permissions,
+                profit: false,
+                showFrame: false,
+              ),
+            ),
+          'profit-centers' => ResourceManagementPage<FinanceCentre>(
+              api: widget.api,
+              definition: financeCentreDefinition(
+                widget.api,
+                widget.permissions,
+                profit: true,
+                showFrame: false,
+              ),
+            ),
           'control-accounts' => ControlAccountsPage(
               api: widget.api,
               permissions: widget.permissions,
