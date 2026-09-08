@@ -188,6 +188,18 @@ class SessionController extends ChangeNotifier {
     }
   }
 
+  /// End the session after the person changed their own password.
+  ///
+  /// The server revokes every refresh token on a password change, so this
+  /// one is already dead; what is left is to say so rather than let the
+  /// next request fail with a bare 401. The same ending the forced change
+  /// has, reached from My profile instead of from the forced screen.
+  Future<void> signOutAfterPasswordChange() async {
+    await _clearSession();
+    _notice = 'Password changed. Sign in with your new password.';
+    _setStatus(SessionStatus.signedOut);
+  }
+
   Future<void> completeInitialPasswordChange(
     String currentPassword,
     String newPassword,

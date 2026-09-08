@@ -23,6 +23,7 @@ from app.core.security.authorization import (
 )
 from app.identity.models import UserTemplate
 from app.identity.schemas import (
+    AdminPasswordReset,
     ChangePasswordRequest,
     IdentifierList,
     LoginRequest,
@@ -561,6 +562,33 @@ def restore_user(
     when a live account has since taken the address.
     """
     user = _service(db, settings).restore_user(user_id, _actor_id(principal))
+    return ApiResponse(data=UserResponse.model_validate(user))
+
+
+@router.post(
+    "/users/{user_id}/password",
+    response_model=ApiResponse[UserResponse],
+    tags=["Users"],
+)
+def reset_user_password(
+    user_id: UUID,
+    data: AdminPasswordReset,
+    principal: PlatformPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserResponse]:
+    """Set somebody else's password without knowing the current one.
+
+    Platform administrators only: a firm administrator handing out a
+    temporary password would be taking over an account that may also work
+    in a firm they cannot see. Clears a login lock and revokes every session.
+    """
+    user = _service(db, settings).reset_password(
+        user_id,
+        data.new_password,
+        _actor_id(principal),
+        force_change=data.force_password_change,
+    )
     return ApiResponse(data=UserResponse.model_validate(user))
 
 

@@ -10,16 +10,26 @@ import '../../models/entities.dart';
 /// them stays an administrator's job -- the dialog says so rather than
 /// offering boxes that would not save. Read fresh from `GET /me` on open,
 /// with the session's copy as the fallback while the read is in flight.
-Future<void> showProfileDialog(
+///
+/// The one thing on it a person *can* change is their password, through
+/// [onChangePassword]. Answers true when that happened: the caller then ends
+/// the session, since the server has already revoked it.
+Future<bool> showProfileDialog(
   BuildContext context, {
   required ApiClient api,
   required List<AssignedFirm> firms,
   CurrentUser? known,
+  Future<bool> Function(BuildContext context)? onChangePassword,
 }) =>
-    showDialog<void>(
+    showDialog<bool>(
       context: context,
-      builder: (_) => ProfileDialog(api: api, firms: firms, known: known),
-    );
+      builder: (_) => ProfileDialog(
+        api: api,
+        firms: firms,
+        known: known,
+        onChangePassword: onChangePassword,
+      ),
+    ).then((changed) => changed ?? false);
 
 class ProfileDialog extends StatefulWidget {
   const ProfileDialog({
@@ -27,6 +37,7 @@ class ProfileDialog extends StatefulWidget {
     required this.api,
     required this.firms,
     this.known,
+    this.onChangePassword,
   });
 
   final ApiClient api;
@@ -36,6 +47,10 @@ class ProfileDialog extends StatefulWidget {
 
   /// What the session already knows, shown until the fresh read lands.
   final CurrentUser? known;
+
+  /// Opens the change-password dialog and answers whether it succeeded. Null
+  /// hides the button, for a caller with nowhere to send the person after.
+  final Future<bool> Function(BuildContext context)? onChangePassword;
 
   @override
   State<ProfileDialog> createState() => _ProfileDialogState();
@@ -82,8 +97,20 @@ class _ProfileDialogState extends State<ProfileDialog> {
             : _body(theme, user),
       ),
       actions: [
+        if (widget.onChangePassword != null)
+          OutlinedButton.icon(
+            icon: const Icon(Icons.password_outlined),
+            label: const Text('Change password'),
+            onPressed: () async {
+              final bool changed = await widget.onChangePassword!(context);
+              if (!context.mounted) return;
+              // Close this dialog too: the session is about to end, and a
+              // profile left open over the login screen is a stale window.
+              if (changed) Navigator.of(context).pop(true);
+            },
+          ),
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).pop(false),
           child: const Text('Close'),
         ),
       ],

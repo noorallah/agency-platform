@@ -106,6 +106,10 @@ _EXPECTED = frozenset(
         # user is invisible to a firm's grid and their memberships are
         # platform facts, so the way back is the platform's.
         ("POST", "/api/v1/users/{user_id}/restore"),
+        # Setting somebody else's password without knowing the current one.
+        # A firm administrator handing out a temporary password would be
+        # taking over an account that may also work in a firm they cannot see.
+        ("POST", "/api/v1/users/{user_id}/password"),
         # The industry-profile framework -- which features and modules
         # exist at all, and which profile a firm is assigned. Setting a firm up is
         # platform work; using what it was set up with is not.

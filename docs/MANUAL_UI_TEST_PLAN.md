@@ -161,6 +161,9 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 2.13c | Delete a user, create a new one with the same address, then Firm → Deleted → open the old one → Restore | Refused: "Another live account now holds this email address." Restore before re-onboarding, not after. |
 | 2.13d | As `whole01.admin`, look for the Firm filter's **Deleted** choice and for **Restore** | Neither is offered. A deleted user is invisible to a firm's grid; restoring is a platform administrator's. `GET /api/v1/users?deleted_only=true` on their token lists live rows only. |
 | 2.14 | As `whole01.admin`, try to delete somebody who also belongs to ELEC01, and try to delete `master.ops` as anybody | Both refused, with the reason: a shared user's profile is a platform administrator's, and a platform administrator cannot be deleted at all. |
+| 2.15 | As `master.ops`: lock a test user out (five wrong passwords), then Users → open them → **Reset password** in the footer, set `Temp-Passw0rd!!`, leave "Require a new password" on | The lock is gone: they sign in at once with the temporary password and land on the change-password screen. Their other window, if any, is signed out. |
+| 2.16 | Same, with "Require a new password" **off** | They sign in and the app opens straight away -- a handover, where the password you set is theirs to keep. |
+| 2.17 | As `master.ops`, open your own row → Reset password | Refused: change your own from My profile. As `whole01.admin`, open anybody: no **Reset password** in the footer. |
 
 ## 3. Firm isolation — the core of this application
 
@@ -703,6 +706,9 @@ theirs to call. Use a user who belongs to **two** firms.
 | 27.8 | Account menu → **My profile**, as `whole01.sales1` (no `USER_VIEW`) | Opens. Name and email at the top; Work, Contact, Firms, Access and Sign-in sections; unset fields read **Not set**; roles grouped as **In every firm** and **In WHOLE01**; the primary firm marked **Primary**. No boxes to type in, and a line saying these are the administrator's to change. |
 | 27.9 | Same as `master.ops` | A **Platform administrator** chip under the name. |
 | 27.10 **(HTTP)** | `GET /api/v1/me` as `whole01.sales1` | 200 with `profile` and `roles`, on a token that cannot call `GET /users/{id}`. |
+| 27.11 | My profile → **Change password**: a new password of 8 characters, then one with no symbol | Refused beside the box with the rule named; nothing sent. |
+| 27.12 | Same, wrong current password, otherwise valid | The server's refusal shown in the dialog; it stays open for another try. |
+| 27.13 | Same, correct current password, `Str0ng-Passw0rd!` twice | Both dialogs close, you land on the login screen with "Password changed. Sign in with your new password." Any other window you were signed in on is signed out on its next request. Sign in with the new password; set it back afterwards. |
 
 **(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
 with `is_primary: false` — no membership row, so nobody's primary. The same
