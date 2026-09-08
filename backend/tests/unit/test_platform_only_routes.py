@@ -102,6 +102,10 @@ _EXPECTED = frozenset(
         ("PATCH", "/api/v1/permissions/{permission_id}"),
         # The platform dashboard: counts across every firm.
         ("GET", "/api/v1/dashboard"),
+        # Bringing a deleted user back. Deletion is firm-scoped, but a deleted
+        # user is invisible to a firm's grid and their memberships are
+        # platform facts, so the way back is the platform's.
+        ("POST", "/api/v1/users/{user_id}/restore"),
         # The industry-profile framework -- which features and modules
         # exist at all, and which profile a firm is assigned. Setting a firm up is
         # platform work; using what it was set up with is not.

@@ -3005,6 +3005,12 @@ ResourceDefinition<Firm> firmDefinition(
       },
     );
 
+/// The Firm filter's value that lists deleted users across every firm.
+///
+/// Not a firm id, so it can never collide with one, and read by `loadPage`
+/// as "no firm, deleted rows included".
+const String deletedUsersFilter = '__deleted__';
+
 /// Bring a user who already has an account into this firm.
 ///
 /// `list_users` is scoped to the caller's own members, so a firm
@@ -3157,18 +3163,28 @@ ResourceDefinition<PlatformUser> userDefinition(
       user.email,
       user.fullName,
       'Manage in editor',
-      user.isActive ? 'Active' : 'Inactive',
+      user.isDeleted ? 'Deleted' : (user.isActive ? 'Active' : 'Inactive'),
     ],
     id: (user) => user.id,
     load: api.users,
     // Only a platform administrator can be looking across firms: a firm
     // caller's list is already their own firm's people, so a filter offering
     // one choice would be noise, and the server refuses them the parameter.
+    // Deleted rows are theirs too: a deleted user is invisible to a firm's
+    // grid, and finding one is the first step of restoring one. Offered as
+    // one more choice on the Firm filter rather than a second control: the
+    // filter row is a Row, and a second dropdown overflowed it by 66 pixels
+    // at 1600 wide, which `user_template_ux_test.dart` reported -- and the
+    // label is one short word because a dropdown is as wide as its widest
+    // choice, and "Deleted users" alone overflowed by 18.
     filters: permissions.isPlatformAdmin
         ? const [
             ResourceFilter(
               key: 'firm_id',
               label: 'Firm',
+              options: [
+                ResourceFilterOption(value: deletedUsersFilter, label: 'Deleted'),
+              ],
               optionsResource: 'firms',
             ),
           ]
@@ -3187,14 +3203,18 @@ ResourceDefinition<PlatformUser> userDefinition(
       search: search,
       sortBy: sortBy,
       descending: descending,
-      firmId: filters['firm_id'] ?? '',
+      firmId: filters['firm_id'] == deletedUsersFilter
+          ? ''
+          : (filters['firm_id'] ?? ''),
+      deletedOnly: filters['firm_id'] == deletedUsersFilter,
     ),
     // A user record is platform-wide, so the server refuses to edit or
     // delete anybody who also works in a firm this caller cannot see --
     // otherwise one firm could rename or deactivate another firm's staff.
     // Disabling the button is what stops somebody filling in a form that
-    // was never going to save; the subtitle below says why.
-    canEdit: (user) => !user.belongsToOtherFirms,
+    // was never going to save; the subtitle below says why. A deleted row
+    // is not edited either: it is restored first, or left alone.
+    canEdit: (user) => !user.belongsToOtherFirms && !user.isDeleted,
     // The refusal used to be silent: the toolbar button was disabled, but a
     // double-click on the row and the context menu's Edit both returned
     // without a word, which reads as a broken screen rather than a rule.
@@ -3204,16 +3224,25 @@ ResourceDefinition<PlatformUser> userDefinition(
     // the job this person does **in this firm** is, and Roles by firm is
     // where that is set -- the server allows it for a shared user, so the
     // only thing stopping anybody was the door.
-    editRefusal: (user) => user.belongsToOtherFirms
-        ? '${user.fullName} also works in another firm, so their profile is '
-            'managed by a platform administrator. Use Roles by firm to set '
-            'what they do in yours.'
-        : null,
-    dialogSubtitle: (user) => user.belongsToOtherFirms
-        ? '${user.fullName} also works in another firm, so their profile is '
-            'managed by a platform administrator. Their roles and job '
-            'template in this firm are still yours to set.'
-        : '${user.fullName} — ${user.email}',
+    editRefusal: (user) => user.isDeleted
+        ? '${user.fullName} is deleted. Restore them first, or leave the '
+            'record as it is.'
+        : user.belongsToOtherFirms
+            ? '${user.fullName} also works in another firm, so their profile '
+                'is managed by a platform administrator. Use Roles by firm '
+                'to set what they do in yours.'
+            : null,
+    // A deleted row opens read-only, but the form it opens into is the edit
+    // form with its boxes greyed, which reads as Edit. Say what it is and
+    // where the one live control on it sits.
+    dialogSubtitle: (user) => user.isDeleted
+        ? '${user.fullName} — ${user.email} · DELETED. Read-only until '
+            'restored; Restore is at the bottom of this dialog.'
+        : user.belongsToOtherFirms
+            ? '${user.fullName} also works in another firm, so their profile '
+                'is managed by a platform administrator. Their roles and job '
+                'template in this firm are still yours to set.'
+            : '${user.fullName} — ${user.email}',
     customActions: [
       if (context != null) ...<ResourceAction<PlatformUser>>[
         ResourceAction<PlatformUser>(
@@ -3647,22 +3676,55 @@ ResourceDefinition<PlatformUser> userDefinition(
     // expectation forms. Offered on the view dialog too -- the dialog it
     // opens is gated on `ROLE_ASSIGN`, not on this form's mode -- so it is
     // not called "Edit".
-    dialogLeadingAction: permissions.hasAllPermissions(
-      ['ROLE_ASSIGN', 'ROLE_VIEW'],
-    )
-        ? (dialogContext, user) => TextButton.icon(
-              icon: const Icon(Icons.badge_outlined),
-              label: const Text('Roles by firm'),
-              onPressed: () => showFirmRolesDialog(
+    //
+    // A **deleted** row gets Restore here instead. Not a toolbar button: the
+    // users toolbar is full, and one more control overflowed it at 1600
+    // wide. A deleted row cannot be edited, so View is where somebody lands
+    // on it, and this footer is the one place the row's own actions live.
+    // Platform administrators only -- deletion is firm-scoped, but a deleted
+    // user is invisible to a firm's grid and their memberships are platform
+    // facts. Restored, the dialog closes: what it showed is no longer true.
+    dialogLeadingAction: (dialogContext, user) {
+      if (user.isDeleted) {
+        if (!permissions.isPlatformAdmin) return null;
+        return FilledButton.tonalIcon(
+          icon: const Icon(Icons.restore_from_trash_outlined),
+          label: const Text('Restore'),
+          onPressed: () async {
+            try {
+              final PlatformUser restored = await api.restoreUser(user.id);
+              if (!dialogContext.mounted) return;
+              NotificationService.show(
                 dialogContext,
-                api: api,
-                userId: user.id,
-                userLabel: '${user.fullName} · ${user.email}',
-                firmsResource: firmOptions,
-                staffableFirmIds: staffableFirms,
-              ),
-            )
-        : null,
+                '${restored.fullName} is back, with their firms and roles as '
+                'they were. Change the Firm filter to see them.',
+                kind: AppNotificationKind.success,
+              );
+              Navigator.of(dialogContext).pop();
+            } on ApiException catch (error) {
+              if (!dialogContext.mounted) return;
+              NotificationService.show(dialogContext, error.message,
+                  kind: AppNotificationKind.error);
+            }
+          },
+        );
+      }
+      if (!permissions.hasAllPermissions(['ROLE_ASSIGN', 'ROLE_VIEW'])) {
+        return null;
+      }
+      return TextButton.icon(
+        icon: const Icon(Icons.badge_outlined),
+        label: const Text('Roles by firm'),
+        onPressed: () => showFirmRolesDialog(
+          dialogContext,
+          api: api,
+          userId: user.id,
+          userLabel: '${user.fullName} · ${user.email}',
+          firmsResource: firmOptions,
+          staffableFirmIds: staffableFirms,
+        ),
+      );
+    },
     // The form's own values, plus the tier this caller may not write. Each
     // caller pays for exactly one extra read: the tier that is not theirs.
     loadAssignments: (userId) async {

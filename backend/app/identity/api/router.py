@@ -365,6 +365,7 @@ def list_users(
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
     firm_id: UUID | None = None,
+    deleted_only: bool = False,
     sort_by: Literal["email", "full_name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
@@ -376,6 +377,12 @@ def list_users(
     question a platform administrator could not previously ask without
     switching into the firm. It is refused for a firm caller naming anybody
     else's firm; see `_requested_firm_scope`.
+
+    `deleted_only` lists soft-deleted users **instead of** live ones, so one
+    can be found and restored -- a list of everybody with the deleted mixed
+    in is not what "show me the deleted" asks for. Honoured for a platform
+    administrator only; a firm caller's list stays live rows whatever they
+    send, since a deleted person's memberships still place them in the firm.
     """
     params = PaginationParams(page=page, page_size=page_size)
     scope = _requested_firm_scope(principal, firm_id)
@@ -386,6 +393,7 @@ def list_users(
         sort_by,
         sort_direction == "desc",
         scope,
+        deleted_only=deleted_only and principal.is_platform_admin,
     )
     # One query for the page rather than one per row. Without it the grid
     # cannot know whom it may edit, and offers a form that cannot save.
@@ -482,10 +490,14 @@ def get_user(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
-    """Retrieve a visible user."""
+    """Retrieve a visible user.
+
+    A platform caller may read a deleted one -- it is how a deleted user is
+    inspected before being restored -- and the response says `is_deleted`.
+    """
     scope = _firm_scope(principal)
     service = _service(db, settings)
-    user = service._get_user(user_id, scope)
+    user = service._get_user(user_id, scope, include_deleted=scope is None)
     return ApiResponse(
         data=UserResponse.model_validate(user).model_copy(
             update={
@@ -528,6 +540,28 @@ def delete_user(
         user_id, _actor_id(principal), _firm_scope(principal)
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/users/{user_id}/restore",
+    response_model=ApiResponse[UserResponse],
+    tags=["Users"],
+)
+def restore_user(
+    user_id: UUID,
+    principal: PlatformPrincipal,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_request_settings),
+) -> ApiResponse[UserResponse]:
+    """Bring a soft-deleted user back, with their old firms and roles.
+
+    Platform administrators only. Deletion is firm-scoped for a firm
+    administrator, but a deleted user is invisible to a firm's grid and their
+    memberships are platform facts, so the way back is the platform's. Refused
+    when a live account has since taken the address.
+    """
+    user = _service(db, settings).restore_user(user_id, _actor_id(principal))
+    return ApiResponse(data=UserResponse.model_validate(user))
 
 
 @router.put("/users/{user_id}/roles", response_model=ApiResponse[None], tags=["Users"])

@@ -519,6 +519,47 @@ class IdentityService:
         )
         self._session.commit()
 
+    def restore_user(self, user_id: UUID, actor_id: UUID) -> User:
+        """Bring a soft-deleted user back, with everything they had.
+
+        Deletion marks the row and revokes the sessions; it leaves the firm
+        memberships, the roles and the preferences in place. So a restore is
+        the one flag, and the person signs in with their old password to their
+        old firms and roles. A platform administrator's action, because the
+        row is platform-wide and a firm's grid cannot even see a deleted user.
+
+        Refused when a live account has since taken the address: the email is
+        unique among live accounts, and two of them cannot coexist. Deciding
+        which of the two accounts should survive is a person's call, not this
+        method's, so it says why rather than merging anything.
+        """
+        user = self._session.scalar(select(User).where(User.id == user_id))
+        if user is None:
+            raise ResourceNotFoundError("User not found.")
+        if not user.is_deleted:
+            raise BusinessRuleError("This user is not deleted.")
+        taken = self._session.scalar(
+            select(User.id).where(User.email == user.email, User.is_deleted.is_(False))
+        )
+        if taken is not None:
+            raise BusinessRuleError(
+                "Another live account now holds this email address. Delete "
+                "that account first if this is the one to keep."
+            )
+        user.is_deleted = False
+        user.deleted_at = None
+        user.deleted_by = None
+        user.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="user.restored",
+            entity_type="user",
+            entity_id=user.id,
+            actor_id=actor_id,
+        )
+        self._session.commit()
+        return user
+
     def list_users(
         self,
         page: int,
@@ -527,15 +568,30 @@ class IdentityService:
         sort_by: str,
         descending: bool,
         firm_scope: UUID | None = None,
+        *,
+        deleted_only: bool = False,
     ) -> tuple[list[User], int]:
-        """Return a safe, bounded and whitelisted user page."""
+        """Return a safe, bounded and whitelisted user page.
+
+        `deleted_only` is a platform administrator's switch: a deleted user
+        has to be found before it can be restored, and the grid is the only
+        place to find one. It answers the deleted rows **instead of** the live
+        ones -- the question is "who is deleted", not "everybody, with the
+        deleted mixed in". A firm caller never gets it -- the router does not
+        pass it for them -- because a deleted person's memberships still stand
+        and would place them in a firm they have, in every other sense, left.
+        """
         columns = {
             "email": User.email,
             "full_name": User.full_name,
             "created_at": User.created_at,
         }
-        statement = select(User).where(User.is_deleted.is_(False))
-        count = select(func.count()).select_from(User).where(User.is_deleted.is_(False))
+        statement = select(User).where(User.is_deleted.is_(deleted_only))
+        count = (
+            select(func.count())
+            .select_from(User)
+            .where(User.is_deleted.is_(deleted_only))
+        )
         if firm_scope is not None:
             scoped_users = select(UserFirm.user_id).where(
                 UserFirm.firm_id == firm_scope,
@@ -1311,7 +1367,10 @@ class IdentityService:
         self, user_id: UUID, firm_scope: UUID | None = None
     ) -> list[UUID]:
         """Return role identifiers assigned to one visible user."""
-        self._get_user(user_id, firm_scope)
+        # A platform caller may read a deleted user's roles: the view dialog
+        # on a deleted row reads them, and they are part of what a restore
+        # brings back.
+        self._get_user(user_id, firm_scope, include_deleted=firm_scope is None)
         # What the caller sees is what the caller manages. A platform caller
         # reads the **global** set, because that is what their save replaces;
         # returning every row from every firm merged into one list made the
@@ -1637,7 +1696,9 @@ class IdentityService:
             so the natural order is kept.
 
         """
-        self._get_user(user_id)
+        # A platform caller (reach None) may read a deleted user's firms: the
+        # view dialog on a deleted row reads them, and a restore keeps them.
+        self._get_user(user_id, include_deleted=visible_firm_ids is None)
         conditions = [UserFirm.user_id == user_id, UserFirm.is_deleted.is_(False)]
         if visible_firm_ids is not None:
             conditions.append(UserFirm.firm_id.in_(visible_firm_ids))
@@ -2190,8 +2251,23 @@ class IdentityService:
             )
         )
 
-    def _get_user(self, user_id: UUID, firm_scope: UUID | None = None) -> User:
-        statement = select(User).where(User.id == user_id, User.is_deleted.is_(False))
+    def _get_user(
+        self,
+        user_id: UUID,
+        firm_scope: UUID | None = None,
+        *,
+        include_deleted: bool = False,
+    ) -> User:
+        """Resolve one user the caller may see, or 404.
+
+        `include_deleted` is for a platform caller's **reads**: what a deleted
+        person had -- their firms, their roles -- is part of deciding whether
+        to bring them back, and the desktop's view dialog reads both as it
+        opens. A firm caller never gets it, and no write passes it.
+        """
+        statement = select(User).where(User.id == user_id)
+        if not include_deleted:
+            statement = statement.where(User.is_deleted.is_(False))
         if firm_scope is not None:
             statement = statement.where(
                 User.id.in_(
@@ -2412,7 +2488,7 @@ class IdentityService:
         resolved first so somebody outside the caller's scope still answers
         404 rather than confirming they exist with a 403.
         """
-        self._get_user(user_id, firm_scope)
+        self._get_user(user_id, firm_scope, include_deleted=firm_scope is None)
         if allowed_firm_ids is not None and firm_id not in allowed_firm_ids:
             raise BusinessRuleError("You can only read roles in firms you administer.")
         return list(

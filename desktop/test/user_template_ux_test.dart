@@ -1152,6 +1152,7 @@ class _FirmFilterApi extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String firmId = '',
+    bool deletedOnly = false,
   }) async {
     lastFirmId = firmId;
     return const PagedResult(items: <PlatformUser>[], total: 0);

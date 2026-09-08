@@ -184,6 +184,10 @@ class UserResponse(UserProfileFields):
     #: Always False for a platform caller: they can see every firm, so nothing
     #: is hidden from them and the guard does not apply.
     belongs_to_other_firms: bool = False
+    #: Soft-deleted. Only listed when a platform administrator asks for
+    #: deleted rows, which is how a deleted user is found in order to be
+    #: restored.
+    is_deleted: bool = False
 
 
 class UserLookupResponse(ApiSchema):

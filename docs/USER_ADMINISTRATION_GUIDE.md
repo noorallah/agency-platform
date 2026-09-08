@@ -495,21 +495,17 @@ firms, no preferences and no history. Set them up as a new hire. The old row
 stays, marked deleted, so the audit trail for what the old account did still
 resolves to a name; the grid shows only the live one.
 
-*Restore the old account.* There is no screen or route for this yet -- the
-branches, warehouses and customers have a restore, users do not. Deletion
-leaves the memberships, roles and preferences untouched, so a restore is one
-statement on the platform database:
-
-```sql
-UPDATE platform.users
-   SET is_deleted = false, deleted_at = NULL, deleted_by = NULL
- WHERE email = 'person@example.com' AND is_deleted;
-```
-
-They sign in with their old password and have their old firms and roles
-back. Two cautions: it fails on the unique index if a new account has since
-taken the address, so **restore before re-onboarding**, not after; and a hand
-restore writes no audit row, so note it somewhere.
+*Restore the old account.* A **platform administrator's** action: Users →
+choose **Deleted** in the **Firm** filter → open the person, who shows as
+**Deleted** → **Restore** in the dialog's footer. Deletion leaves the memberships, roles and
+preferences untouched, so they come back exactly as they were and sign in
+with their old password. Refused if a new account has since taken the
+address -- **restore before re-onboarding**, not after -- and the refusal
+says so rather than merging anything; delete the newer account first if the
+old one is the one to keep. A firm administrator cannot restore: a deleted
+user is invisible to a firm's grid, and their memberships are platform
+facts. The API is `POST /api/v1/users/{id}/restore`, and the action is
+audited as `user.restored`.
 
 Reuse the email when the person is genuinely being re-onboarded and should
 start clean. Restore when it is the same person coming back to the same job.
