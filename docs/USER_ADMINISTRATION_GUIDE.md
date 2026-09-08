@@ -2,8 +2,9 @@
 
 How a person gets an account, and how they get the access their job needs.
 
-Written 2026-09-06, after PRs #235–#240. Every screen and endpoint named here
-was driven against a running backend rather than read off the code.
+Written 2026-09-06, after PRs #235–#240, and brought up to date on 2026-09-08
+through PR #285. Every screen and endpoint named here was driven against a
+running backend rather than read off the code.
 
 ---
 
@@ -38,6 +39,44 @@ they simply lose the exemption that lets tier 2 walk into any firm.
 
 There is no seeded tier-1 account. Section 16 of the manual test plan makes one
 with a single `UPDATE`, and puts it back afterwards.
+
+---
+
+## 1b. A user, at a glance
+
+Everything a user record holds, and who changes each part. The rest of this
+guide is the how-to; this is the map.
+
+**Held about a person, and an administrator's to change** — all under
+Administration → Users unless said otherwise:
+
+| What | Where | Who |
+| --- | --- | --- |
+| Basic details: name, email, employee code, department, designation, mobile, joining date, photo | New / Edit | `USER_CREATE` / `USER_UPDATE`. A firm administrator, only for people who belong to their firm alone |
+| Firms they belong to, and which is primary | Edit → **Firms**; or **User-Firm Assignments** for a platform administrator | `USER_UPDATE`, plus `USER_CREATE` in each firm named (§7b, §8) |
+| Roles in every firm (the global tier) | The **Roles** field on the form | `ROLE_ASSIGN`. A firm administrator's Roles field is their own firm's tier instead (§8) |
+| Roles in one firm (the firm tier) | **Roles by firm** in the dialog's footer, nowhere else | `ROLE_ASSIGN`, for firms the caller administers |
+| Active / expires at | Edit → Security | `USER_UPDATE` |
+| Require password change | Set on create, on clone, and on a reset | `USER_CREATE` / platform administrator |
+| Login lock | Locks itself after 5 failures; **Clear login lock** on Edit lifts it early (§8b) | `USER_UPDATE` |
+| Password | **Reset password** in the dialog's footer (§8b) | Platform administrator only |
+| Delete | **Delete** on the grid: soft, sessions revoked, email released (§8b) | `USER_DELETE`; a shared user needs a platform administrator |
+| Restore | Firm filter → **Deleted** → open → **Restore** (§8b) | Platform administrator only |
+
+**The person's own** — gated on being signed in and nothing else. The first
+three are in the account menu (top right); the theme control sits at the
+foot of the sidebar, beside Sign out:
+
+| What | Where | Note |
+| --- | --- | --- |
+| See what is held about them, and every role they hold | **My profile** | Read-only; the details above are the administrator's to change |
+| Change their password | My profile → **Change password** | Needs the current one; ends every session, this window included |
+| Choose where the next sign-in lands | **Primary firm** | Offered only to somebody in more than one firm. The switcher is for the session; the primary is for next time (§3d) |
+| Theme: palette, light or dark, contrast | The theme control at the foot of the sidebar | Saved to the server, so it follows them to any machine |
+
+Two things a person cannot do, by design: edit their own name or contact
+details, and unlock their own account — the one locked out is the one who
+cannot get in.
 
 ---
 
@@ -171,14 +210,33 @@ somebody between jobs: name the new job and their access follows.
 
 Three things to know.
 
-**It replaces, it does not add.** Applying a template makes its roles the
-person's whole role set for that firm. That is what you want for a promotion —
-somebody moving off the counter should stop holding the counter's roles — but
-anything granted to them **on top of** their old job goes with it. Check what
-they hold before you apply, if that matters.
+**It replaces, it does not add — but only one tier.** A person's roles are
+two sets that add together: the **global** tier, held in every firm, and a
+**firm** tier per firm (§8). Applying a template overwrites one of them with
+the template's roles and never touches the other. Which one is decided by who
+presses the button, not by the template:
 
-**Only in the firm you are working in.** Somebody who works in two firms keeps
-their roles in the other one untouched.
+| Applied by | Overwritten | Left as it was |
+| --- | --- | --- |
+| A firm administrator | The person's roles **in that firm** | Their global roles, and their roles in every other firm |
+| A platform administrator, from the desktop | The person's **global** roles | Their roles in every firm |
+
+So somebody holding two global roles and two firm roles, given a template of
+two new roles by their firm administrator, ends up with the two global ones
+plus the two new ones in that firm. The same template applied by a platform
+administrator leaves them with the two new ones globally plus the two old
+firm ones — four roles, and a different four. Neither is a merge within a
+tier: within the tier written, anything granted **on top of** the old job goes
+with it, which is what a promotion wants — somebody moving off the counter
+should stop holding the counter's roles. Check what they hold before you
+apply, if that matters, and check **both** tiers, because a role the template
+did not name may survive in the other one.
+
+A platform administrator who wants the template to be the person's whole job
+*in one firm* has two ways: call `POST /api/v1/users/{id}/apply-template`
+naming `firm_id`, which writes that firm's tier instead, or apply it from the
+desktop and then clear the old firm roles under **Roles by firm**. The
+desktop offers no firm picker on the action today.
 
 **The trail names the job.** Applying a template records the template's code,
 its id and the roles granted, alongside who did it and when — so "moved into
@@ -547,7 +605,13 @@ the ones to use for testing.
 | User Templates → New / Edit / Retire | `ROLE_CREATE` / `ROLE_UPDATE` / `ROLE_DELETE` | yes |
 | User Templates → Offered to | The platform designation | no |
 | Roles (see) | `ROLE_VIEW` | yes |
+| Users → Roles by firm | `ROLE_ASSIGN`, `ROLE_VIEW`, in a firm the caller administers | yes, for their own firms |
+| Users → Delete | `USER_DELETE`; a platform administrator for somebody in another firm too | yes, for people in their firm alone |
+| Users → Deleted filter, Restore | The platform designation | no |
+| Users → Reset password | The platform designation | no |
+| User-Firm Assignments | The platform designation | no |
 | Firms (see, create) | The platform designation | no |
+| My profile, Change password, Primary firm, theme | Signed in | yes, and so can everybody else |
 
 `FIRM_VIEW` is deliberately **not** in any of these. It is a platform code —
 one of the set a firm administrator may not even grant — and it used to be
