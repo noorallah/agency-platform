@@ -1458,6 +1458,48 @@ Three ways out, cheapest first, none of them started:
 Until one is chosen, a profile created at runtime is safe to use only within
 the store it was created in, and the seeded twelve are safe everywhere.
 
+## 19. Seed a standard India geography master into every firm store
+
+Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
+
+**The observation.** Geography -- `geo_countries` -> `geo_states` ->
+`geo_districts` -> `geo_cities` -> `geo_postal_codes` -> `geo_localities` --
+is a per-firm master owned by the territory module (`app/sales`), and it
+ships with **nothing preloaded**. Each firm starts empty and the data is
+entered by hand or by a seed script, so the place picker on customers,
+vendors, branches and warehouses is only as complete as whatever that firm
+has added. In the seeded demo, WHOLE01 holds India plus one state and one
+city (and two "UITest" leftovers), and ELEC01 holds only India with nothing
+beneath it. A new or dedicated firm has to build its own country and state
+list before the picker is useful, and every firm rebuilds it independently.
+
+**The ask.** Seed the standard India state master -- the 28 states and 8
+union territories, with their GST state codes -- into every firm store, so
+the State rung of the picker is populated out of the box. Country India is
+already created by the finance/tax setup where it is missing, so this builds
+on that.
+
+**Shape of the work.**
+
+- A blueprint of the 28 states + 8 UTs with GST state codes (the same list
+  `app/gst_returns` and the tax framework already reason about), created
+  through `SalesTerritoryService` so the ids and audit rows are consistent
+  with hand-entered ones.
+- Run it per firm store, the way `migrate_all_stores.py` and the retention
+  purge enumerate targets from the registry -- platform-owned geography does
+  not exist; each firm store gets its own copy.
+- Idempotent on "this state already exists in this store", so it can be run
+  against firms that have already entered some places, and re-run safely.
+- Districts, cities, postal codes and localities stay user-entered -- the
+  full India dataset is large and volatile, and the state list is the rung
+  that is both small, stable, and needed for GST place-of-supply.
+- Decide whether it runs as a one-off script (like the other seeders), a
+  step in firm provisioning / open-books, or both. Provisioning is the
+  natural home, so a new firm gets it without a manual step.
+
+Not a bug -- the picker works, it is just empty. Deferred by the owner on
+2026-09-09 to do later.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
