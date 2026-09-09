@@ -1470,9 +1470,12 @@ required fields client-side. The `_field` helper built a plain `TextField`
 _payload())` after only checking the custom fields. So an empty Code or Name
 went to the server, which answered 422, by which point the dialog was gone.
 
-**Fixed here (desktop only).** Save now trims Code and Name first; if either
-is empty it sets an inline `errorText` under that field and returns without
-popping, so the dialog stays open and names what is missing. Both dialogs
+**Fixed here (desktop only).** Save now checks Code and Name first; a code that is empty, shorter than
+two characters, or not `^[A-Z0-9_-]+$` (the rules the server enforces, and
+the code is uppercased on the way out) and an empty name each set an inline
+`errorText` under that field and return without popping, so the dialog stays
+open and names what is wrong rather than letting the server refuse it after
+the form has closed. Both dialogs
 share the same `_field` helper and the same flaw, so both were fixed together
 (the user hit it on warehouses). `branch_address_test.dart` clears a required
 field, saves, and asserts the dialog stays open, the field is highlighted,

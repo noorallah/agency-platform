@@ -271,4 +271,22 @@ void main() {
     expect(api.saved, isNotNull);
     expect(api.saved!['code'], 'WH2');
   });
+
+  testWidgets('a too-short code is caught here, not by the server',
+      (tester) async {
+    // The server needs 2+ characters matching ^[A-Z0-9_-]+$; a one-character
+    // code is non-empty but still refused, so it must be caught before the
+    // pop too, or the form closes on a 422 the same way.
+    final _BranchApi api = _BranchApi();
+    await _open(tester, api, BranchWarehouseSection.warehouses, 'WH1');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Warehouse Code'), 'W');
+    await _save(tester);
+
+    expect(find.text('Edit Warehouse'), findsOneWidget);
+    expect(find.text('Warehouse code must be at least 2 characters'),
+        findsOneWidget);
+    expect(api.saved, isNull);
+  });
 }

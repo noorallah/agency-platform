@@ -1174,13 +1174,13 @@ class _BranchDialogState extends State<_BranchDialog> {
               child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
-              final String code = _code.text.trim();
-              final String name = _name.text.trim();
               setState(() {
-                _codeError = code.isEmpty ? 'Branch code is required' : null;
-                _nameError = name.isEmpty ? 'Branch name is required' : null;
+                _codeError = _codeProblem(_code.text.trim(), 'Branch');
+                _nameError = _name.text.trim().isEmpty
+                    ? 'Branch name is required'
+                    : null;
               });
-              if (code.isEmpty || name.isEmpty) return;
+              if (_codeError != null || _nameError != null) return;
               final String? customField = _customFields.validate();
               if (customField != null) {
                 NotificationService.show(context, customField,
@@ -1261,6 +1261,19 @@ class _BranchDialogState extends State<_BranchDialog> {
         controller: controller,
         decoration: InputDecoration(labelText: label, errorText: errorText),
       );
+
+  // The same rules the server enforces (code is uppercased on the way out),
+  // checked here so an invalid code keeps the dialog open and says why rather
+  // than popping and letting the server refuse it after (docs/BACKLOG.md 25).
+  String? _codeProblem(String value, String noun) {
+    final String code = value.toUpperCase();
+    if (code.isEmpty) return '$noun code is required';
+    if (code.length < 2) return '$noun code must be at least 2 characters';
+    if (!RegExp(r'^[A-Z0-9_-]+$').hasMatch(code)) {
+      return '$noun code: letters, digits, underscore or hyphen only';
+    }
+    return null;
+  }
 }
 
 class _WarehouseDialog extends StatefulWidget {
@@ -1549,15 +1562,14 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
             onPressed: _branchId == null
                 ? null
                 : () {
-                    final String code = _code.text.trim();
-                    final String name = _name.text.trim();
                     setState(() {
                       _codeError =
-                          code.isEmpty ? 'Warehouse code is required' : null;
-                      _nameError =
-                          name.isEmpty ? 'Warehouse name is required' : null;
+                          _codeProblem(_code.text.trim(), 'Warehouse');
+                      _nameError = _name.text.trim().isEmpty
+                          ? 'Warehouse name is required'
+                          : null;
                     });
-                    if (code.isEmpty || name.isEmpty) return;
+                    if (_codeError != null || _nameError != null) return;
                     final String? customField = _customFields.validate();
                     if (customField != null) {
                       NotificationService.show(context, customField,
@@ -1611,6 +1623,19 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
         controller: controller,
         decoration: InputDecoration(labelText: label, errorText: errorText),
       );
+
+  // The same rules the server enforces (code is uppercased on the way out),
+  // checked here so an invalid code keeps the dialog open and says why rather
+  // than popping and letting the server refuse it after (docs/BACKLOG.md 25).
+  String? _codeProblem(String value, String noun) {
+    final String code = value.toUpperCase();
+    if (code.isEmpty) return '$noun code is required';
+    if (code.length < 2) return '$noun code must be at least 2 characters';
+    if (!RegExp(r'^[A-Z0-9_-]+$').hasMatch(code)) {
+      return '$noun code: letters, digits, underscore or hyphen only';
+    }
+    return null;
+  }
 }
 
 class _TypeDialog extends StatefulWidget {
