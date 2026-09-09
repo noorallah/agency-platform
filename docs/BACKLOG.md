@@ -1568,6 +1568,37 @@ Note this is also why 5.5's profile-gating reads correctly: `/products/metadata`
 already returns only the fields the firm's profile enables (WHOLE01/WHOLESALE
 gets Pack Size and Country of Origin, not the batch/expiry/warranty fields),
 so once the tab shows, the fields in it are the right set.
+## 29. Screens with a page but no way in -- fixed
+
+Found in manual testing on 2026-09-09: a firm administrator, and a platform
+administrator in a firm, could not reach **Customer Statements** from the
+Masters sidebar. It was not a permission or a mode -- the screen simply had
+no navigation entry.
+
+**The cause.** `ModuleCatalog.navigationChildren` is hand-built for several
+modules (`_mastersNavigation`, `_administrationNavigation`,
+`_inventoryNavigation`, and the purchase/goods-receipt builders) and
+auto-generated from the tab list for the rest. A hand-built builder can
+silently omit a tab that is otherwise fully defined -- permission-gated, and
+wired to a page in `desktop_shell.dart` -- leaving the screen unreachable
+from both the sidebar and Ctrl+K, for every role.
+
+**Three real orphans, all fixed here.**
+
+- Masters **Statements** (`customer-statements`) and **Loyalty** (`loyalty`)
+  -- defined, gated on `CUSTOMER_VIEW` / `LOYALTY_VIEW`, wired to
+  `CustomerStatementPage` and the loyalty page, listed nowhere. This is what
+  blocked plan items 4.7 and 4.8.
+- Inventory **Physical Count** (`physical-counts`) -- gated on
+  `INVENTORY_VIEW`, wired to `PhysicalCountPage`, listed nowhere.
+
+**The guard.** `desktop/test/module_catalog_navigation_test.dart` walks every
+module with all its tabs visible and fails the build when a tab has no
+navigation path, unless it is recorded in `_reachedElsewhere` with a reason.
+One legitimate exception is recorded: `permissions` shares the Roles &
+Permissions tab-group screen and is reached by the in-page tab strip rather
+than a leaf of its own. The guard is the durable half -- the same omission
+had already happened twice before anybody noticed.
 
 ## Also open
 

@@ -1350,6 +1350,24 @@ abstract final class ModuleCatalog {
           path: 'customers',
           icon: Icons.groups_outlined,
         ),
+      // Statements and Loyalty were defined as tabs, permission-gated and
+      // wired to their pages, but this hand-built navigation never listed
+      // them -- so both screens were unreachable from the sidebar and from
+      // search, for every role. Found in manual testing on 2026-09-09
+      // (docs/BACKLOG.md 20). `module_catalog_navigation_test.dart` now
+      // fails the build when a Masters tab has no way in.
+      if (visibleTabIds.contains('customer-statements'))
+        const WorkspaceNavigationNode(
+          label: 'Statements',
+          path: 'customer-statements',
+          icon: Icons.receipt_long_outlined,
+        ),
+      if (visibleTabIds.contains('loyalty'))
+        const WorkspaceNavigationNode(
+          label: 'Loyalty',
+          path: 'loyalty',
+          icon: Icons.card_giftcard_outlined,
+        ),
       if (visibleTabIds.contains('products'))
         const WorkspaceNavigationNode(
           label: 'Products',
@@ -1537,6 +1555,13 @@ abstract final class ModuleCatalog {
                 label: 'Opening Stock',
                 path: 'opening-stock',
               ),
+              // Physical Count had a page and a permission gate but no way in,
+              // the same orphan as Masters' Statements (docs/BACKLOG.md 20).
+              if (visibleTabIds.contains('physical-counts'))
+                const WorkspaceNavigationNode(
+                  label: 'Physical Count',
+                  path: 'physical-counts',
+                ),
             if (visibleTabIds.contains('stock-ledger'))
               const WorkspaceNavigationNode(
                 label: 'Stock Ledger',
