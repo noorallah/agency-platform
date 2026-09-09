@@ -171,7 +171,8 @@ firm actually operates, so later modules can use what earlier ones produced.
 | --- | --- | --- |
 | 3.1 | As `master.ops` in FOOD01, note the customer count. Switch to MEDI01 | A different set. **These two share one schema** — if a FOOD01 customer appears here, stop and report it. |
 | 3.2 | Create a customer `ISO-TEST` in FOOD01 | It does not appear in MEDI01, WHOLE01 or ELEC01. |
-| 3.3 | Open a WHOLE01 sales invoice, copy its number. Switch to ELEC01 and search for it | Not found. Different database entirely. |
+| 3.3 | Open a WHOLE01 sales invoice, note its number **and its customer**. Switch to ELEC01 and search that number | An invoice with the same number may well appear -- document numbers **restart per firm**, so ELEC01 has its own number 9. It must be ELEC01's own, with a **different customer**; the WHOLE01 customer must not be on it. |
+| 3.3b | Still in ELEC01, search for the WHOLE01 **customer's name** from 3.3 | Not found. A name from another firm's database cannot appear -- this is the real isolation check, since numbers legitimately collide. |
 | 3.4 | In ELEC01, open Reports → any report | Rows are ELEC01's. Cross-check one figure against the ELEC01 workspace. |
 | 3.5 | As `whole01.admin`, try to reach another firm's data by any route the UI offers | There is none. |
 | 3.6 **(HTTP)** | Call a firm-owned endpoint with `X-Firm-ID` set to a firm you are not a member of | `403`, not an empty list. An empty list would look like "no data" and hide the hole. |

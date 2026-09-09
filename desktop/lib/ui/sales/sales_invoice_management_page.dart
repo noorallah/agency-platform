@@ -254,6 +254,8 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         documentNumber: '${row['invoice_number'] ?? '-'}',
         documentDate: '${row['invoice_date'] ?? '-'}',
         status: '${row['status'] ?? 'DRAFT'}',
+        party: '${row['customer_name'] ?? ''}',
+        partyLabel: 'Customer',
         reference: (row['reference_number'] as String?) ?? '',
         remarks: (row['remarks'] as String?) ?? '',
       );

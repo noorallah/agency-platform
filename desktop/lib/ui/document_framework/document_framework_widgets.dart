@@ -139,6 +139,8 @@ class EnterpriseDocumentHeader extends StatelessWidget {
                 spacing: AppSpacing.lg,
                 runSpacing: AppSpacing.md,
                 children: [
+                  if (header.party.isNotEmpty)
+                    _headerField(header.partyLabel, header.party),
                   _headerField('Document date', header.documentDate),
                   _headerField('Reference', header.reference),
                   _headerField('Branch', header.branch),
