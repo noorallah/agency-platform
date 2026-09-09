@@ -1458,6 +1458,39 @@ Three ways out, cheapest first, none of them started:
 Until one is chosen, a profile created at runtime is safe to use only within
 the store it was created in, and the seeded twelve are safe everywhere.
 
+## 23. Vendor Categories and Vendor Types rendered "coming soon" -- fixed
+
+Found in manual testing on 2026-09-10 (plan item 5.2). Both tabs opened to
+"... is coming soon -- the current API does not provide ... operations",
+though the API provides both (`/vendors/categories`, `/vendors/types`,
+answering rows) and the desktop had a working `ResourceManagementPage` for
+each.
+
+**The cause.** Each module renders through its own workspace switch --
+`AppModule.masters` -> `_MastersWorkspace`, `AppModule.administration` ->
+`_AdministrationWorkspace`, one to one. The `vendor-categories` and
+`vendor-types` tabs live in the **masters** module, but their render cases
+had been left in `_AdministrationWorkspace` (a module with no such tabs, so
+dead code there), and `_MastersWorkspace` had no case for them -- so both
+fell through to its "coming soon" default. Likely a leftover from the tab
+reparenting that moved the definitions to masters without moving the render
+cases. The masters tab list and the switch are two hand-kept lists that
+drifted; only these two of the fifteen masters tabs were missing.
+
+**Fixed here.** Moved both cases into `_MastersWorkspace` beside `vendors`
+and removed the dead copies from `_AdministrationWorkspace`. Driven against a
+running backend: both endpoints answer, and the screens now render their
+grids. `vendor_classification_test.dart` renders each screen and asserts it
+is the grid, not the fallback -- the prior test checked only the menu, which
+is why it missed this.
+
+**A gap that remains.** The switch is inside a private workspace class, so it
+cannot be unit-tested directly; the render tests prove the pages work but not
+that the switch maps every masters tab. A durable guard would extract the
+tab->page mapping into a testable function and assert it covers every tab in
+the module (the same shape as `module_catalog_navigation_test.dart` for the
+sidebar, §20). Worth doing next time this area is touched.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed

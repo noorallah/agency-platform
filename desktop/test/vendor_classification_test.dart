@@ -17,6 +17,8 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/vendor.dart';
+import 'package:agency_desktop/ui/desktop_shell.dart';
+import 'package:agency_desktop/ui/resource_management_page.dart';
 import 'package:agency_desktop/ui/vendors/vendor_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/workspace_templates.dart';
@@ -92,6 +94,46 @@ class _VendorApi extends ApiClient {
   }
 
   @override
+  Future<PagedResult<VendorClassification>> vendorCategories({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async =>
+      const PagedResult<VendorClassification>(
+        items: [
+          VendorClassification(
+              id: 'cat-raw',
+              code: 'RAW',
+              name: 'Raw material',
+              description: '',
+              isActive: true),
+        ],
+        total: 1,
+      );
+
+  @override
+  Future<PagedResult<VendorClassification>> vendorTypes({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'name',
+    bool descending = false,
+  }) async =>
+      const PagedResult<VendorClassification>(
+        items: [
+          VendorClassification(
+              id: 'type-local',
+              code: 'LOCAL',
+              name: 'Local supplier',
+              description: '',
+              isActive: true),
+        ],
+        total: 1,
+      );
+
+  @override
   Future<Vendor> updateVendor(
     String id,
     Json data, {
@@ -155,6 +197,60 @@ void main() {
         flatten(<WorkspaceNavigationNode>[vendors]).map((node) => node.path),
         containsAll(<String>['vendors', 'vendor-categories', 'vendor-types']),
       );
+    });
+
+    // The nav routing above is not enough on its own: the two tabs reached
+    // the masters workspace, whose render switch had no case for them, so
+    // both showed "... is coming soon" while the real pages sat unreachable
+    // in the administration workspace (docs/BACKLOG.md 23). These render the
+    // page the fixed case shows and prove it is a working grid, not the
+    // fallback. (The switch itself is private and cannot be unit-tested; a
+    // guard over the whole mapping needs the mapping extracted -- noted in
+    // §23.)
+    testWidgets('the categories screen renders its list, not "coming soon"',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _VendorApi api = _VendorApi();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ResourceManagementPage<VendorClassification>(
+            api: api,
+            definition: vendorClassificationDefinition(
+              api,
+              _permissions(),
+              categories: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('coming soon'), findsNothing);
+      expect(find.text('Raw material'), findsWidgets);
+    });
+
+    testWidgets('the types screen renders its list, not "coming soon"',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _VendorApi api = _VendorApi();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ResourceManagementPage<VendorClassification>(
+            api: api,
+            definition: vendorClassificationDefinition(
+              api,
+              _permissions(),
+              categories: false,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('coming soon'), findsNothing);
+      expect(find.text('Local supplier'), findsWidgets);
     });
   });
 

@@ -1732,22 +1732,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             showFrame: false,
           ),
         ),
-      'vendor-categories' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: true,
-          ),
-        ),
-      'vendor-types' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: false,
-          ),
-        ),
       'category-attribute-rules' =>
         ResourceManagementPage<CategoryAttributeRuleRecord>(
           api: widget.api,
@@ -1909,6 +1893,28 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           api: widget.api,
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
+        ),
+      // The two vendor masters a vendor record points at. Their tabs live in
+      // the masters module and the sidebar routes them here, but the render
+      // cases were in _AdministrationWorkspace -- a module that has no such
+      // tabs -- so both fell through to the "coming soon" fallback and were
+      // unreachable (docs/BACKLOG.md 23). vendor_classification_test.dart
+      // now renders them rather than only checking the menu.
+      'vendor-categories' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: true,
+          ),
+        ),
+      'vendor-types' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: false,
+          ),
         ),
       'branches' => BranchWarehouseManagementPage(
           api: widget.api,
