@@ -71,14 +71,15 @@ class ProductController extends ChangeNotifier {
       );
     }
     try {
-      // Paged rather than asked for in one oversized page: `MAX_PAGE_SIZE`
-      // is 100 and over-asking is a 500, not a clamp.
-      attributeDefinitions = await fetchAllPages(
-        (page) => _api.attributeDefinitions(
-          page: page,
-          pageSize: maxApiPageSize,
-        ),
-      );
+      // The firm-resolved catalogue, not the platform one. `/attribute-
+      // definitions` is `PlatformPrincipal` -- a firm administrator gets 403,
+      // the desktop swallowed it, and the fields the metadata named could not
+      // be resolved, so the Attributes tab rendered "Unknown attribute
+      // definition" (docs/BACKLOG.md 24). `/applicable` answers the same
+      // definitions gated on firm membership, the way the customer and vendor
+      // forms already ask.
+      attributeDefinitions =
+          (await _api.applicableAttributeDefinitions('PRODUCT')).definitions;
     } on ApiException catch (exception) {
       if (!exception.isForbidden) {
         error = exception.message;
