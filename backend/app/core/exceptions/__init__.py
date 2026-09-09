@@ -1,6 +1,9 @@
 """Expected application errors and HTTP exception handlers."""
 
 from app.core.exceptions.base import (
+    AccountExpiredError,
+    AccountInactiveError,
+    AccountLockedError,
     ApplicationError,
     AuthenticationError,
     AuthorizationError,
@@ -12,6 +15,9 @@ from app.core.exceptions.base import (
 )
 
 __all__ = [
+    "AccountExpiredError",
+    "AccountInactiveError",
+    "AccountLockedError",
     "ApplicationError",
     "AuthenticationError",
     "AuthorizationError",

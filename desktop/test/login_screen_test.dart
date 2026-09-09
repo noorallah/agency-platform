@@ -108,6 +108,10 @@ class _FakeSessionController extends SessionController {
   @override
   String? get notice => _notice;
 
+  DateTime? lockedUntilOverride;
+  @override
+  DateTime? get lockedUntil => lockedUntilOverride;
+
   @override
   String? get attemptedUsername => _attemptedUsername;
 
@@ -185,6 +189,9 @@ class _TestHarness extends StatelessWidget {
               themes: themes,
               error:
                   session.status == SessionStatus.error ? session.error : null,
+              lockedUntil: session.status == SessionStatus.error
+                  ? session.lockedUntil
+                  : null,
               notice: session.notice,
               capsLockEnabled: capsLockEnabled,
             ),
@@ -446,6 +453,42 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Fast access'), findsNothing);
     expect(find.text('Modern. Secure. Built for agencies.'), findsNothing);
+  });
+
+  testWidgets('a lockout counts down on screen and then says it has lifted',
+      (tester) async {
+    final prefs = await _preferences();
+    final session = await _session(prefs);
+    final themes = await _themes(prefs);
+    session.loginShouldFail = true;
+    session.lockedUntilOverride =
+        DateTime.now().add(const Duration(seconds: 90));
+    await tester.pumpWidget(
+      _TestHarness(session: session, preferences: prefs, themes: themes),
+    );
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'alice');
+    await tester.enterText(find.byType(TextFormField).at(1), 'Password@123');
+    await tester.tap(find.text('Sign in'));
+    // Not pumpAndSettle: the countdown is a periodic timer, which never
+    // settles until it reaches zero.
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('You can try again in 01:30.'), findsOneWidget);
+    expect(find.text('Invalid email or password.'), findsNothing,
+        reason: 'the countdown replaces the message, not joins it');
+
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.textContaining('You can try again in 01:29.'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 89));
+    expect(find.textContaining('The lock on this account has lifted'),
+        findsOneWidget);
+    // The timer is done; a further pump must not move anything.
+    await tester.pump(const Duration(seconds: 5));
+    expect(find.textContaining('The lock on this account has lifted'),
+        findsOneWidget);
   });
 
   testWidgets('surfaces the real failure rather than a generic one',

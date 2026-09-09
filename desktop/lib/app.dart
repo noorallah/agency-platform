@@ -148,6 +148,9 @@ class _AgencyAppState extends State<AgencyApp> {
                       error: _session.status == SessionStatus.error
                           ? _session.error
                           : null,
+                      lockedUntil: _session.status == SessionStatus.error
+                          ? _session.lockedUntil
+                          : null,
                       notice: _session.notice,
                     );
                   case SessionStatus.requiresPasswordChange:

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from math import ceil
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -15,6 +16,9 @@ from app.common.audit.services import record_audit
 from app.core.config.settings import Settings
 from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import (
+    AccountExpiredError,
+    AccountInactiveError,
+    AccountLockedError,
     AuthenticationError,
     BusinessRuleError,
     ConflictError,
@@ -22,7 +26,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.security import JwtService, PasswordSecurity
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import as_utc, utc_now
 from app.core.validation import validate_email, validate_password_policy
 from app.firms.models import Firm
 from app.identity.models import (
@@ -91,6 +95,24 @@ blank afterwards.
 """
 
 
+def _locked_error(locked_until: datetime, now: datetime) -> AccountLockedError:
+    """Build the lockout refusal, saying how long is left in whole minutes."""
+    remaining = as_utc(locked_until) - now
+    seconds = max(1, ceil(remaining.total_seconds()))
+    minutes = max(1, ceil(seconds / 60))
+    unit = "minute" if minutes == 1 else "minutes"
+    return AccountLockedError(
+        "This account is locked after too many failed sign-in attempts. "
+        f"Try again in {minutes} {unit}.",
+        # The message is for reading once; the seconds are for a screen that
+        # counts down, which the desktop's sign-in screen does.
+        details={
+            "retry_after_seconds": seconds,
+            "locked_until": as_utc(locked_until).astimezone(UTC).isoformat(),
+        },
+    )
+
+
 class IdentityService:
     """Coordinate identity persistence, security policy, and audit logging."""
 
@@ -133,7 +155,11 @@ class IdentityService:
             )
             self._session.commit()
             raise AuthenticationError("Invalid email or password.")
-        if user.locked_until is not None and user.locked_until > now:
+        if user.locked_until is not None and as_utc(user.locked_until) > now:
+            # Refused before the password is looked at, so the refusal costs
+            # the same whatever was typed. The message names the state on
+            # purpose (docs/BACKLOG.md 18.1): somebody holding the right
+            # password cannot otherwise tell a lockout from a typo.
             self._record_login(
                 user.id,
                 normalized_email,
@@ -143,11 +169,9 @@ class IdentityService:
                 "account_locked",
             )
             self._session.commit()
-            raise AuthenticationError("Invalid email or password.")
-        unavailable = not user.is_active or (
-            user.expires_at is not None and user.expires_at <= now
-        )
-        if unavailable:
+            raise _locked_error(user.locked_until, now)
+        unavailable = self._unavailable_error(user, now)
+        if unavailable is not None:
             self._record_login(
                 user.id,
                 normalized_email,
@@ -157,18 +181,16 @@ class IdentityService:
                 "account_unavailable",
             )
             self._session.commit()
-            raise AuthenticationError("Invalid email or password.")
+            raise unavailable
         if user.password_hash == "*":
             bootstrap = self._settings.bootstrap_admin_password
             valid = bootstrap is not None and password == bootstrap.get_secret_value()
             if valid:
                 user.password_hash = self._passwords.hash_password(password)
             else:
-                self._register_failed_login(user, client_ip, user_agent)
-                raise AuthenticationError("Invalid email or password.")
+                raise self._register_failed_login(user, client_ip, user_agent, now)
         elif not self._passwords.verify_password(password, user.password_hash):
-            self._register_failed_login(user, client_ip, user_agent)
-            raise AuthenticationError("Invalid email or password.")
+            raise self._register_failed_login(user, client_ip, user_agent, now)
         user.failed_login_attempts, user.locked_until, user.last_login_at = 0, None, now
         self._record_login(
             user.id, normalized_email, "success", client_ip, user_agent, None
@@ -197,11 +219,11 @@ class IdentityService:
             ) from error
         user = self._get_user(user_id)
         now = utc_now()
-        unavailable = not user.is_active or (
-            user.expires_at is not None and user.expires_at <= now
-        )
-        if unavailable:
-            raise AuthenticationError("The refresh token is invalid or expired.")
+        unavailable = self._unavailable_error(user, now)
+        if unavailable is not None:
+            # Somebody signed in when the account was closed; the desktop
+            # shows this on the sign-in screen it drops them to.
+            raise unavailable
         token_hash = _hash_token(refresh_token)
         result = cast(
             CursorResult[object],
@@ -624,6 +646,8 @@ class IdentityService:
         firm_scope: UUID | None = None,
         *,
         deleted_only: bool = False,
+        inactive_only: bool = False,
+        active_only: bool = False,
     ) -> tuple[list[User], int]:
         """Return a safe, bounded and whitelisted user page.
 
@@ -634,6 +658,13 @@ class IdentityService:
         deleted mixed in". A firm caller never gets it -- the router does not
         pass it for them -- because a deleted person's memberships still stand
         and would place them in a firm they have, in every other sense, left.
+
+        `inactive_only` keeps only the rows with Active unticked, and
+        `active_only` its mirror. Both are narrowings of the live rows, so
+        both compose with `firm_scope` -- inactive-members-of-a-firm is the
+        query the overloaded Firm filter could not ask. A deleted row's
+        Active flag is whatever it was, so neither means anything beside
+        `deleted_only` and both are ignored there.
         """
         columns = {
             "email": User.email,
@@ -646,6 +677,13 @@ class IdentityService:
             .select_from(User)
             .where(User.is_deleted.is_(deleted_only))
         )
+        if not deleted_only:
+            if inactive_only:
+                statement = statement.where(User.is_active.is_(False))
+                count = count.where(User.is_active.is_(False))
+            elif active_only:
+                statement = statement.where(User.is_active.is_(True))
+                count = count.where(User.is_active.is_(True))
         if firm_scope is not None:
             scoped_users = select(UserFirm.user_id).where(
                 UserFirm.firm_id == firm_scope,
@@ -2080,19 +2118,45 @@ class IdentityService:
         self._session.commit()
 
     def _register_failed_login(
-        self, user: User, client_ip: str | None, user_agent: str | None
-    ) -> None:
+        self,
+        user: User,
+        client_ip: str | None,
+        user_agent: str | None,
+        now: datetime,
+    ) -> AuthenticationError:
+        """Count a wrong password, lock at the threshold, and return the refusal.
+
+        The attempt that locks the account is told so: it is the last one
+        the person will make before they start wondering, and every later
+        attempt would say it anyway.
+        """
         user.failed_login_attempts += 1
         outcome = "failed"
+        error: AuthenticationError = AuthenticationError("Invalid email or password.")
         if user.failed_login_attempts >= self._settings.security.max_login_attempts:
-            user.locked_until = utc_now() + timedelta(
+            user.locked_until = now + timedelta(
                 minutes=self._settings.security.lockout_minutes
             )
             outcome = "locked"
+            error = _locked_error(user.locked_until, now)
         self._record_login(
             user.id, user.email, outcome, client_ip, user_agent, "invalid_credentials"
         )
         self._session.commit()
+        return error
+
+    @staticmethod
+    def _unavailable_error(user: User, now: datetime) -> AuthenticationError | None:
+        """Name why a live account cannot be used, or None if it can.
+
+        Inactive and expired are told apart because the remedy differs --
+        retick Active, or move the date (docs/BACKLOG.md 18.2).
+        """
+        if not user.is_active:
+            return AccountInactiveError()
+        if user.expires_at is not None and as_utc(user.expires_at) <= now:
+            return AccountExpiredError()
+        return None
 
     def _record_login(
         self,

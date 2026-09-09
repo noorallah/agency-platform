@@ -18,7 +18,11 @@ from sqlalchemy.pool import StaticPool
 from app.common.audit.models import AuditLog
 from app.core.config.settings import Settings
 from app.core.database.base import Base
+from app.core.error_codes import ErrorCode
 from app.core.exceptions import (
+    AccountExpiredError,
+    AccountInactiveError,
+    AccountLockedError,
     AuthenticationError,
     BusinessRuleError,
     ConflictError,
@@ -521,3 +525,180 @@ def test_no_module_reads_the_designation_out_of_the_roles_claim() -> None:
         "`principal.may_act_in_any_firm` where the question is whether the "
         "caller may act inside a firm's books."
     )
+
+
+# ---------------------------------------------------------------------------
+# Refusals that name the account's state (docs/BACKLOG.md 18.1 and 18.2).
+#
+# One message for every refusal was deliberate, so that an outsider cannot
+# learn which addresses have accounts. The owner accepted that disclosure for
+# the *state* refusals -- locked, inactive, expired -- because somebody holding
+# the right password had no way to tell a lockout from a typo, and kept the
+# wrong-password message as it was. Both halves are pinned: the three states
+# say what they are, and the two credential failures still say nothing.
+# ---------------------------------------------------------------------------
+
+
+def _login(service: IdentityService, email: str, password: str) -> None:
+    service.login(email, password, client_ip=None, user_agent=None)
+
+
+def _exhaust_attempts(service: IdentityService, email: str) -> None:
+    limit = service._settings.security.max_login_attempts
+    for _ in range(limit - 1):
+        with pytest.raises(AuthenticationError):
+            _login(service, email, "wrong-" + PASSWORD)
+
+
+def test_a_wrong_password_and_an_unknown_address_still_say_the_same_thing() -> None:
+    """The half that did not move: a credential failure discloses nothing."""
+    service, _ = _service()
+    user = _user(service)
+
+    with pytest.raises(AuthenticationError) as wrong:
+        _login(service, user.email, "wrong-" + PASSWORD)
+    with pytest.raises(AuthenticationError) as unknown:
+        _login(service, "nobody@example.com", PASSWORD)
+
+    assert wrong.value.message == unknown.value.message == "Invalid email or password."
+    assert wrong.value.code == unknown.value.code == ErrorCode.AUTHENTICATION_REQUIRED
+    assert not isinstance(wrong.value, AccountLockedError)
+
+
+def test_the_attempt_that_locks_the_account_says_so() -> None:
+    """The fifth wrong password is told it locked the account, and for how long."""
+    service, session = _service()
+    user = _user(service)
+    _exhaust_attempts(service, user.email)
+
+    with pytest.raises(AccountLockedError) as refused:
+        _login(service, user.email, "wrong-" + PASSWORD)
+
+    minutes = service._settings.security.lockout_minutes
+    assert refused.value.code == ErrorCode.ACCOUNT_LOCKED
+    assert f"Try again in {minutes} minutes" in refused.value.message
+    assert user.locked_until is not None
+    # Counted rather than "the latest row": five rows written inside one
+    # second tie on SQLite's second-precision timestamp, so DESC is arbitrary.
+    outcomes = sorted(
+        (row.outcome, row.failure_reason)
+        for row in session.scalars(select(LoginHistory)).all()
+    )
+    assert outcomes == [("failed", "invalid_credentials")] * 4 + [
+        ("locked", "invalid_credentials")
+    ]
+
+
+def test_the_right_password_on_a_locked_account_is_told_it_is_locked() -> None:
+    """The case that prompted the change: right password, same old refusal, no clue."""
+    service, session = _service()
+    user = _user(service)
+    user.locked_until = utc_now() + timedelta(minutes=7, seconds=30)
+    user.failed_login_attempts = 5
+    session.commit()
+
+    with pytest.raises(AccountLockedError) as refused:
+        _login(service, user.email, PASSWORD)
+
+    # Rounded up to whole minutes, never down to a moment that has passed.
+    assert refused.value.message.endswith("Try again in 8 minutes.")
+    # And the seconds ride beside it for a screen that counts down.
+    details = refused.value.details
+    assert isinstance(details, dict)
+    assert 440 <= details["retry_after_seconds"] <= 450
+    assert details["locked_until"].endswith("+00:00")
+    last = session.scalars(
+        select(LoginHistory).order_by(LoginHistory.created_at.desc())
+    ).first()
+    assert last is not None
+    assert (last.outcome, last.failure_reason) == ("locked", "account_locked")
+
+
+def test_a_locked_account_says_so_whatever_was_typed() -> None:
+    """Any attempt is told, so the refusal never depends on verifying the password."""
+    service, session = _service()
+    user = _user(service)
+    user.locked_until = utc_now() + timedelta(minutes=3)
+    session.commit()
+    calls: list[str] = []
+    original = service._passwords.verify_password
+
+    def spy(password: str, password_hash: str) -> bool:
+        calls.append(password)
+        return original(password, password_hash)
+
+    service._passwords.verify_password = spy  # type: ignore[method-assign]
+    with pytest.raises(AccountLockedError):
+        _login(service, user.email, "wrong-" + PASSWORD)
+    assert calls == [], "a locked account must refuse before the password is looked at"
+
+
+def test_a_lapsed_lock_is_not_reported() -> None:
+    """The boundary the other way: a lock in the past is no lock at all."""
+    service, session = _service()
+    user = _user(service)
+    user.locked_until = utc_now() - timedelta(seconds=1)
+    user.failed_login_attempts = 5
+    session.commit()
+
+    _login(service, user.email, PASSWORD)
+
+    assert (user.failed_login_attempts, user.locked_until) == (0, None)
+
+
+def test_an_inactive_account_is_told_it_is_inactive() -> None:
+    """Untick Active and sign in: the refusal names the state and the remedy."""
+    service, session = _service()
+    user = _user(service)
+    user.is_active = False
+    session.commit()
+
+    with pytest.raises(AccountInactiveError) as refused:
+        _login(service, user.email, PASSWORD)
+
+    assert refused.value.code == ErrorCode.ACCOUNT_INACTIVE
+    assert "administrator" in refused.value.message
+    last = session.scalars(
+        select(LoginHistory).order_by(LoginHistory.created_at.desc())
+    ).first()
+    assert last is not None
+    assert (last.outcome, last.failure_reason) == ("failed", "account_unavailable")
+
+
+def test_an_expired_account_is_told_it_has_expired() -> None:
+    """Expired is not inactive: the remedy is moving the date, not a checkbox."""
+    service, session = _service()
+    user = _user(service)
+    user.expires_at = utc_now() - timedelta(minutes=1)
+    session.commit()
+
+    with pytest.raises(AccountExpiredError) as refused:
+        _login(service, user.email, PASSWORD)
+
+    assert refused.value.code == ErrorCode.ACCOUNT_EXPIRED
+    assert not isinstance(refused.value, AccountInactiveError)
+
+
+def test_a_state_refusal_is_still_an_authentication_error() -> None:
+    """Handlers catching the broad class keep catching these: 401 stays 401."""
+    for error in (AccountLockedError(), AccountInactiveError(), AccountExpiredError()):
+        assert isinstance(error, AuthenticationError)
+        assert error.status_code == 401
+
+
+def test_a_refresh_on_a_closed_account_names_the_state() -> None:
+    """Somebody signed in when the account was closed sees why on the next refresh."""
+    service, session = _service()
+    user = _user(service)
+    tokens = service.login(user.email, PASSWORD, client_ip=None, user_agent=None)
+
+    user.is_active = False
+    session.commit()
+    with pytest.raises(AccountInactiveError):
+        service.refresh(tokens.refresh_token)
+
+    user.is_active = True
+    user.expires_at = utc_now() - timedelta(minutes=1)
+    session.commit()
+    with pytest.raises(AccountExpiredError):
+        service.refresh(tokens.refresh_token)

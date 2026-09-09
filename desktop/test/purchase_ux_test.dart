@@ -498,6 +498,8 @@ class _PurchaseApi extends ApiClient {
     bool descending = true,
     String firmId = '',
     bool deletedOnly = false,
+    bool inactiveOnly = false,
+    bool activeOnly = false,
   }) async =>
       const PagedResult(
         items: [
