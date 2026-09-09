@@ -926,6 +926,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
+            customer_name=self._customer_name(row.customer_id),
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,

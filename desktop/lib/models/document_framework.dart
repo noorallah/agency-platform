@@ -7,6 +7,8 @@ class DocumentHeaderSnapshot {
     required this.documentNumber,
     required this.documentDate,
     required this.status,
+    this.party = '',
+    this.partyLabel = 'Party',
     this.reference = '',
     this.branch = '',
     this.warehouse = '',
@@ -23,6 +25,11 @@ class DocumentHeaderSnapshot {
   final String documentTypeName;
   final String documentNumber;
   final String documentDate;
+  //: The other party -- the customer on a sale, the vendor on a purchase --
+  //: named for display. Empty on documents not yet wired to carry it, and
+  //: the header hides the field when it is empty.
+  final String party;
+  final String partyLabel;
   final String reference;
   final String branch;
   final String warehouse;
@@ -40,6 +47,10 @@ class DocumentHeaderSnapshot {
         documentTypeName: stringValue(json['document_type_name']),
         documentNumber: stringValue(json['document_number']),
         documentDate: stringValue(json['document_date']),
+        party: stringValue(json['party']),
+        partyLabel: stringValue(json['party_label']).isEmpty
+            ? 'Party'
+            : stringValue(json['party_label']),
         reference: stringValue(json['reference']),
         branch: stringValue(json['branch']),
         warehouse: stringValue(json['warehouse']),
