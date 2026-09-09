@@ -1458,6 +1458,45 @@ Three ways out, cheapest first, none of them started:
 Until one is chosen, a profile created at runtime is safe to use only within
 the store it was created in, and the seeded twelve are safe everywhere.
 
+## 22. Customer group management belongs beside the other master lists
+
+Raised by the owner on 2026-09-09 while reviewing the customers screen.
+
+**The observation.** Managing the *set* of customer groups -- creating,
+editing, deleting Retailer / Wholesaler / Institution -- is done from a
+**Groups** button on the customers grid toolbar (`CustomerGroupDialog`). That
+is master-data setup, not something done while working the customer list, and
+it is the odd one out: **Vendor Categories** and **Vendor Types**, the same
+shape of thing (a small master another record points at), are their own tabs
+under Masters. A firm setting up its segments looks for them beside the vendor
+masters or under Configuration, not behind a toolbar button on the customers
+grid.
+
+Distinct from **assigning** a customer to a group, which is the dropdown on
+the customer form (§21) and is correctly placed -- this is only about where
+the groups themselves are created and edited.
+
+**The ask.** Make **Customer Groups** a tab under Masters, the way Vendor
+Categories is, reusing the existing management screen, and drop the toolbar
+button. It sits naturally beside the vendor masters, or under the
+Configuration section; deciding which is part of the work. The assign
+dropdown on the customer form stays.
+
+**Shape of the work.**
+
+- A `customer-groups` tab on the `masters` module with `CUSTOMER_VIEW` to
+  read and `CUSTOMER_MANAGE_SETTINGS` (or `CUSTOMER_UPDATE`) to write, wired
+  to a management page built from the current `CustomerGroupDialog` body.
+- A navigation node for it in `_mastersNavigation`, which
+  `module_catalog_navigation_test.dart` (§20) now requires anyway.
+- Remove the **Groups** button from the customers toolbar.
+- The client methods already exist (`customerGroups`, `createCustomerGroup`,
+  `updateCustomerGroup`, `deleteCustomerGroup`), so this is placement, not new
+  API.
+
+Not a bug -- the feature works where it is. A consistency and discoverability
+improvement, deferred by the owner to do later.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
