@@ -1075,9 +1075,9 @@ class _BranchDialogState extends State<_BranchDialog> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _field(_code, 'Branch Code')),
+                    Expanded(child: _field(_code, 'Branch Code', errorText: _codeError)),
                     const SizedBox(width: 12),
-                    Expanded(child: _field(_name, 'Branch Name')),
+                    Expanded(child: _field(_name, 'Branch Name', errorText: _nameError)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1174,6 +1174,13 @@ class _BranchDialogState extends State<_BranchDialog> {
               child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
+              final String code = _code.text.trim();
+              final String name = _name.text.trim();
+              setState(() {
+                _codeError = code.isEmpty ? 'Branch code is required' : null;
+                _nameError = name.isEmpty ? 'Branch name is required' : null;
+              });
+              if (code.isEmpty || name.isEmpty) return;
               final String? customField = _customFields.validate();
               if (customField != null) {
                 NotificationService.show(context, customField,
@@ -1242,9 +1249,17 @@ class _BranchDialogState extends State<_BranchDialog> {
         onChanged: (value) => setState(() => _typeId = value),
       );
 
-  Widget _field(TextEditingController controller, String label) => TextField(
+  // Set on Save when a required field is empty, so the error shows under
+  // the field and the dialog stays open instead of popping and letting the
+  // server refuse it after it has closed (docs/BACKLOG.md 25).
+  String? _codeError;
+  String? _nameError;
+
+  Widget _field(TextEditingController controller, String label,
+          {String? errorText}) =>
+      TextField(
         controller: controller,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, errorText: errorText),
       );
 }
 
@@ -1419,9 +1434,9 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _field(_code, 'Warehouse Code')),
+                    Expanded(child: _field(_code, 'Warehouse Code', errorText: _codeError)),
                     const SizedBox(width: 12),
-                    Expanded(child: _field(_name, 'Warehouse Name')),
+                    Expanded(child: _field(_name, 'Warehouse Name', errorText: _nameError)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1534,6 +1549,15 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
             onPressed: _branchId == null
                 ? null
                 : () {
+                    final String code = _code.text.trim();
+                    final String name = _name.text.trim();
+                    setState(() {
+                      _codeError =
+                          code.isEmpty ? 'Warehouse code is required' : null;
+                      _nameError =
+                          name.isEmpty ? 'Warehouse name is required' : null;
+                    });
+                    if (code.isEmpty || name.isEmpty) return;
                     final String? customField = _customFields.validate();
                     if (customField != null) {
                       NotificationService.show(context, customField,
@@ -1575,9 +1599,17 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                         'attributes': _customFields.payload(),
                     };
 
-  Widget _field(TextEditingController controller, String label) => TextField(
+  // Set on Save when a required field is empty, so the error shows under
+  // the field and the dialog stays open instead of popping and letting the
+  // server refuse it after it has closed (docs/BACKLOG.md 25).
+  String? _codeError;
+  String? _nameError;
+
+  Widget _field(TextEditingController controller, String label,
+          {String? errorText}) =>
+      TextField(
         controller: controller,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, errorText: errorText),
       );
 }
 

@@ -245,4 +245,30 @@ void main() {
     expect(api.saved!['has_receiving_area'], isFalse);
     expect(api.saved!['temperature_controlled'], isFalse);
   });
+
+  testWidgets('an empty required field keeps the dialog open and is highlighted',
+      (tester) async {
+    // The form used to pop on Save whatever was typed, so a missing code left
+    // the dialog gone and the server's refusal arriving as a toast against no
+    // form (docs/BACKLOG.md 25). Now Save validates and the field says so.
+    final _BranchApi api = _BranchApi();
+    await _open(tester, api, BranchWarehouseSection.warehouses, 'WH1');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Warehouse Code'), '');
+    await _save(tester);
+
+    expect(find.text('Edit Warehouse'), findsOneWidget,
+        reason: 'the dialog stays open');
+    expect(find.text('Warehouse code is required'), findsOneWidget,
+        reason: 'the missing field is named under it');
+    expect(api.saved, isNull, reason: 'nothing was sent to the server');
+
+    // Typing a code and saving again goes through.
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Warehouse Code'), 'WH2');
+    await _save(tester);
+    expect(api.saved, isNotNull);
+    expect(api.saved!['code'], 'WH2');
+  });
 }

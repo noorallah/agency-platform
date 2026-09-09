@@ -1458,6 +1458,31 @@ Three ways out, cheapest first, none of them started:
 Until one is chosen, a profile created at runtime is safe to use only within
 the store it was created in, and the seeded twelve are safe everywhere.
 
+## 25. The branch and warehouse forms popped on a missing required field -- fixed
+
+Found in manual testing on 2026-09-10. Saving a new warehouse with a required
+field empty **closed the form** and surfaced the server's refusal as a toast
+against no form, instead of keeping the dialog open and pointing at the field.
+
+**The cause.** Neither the branch nor the warehouse dialog validated its
+required fields client-side. The `_field` helper built a plain `TextField`
+(no validator), and the Save button popped with `Navigator.pop(context,
+_payload())` after only checking the custom fields. So an empty Code or Name
+went to the server, which answered 422, by which point the dialog was gone.
+
+**Fixed here (desktop only).** Save now trims Code and Name first; if either
+is empty it sets an inline `errorText` under that field and returns without
+popping, so the dialog stays open and names what is missing. Both dialogs
+share the same `_field` helper and the same flaw, so both were fixed together
+(the user hit it on warehouses). `branch_address_test.dart` clears a required
+field, saves, and asserts the dialog stays open, the field is highlighted,
+and nothing reached the server -- then that typing a value and saving again
+goes through.
+
+Note the branch dropdown on the warehouse form was already handled: Save is
+disabled until a branch is chosen, so that required choice never reached this
+path. This change is about the free-text required fields.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
