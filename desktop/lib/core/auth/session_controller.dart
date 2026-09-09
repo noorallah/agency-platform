@@ -80,6 +80,12 @@ class SessionController extends ChangeNotifier {
   SessionStatus get status => _status;
   String? get error => _error;
   String? get notice => _notice;
+
+  /// When the account the last login attempt named will unlock, if the
+  /// refusal said it was locked. Read off the server's `retry_after_seconds`
+  /// rather than its message, so the sign-in screen can count down.
+  DateTime? get lockedUntil => _lockedUntil;
+  DateTime? _lockedUntil;
   String? get attemptedUsername => _attemptedUsername;
   String get baseUrl => _baseUrl;
   String? get accessToken => _accessToken;
@@ -154,6 +160,7 @@ class SessionController extends ChangeNotifier {
     }
     _notice = null;
     _error = null;
+    _lockedUntil = null;
     _attemptedUsername = email;
     _setStatus(SessionStatus.authenticating);
     try {
@@ -175,8 +182,20 @@ class SessionController extends ChangeNotifier {
       unawaited(flushQueuedErrorReports());
     } on ApiException catch (exception) {
       _error = exception.message;
+      _lockedUntil = _lockExpiry(exception);
       _setStatus(SessionStatus.error);
     }
+  }
+
+  /// The moment a locked account opens, from the refusal's details; null
+  /// for any other refusal, or a locked one that did not say how long.
+  static DateTime? _lockExpiry(ApiException exception) {
+    if (exception.code != 'account_locked') return null;
+    final Object? details = exception.details;
+    final Object? seconds =
+        details is Map ? details['retry_after_seconds'] : null;
+    if (seconds is! num || seconds <= 0) return null;
+    return DateTime.now().add(Duration(seconds: seconds.ceil()));
   }
 
   /// Sends anything the crash queue is holding. Failures are left queued.
@@ -249,8 +268,17 @@ class SessionController extends ChangeNotifier {
           ? SessionStatus.requiresPasswordChange
           : SessionStatus.authenticated);
       return true;
-    } on ApiException {
+    } on ApiException catch (exception) {
       await _clearSession();
+      // An expired or revoked token is the ordinary way a session ends and
+      // is not worth a banner. An account closed while the person was
+      // signed in is: their next question is why, and the sign-in screen
+      // they land on is the only place left to answer it. A notice rather
+      // than an error, because the login screen shows an error only for a
+      // login that just failed, and this one has not been attempted yet.
+      if (exception.namesAccountState) {
+        _notice = exception.message;
+      }
       _setStatus(SessionStatus.signedOut);
       return false;
     }

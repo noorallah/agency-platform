@@ -84,6 +84,35 @@ class AuthenticationError(ApplicationError):
     message = "Authentication is required."
 
 
+class AccountLockedError(AuthenticationError):
+    """The account is locked after too many failed sign-in attempts.
+
+    Raised on *any* attempt against a locked account, the right password
+    included, so nothing about the refusal depends on verifying the password
+    -- which is the timing the equal-cost refusal exists to hide.
+    """
+
+    code = ErrorCode.ACCOUNT_LOCKED
+    message = (
+        "This account is locked after too many failed sign-in attempts. "
+        "Try again later."
+    )
+
+
+class AccountInactiveError(AuthenticationError):
+    """The account has been switched off by an administrator."""
+
+    code = ErrorCode.ACCOUNT_INACTIVE
+    message = "This account is inactive. Ask an administrator to reactivate it."
+
+
+class AccountExpiredError(AuthenticationError):
+    """The account's validity date has passed."""
+
+    code = ErrorCode.ACCOUNT_EXPIRED
+    message = "This account has expired. Ask an administrator to extend it."
+
+
 class AuthorizationError(ApplicationError):
     """Represent a valid identity lacking a required dynamic permission."""
 

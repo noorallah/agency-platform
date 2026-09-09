@@ -61,7 +61,8 @@ Administration → Users unless said otherwise:
 | Login lock | Locks itself after 5 failures; **Clear login lock** on Edit lifts it early (§8b) | `USER_UPDATE` |
 | Password | **Reset password** in the dialog's footer (§8b) | Platform administrator only |
 | Delete | **Delete** on the grid: soft, sessions revoked, email released (§8b) | `USER_DELETE`; a shared user needs a platform administrator |
-| Restore | Firm filter → **Deleted** → open → **Restore** (§8b) | Platform administrator only |
+| Restore | **Status** filter → **Deleted** → open → **Restore** (§8b) | Platform administrator only |
+| Find who is switched off | **Status** filter → **Inactive** (combines with a firm) | Platform administrator only |
 
 **The person's own** — gated on being signed in and nothing else. The first
 three are in the account menu (top right); the theme control sits at the
@@ -498,13 +499,17 @@ The numbers below are the defaults; the settings that change them are in
 **Signing in.** Email and password on the login screen. A session is a
 15-minute access token behind a 7-day refresh token; **Remember me** keeps
 only the refresh token, in the Windows credential vault, so a relaunch
-signs in without a password. Every refusal reads the same -- *Invalid email
-or password* -- whether the address is unknown, the password is wrong, or the
-account is locked, inactive or expired. That is deliberate: a different
-message per case would tell a stranger which addresses exist. The real
-reason is in the login history (`scripts/sql/check_identity_data.sql`,
-section 5): `invalid_credentials`, `account_locked` or
-`account_unavailable`.
+signs in without a password. A wrong password and an unknown address read
+the same -- *Invalid email or password* -- deliberately, so that a stranger
+cannot learn which addresses exist. A refusal about the **account's state**
+names it, as of 2026-09-09: *locked* (with the minutes left), *inactive*
+(retick Active) or *expired* (move the date), because somebody holding the
+right password could not otherwise tell a lockout from a typo. That
+discloses the account exists, and the owner accepted it for those three
+cases only. The same message reaches a person signed in when their account
+was closed, on the sign-in screen they are dropped to. The login history
+(`scripts/sql/check_identity_data.sql`, section 5) still records the
+reason: `invalid_credentials`, `account_locked` or `account_unavailable`.
 
 **Failed attempts and the lock.** Each wrong password counts one. On the
 **5th** the account locks for **15 minutes**; while locked, even the right
@@ -572,7 +577,7 @@ stays, marked deleted, so the audit trail for what the old account did still
 resolves to a name; the grid shows only the live one.
 
 *Restore the old account.* A **platform administrator's** action: Users →
-choose **Deleted** in the **Firm** filter → open the person, who shows as
+choose **Deleted** in the **Status** filter → open the person, who shows as
 **Deleted** → **Restore** in the dialog's footer. Deletion leaves the memberships, roles and
 preferences untouched, so they come back exactly as they were and sign in
 with their old password. Refused if a new account has since taken the

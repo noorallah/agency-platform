@@ -39,6 +39,7 @@ class LoginScreen extends StatefulWidget {
     required this.themes,
     this.error,
     this.notice,
+    this.lockedUntil,
     this.capsLockEnabled,
   });
 
@@ -48,6 +49,10 @@ class LoginScreen extends StatefulWidget {
   final ThemeManager themes;
   final String? error;
   final String? notice;
+
+  /// When [error] is a lockout, the moment it lifts. The banner then counts
+  /// down to it rather than repeating the minutes the server quoted once.
+  final DateTime? lockedUntil;
   final bool Function()? capsLockEnabled;
 
   @override
@@ -66,6 +71,8 @@ class _LoginScreenState extends State<LoginScreen> {
   late bool _rememberMe;
   bool _errorVisible = true;
   bool _capsLockOn = false;
+  Timer? _lockTicker;
+  int _lockSecondsLeft = 0;
 
   @override
   void initState() {
@@ -83,6 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _usernameFocus.addListener(_handleFocusChanged);
     _passwordFocus.addListener(_handleFocusChanged);
     _syncCapsLockState();
+    _startLockCountdown();
   }
 
   @override
@@ -98,10 +106,62 @@ class _LoginScreenState extends State<LoginScreen> {
         });
       }
     }
+    if (widget.lockedUntil != oldWidget.lockedUntil) {
+      _startLockCountdown();
+    }
+  }
+
+  /// Count the seconds down from what is left now, one tick a second.
+  ///
+  /// Decremented per tick rather than re-read from the clock, so a test can
+  /// drive it with `pump(Duration)` -- and a second's drift over a
+  /// fifteen-minute lock is not something anybody will notice.
+  void _startLockCountdown() {
+    _lockTicker?.cancel();
+    _lockTicker = null;
+    final DateTime? until = widget.lockedUntil;
+    if (until == null) {
+      _lockSecondsLeft = 0;
+      return;
+    }
+    final int milliseconds = until.difference(DateTime.now()).inMilliseconds;
+    _lockSecondsLeft = milliseconds <= 0 ? 0 : (milliseconds / 1000).ceil();
+    if (_lockSecondsLeft == 0) return;
+    _lockTicker = Timer.periodic(const Duration(seconds: 1), (Timer timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _lockSecondsLeft = _lockSecondsLeft <= 1 ? 0 : _lockSecondsLeft - 1;
+      });
+      if (_lockSecondsLeft == 0) {
+        timer.cancel();
+        _lockTicker = null;
+      }
+    });
+  }
+
+  /// The banner text: the server's own message, except that a lockout is
+  /// shown against the clock rather than as the minutes quoted at the time.
+  String? get _displayedError {
+    if (widget.error == null || widget.lockedUntil == null) {
+      return widget.error;
+    }
+    if (_lockSecondsLeft == 0) {
+      return 'The lock on this account has lifted. You can sign in now.';
+    }
+    final int minutes = _lockSecondsLeft ~/ 60;
+    final int seconds = _lockSecondsLeft % 60;
+    final String clock = '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+    return 'This account is locked after too many failed sign-in attempts. '
+        'You can try again in $clock.';
   }
 
   @override
   void dispose() {
+    _lockTicker?.cancel();
     _usernameFocus.removeListener(_handleFocusChanged);
     _passwordFocus.removeListener(_handleFocusChanged);
     _usernameFocus.dispose();
@@ -219,7 +279,7 @@ class _LoginScreenState extends State<LoginScreen> {
         preferences: widget.preferences,
         showBrandMark: showBrandMark,
         errorVisible: _errorVisible,
-        error: widget.error,
+        error: _displayedError,
         notice: widget.notice,
         usernameController: _username,
         usernameFocus: _usernameFocus,

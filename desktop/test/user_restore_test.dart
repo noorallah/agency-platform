@@ -48,6 +48,8 @@ class _Api extends ApiClient {
         );
 
   bool? lastDeletedOnly;
+  bool? lastInactiveOnly;
+  bool? lastActiveOnly;
   String? lastFirmId;
   final List<String> restored = [];
 
@@ -60,8 +62,12 @@ class _Api extends ApiClient {
     bool descending = true,
     String firmId = '',
     bool deletedOnly = false,
+    bool inactiveOnly = false,
+    bool activeOnly = false,
   }) async {
     lastDeletedOnly = deletedOnly;
+    lastInactiveOnly = inactiveOnly;
+    lastActiveOnly = activeOnly;
     lastFirmId = firmId;
     return PagedResult(items: rows, total: rows.length);
   }
@@ -119,28 +125,60 @@ Future<Widget?> _footer(
 
 void main() {
   group('finding a deleted user', () {
-    test('a platform administrator can ask for deleted rows', () async {
-      // One more choice on the Firm filter rather than a second dropdown,
-      // which overflowed the filter row.
+    test('status is a filter of its own, beside firm', () {
+      // A firm and a status are two axes, so two dropdowns -- not sentinel
+      // values overloaded onto the Firm filter as they were until 2026-09-09.
+      final ResourceDefinition<PlatformUser> definition =
+          userDefinition(_Api(), _permissions(platformAdmin: true));
+
+      final ResourceFilter firm =
+          definition.filters.singleWhere((f) => f.key == 'firm_id');
+      final ResourceFilter status =
+          definition.filters.singleWhere((f) => f.key == 'status');
+      expect(firm.optionsResource, 'firms',
+          reason: 'the Firm filter carries real firms only now');
+      expect(status.options.map((o) => o.label),
+          containsAll(<String>['Active', 'Inactive', 'Deleted']));
+    });
+
+    test('deleted is platform-wide, so it ignores the firm', () async {
       final _Api api = _Api();
       final ResourceDefinition<PlatformUser> definition =
           userDefinition(api, _permissions(platformAdmin: true));
 
-      final ResourceFilter firm =
-          definition.filters.singleWhere((f) => f.key == 'firm_id');
-      expect(firm.options.map((o) => o.value), contains(deletedUsersFilter));
-
-      await definition.loadPage!(filters: const {'firm_id': deletedUsersFilter});
+      await definition.loadPage!(
+          filters: const {'firm_id': 'firm-1', 'status': deletedStatus});
       expect(api.lastDeletedOnly, isTrue);
-      expect(api.lastFirmId, '', reason: 'the choice is not a firm');
-
-      await definition.loadPage!(filters: const {'firm_id': 'firm-1'});
-      expect(api.lastDeletedOnly, isFalse,
-          reason: 'a real firm shows live rows only');
-      expect(api.lastFirmId, 'firm-1');
+      expect(api.lastFirmId, '',
+          reason: 'finding somebody to restore is not a firm question');
     });
 
-    test('a firm administrator is not offered the choice', () {
+    test('inactive narrows the live rows and composes with a firm', () async {
+      // The query the overloaded filter could not ask: the inactive people
+      // in one firm. Both the firm id and the flag reach the API.
+      final _Api api = _Api();
+      final ResourceDefinition<PlatformUser> definition =
+          userDefinition(api, _permissions(platformAdmin: true));
+
+      await definition.loadPage!(
+          filters: const {'firm_id': 'firm-1', 'status': inactiveStatus});
+      expect(api.lastInactiveOnly, isTrue);
+      expect(api.lastDeletedOnly, isFalse, reason: 'inactive is not deleted');
+      expect(api.lastFirmId, 'firm-1', reason: 'within this firm');
+
+      await definition.loadPage!(
+          filters: const {'firm_id': 'firm-1', 'status': activeStatus});
+      expect(api.lastActiveOnly, isTrue);
+      expect(api.lastInactiveOnly, isFalse);
+      expect(api.lastFirmId, 'firm-1');
+
+      await definition.loadPage!(filters: const {'firm_id': 'firm-1'});
+      expect(api.lastInactiveOnly, isFalse);
+      expect(api.lastActiveOnly, isFalse,
+          reason: 'no status chosen shows everybody in the firm');
+    });
+
+    test('a firm administrator is offered no filters', () {
       final ResourceDefinition<PlatformUser> definition =
           userDefinition(_Api(), _permissions(platformAdmin: false));
 

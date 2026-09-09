@@ -3050,7 +3050,11 @@ ResourceDefinition<Firm> firmDefinition(
 ///
 /// Not a firm id, so it can never collide with one, and read by `loadPage`
 /// as "no firm, deleted rows included".
-const String deletedUsersFilter = '__deleted__';
+/// The Users grid's Status filter values. A user's status and their firm
+/// are two axes, so they are two dropdowns; these are the Status choices.
+const String activeStatus = 'active';
+const String inactiveStatus = 'inactive';
+const String deletedStatus = 'deleted';
 
 /// Bring a user who already has an account into this firm.
 ///
@@ -3209,24 +3213,32 @@ ResourceDefinition<PlatformUser> userDefinition(
     id: (user) => user.id,
     load: api.users,
     // Only a platform administrator can be looking across firms: a firm
-    // caller's list is already their own firm's people, so a filter offering
-    // one choice would be noise, and the server refuses them the parameter.
-    // Deleted rows are theirs too: a deleted user is invisible to a firm's
-    // grid, and finding one is the first step of restoring one. Offered as
-    // one more choice on the Firm filter rather than a second control: the
-    // filter row is a Row, and a second dropdown overflowed it by 66 pixels
-    // at 1600 wide, which `user_template_ux_test.dart` reported -- and the
-    // label is one short word because a dropdown is as wide as its widest
-    // choice, and "Deleted users" alone overflowed by 18.
+    // caller's list is already their own firm's people, so filters offering
+    // nothing to choose would be noise, and the server refuses them the
+    // parameters. Two filters, because a firm and a status are two axes: a
+    // Firm dropdown of real firms, and a Status dropdown of Active / Inactive
+    // / Deleted. They were one overloaded dropdown until 2026-09-09, on the
+    // belief that a second control overflowed the filter row -- but the row
+    // is a `Wrap` (`SearchFilterPanel`), so a second dropdown wraps rather
+    // than overflows, and splitting them lets a caller ask for the *inactive*
+    // people in *one firm*, which the sentinel values could not express.
+    // Deleted stays platform-wide: it is a separate population for finding
+    // somebody to restore, so choosing it ignores the firm.
     filters: permissions.isPlatformAdmin
         ? const [
             ResourceFilter(
               key: 'firm_id',
               label: 'Firm',
-              options: [
-                ResourceFilterOption(value: deletedUsersFilter, label: 'Deleted'),
-              ],
               optionsResource: 'firms',
+            ),
+            ResourceFilter(
+              key: 'status',
+              label: 'Status',
+              options: [
+                ResourceFilterOption(value: activeStatus, label: 'Active'),
+                ResourceFilterOption(value: inactiveStatus, label: 'Inactive'),
+                ResourceFilterOption(value: deletedStatus, label: 'Deleted'),
+              ],
             ),
           ]
         : const [],
@@ -3244,10 +3256,15 @@ ResourceDefinition<PlatformUser> userDefinition(
       search: search,
       sortBy: sortBy,
       descending: descending,
-      firmId: filters['firm_id'] == deletedUsersFilter
+      // Deleted is platform-wide, so it overrides any firm chosen; Active
+      // and Inactive narrow the live rows and compose with the firm, which
+      // is the whole reason the two are separate dropdowns.
+      firmId: filters['status'] == deletedStatus
           ? ''
           : (filters['firm_id'] ?? ''),
-      deletedOnly: filters['firm_id'] == deletedUsersFilter,
+      deletedOnly: filters['status'] == deletedStatus,
+      inactiveOnly: filters['status'] == inactiveStatus,
+      activeOnly: filters['status'] == activeStatus,
     ),
     // A user record is platform-wide, so the server refuses to edit or
     // delete anybody who also works in a firm this caller cannot see --

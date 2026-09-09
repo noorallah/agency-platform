@@ -37,11 +37,31 @@ import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode, this.details});
+  const ApiException(
+    this.message, {
+    this.statusCode,
+    this.details,
+    this.code,
+  });
   final String message;
   final int? statusCode;
   final Object? details;
+
+  /// The server's stable error code (`error.code` in the envelope), when the
+  /// response carried one. Messages are for people; this is for deciding.
+  final String? code;
   bool get isForbidden => statusCode == HttpStatus.forbidden;
+
+  /// The refusal names the *account's* state -- locked, inactive, expired --
+  /// rather than the credential. A wrong password answers the one message
+  /// whatever the cause, so nothing about an address is disclosed; these
+  /// three disclose it on purpose, because the person holding the right
+  /// password needs to know what to do next (docs/BACKLOG.md 18.1, 18.2).
+  bool get namesAccountState => const <String>{
+        'account_locked',
+        'account_inactive',
+        'account_expired',
+      }.contains(code);
 
   /// Somebody else saved this record after we loaded it.
   ///
@@ -364,6 +384,8 @@ class ApiClient {
     bool descending = true,
     String firmId = '',
     bool deletedOnly = false,
+    bool inactiveOnly = false,
+    bool activeOnly = false,
   }) =>
       _list('/api/v1/users', PlatformUser.fromJson, page, search,
           pageSize: pageSize,
@@ -375,6 +397,11 @@ class ApiClient {
             // administrator only; the server keeps a firm caller's list to
             // live rows whatever is sent.
             if (deletedOnly) 'deleted_only': 'true',
+            // Only the live rows with Active unticked, or only those with it
+            // set -- the Status filter's Inactive and Active. Mutually
+            // exclusive: the dropdown sends at most one.
+            if (inactiveOnly) 'inactive_only': 'true',
+            if (activeOnly) 'active_only': 'true',
           });
 
   /// Set somebody else's password without knowing the current one.
@@ -5029,12 +5056,16 @@ class ApiClient {
               ? error['message']
               : payload['message'] ?? payload['detail'],
         );
+        final String code = stringValue(
+          error is Map<String, dynamic> ? error['code'] : null,
+        );
         throw ApiException(
           message.isEmpty
               ? 'Request failed (${response.statusCode}).'
               : message,
           statusCode: response.statusCode,
           details: error is Map<String, dynamic> ? error['details'] : null,
+          code: code.isEmpty ? null : code,
         );
       }
       return payload;
@@ -5399,12 +5430,16 @@ class ApiClient {
               ? error['message']
               : payload['message'] ?? payload['detail'],
         );
+        final String code = stringValue(
+          error is Map<String, dynamic> ? error['code'] : null,
+        );
         throw ApiException(
           message.isEmpty
               ? 'Request failed (${response.statusCode}).'
               : message,
           statusCode: response.statusCode,
           details: error is Map<String, dynamic> ? error['details'] : null,
+          code: code.isEmpty ? null : code,
         );
       }
       return payload;
