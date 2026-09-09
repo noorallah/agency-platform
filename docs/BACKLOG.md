@@ -1458,6 +1458,98 @@ Three ways out, cheapest first, none of them started:
 Until one is chosen, a profile created at runtime is safe to use only within
 the store it was created in, and the seeded twelve are safe everywhere.
 
+## 18. Found in manual testing
+
+Items raised by the owner while driving `docs/MANUAL_UI_TEST_PLAN.md` by
+hand. Each records what was seen, what the plan expected, and the decision
+the owner has taken, so a fix does not re-open a question already answered.
+
+### 18.1 A locked account should say it is locked (2026-09-09, plan item 2.7) -- fixed the same day
+
+**Done.** `AccountLockedError` (`account_locked`) is raised on *any* attempt
+against a locked account, before the password is looked at, saying how many
+whole minutes are left; the fifth wrong password, the one that locks, says
+so too. Driven against a running server: attempts one to four and an
+unknown address still answer "Invalid email or password."
+`test_identity_hardening.py` pins both halves. **And the screen counts it
+down** (same day, on the owner's next observation that the minutes quoted
+were the minutes at the time of the click): the refusal carries
+`retry_after_seconds` and `locked_until` in its details, `SessionController`
+turns that into `lockedUntil`, and the sign-in banner ticks to zero and
+then says the lock has lifted -- `login_screen_test.dart` drives the clock.
+
+**Seen.** Five wrong passwords lock the account for 15 minutes
+(`AGENCY_SECURITY_MAX_LOGIN_ATTEMPTS`, `AGENCY_SECURITY_LOCKOUT_MINUTES`).
+The sixth attempt with the **correct** password is refused with the same
+"Invalid email or password." as the five before it, and nothing on the
+screen says the account is locked or when it will open. Driven on
+`whole01.admin` and `master.ops`; `login_history` recorded the fifth
+attempt as `locked` and the sixth as `account_locked` exactly as the plan
+says, so the server is doing what was designed.
+
+**Why it is that way.** `IdentityService.authenticate` raises one message
+for every refusal on purpose: a distinct lockout message tells an outsider
+that the address has an account and that they have found the threshold.
+
+**Decision.** The owner wants a person who types the right password into
+a locked account to be told to try again after the lock lifts -- "try again
+after 15 minutes", or the time it opens -- because as it stands a genuine
+user has no way to tell a lockout from a typo and keeps trying, which
+extends nothing but their confusion. The address-disclosure trade-off is
+accepted for the lockout case only: the ordinary wrong-password refusal
+stays as it is.
+
+**The work.**
+
+- In `authenticate`, the `locked_until > now` branch raises its own
+  message carrying the minutes remaining (computed with `utc_now()`, never
+  the server clock), with a distinct error code so the desktop can tell it
+  apart. Keep writing `account_locked` to `login_history`.
+- Decide whether the message appears on *any* attempt against a locked
+  account or only when the password was correct. The second discloses
+  less, but the password has to be verified to know, which is the timing
+  the equal-cost refusal exists to hide; the first is simpler and is what
+  most products do. Recommendation: any attempt.
+- `auth_screens.dart` shows the message as the server sent it, and
+  `login_screen_test.dart` pins it; `test_identity_hardening.py` covers the
+  server branch and that the wrong-password message is unchanged.
+- `docs/MANUAL_UI_TEST_PLAN.md` item 2.7 changes its expected result from
+  "the same message" to the lockout message.
+
+### 18.2 A deactivated or expired account should say so (2026-09-09, plan item 2.10) -- fixed the same day
+
+**Done.** `AccountInactiveError` (`account_inactive`) and
+`AccountExpiredError` (`account_expired`), on login and on token refresh.
+`ApiException.code` carries the server's code to the desktop, and a refresh
+refused for an account state leaves the message on the sign-in screen as a
+notice -- an ordinary token expiry stays silent.
+`account_state_notice_test.dart` pins the desktop half.
+
+**Seen.** Untick **Active** on a user and sign in as them: refused with
+"Invalid email or password." The history records `account_unavailable`,
+as the plan expects, but the person at the login screen is told nothing
+they can act on -- their password is right, and the only message says it
+is wrong. The same branch covers an account whose **Expires at** has
+passed.
+
+**Decision.** The owner wants the refusal to name the state: the account
+is inactive, or has expired, and an administrator has to reopen it. This
+is the second half of the decision taken in 18.1 -- one message for every
+refusal was deliberate, so that an outsider cannot learn which addresses
+have accounts, and the owner accepts that disclosure for the *state*
+refusals (locked, inactive, expired) while keeping the wrong-password
+message as it is.
+
+**The work.** Same shape as 18.1 and best done with it: the `unavailable`
+branch in `IdentityService.authenticate` raises its own message and error
+code, distinguishing inactive from expired since the administrator's
+remedy differs (retick Active, or move the date). The token-refresh copy
+of the check at the same place in the service needs the same message, or
+a person signed in when the account was closed sees the old one.
+`auth_screens.dart` shows the message as sent; `test_identity_hardening.py`
+covers both states and that the wrong-password message is unchanged;
+plan item 2.10 changes its expected result.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed

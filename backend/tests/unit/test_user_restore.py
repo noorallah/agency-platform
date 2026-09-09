@@ -212,3 +212,81 @@ def test_deleted_users_are_listed_instead_of_live_ones_when_asked_for() -> None:
     assert [row.id for row in deleted] == [person.id]
     assert deleted_total == 1
     assert live_total >= 1
+
+
+def test_inactive_users_are_listed_on_their_own_when_asked_for() -> None:
+    """The Firm filter's Inactive choice: who is switched off, and nobody else.
+
+    A narrowing of the live rows rather than a second population the way
+    `deleted_only` is -- an inactive person is still on the ordinary list,
+    marked Inactive; this answers "just those".
+    """
+    service, session = _service()
+    shut = _user(service, "shut@example.com")
+    open_ = _user(service, "open@example.com")
+    shut.is_active = False
+    session.commit()
+
+    inactive, total = service.list_users(
+        1, 50, None, "email", False, None, inactive_only=True
+    )
+    live, _ = service.list_users(1, 50, None, "email", False, None)
+
+    assert [row.id for row in inactive] == [shut.id]
+    assert total == 1
+    assert {shut.id, open_.id} <= {
+        row.id for row in live
+    }, "the ordinary list still shows them, marked Inactive"
+
+    # Beside `deleted_only` the flag means nothing: a deleted row's Active
+    # flag is whatever it was, and the question asked is "who is deleted".
+    service.delete_user(open_.id, actor_id=ACTOR)
+    deleted, _ = service.list_users(
+        1, 50, None, "email", False, None, deleted_only=True, inactive_only=True
+    )
+    assert [row.id for row in deleted] == [open_.id]
+
+
+def test_active_only_is_the_mirror_of_inactive() -> None:
+    """The Status filter's Active choice: the switched-on live rows."""
+    service, session = _service()
+    shut = _user(service, "shut@example.com")
+    open_ = _user(service, "open@example.com")
+    shut.is_active = False
+    session.commit()
+
+    active, total = service.list_users(
+        1, 50, None, "email", False, None, active_only=True
+    )
+
+    assert {row.id for row in active} == {open_.id}
+    assert total == 1
+    assert shut.id not in {row.id for row in active}
+
+
+def test_a_status_narrowing_composes_with_a_firm() -> None:
+    """Inactive members of one firm -- the query the overloaded filter could not ask.
+
+    The status flag and the firm scope are independent WHERE clauses, so the
+    two dropdowns combine. This is the whole reason status came off the Firm
+    filter onto its own.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    other = _firm(session, "F2")
+    shut_here = _user(service, "shut-here@example.com")
+    open_here = _user(service, "open-here@example.com")
+    shut_elsewhere = _user(service, "shut-elsewhere@example.com")
+    _member(session, shut_here, firm)
+    _member(session, open_here, firm)
+    _member(session, shut_elsewhere, other)
+    shut_here.is_active = False
+    shut_elsewhere.is_active = False
+    session.commit()
+
+    inactive_in_firm, total = service.list_users(
+        1, 50, None, "email", False, firm.id, inactive_only=True
+    )
+
+    assert [row.id for row in inactive_in_firm] == [shut_here.id]
+    assert total == 1, "not the active member, and not the inactive one elsewhere"

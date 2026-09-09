@@ -1076,6 +1076,11 @@ void _firmFilterTests() {
 
       expect(api.optionsAsked, contains('firms'));
       expect(find.text('Firm'), findsOneWidget);
+      // Two dropdowns now -- Firm and Status -- laid out in a Wrap, so the
+      // second wraps rather than overflowing the bar at 1600 wide.
+      expect(find.text('Status'), findsOneWidget);
+      expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
 
       await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
@@ -1153,6 +1158,8 @@ class _FirmFilterApi extends ApiClient {
     bool descending = true,
     String firmId = '',
     bool deletedOnly = false,
+    bool inactiveOnly = false,
+    bool activeOnly = false,
   }) async {
     lastFirmId = firmId;
     return const PagedResult(items: <PlatformUser>[], total: 0);

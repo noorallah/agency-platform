@@ -367,6 +367,8 @@ def list_users(
     search: str | None = None,
     firm_id: UUID | None = None,
     deleted_only: bool = False,
+    inactive_only: bool = False,
+    active_only: bool = False,
     sort_by: Literal["email", "full_name", "created_at"] = "created_at",
     sort_direction: Literal["asc", "desc"] = "desc",
     db: Session = Depends(get_db),
@@ -384,6 +386,16 @@ def list_users(
     in is not what "show me the deleted" asks for. Honoured for a platform
     administrator only; a firm caller's list stays live rows whatever they
     send, since a deleted person's memberships still place them in the firm.
+
+    `inactive_only` narrows the live rows to those switched off -- the people
+    an administrator deactivated and may want to reopen, or to be sure stay
+    shut. It narrows what the caller could already see, so it is honoured for
+    everybody; with `deleted_only` it is meaningless and ignored.
+
+    `active_only` is its mirror, the switched-on live rows, so the Status
+    filter can isolate them. The three states are one choice on the desktop,
+    so at most one of the flags arrives; the service resolves any overlap by
+    precedence rather than trusting that.
     """
     params = PaginationParams(page=page, page_size=page_size)
     scope = _requested_firm_scope(principal, firm_id)
@@ -395,6 +407,8 @@ def list_users(
         sort_direction == "desc",
         scope,
         deleted_only=deleted_only and principal.is_platform_admin,
+        inactive_only=inactive_only,
+        active_only=active_only,
     )
     # One query for the page rather than one per row. Without it the grid
     # cannot know whom it may edit, and offers a form that cannot save.

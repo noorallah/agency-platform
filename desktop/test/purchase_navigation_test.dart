@@ -181,6 +181,8 @@ class _RecordingApi extends ApiClient {
     bool descending = true,
     String firmId = '',
     bool deletedOnly = false,
+    bool inactiveOnly = false,
+    bool activeOnly = false,
   }) async =>
       const PagedResult<PlatformUser>(items: <PlatformUser>[], total: 0);
 
