@@ -138,6 +138,7 @@ class Customer {
     required this.firmId,
     required this.code,
     required this.customerType,
+    this.customerGroupId,
     required this.name,
     required this.displayName,
     required this.gstNumber,
@@ -166,6 +167,11 @@ class Customer {
   });
 
   final String id;
+
+  /// The firm's own segment for this customer (Retailer, Wholesaler, …), or
+  /// null. Its rate is the last tier of the discount resolver, below the
+  /// customer's own standing rate.
+  final String? customerGroupId;
 
   /// The optimistic-concurrency version this record was read at, sent back
   /// as `If-Match` on save so a concurrent edit is refused rather than
@@ -219,6 +225,7 @@ class Customer {
         firmId: stringValue(json['firm_id']),
         code: stringValue(json['code']),
         customerType: stringValue(json['customer_type']),
+        customerGroupId: json['customer_group_id'] as String?,
         name: stringValue(json['name']),
         displayName: stringValue(json['display_name']),
         gstNumber: stringValue(json['gst_number']),
