@@ -1646,6 +1646,47 @@ One legitimate exception is recorded: `permissions` shares the Roles &
 Permissions tab-group screen and is reached by the in-page tab strip rather
 than a leaf of its own. The guard is the durable half -- the same omission
 had already happened twice before anybody noticed.
+## 31. Found in manual testing -- the invoice view showed the customer's id, not the customer
+
+Items raised by the owner while driving `docs/MANUAL_UI_TEST_PLAN.md` by
+hand. Each records what was seen, what the plan expected, and the decision
+the owner has taken, so a fix does not re-open a question already answered.
+
+### 18.3 Document views show raw UUIDs, not names (2026-09-09, plan item 3.3)
+
+**Seen.** Opening a sales invoice shows the line's **product** and **tax
+profile** as raw UUIDs (`cd6667a7-...`, `6fc6977b-...`) and the header names
+no **customer** at all. Found while verifying firm isolation -- the customer
+was the field that would have confirmed it on screen.
+
+**Scope -- it is systemic.** All six document views share the generic
+`DocumentViewDialog`, and every one feeds `product_id` straight to the
+screen: sales invoice, sales order, delivery note, purchase invoice, purchase
+return, goods receipt. Two separate gaps behind it:
+
+1. **The party name is missing from the response.** `SalesInvoiceResponse`
+   (list and detail) carries `customer_id` only -- no `customer_name`. The
+   two `customer_name` fields in that schema module belong to
+   `BillableDocument` and the outstanding report, not the main response.
+2. **Line names are missing everywhere.** No line response schema carries
+   `product_name`, `tax_profile_name`, or a UOM code -- only ids. So even a
+   perfect client has nothing but the id to show.
+
+**Done now (the customer half of the sales invoice).** 18.3 tracks the rest;
+the customer on the sales-invoice header is fixed separately today:
+`SalesInvoiceResponse.customer_name` is populated from the existing
+`_customer_name` helper, `DocumentHeaderSnapshot` gained a `party` /
+`partyLabel` field that the header renders when set, and the sales-invoice
+page wires it. The line names and the other five views are the remaining
+work.
+
+**The full fix.** Add denormalized display names to each line response
+(`product_name`, `tax_profile_name`, a UOM code) across the ~six document
+modules and populate them in each service -- the same denormalization the
+customer name now uses -- then wire each of the six desktop views to show the
+names instead of the ids. Batch the name lookups: `_customer_name` does a
+`session.get` per row, which is an N+1 on a list of 100. This deserves its
+own PR, not a bolt-on.
 
 ## Also open
 

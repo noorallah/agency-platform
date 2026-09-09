@@ -94,4 +94,44 @@ void main() {
     expect(find.text('Approve later'), findsOneWidget);
     expect(find.text('New'), findsOneWidget);
   });
+
+  testWidgets('the header shows the party when one is set, hides it otherwise',
+      (tester) async {
+    // The customer on a sale, the vendor on a purchase -- named for display
+    // so the header is not silent about who the document is with
+    // (docs/BACKLOG.md 18.3). The field is omitted, not blanked, on a
+    // document that does not carry it, so the five views not yet wired do
+    // not grow an empty "Party -" row.
+    Future<void> pumpHeader(DocumentHeaderSnapshot header) => tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: EnterpriseDocumentHeader(header: header),
+              ),
+            ),
+          ),
+        );
+
+    await pumpHeader(const DocumentHeaderSnapshot(
+      documentTypeCode: 'SALES_INVOICE',
+      documentTypeName: 'Sales Invoice',
+      documentNumber: 'SI-2026-2027-000009',
+      documentDate: '2026-08-22',
+      status: 'Approved',
+      party: 'QuickTech Retail',
+      partyLabel: 'Customer',
+    ));
+    expect(find.text('Customer'), findsOneWidget);
+    expect(find.text('QuickTech Retail'), findsOneWidget);
+
+    await pumpHeader(const DocumentHeaderSnapshot(
+      documentTypeCode: 'PURCHASE_ORDER',
+      documentTypeName: 'Purchase Order',
+      documentNumber: 'PO-1',
+      documentDate: '2026-08-22',
+      status: 'Draft',
+    ));
+    expect(find.text('Party'), findsNothing,
+        reason: 'a document with no party carries no party field');
+  });
 }

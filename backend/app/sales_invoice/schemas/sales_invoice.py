@@ -395,6 +395,10 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     id: UUID
     firm_id: UUID
     customer_id: UUID
+    #: The customer's name, resolved for display so the header is not a UUID.
+    #: Products, tax profiles and UOMs on the lines are still ids -- see
+    #: docs/BACKLOG.md 19.
+    customer_name: str
     salesman_id: UUID | None
     territory_id: UUID | None
     route_id: UUID | None

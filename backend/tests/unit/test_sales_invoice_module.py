@@ -372,6 +372,10 @@ def test_sales_invoice_created_from_sales_order_reaches_draft() -> None:
         service.get_invoice(invoice_id, firm_scope=firm.id)
     )
     assert response.status == SalesInvoiceStatus.DRAFT
+    # The customer is named for display, so the header is not a UUID -- the
+    # gap plan item 3.3 surfaced (docs/BACKLOG.md 18.3). The line's product
+    # and tax profile are still ids; that is the rest of 18.3.
+    assert response.customer_name == "Customer CUS-001"
     # The firm's financial year starts 1 April, and the invoice is dated
     # 2026-08-04, so the number must carry the shared YYYY-YYYY label. This
     # module previously emitted a bare calendar year while purchase orders in
