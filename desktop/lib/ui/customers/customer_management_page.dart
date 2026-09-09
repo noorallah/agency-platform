@@ -214,6 +214,10 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             : () => widget.api.customerRoutes(customer.id),
         loadAttributes: () =>
             widget.api.applicableAttributeDefinitions('CUSTOMER'),
+        // The firm's segments, so the customer can be put in one. Passed as
+        // a loader like the others; the dialog stays a form.
+        loadGroups: () =>
+            widget.api.customerGroups(pageSize: 100).then((page) => page.items),
       ),
     );
     if (saved == null || !mounted) return;
@@ -677,6 +681,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     required this.loadPlaces,
     this.loadRoutes,
     this.loadAttributes,
+    this.loadGroups,
   });
 
   final CustomerDialogMode mode;
@@ -695,6 +700,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The custom fields a customer carries in this firm. Null means the
   /// caller supplies none, and the dialog offers no Custom fields tab.
   final Future<ApplicableAttributesRecord> Function()? loadAttributes;
+
+  /// The firm's customer groups, for the Group dropdown. Null means the
+  /// caller supplies none and the dropdown is omitted.
+  final Future<List<CustomerGroup>> Function()? loadGroups;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -737,6 +746,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           .toList();
   late String _customerType = widget.customer?.customerType ?? 'BUSINESS';
   late String _status = widget.customer?.status ?? 'ACTIVE';
+  // Empty string is "no group", which the dropdown shows and the payload
+  // sends as null.
+  late String _customerGroupId = widget.customer?.customerGroupId ?? '';
+  List<CustomerGroup> _groups = const [];
+  bool _groupsRequested = false;
   late final CustomFieldsController? _customFields = widget.loadAttributes == null
       ? null
       : CustomFieldsController(
@@ -759,6 +773,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   void initState() {
     super.initState();
     _customFields?.start();
+    _loadGroups();
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -789,6 +804,50 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
 
   void _markDirty() {
     _dirty = true;
+  }
+
+  Future<void> _loadGroups() async {
+    if (widget.loadGroups == null || _groupsRequested) return;
+    _groupsRequested = true;
+    try {
+      final List<CustomerGroup> groups = await widget.loadGroups!();
+      if (mounted) setState(() => _groups = groups);
+    } on Object {
+      // A group list that cannot be read leaves the field with just its
+      // current value; it must not break the rest of the form.
+      if (mounted) setState(() => _groups = const []);
+    }
+  }
+
+  /// The Group dropdown. Values are group ids; '' is "No group". A stored id
+  /// that is not in the loaded list stays selectable as its own item, or
+  /// DropdownButtonFormField asserts and the form would save it away as blank
+  /// -- the trap the geography picker had.
+  Widget _groupDropdown() {
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem(value: '', child: Text('No group')),
+      for (final CustomerGroup group in _groups)
+        DropdownMenuItem(value: group.id, child: Text(group.name)),
+    ];
+    final bool missing = _customerGroupId.isNotEmpty &&
+        !_groups.any((group) => group.id == _customerGroupId);
+    if (missing) {
+      items.add(DropdownMenuItem(
+        value: _customerGroupId,
+        child: const Text('Current group'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      initialValue: _customerGroupId,
+      decoration: const InputDecoration(labelText: 'Customer group'),
+      items: items,
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _customerGroupId = value ?? '';
+                _dirty = true;
+              }),
+    );
   }
 
   void _watchAddress(_AddressDraft address) {
@@ -869,6 +928,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'phone': _nullable('phone'),
         'alternate_phone': _nullable('alternate_phone'),
         'website': _nullable('website'),
+        // Empty means "no group", sent as null so it clears any prior one.
+        'customer_group_id':
+            _customerGroupId.isEmpty ? null : _customerGroupId,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1061,6 +1123,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         child: _tabPage([
           if (_error != null) _errorBanner(),
           _responsiveFields([
+            _groupDropdown(),
             _number('credit_limit', 'Credit limit', nonNegative: true),
             _number(
               'default_discount_percent',

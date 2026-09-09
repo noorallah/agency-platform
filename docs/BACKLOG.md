@@ -1591,6 +1591,29 @@ stand on the same footing -- a stated figure still has to parse.
 `branch_address_test.dart` clears both boxes and asserts null travels, and
 that a stated `500` still travels as typed;
 `test_branch_warehouse_partial_update.py` asserts the schema's three answers.
+## 30. A customer could not be put in a group from the UI -- fixed
+
+Found in manual testing on 2026-09-09 (plan item 4.9). Customer groups
+(Retailer, Wholesaler, Institution) could be created from the **Groups**
+button, and `customer_group_id` was accepted by the customer create/update
+API from the start -- but the customer form had **no control for it** and
+never sent it. So a group could be defined and never assigned, and the
+customer-group tier of `resolve_line_discount` could populate for nobody.
+Same "wired in the API, no button" class as the settlements and loyalty gaps.
+
+**Fixed here (desktop only).** The customer form's Financial tab gains a
+**Customer group** dropdown, loaded from the existing `customerGroups`
+client method via a `loadGroups` callback the way routes and places are
+loaded. `Customer.customerGroupId` is parsed from the response, the dropdown
+shows the current group and the firm's groups plus a "No group" choice, a
+stored id not in the loaded list stays selectable (the geography-picker
+trap), and the save payload carries `customer_group_id` -- null when "No
+group", so it clears any prior one. Driven end to end against a running
+backend: assigning WHOLE01C03 to Wholesaler returned 200 and persisted.
+`customer_group_assignment_test.dart` pins the dropdown and the payload.
+
+No backend change: the API already accepted the field; only the door was
+missing.
 
 ## 29. Screens with a page but no way in -- fixed
 
