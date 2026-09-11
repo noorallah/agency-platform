@@ -1806,14 +1806,21 @@ dialog reads through the same normalised key now, and
 `branch_warehouse_import_test.dart` pins a two-word heading. Nothing in
 the existing tests had ever used one.
 
-**Still open, deliberately.** Two importers key on ids rather than codes --
-a warehouse's `branch_id`, and a purchase order's branch, warehouse, vendor
-and product -- and the sample can only write `<id of an existing branch>`
-in those cells, because nothing on the screen shows a customer an id. The
-importers should accept codes there, resolving them the way the inventory
-wizard already does for products, branches and warehouses. Not done here:
-it changes what the server accepts, and the sample is honest about the gap
-rather than hiding it behind a made-up UUID.
+**A warehouse names its branch by code (same evening).** The owner
+imported the warehouse sample and got "The request validation failed."
+-- the sample could only write `<id of an existing branch>`, since the
+importer demanded the branch's id and nothing on a screen shows one.
+`WarehouseCreate` takes `branch_id` **or** `branch_code` now (one is
+required; an update takes either and keeps the branch when neither is
+sent), the service resolves the code within the firm and refuses an
+unknown one by name, the export writes `branch_code` in place of
+`branch_id` so a file round-trips, and the sample's example row carries
+the firm's first real branch code, read when the dialog opens, so it
+imports as it is. And a validation refusal now names the row and the
+field (`importRefusalMessage`): the server's detail was
+`records.0.branch_id` / "Input should be a valid UUID" and the dialog had
+shown only the envelope's sentence. The purchase-order importer still
+keys on ids; that one is a server-parsed CSV and is left as it is.
 
 ### 31.5 Export said success and saved nothing (2026-09-11, plan item 5.9) -- fixed the same day
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/branch_warehouse.dart' show BranchRecord;
 import '../../models/entities.dart';
 import '../inventory/inventory_import_wizard.dart'
     show InventoryImportFileParser;
@@ -46,14 +47,19 @@ const List<_Column> _branchColumns = [
   _Column('status', 'status', example: 'ACTIVE'),
 ];
 
+/// The example branch code when the firm's own could not be read.
+const String _fallbackBranchCode = 'HO';
+
 const List<_Column> _warehouseColumns = [
-  // The server keys a warehouse on its branch's id rather than its code, so
-  // the sample can only say where the value comes from.
+  // A code, never an id: nothing on a screen shows a person an id. The
+  // server resolves it within the firm and refuses an unknown one by name.
+  // The example is replaced with the firm's first real branch code when the
+  // dialog opens, so the sample imports as it is.
   _Column(
-    'branch_id',
-    'branch_id',
+    'branch_code',
+    'branch_code',
     required: true,
-    example: '<id of an existing branch>',
+    example: _fallbackBranchCode,
   ),
   _Column('code', 'code', required: true, example: 'WH_NORTH'),
   _Column('name', 'name', required: true, example: 'North Warehouse'),
@@ -72,7 +78,13 @@ String _headerKey(String header) =>
     header.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
 /// The sample file for one target: its headings and one example row.
-ImportSample branchImportSample(BranchImportTarget target) {
+///
+/// [branchCode] is the firm's own branch code to show in a warehouse sample,
+/// so the file imports without editing; the fallback is a guess.
+ImportSample branchImportSample(
+  BranchImportTarget target, {
+  String branchCode = _fallbackBranchCode,
+}) {
   final List<_Column> columns = switch (target) {
     BranchImportTarget.branches => _branchColumns,
     BranchImportTarget.warehouses => _warehouseColumns,
@@ -80,8 +92,43 @@ ImportSample branchImportSample(BranchImportTarget target) {
   return ImportSample(
     fileName: '${target.name}_sample.csv',
     columns: [for (final _Column column in columns) column.header],
-    example: [for (final _Column column in columns) column.example],
+    example: [
+      for (final _Column column in columns)
+        column.header == 'branch_code' ? branchCode : column.example,
+    ],
   );
+}
+
+/// Turn a server refusal into the sentence the dialog shows.
+///
+/// A validation refusal arrives as "The request validation failed." with the
+/// detail in `details` -- `records.4.branch_code` and a message -- which is
+/// the one part the person needs. Rendered per row, numbered as the
+/// spreadsheet numbers them (the header is row 1).
+String importRefusalMessage(ApiException error) {
+  final Object? details = error.details;
+  final List<String> lines = <String>[];
+  if (details is List) {
+    for (final Object? item in details) {
+      if (item is! Map) continue;
+      final String field = '${item['field'] ?? ''}';
+      final String message = '${item['message'] ?? ''}';
+      // `body.records.4.branch_code` for a field; `body.records.4` alone for
+      // a rule about the whole row, such as "name the branch one way or the
+      // other".
+      final RegExpMatch? at =
+          RegExp(r'records\.(\d+)(?:\.(.+))?$').firstMatch(field);
+      if (at != null) {
+        final int row = int.parse(at.group(1)!) + 2;
+        final String? name = at.group(2);
+        lines.add(name == null ? 'Row $row: $message' : 'Row $row: $name — $message');
+      } else if (message.isNotEmpty) {
+        lines.add(field.isEmpty ? message : '$field — $message');
+      }
+    }
+  }
+  final String detail = lines.isEmpty ? error.message : lines.join('\n');
+  return '$detail Nothing was imported — fix the file and try again.';
 }
 
 /// One parsed row, with whatever is wrong with it.
@@ -133,6 +180,31 @@ class _BranchWarehouseImportDialogState
   bool _busy = false;
   int? _imported;
   bool _sampleSaved = false;
+
+  /// The firm's first branch code, for the warehouse sample's example row.
+  String _branchCode = _fallbackBranchCode;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.target == BranchImportTarget.warehouses) {
+      _loadBranchCode();
+    }
+  }
+
+  Future<void> _loadBranchCode() async {
+    try {
+      final PagedResult<BranchRecord> page = await widget.api.branches(
+        pageSize: 1,
+        sortBy: 'code',
+        descending: false,
+      );
+      if (!mounted || page.items.isEmpty) return;
+      setState(() => _branchCode = page.items.first.code);
+    } on ApiException {
+      // The fallback stays; the sample is still a valid file to edit.
+    }
+  }
 
   List<_Column> get _columns => switch (widget.target) {
         BranchImportTarget.branches => _branchColumns,
@@ -236,8 +308,7 @@ class _BranchWarehouseImportDialogState
       setState(() {
         // Worth saying explicitly: the user's next question is always whether
         // half of it went in.
-        _error = '${error.message} Nothing was imported — fix the file and '
-            'try again.';
+        _error = importRefusalMessage(error);
         _busy = false;
       });
     }
@@ -278,7 +349,10 @@ class _BranchWarehouseImportDialogState
                   ),
                   const SizedBox(width: AppSpacing.md),
                   ImportSampleButton(
-                    sample: branchImportSample(widget.target),
+                    sample: branchImportSample(
+                      widget.target,
+                      branchCode: _branchCode,
+                    ),
                     enabled: !_busy,
                     saveOverride: widget.saveSampleOverride,
                     onSaved: () {
