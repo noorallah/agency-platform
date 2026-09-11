@@ -1591,30 +1591,6 @@ stand on the same footing -- a stated figure still has to parse.
 `branch_address_test.dart` clears both boxes and asserts null travels, and
 that a stated `500` still travels as typed;
 `test_branch_warehouse_partial_update.py` asserts the schema's three answers.
-## 30. A customer could not be put in a group from the UI -- fixed
-
-Found in manual testing on 2026-09-09 (plan item 4.9). Customer groups
-(Retailer, Wholesaler, Institution) could be created from the **Groups**
-button, and `customer_group_id` was accepted by the customer create/update
-API from the start -- but the customer form had **no control for it** and
-never sent it. So a group could be defined and never assigned, and the
-customer-group tier of `resolve_line_discount` could populate for nobody.
-Same "wired in the API, no button" class as the settlements and loyalty gaps.
-
-**Fixed here (desktop only).** The customer form's Financial tab gains a
-**Customer group** dropdown, loaded from the existing `customerGroups`
-client method via a `loadGroups` callback the way routes and places are
-loaded. `Customer.customerGroupId` is parsed from the response, the dropdown
-shows the current group and the firm's groups plus a "No group" choice, a
-stored id not in the loaded list stays selectable (the geography-picker
-trap), and the save payload carries `customer_group_id` -- null when "No
-group", so it clears any prior one. Driven end to end against a running
-backend: assigning WHOLE01C03 to Wholesaler returned 200 and persisted.
-`customer_group_assignment_test.dart` pins the dropdown and the payload.
-
-No backend change: the API already accepted the field; only the door was
-missing.
-
 ## 29. Screens with a page but no way in -- fixed
 
 Found in manual testing on 2026-09-09: a firm administrator, and a platform
@@ -1646,6 +1622,30 @@ One legitimate exception is recorded: `permissions` shares the Roles &
 Permissions tab-group screen and is reached by the in-page tab strip rather
 than a leaf of its own. The guard is the durable half -- the same omission
 had already happened twice before anybody noticed.
+## 30. A customer could not be put in a group from the UI -- fixed
+
+Found in manual testing on 2026-09-09 (plan item 4.9). Customer groups
+(Retailer, Wholesaler, Institution) could be created from the **Groups**
+button, and `customer_group_id` was accepted by the customer create/update
+API from the start -- but the customer form had **no control for it** and
+never sent it. So a group could be defined and never assigned, and the
+customer-group tier of `resolve_line_discount` could populate for nobody.
+Same "wired in the API, no button" class as the settlements and loyalty gaps.
+
+**Fixed here (desktop only).** The customer form's Financial tab gains a
+**Customer group** dropdown, loaded from the existing `customerGroups`
+client method via a `loadGroups` callback the way routes and places are
+loaded. `Customer.customerGroupId` is parsed from the response, the dropdown
+shows the current group and the firm's groups plus a "No group" choice, a
+stored id not in the loaded list stays selectable (the geography-picker
+trap), and the save payload carries `customer_group_id` -- null when "No
+group", so it clears any prior one. Driven end to end against a running
+backend: assigning WHOLE01C03 to Wholesaler returned 200 and persisted.
+`customer_group_assignment_test.dart` pins the dropdown and the payload.
+
+No backend change: the API already accepted the field; only the door was
+missing.
+
 ## 31. Found in manual testing
 
 Items raised by the owner while driving `docs/MANUAL_UI_TEST_PLAN.md` by
@@ -1722,13 +1722,13 @@ passed.
 
 **Decision.** The owner wants the refusal to name the state: the account
 is inactive, or has expired, and an administrator has to reopen it. This
-is the second half of the decision taken in 18.1 -- one message for every
+is the second half of the decision taken in 31.1 -- one message for every
 refusal was deliberate, so that an outsider cannot learn which addresses
 have accounts, and the owner accepts that disclosure for the *state*
 refusals (locked, inactive, expired) while keeping the wrong-password
 message as it is.
 
-**The work.** Same shape as 18.1 and best done with it: the `unavailable`
+**The work.** Same shape as 31.1 and best done with it: the `unavailable`
 branch in `IdentityService.authenticate` raises its own message and error
 code, distinguishing inactive from expired since the administrator's
 remedy differs (retick Active, or move the date). The token-refresh copy
@@ -1757,7 +1757,7 @@ return, goods receipt. Two separate gaps behind it:
    `product_name`, `tax_profile_name`, or a UOM code -- only ids. So even a
    perfect client has nothing but the id to show.
 
-**Done now (the customer half of the sales invoice).** 18.3 tracks the rest;
+**Done now (the customer half of the sales invoice).** 31.3 tracks the rest;
 the customer on the sales-invoice header is fixed separately today:
 `SalesInvoiceResponse.customer_name` is populated from the existing
 `_customer_name` helper, `DocumentHeaderSnapshot` gained a `party` /
@@ -1828,7 +1828,7 @@ masters or under Configuration, not behind a toolbar button on the customers
 grid.
 
 Distinct from **assigning** a customer to a group, which is the dropdown on
-the customer form (§21) and is correctly placed -- this is only about where
+the customer form (§30) and is correctly placed -- this is only about where
 the groups themselves are created and edited.
 
 **The ask.** Make **Customer Groups** a tab under Masters, the way Vendor
@@ -1843,7 +1843,7 @@ dropdown on the customer form stays.
   read and `CUSTOMER_MANAGE_SETTINGS` (or `CUSTOMER_UPDATE`) to write, wired
   to a management page built from the current `CustomerGroupDialog` body.
 - A navigation node for it in `_mastersNavigation`, which
-  `module_catalog_navigation_test.dart` (§20) now requires anyway.
+  `module_catalog_navigation_test.dart` (§29) now requires anyway.
 - Remove the **Groups** button from the customers toolbar.
 - The client methods already exist (`customerGroups`, `createCustomerGroup`,
   `updateCustomerGroup`, `deleteCustomerGroup`), so this is placement, not new
