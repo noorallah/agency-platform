@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from app.branches.api.router import BRANCH_EXPORT_COLUMNS, WAREHOUSE_EXPORT_COLUMNS
 from app.branches.schemas.branch_warehouse import BranchCreate, WarehouseCreate
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -80,3 +81,10 @@ def test_every_branch_and_warehouse_sample_column_is_a_write_field() -> None:
         assert columns, name
         unknown = set(columns) - set(schema.model_fields)
         assert not unknown, f"{name} names fields {schema.__name__} lacks: {unknown}"
+
+
+def test_the_branch_and_warehouse_exports_write_what_their_importer_reads() -> None:
+    """An export is re-importable only if its columns are the importer's."""
+    dialog = _DESKTOP / "branches" / "branch_warehouse_import_dialog.dart"
+    assert tuple(_dart_columns(dialog, "_branchColumns")) == BRANCH_EXPORT_COLUMNS
+    assert tuple(_dart_columns(dialog, "_warehouseColumns")) == WAREHOUSE_EXPORT_COLUMNS
