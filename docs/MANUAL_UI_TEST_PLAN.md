@@ -196,7 +196,7 @@ firm actually operates, so later modules can use what earlier ones produced.
 | # | Case | Expected |
 | --- | --- | --- |
 | 5.1 | Open a vendor, change one field, save | Addresses, contacts, bank accounts, tax details, attachments and notes all survive. |
-| 5.2 | Vendors → Categories, and → Types | Both lists load and both can be added to. (These returned nothing at all until the route order was fixed.) |
+| 5.2 | Vendors → Categories, and → Types | Both lists load and both can be added to. (These returned nothing at all until the route order was fixed, and until 2026-09-11 the sidebar opened them on a "coming soon" placeholder -- see BACKLOG §26.) |
 | 5.3 | Put a category and a type on a vendor, save, reopen | Both held. |
 | 5.4 | Products → open `DETER1K` | Its UOM slots, tax profile group and category are populated. |
 | 5.5 | Product → custom fields | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. |

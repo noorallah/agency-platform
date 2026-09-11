@@ -1486,6 +1486,35 @@ Note the branch dropdown on the warehouse form was already handled: Save is
 disabled until a branch is chosen, so that required choice never reached this
 path. This change is about the free-text required fields.
 
+## 26. Vendor Categories and Vendor Types opened on "coming soon" -- fixed
+
+Found in manual testing on 2026-09-11 (test plan case 5.2). Masters →
+Vendors → Categories rendered the placeholder "Vendor Categories is coming
+soon. The current API does not provide vendor categories operations", and
+Types did the same. The server answered a row for every firm; the desktop
+never asked it.
+
+**The cause.** A workspace renders its tab by `switch (tabId)` and falls back
+to the placeholder for an id it does not name. The two tabs were declared
+under the **Masters** module in `module_catalog.dart` on 2026-08-22 (#132),
+and their `ResourceManagementPage` bodies were written into the
+**Administration** workspace's switch in `desktop_shell.dart` -- a module
+they are not tabs of. So the sidebar entry existed, the permission gate
+passed, and the screen it opened had no case for it. Unreachable from the day
+it was written; `vendor_classification_test.dart` passed throughout because
+it builds the `ResourceDefinition` directly and never asks which workspace
+would show it. The same PR's own note recorded that the two masters had
+"no caller" before it -- they gained one in the API client and still had no
+screen anybody could reach.
+
+**Fixed here (desktop only).** The two cases moved into `_MastersWorkspace`,
+with their heading, description and breadcrumb entries.
+`test/workspace_tab_bodies_test.dart` is the guard: for every module whose
+workspace switches on `tabId`, every catalog tab must have a case in **that**
+workspace's class body, or-patterns included. A source check, because the
+workspaces are private widgets nothing in the suite can build. Reverting the
+move fails it naming both tabs.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed
