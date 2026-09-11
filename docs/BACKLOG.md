@@ -1544,10 +1544,30 @@ category and show the tab, and a new product with no category to do neither.
 Not changed, and worth deciding: a product's fields are resolved from
 category rules alone, while customers, vendors, branches and warehouses read
 `/attribute-definitions/applicable`, which also offers definitions that are
-unscoped or scoped only to the profile. WHOLE01's three PRODUCT definitions
-(BATCH_NUMBER, COUNTRY_OF_ORIGIN, EXPIRY_DATE) are all on the CORE_PRODUCTS
-rule, so the two answers agree today; a definition added without a rule would
-reach every other form and not the product's.
+unscoped or scoped only to the profile. For WHOLE01 the applicable set is six
+PRODUCT definitions and the CORE_PRODUCTS rules name two of them (PACK_SIZE
+and COUNTRY_OF_ORIGIN), so the product form offers two where the other forms
+would offer six -- the rule is doing real narrowing, which is the design; but
+a definition added without a rule reaches every other form and never the
+product's.
+
+**And a second half, deeper: the fields could not be resolved at all.** The
+form read its custom-field catalogue from `GET /attribute-definitions`, which
+is `PlatformPrincipal` -- a firm administrator gets 403. The desktop swallowed
+the 403 and left the catalogue empty, so even once the tab showed, every field
+rendered "Unknown attribute definition: <id>": the metadata named ids the form
+had no definition for. The controller now reads
+`/attribute-definitions/applicable?entity_type=PRODUCT`, gated on firm
+membership, the same door the customer and vendor forms already use. Driven
+against the running backend: the raw endpoint 403s for `whole01.admin` while
+the applicable one returns all six PRODUCT definitions, including the two the
+CORE_PRODUCTS metadata names. `product_controller_definitions_test.dart` pins
+that the controller asks the applicable endpoint and not the platform one.
+
+Note this is also why 5.5's profile-gating reads correctly: `/products/metadata`
+already returns only the fields the firm's profile enables (WHOLE01/WHOLESALE
+gets Pack Size and Country of Origin, not the batch/expiry/warranty fields),
+so once the tab shows, the fields in it are the right set.
 
 ## Also open
 
