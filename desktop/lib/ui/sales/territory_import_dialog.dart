@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../models/sales_territory.dart';
 import '../workspace/desktop_framework.dart';
+import 'territory_import_sample.dart';
 
 /// Load a territory hierarchy from a CSV file.
 ///
@@ -19,12 +20,16 @@ class TerritoryImportDialog extends StatefulWidget {
     super.key,
     required this.api,
     this.pickFileOverride,
+    this.saveSampleOverride,
   });
 
   final ApiClient api;
 
   /// Injected by tests, which cannot open a native file dialog.
   final Future<XFile?> Function()? pickFileOverride;
+
+  /// Injected by tests, which cannot open a native save dialog either.
+  final SaveSampleOverride? saveSampleOverride;
 
   @override
   State<TerritoryImportDialog> createState() => _TerritoryImportDialogState();
@@ -37,6 +42,7 @@ class _TerritoryImportDialogState extends State<TerritoryImportDialog> {
   bool _busy = false;
   String? _error;
   List<SalesTerritory>? _imported;
+  bool _sampleSaved = false;
 
   Future<void> _pick() async {
     final XFile? picked = widget.pickFileOverride != null
@@ -105,11 +111,12 @@ class _TerritoryImportDialogState extends State<TerritoryImportDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            const SelectableText(
               'CSV columns: Code, Name, Level, ParentCode, Status and an '
               'optional CustomerCodes list. Level is the display name of a '
               'hierarchy level, and ParentCode must already exist or appear '
-              'earlier in the file.',
+              'earlier in the file. Sample file gives the headings and one '
+              'example row.',
             ),
             const SizedBox(height: 12),
             Row(
@@ -118,6 +125,15 @@ class _TerritoryImportDialogState extends State<TerritoryImportDialog> {
                   onPressed: _busy ? null : _pick,
                   icon: const Icon(Icons.upload_file),
                   label: const Text('Choose file'),
+                ),
+                const SizedBox(width: 12),
+                ImportSampleButton(
+                  sample: territoryImportSample,
+                  enabled: !_busy,
+                  saveOverride: widget.saveSampleOverride,
+                  onSaved: () {
+                    if (mounted) setState(() => _sampleSaved = true);
+                  },
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -129,13 +145,24 @@ class _TerritoryImportDialogState extends State<TerritoryImportDialog> {
                 ),
               ],
             ),
+            if (_sampleSaved) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Sample saved. Fill it in, keep the header row, and choose it '
+                'here.',
+              ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 12),
-              WorkspaceErrorState(message: _error!, onRetry: _import),
+              // Selectable, so the refusal can be pasted somewhere. The
+              // Import button stays live, which is the retry.
+              CopyableMessage(message: _error!, isError: true),
             ],
             if (imported != null) ...[
               const SizedBox(height: 12),
-              Text('${imported.length} territory(ies) imported.'),
+              CopyableMessage(
+                message: '${imported.length} territory(ies) imported.',
+              ),
             ],
           ],
         ),

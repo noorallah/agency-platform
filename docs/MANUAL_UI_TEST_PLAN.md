@@ -205,6 +205,8 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 5.6 | Branches → rename one, save | Street lines, city, default flag and GST registration all survive. |
 | 5.7 | Warehouses → rename one, save | The ten capability flags survive. (Until 2026-09-11 a warehouse with no capacity could not be saved at all -- see BACKLOG §28.) |
 | 5.8 | Branches → Import, with a file whose fifth row duplicates an existing code | **Nothing** is imported. The dialog says so. Correct the file and re-import — all rows go in. |
+| 5.8a | Branches → Import → **Sample file** | A CSV is saved with the eleven column headings and one filled-in example row. Choosing that file as-is previews as "1 rows ready" and imports cleanly (the example code is `BR_NORTH`; a second import of the same file is refused as a duplicate, which is correct). Reopen the imported branch: display name, both address lines and the currency are filled in (multi-word headings were silently dropped until 2026-09-11 -- see BACKLOG §31.4). The same button is on Warehouses, Territories, Purchase Orders and the Inventory import wizard's toolbar. |
+| 5.8b | Any import dialog, after a refusal | The message can be selected with the mouse, and the copy icon beside it puts the whole text on the clipboard. |
 | 5.9 | Branches → Export, Warehouses → Export | A file downloads. (Both were unreachable until the route order was fixed.) |
 | 5.10 | Packaging levels on a product, then scan a carton barcode | The scan resolves to the product and says how many base units it holds. |
 

@@ -6,45 +6,83 @@ import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../inventory/inventory_import_wizard.dart'
     show InventoryImportFileParser;
+import '../workspace/desktop_framework.dart'
+    show CopyableMessage, ImportSample, ImportSampleButton, SaveSampleOverride;
 
 /// Which master the dialog is importing.
 enum BranchImportTarget { branches, warehouses }
 
-/// One column the importer reads, and whether a row is useless without it.
+/// One column the importer reads, whether a row is useless without it, and
+/// the value the sample file shows in it.
+///
+/// The example lives on the column so the sample cannot list a heading the
+/// parser does not read, or read one the sample does not show.
 class _Column {
-  const _Column(this.header, this.field, {this.required = false});
+  const _Column(
+    this.header,
+    this.field, {
+    this.required = false,
+    this.example = '',
+  });
 
   final String header;
   final String field;
   final bool required;
+  final String example;
 }
 
 const List<_Column> _branchColumns = [
-  _Column('code', 'code', required: true),
-  _Column('name', 'name', required: true),
-  _Column('display_name', 'display_name'),
-  _Column('description', 'description'),
-  _Column('email', 'email'),
-  _Column('phone', 'phone'),
-  _Column('mobile', 'mobile'),
-  _Column('address_line1', 'address_line1'),
-  _Column('address_line2', 'address_line2'),
-  _Column('currency_code', 'currency_code'),
-  _Column('status', 'status'),
+  _Column('code', 'code', required: true, example: 'BR_NORTH'),
+  _Column('name', 'name', required: true, example: 'North Branch'),
+  _Column('display_name', 'display_name', example: 'North'),
+  _Column('description', 'description', example: 'Northern region branch'),
+  _Column('email', 'email', example: 'north@example.com'),
+  // E.164, which is what the server accepts: a bare local number is refused.
+  _Column('phone', 'phone', example: '+912212345678'),
+  _Column('mobile', 'mobile', example: '+919876543210'),
+  _Column('address_line1', 'address_line1', example: '12 Ring Road'),
+  _Column('address_line2', 'address_line2', example: 'Sector 4'),
+  _Column('currency_code', 'currency_code', example: 'INR'),
+  _Column('status', 'status', example: 'ACTIVE'),
 ];
 
 const List<_Column> _warehouseColumns = [
-  _Column('branch_id', 'branch_id', required: true),
-  _Column('code', 'code', required: true),
-  _Column('name', 'name', required: true),
-  _Column('display_name', 'display_name'),
-  _Column('description', 'description'),
-  _Column('address_line1', 'address_line1'),
-  _Column('address_line2', 'address_line2'),
-  _Column('capacity', 'capacity'),
-  _Column('capacity_unit', 'capacity_unit'),
-  _Column('status', 'status'),
+  // The server keys a warehouse on its branch's id rather than its code, so
+  // the sample can only say where the value comes from.
+  _Column(
+    'branch_id',
+    'branch_id',
+    required: true,
+    example: '<id of an existing branch>',
+  ),
+  _Column('code', 'code', required: true, example: 'WH_NORTH'),
+  _Column('name', 'name', required: true, example: 'North Warehouse'),
+  _Column('display_name', 'display_name', example: 'North WH'),
+  _Column('description', 'description', example: 'Main store for the north'),
+  _Column('address_line1', 'address_line1', example: '12 Ring Road'),
+  _Column('address_line2', 'address_line2', example: 'Sector 4'),
+  _Column('capacity', 'capacity', example: '5000'),
+  _Column('capacity_unit', 'capacity_unit', example: 'SQFT'),
+  _Column('status', 'status', example: 'ACTIVE'),
 ];
+
+/// A heading as `InventoryImportFileParser` keys it: lower-case, letters and
+/// digits only.
+String _headerKey(String header) =>
+    header.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+/// The sample file for one target: its headings and one example row.
+ImportSample branchImportSample(BranchImportTarget target) {
+  final List<_Column> columns = switch (target) {
+    BranchImportTarget.branches => _branchColumns,
+    BranchImportTarget.warehouses => _warehouseColumns,
+  };
+  return ImportSample(
+    fileName: '${target.name}_sample.csv',
+    columns: [for (final _Column column in columns) column.header],
+    example: [for (final _Column column in columns) column.example],
+  );
+}
 
 /// One parsed row, with whatever is wrong with it.
 class _Row {
@@ -70,6 +108,7 @@ class BranchWarehouseImportDialog extends StatefulWidget {
     required this.api,
     required this.target,
     this.pickFileOverride,
+    this.saveSampleOverride,
   });
 
   final ApiClient api;
@@ -77,6 +116,9 @@ class BranchWarehouseImportDialog extends StatefulWidget {
 
   /// Injected by tests, which cannot open a native file dialog.
   final Future<XFile?> Function()? pickFileOverride;
+
+  /// Injected by tests, which cannot open a native save dialog either.
+  final SaveSampleOverride? saveSampleOverride;
 
   @override
   State<BranchWarehouseImportDialog> createState() =>
@@ -90,6 +132,7 @@ class _BranchWarehouseImportDialogState
   String? _error;
   bool _busy = false;
   int? _imported;
+  bool _sampleSaved = false;
 
   List<_Column> get _columns => switch (widget.target) {
         BranchImportTarget.branches => _branchColumns,
@@ -146,7 +189,12 @@ class _BranchWarehouseImportDialogState
       final Json values = <String, dynamic>{};
       final List<String> errors = [];
       for (final _Column column in _columns) {
-        final String value = (source[column.header] ?? '').trim();
+        // The parser normalises every heading to lower-case letters and
+        // digits, so `display_name` arrives as `displayname`. Reading the
+        // heading as written matched only the single-word columns, and the
+        // rest -- branch_id among them, which is required -- were silently
+        // dropped from every file until 2026-09-11.
+        final String value = (source[_headerKey(column.header)] ?? '').trim();
         if (value.isEmpty) {
           if (column.required) {
             errors.add('${column.header} is required');
@@ -211,11 +259,12 @@ class _BranchWarehouseImportDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
+              SelectableText(
                 'CSV or XLSX with a header row. Columns: '
                 '${_columns.map((column) => column.header).join(', ')}. '
                 'Required: '
-                '${_columns.where((c) => c.required).map((c) => c.header).join(', ')}.',
+                '${_columns.where((c) => c.required).map((c) => c.header).join(', ')}. '
+                'Sample file gives the headings and one example row.',
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -228,6 +277,15 @@ class _BranchWarehouseImportDialogState
                         _fileName == null ? 'Choose file' : 'Choose another'),
                   ),
                   const SizedBox(width: AppSpacing.md),
+                  ImportSampleButton(
+                    sample: branchImportSample(widget.target),
+                    enabled: !_busy,
+                    saveOverride: widget.saveSampleOverride,
+                    onSaved: () {
+                      if (mounted) setState(() => _sampleSaved = true);
+                    },
+                  ),
+                  const SizedBox(width: AppSpacing.md),
                   if (_fileName != null)
                     Expanded(
                       child: Text(
@@ -238,9 +296,17 @@ class _BranchWarehouseImportDialogState
                     ),
                 ],
               ),
+              if (_sampleSaved) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Sample saved. Fill it in, keep the header row, and choose it '
+                  'here.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
               if (_rows.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.lg),
-                Text(
+                SelectableText(
                   _validCount == _rows.length
                       ? '${_rows.length} rows ready.'
                       : '$_validCount of ${_rows.length} rows are usable. '
@@ -255,18 +321,11 @@ class _BranchWarehouseImportDialogState
               ],
               if (imported >= 0) ...[
                 const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Imported $imported $_noun.',
-                  style: theme.textTheme.bodyMedium,
-                ),
+                CopyableMessage(message: 'Imported $imported $_noun.'),
               ],
               if (_error != null) ...[
                 const SizedBox(height: AppSpacing.lg),
-                Text(
-                  _error!,
-                  style: theme.textTheme.bodySmall
-                      ?.copyWith(color: theme.colorScheme.error),
-                ),
+                CopyableMessage(message: _error!, isError: true),
               ],
             ],
           ),
@@ -314,7 +373,7 @@ class _RowIssues extends StatelessWidget {
         final _Row row = bad[index];
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          child: Text(
+          child: SelectableText(
             'Row ${row.number}: ${row.errors.join('; ')}',
             style: theme.textTheme.bodySmall
                 ?.copyWith(color: theme.colorScheme.error),

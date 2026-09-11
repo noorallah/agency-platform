@@ -41,5 +41,7 @@ See also: `DESIGN_SYSTEM.md`, `DESKTOP_FRAMEWORK.md`, `DESKTOP_STYLE_GUIDE.md`.
 |---|---|
 | `WorkspaceLoadingState` / `LoadingOverlay` | Loading indication |
 | `WorkspaceErrorState` | Retryable error state |
+| `CopyableMessage` | A status or error message the user can select, with a copy button; every import dialog reports through it |
+| `ImportSampleButton` / `ImportSample` | The **Sample file** button beside an importer's Choose file, writing a CSV of the importer's own headings plus one example row |
 | `WorkspaceEmptyState` / `StandardEmptyState` | Empty/no-result/no-permission/fallback states |
 | `WorkspaceStatusBar` / `ApplicationStatusBar` | Module and app status |

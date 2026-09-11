@@ -15,6 +15,7 @@ import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
+import 'inventory_import_samples.dart';
 
 enum InventoryImportType {
   openingStock,
@@ -188,6 +189,7 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
   bool _busy = false;
   bool _dragging = false;
   bool _cancelRequested = false;
+  bool _sampleSaved = false;
   String? _error;
   _ImportFileSelection? _file;
   _InventoryImportPreview? _preview;
@@ -421,6 +423,18 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
     await File(location.path).writeAsString(content, flush: true);
   }
 
+  /// The sample for whichever import type is selected, written through the
+  /// same path the reports take so a test can capture it.
+  Future<void> _saveSample() async {
+    final ImportSample sample = inventoryImportSample(_type);
+    if (widget.saveTextOverride != null) {
+      await widget.saveTextOverride!(sample.fileName, sample.csv);
+    } else if (!await saveImportSample(sample)) {
+      return;
+    }
+    if (mounted) setState(() => _sampleSaved = true);
+  }
+
   Future<void> _runImport() async {
     final _InventoryImportPreview? preview = _preview;
     if (preview == null || !preview.canImport) {
@@ -638,6 +652,17 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
               icon: const Icon(Icons.folder_open_outlined),
               label: const Text('Select File'),
             ),
+            // In the toolbar rather than inside the Select File step, so it
+            // is reachable before the type is chosen and from every step.
+            Tooltip(
+              message: 'Download a CSV with the column headings for the '
+                  'selected import type and one example row.',
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _saveSample,
+                icon: const Icon(Icons.download_outlined),
+                label: const Text('Sample file'),
+              ),
+            ),
             OutlinedButton.icon(
               onPressed: _busy ? null : _validate,
               icon: const Icon(Icons.rule_folder_outlined),
@@ -806,7 +831,8 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'The wizard remembers the last folder and preserves your selections across retries.',
+                  'The wizard remembers the last folder and preserves your selections across retries. '
+                  'Sample file gives the headings for the selected import type and one example row.',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 16),
@@ -825,6 +851,13 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
                     ),
                   ],
                 ),
+                if (_sampleSaved) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Sample saved. Fill it in, keep the header row, and browse '
+                    'to it here.',
+                  ),
+                ],
                 if (_file != null) ...[
                   const SizedBox(height: 16),
                   _metaLine('File name', _file!.name),
@@ -836,10 +869,7 @@ class _InventoryImportWizardState extends State<InventoryImportWizard> {
                 ],
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
+                  CopyableMessage(message: _error!, isError: true),
                 ],
               ],
             ),
@@ -1195,7 +1225,7 @@ class _InventoryImportPreview {
     final Set<String> duplicateKeys = <String>{};
     final Set<String> seenKeys = <String>{};
     final List<_ValidatedImportRow> validated = [];
-    final List<String> requiredColumns = _requiredColumns(type);
+    final List<String> requiredColumns = inventoryImportRequiredColumns(type);
     final Set<String> headers = rows.isEmpty ? <String>{} : rows.first.keys.toSet();
     final List<String> missingColumns = requiredColumns
         .where((column) => !headers.contains(column))
@@ -1610,7 +1640,10 @@ _ValidatedImportRow _validateRow({
   );
 }
 
-List<String> _requiredColumns(InventoryImportType type) => switch (type) {
+/// The normalised headings a file must carry for one import type.
+///
+/// Public so `inventory_import_samples_test.dart` can hold every sample to it.
+List<String> inventoryImportRequiredColumns(InventoryImportType type) => switch (type) {
       InventoryImportType.openingStock => const [
           'productcode',
           'branchcode',

@@ -189,6 +189,32 @@ void main() {
     );
   });
 
+  testWidgets('a heading with an underscore is read, not silently dropped',
+      (tester) async {
+    // The parser keys columns on a normalised heading (`displayname`), and
+    // the dialog looked them up as written (`display_name`), so every
+    // multi-word column -- including the warehouse's required branch_id --
+    // was dropped from every file. Found by feeding the dialog its own
+    // sample file.
+    final _ImportApi api = _ImportApi();
+
+    await _open(
+      tester,
+      api,
+      'code,name,display_name,address_line1\nBR-001,Head Office,HO,1 Main St\n',
+    );
+    expect(find.text('1 rows ready.'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Import'));
+    await tester.pumpAndSettle();
+
+    final Json record = Map<String, dynamic>.from(
+      (api.sent.single['records'] as List).single as Map,
+    );
+    expect(record['display_name'], 'HO');
+    expect(record['address_line1'], '1 Main St');
+  });
+
   testWidgets('warehouses ask for the branch each one belongs to',
       (tester) async {
     final _ImportApi api = _ImportApi();

@@ -1772,6 +1772,49 @@ customer name now uses -- then wire each of the six desktop views to show the
 names instead of the ids. Batch the name lookups: `_customer_name` does a
 `session.get` per row, which is an N+1 on a list of 100. This deserves its
 own PR, not a bolt-on.
+### 31.4 Import dialogs give no sample file, and their messages cannot be copied (2026-09-11, plan item 5.8) -- fixed the same day
+
+**Seen.** Driving 5.8, the first file was refused with "A valid E.164 phone
+number is required." -- the format the importer wants is described in one
+sentence of small print and nowhere shown, so the file was built wrong, and
+the refusal could not be selected or copied to ask about it.
+
+**Done.** Every file-based importer -- branches, warehouses, territories,
+purchase orders and the three inventory imports -- has a **Sample file**
+button beside Choose file that saves a CSV with the headings it reads and
+one filled-in example row. The sample is built from the importer's own
+column list (`ImportSample` in `desktop/lib/ui/workspace/import_sample.dart`)
+so it cannot list a heading the parser does not read, and
+`test_import_samples_match_the_server.py` on the backend holds the two
+server-parsed samples to the `row.get()` names in `TerritoryService.import_csv`
+and `PurchaseService.import_orders_csv`. `import_samples_test.dart` feeds
+each sample back into its own dialog and asserts it is accepted. Every
+message and refusal in those dialogs is a `CopyableMessage`: selectable,
+with a copy button.
+
+**Found while building it, fixed the same day.** Feeding the warehouse
+dialog its own sample answered "Row 2: branch_id is required" with the
+column plainly filled in. `InventoryImportFileParser` normalises every
+heading to lower-case letters and digits (`display_name` becomes
+`displayname`), and the branch dialog looked each column up by the heading
+as written -- so every multi-word column it documents, `display_name`,
+`address_line1`, `address_line2`, `currency_code`, `capacity_unit` and the
+warehouse's **required** `branch_id`, had been silently dropped from every
+file since the dialog was written. A branch imported with a full address
+arrived with none, and a warehouse could not be imported at all. The
+dialog reads through the same normalised key now, and
+`branch_warehouse_import_test.dart` pins a two-word heading. Nothing in
+the existing tests had ever used one.
+
+**Still open, deliberately.** Two importers key on ids rather than codes --
+a warehouse's `branch_id`, and a purchase order's branch, warehouse, vendor
+and product -- and the sample can only write `<id of an existing branch>`
+in those cells, because nothing on the screen shows a customer an id. The
+importers should accept codes there, resolving them the way the inventory
+wizard already does for products, branches and warehouses. Not done here:
+it changes what the server accepts, and the sample is honest about the gap
+rather than hiding it behind a made-up UUID.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
