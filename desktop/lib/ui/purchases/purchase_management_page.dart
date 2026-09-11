@@ -20,6 +20,7 @@ import '../../models/purchase.dart';
 import '../../models/tax_framework.dart';
 import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
+import 'purchase_import_sample.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
@@ -3553,6 +3554,7 @@ class PurchaseImportWizard extends StatefulWidget {
     required this.onImported,
     this.initialFileName,
     this.initialFileBytes,
+    this.saveSampleOverride,
   });
 
   final ApiClient api;
@@ -3560,6 +3562,9 @@ class PurchaseImportWizard extends StatefulWidget {
   final Future<void> Function() onImported;
   final String? initialFileName;
   final List<int>? initialFileBytes;
+
+  /// Injected by tests, which cannot open a native save dialog.
+  final SaveSampleOverride? saveSampleOverride;
 
   @override
   State<PurchaseImportWizard> createState() => _PurchaseImportWizardState();
@@ -3572,6 +3577,7 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
   bool _importing = false;
   String? _error;
   int _step = 0;
+  bool _sampleSaved = false;
 
   @override
   void initState() {
@@ -3718,6 +3724,15 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                         label: const Text('Preview File'),
                       ),
                       const SizedBox(width: 12),
+                      ImportSampleButton(
+                        sample: purchaseImportSample,
+                        enabled: !_loading && !_importing,
+                        saveOverride: widget.saveSampleOverride,
+                        onSaved: () {
+                          if (mounted) setState(() => _sampleSaved = true);
+                        },
+                      ),
+                      const SizedBox(width: 12),
                       OutlinedButton.icon(
                         onPressed: _preview?.canImport == true && !_importing
                             ? _runImport
@@ -3735,6 +3750,13 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                       ),
                     ],
                   ),
+                  if (_sampleSaved) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Sample saved. Fill it in, keep the header row, and '
+                      'preview it here.',
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Expanded(
                     child: Card(
@@ -3763,7 +3785,7 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                                   for (final String issue in _preview!.issues)
                                     Padding(
                                       padding: const EdgeInsets.only(bottom: 8),
-                                      child: Text('• $issue'),
+                                      child: SelectableText('• $issue'),
                                     ),
                                   const Divider(),
                                 ],
@@ -4136,7 +4158,9 @@ class _ErrorCard extends StatelessWidget {
             children: [
               const Icon(Icons.error_outline),
               const SizedBox(width: 12),
-              Expanded(child: Text(message)),
+              // Selectable with a copy button: a refusal is the one thing
+              // somebody needs to paste into a report.
+              Expanded(child: CopyableMessage(message: message)),
             ],
           ),
         ),
