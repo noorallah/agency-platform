@@ -199,7 +199,7 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 5.2 | Vendors → Categories, and → Types | Both lists load and both can be added to. (These returned nothing at all until the route order was fixed, and until 2026-09-11 the sidebar opened them on a "coming soon" placeholder -- see BACKLOG §26.) |
 | 5.3 | Put a category and a type on a vendor, save, reopen | Both held. |
 | 5.4 | Products → open `DETER1K` | Its UOM slots, tax profile group and category are populated. |
-| 5.5 | Product → custom fields | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. |
+| 5.5 | Product → open `DETER1K` → **Attributes** tab | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. (The tab is hidden until a category is set, and until 2026-09-11 it never appeared for an existing product -- see BACKLOG §27.) |
 | 5.6 | Branches → rename one, save | Street lines, city, default flag and GST registration all survive. |
 | 5.7 | Warehouses → rename one, save | The ten capability flags survive. |
 | 5.8 | Branches → Import, with a file whose fifth row duplicates an existing code | **Nothing** is imported. The dialog says so. Correct the file and re-import — all rows go in. |

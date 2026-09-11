@@ -1515,6 +1515,40 @@ workspace's class body, or-patterns included. A source check, because the
 workspaces are private widgets nothing in the suite can build. Reverting the
 move fails it naming both tabs.
 
+## 27. The product form never showed the Attributes tab for an existing product -- fixed
+
+Found in manual testing on 2026-09-11 (test plan case 5.5). Opening `DETER1K`
+in WHOLE01, in view or in edit, showed General, UOM & Size, Pricing, Tax,
+Images, Attachments, Audit and History -- and no Attributes tab, although the
+server offers two optional fields for its category.
+
+**The cause.** The product's custom fields hang off `category_attribute_rules`,
+so `GET /products/metadata` answers a read that names no `category_id` with
+**no** attribute at all (`_category_attribute_ids` returns two empty lists).
+The workspace fetches that firm-wide read once at bootstrap and hands it to
+the dialog, which hides the tab when the allowed set is empty. Only a category
+*changed* in the form asked again with the category named -- the dialog's
+`onMetadataForCategory` callback was wired to the dropdown and to nothing
+else -- so a product opened with its category already set never asked, and
+the tab never appeared. A new product shows the tab only once a category is
+chosen, which is right: the fields depend on it.
+
+**Fixed here (desktop only).** `ProductWorkspaceDialog.initState` now asks
+`onMetadataForCategory` for the product's own category when it has one, the
+same call the dropdown makes, and applies the answer to the tab strip and the
+attribute controllers. A failed read leaves the tab hidden rather than
+refusing to open the form. `test/product_attributes_tab_test.dart` opens an
+existing product in edit and in view and expects the dialog to ask for its
+category and show the tab, and a new product with no category to do neither.
+
+Not changed, and worth deciding: a product's fields are resolved from
+category rules alone, while customers, vendors, branches and warehouses read
+`/attribute-definitions/applicable`, which also offers definitions that are
+unscoped or scoped only to the profile. WHOLE01's three PRODUCT definitions
+(BATCH_NUMBER, COUNTRY_OF_ORIGIN, EXPIRY_DATE) are all on the CORE_PRODUCTS
+rule, so the two answers agree today; a definition added without a rule would
+reach every other form and not the product's.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed

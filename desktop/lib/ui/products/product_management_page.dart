@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -1545,6 +1546,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _metadata = widget.metadata;
     _tab = widget.initialTab;
     _syncAttributeControllers();
+    if (_categoryId.isNotEmpty) {
+      unawaited(_loadMetadataForCategory(_categoryId));
+    }
     for (final ProductMediaRecord media in product?.media ?? const []) {
       _imageRows.add({
         'kind': media.mediaKind,
@@ -1597,6 +1601,31 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     if (value.valueDate.isNotEmpty) return value.valueDate;
     if (value.valueNumber.isNotEmpty) return value.valueNumber;
     return value.valueText;
+  }
+
+  /// Ask for the attribute fields of the product's own category.
+  ///
+  /// The metadata the dialog is handed is the workspace's firm-wide read,
+  /// which names no category -- and the server answers that with no attribute
+  /// at all, because the fields hang off `category_attribute_rules`. Only a
+  /// category *changed* in the form fetched the right list, so an existing
+  /// product opened with its category never showed the Attributes tab, in
+  /// view or in edit. Same call the dropdown makes; the rest of the form
+  /// works without it, so a failed read leaves the tab hidden rather than
+  /// refusing to open.
+  Future<void> _loadMetadataForCategory(String categoryId) async {
+    final ProductMetadataRecord metadata;
+    try {
+      metadata = await widget.onMetadataForCategory(categoryId);
+    } on ApiException {
+      return;
+    }
+    if (!mounted || _categoryId != categoryId) return;
+    setState(() {
+      _metadata = metadata;
+      _syncAttributeControllers();
+      _normalizeTabSelection();
+    });
   }
 
   void _syncAttributeControllers() {
