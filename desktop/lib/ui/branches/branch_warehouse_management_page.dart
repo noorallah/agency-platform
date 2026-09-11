@@ -28,12 +28,16 @@ class BranchWarehouseManagementPage extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     required this.section,
+    this.saveExportOverride,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
   final BranchWarehouseSection section;
+
+  /// Injected by tests, which cannot open a native save dialog.
+  final SaveExportOverride? saveExportOverride;
 
   @override
   State<BranchWarehouseManagementPage> createState() =>
@@ -775,21 +779,34 @@ class _BranchWarehouseManagementPageState
   Future<void> _export() async {
     if (!_canExport) return;
     try {
+      final String csv;
+      final String suggestedName;
       switch (widget.section) {
         case BranchWarehouseSection.branches:
-          await widget.api.exportBranches(search: _search.text.trim());
+          csv = await widget.api.exportBranches(search: _search.text.trim());
+          suggestedName = 'branches.csv';
           break;
         case BranchWarehouseSection.warehouses:
-          await widget.api.exportWarehouses(search: _search.text.trim());
+          csv = await widget.api.exportWarehouses(search: _search.text.trim());
+          suggestedName = 'warehouses.csv';
           break;
         default:
           return;
       }
+      // The CSV used to be fetched and dropped here, with "Export completed."
+      // shown over an empty hand.
+      final String? path = await saveExportedText(
+        suggestedName: suggestedName,
+        content: csv,
+        override: widget.saveExportOverride,
+      );
       if (!mounted) return;
       NotificationService.show(
         context,
-        'Export completed.',
-        kind: AppNotificationKind.success,
+        path == null ? exportCancelledMessage : exportSavedMessage(path),
+        kind: path == null
+            ? AppNotificationKind.information
+            : AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;

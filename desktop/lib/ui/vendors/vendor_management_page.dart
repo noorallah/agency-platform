@@ -19,11 +19,15 @@ class VendorManagementPage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
+    this.saveExportOverride,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// Injected by tests, which cannot open a native save dialog.
+  final SaveExportOverride? saveExportOverride;
 
   @override
   State<VendorManagementPage> createState() => _VendorManagementPageState();
@@ -174,12 +178,19 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     if (!_canExport) return;
     try {
       final csv = await widget.api.exportVendors(search: _search.text.trim());
+      // Used to report the row count and keep the rows.
+      final String? path = await saveExportedText(
+        suggestedName: 'vendors.csv',
+        content: csv,
+        override: widget.saveExportOverride,
+      );
       if (!mounted) return;
-      final rows = csv.split('\n');
       NotificationService.show(
         context,
-        'Export ready (${rows.length > 1 ? rows.length - 1 : 0} rows).',
-        kind: AppNotificationKind.success,
+        path == null ? exportCancelledMessage : exportSavedMessage(path),
+        kind: path == null
+            ? AppNotificationKind.information
+            : AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
