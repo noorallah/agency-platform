@@ -1569,6 +1569,30 @@ already returns only the fields the firm's profile enables (WHOLE01/WHOLESALE
 gets Pack Size and Country of Origin, not the batch/expiry/warranty fields),
 so once the tab shows, the fields in it are the right set.
 
+## 28. A warehouse could not be saved without a capacity -- fixed
+
+Found in manual testing on 2026-09-11 (test plan case 5.7). Renaming a
+warehouse and saving answered a validation error, and so did creating one;
+the branch form beside it worked.
+
+**The cause.** The warehouse dialog sent `capacity` as the text of its box,
+so a blank box sent `""`; the server reads the field as `Decimal | None`, and
+`""` is neither, so it answered 422 `Input should be a valid decimal`. Every
+warehouse save from the desktop with no capacity stated had been refused this
+way since the first desktop commit on 2026-08-06 -- `capacity_unit` had a
+normaliser that turned a blank into null, `capacity` did not. The widget test
+never saw it because its fixture warehouse carries `capacity: '500'`; the
+import dialog was never affected, because it omits a blank cell rather than
+sending it.
+
+**Fixed here, both sides.** The dialog sends null for a blank capacity and a
+blank unit, the way it already did for the address lines. And the schema
+reads a blank string as no capacity, so the import file and any other client
+stand on the same footing -- a stated figure still has to parse.
+`branch_address_test.dart` clears both boxes and asserts null travels, and
+that a stated `500` still travels as typed;
+`test_branch_warehouse_partial_update.py` asserts the schema's three answers.
+
 ## Also open
 
 - **Cancelling a goods receipt valued the two books differently — fixed

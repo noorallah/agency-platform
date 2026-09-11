@@ -1590,8 +1590,11 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                       'display_name': _displayName.text.trim().isEmpty
                           ? _name.text.trim()
                           : _displayName.text.trim(),
-                      'capacity': _capacity.text.trim(),
-                      'capacity_unit': _capacityUnit.text.trim().toUpperCase(),
+                      // Null when blank: the server reads capacity as a decimal
+                      // and an empty string is not one, so every save with the
+                      // box empty was refused with 422 (docs/BACKLOG.md 28).
+                      'capacity': _text(_capacity),
+                      'capacity_unit': _text(_capacityUnit)?.toUpperCase(),
                       'status': _status,
                       // Null when nothing is chosen, so clearing a type on an
                       // edit clears it rather than leaving the old one.

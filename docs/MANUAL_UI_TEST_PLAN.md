@@ -201,7 +201,7 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 5.4 | Products → open `DETER1K` | Its UOM slots, tax profile group and category are populated. |
 | 5.5 | Product → open `DETER1K` → **Attributes** tab | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. (The tab is hidden until a category is set, and until 2026-09-11 it never appeared for an existing product -- see BACKLOG §27.) |
 | 5.6 | Branches → rename one, save | Street lines, city, default flag and GST registration all survive. |
-| 5.7 | Warehouses → rename one, save | The ten capability flags survive. |
+| 5.7 | Warehouses → rename one, save | The ten capability flags survive. (Until 2026-09-11 a warehouse with no capacity could not be saved at all -- see BACKLOG §28.) |
 | 5.8 | Branches → Import, with a file whose fifth row duplicates an existing code | **Nothing** is imported. The dialog says so. Correct the file and re-import — all rows go in. |
 | 5.9 | Branches → Export, Warehouses → Export | A file downloads. (Both were unreachable until the route order was fixed.) |
 | 5.10 | Packaging levels on a product, then scan a carton barcode | The scan resolves to the product and says how many base units it holds. |

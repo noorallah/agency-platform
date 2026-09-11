@@ -20,6 +20,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -206,3 +208,30 @@ def test_a_warehouse_rename_keeps_its_capability_flags() -> None:
     assert updated.hazardous_storage is True
     assert updated.has_loading_dock is True
     assert updated.capacity == Decimal("500")
+
+
+def test_a_blank_capacity_reads_as_no_capacity() -> None:
+    """A form with the box left empty sends "" and a decimal refuses it.
+
+    Every warehouse save from the desktop with no capacity stated answered 422
+    "Input should be a valid decimal" from the first desktop commit until
+    manual test 5.7 reached it on 2026-09-11. The desktop sends null now; the
+    schema reads a blank as none so the import file and any other client are
+    on the same footing, and a stated figure still has to parse.
+    """
+    blank = WarehouseUpdate.model_validate(
+        {"branch_id": str(uuid4()), "code": "WH1", "name": "Main", "capacity": ""}
+    )
+    assert blank.capacity is None
+    spaced = WarehouseUpdate.model_validate(
+        {"branch_id": str(uuid4()), "code": "WH1", "name": "Main", "capacity": "  "}
+    )
+    assert spaced.capacity is None
+    stated = WarehouseCreate.model_validate(
+        {"branch_id": str(uuid4()), "code": "WH1", "name": "Main", "capacity": "500"}
+    )
+    assert stated.capacity == Decimal("500")
+    with pytest.raises(ValidationError):
+        WarehouseUpdate.model_validate(
+            {"branch_id": str(uuid4()), "code": "WH1", "name": "Main", "capacity": "x"}
+        )
