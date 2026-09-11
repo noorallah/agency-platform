@@ -1732,22 +1732,6 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
             showFrame: false,
           ),
         ),
-      'vendor-categories' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: true,
-          ),
-        ),
-      'vendor-types' => ResourceManagementPage<VendorClassification>(
-          api: widget.api,
-          definition: vendorClassificationDefinition(
-            widget.api,
-            widget.permissions,
-            categories: false,
-          ),
-        ),
       'category-attribute-rules' =>
         ResourceManagementPage<CategoryAttributeRuleRecord>(
           api: widget.api,
@@ -1910,6 +1894,22 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'vendor-categories' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: true,
+          ),
+        ),
+      'vendor-types' => ResourceManagementPage<VendorClassification>(
+          api: widget.api,
+          definition: vendorClassificationDefinition(
+            widget.api,
+            widget.permissions,
+            categories: false,
+          ),
+        ),
       'branches' => BranchWarehouseManagementPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -1960,6 +1960,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'vendors' => 'Vendor Management',
+        'vendor-categories' => 'Vendor Categories',
+        'vendor-types' => 'Vendor Types',
         'branches' => 'Branch Management',
         'warehouses' => 'Warehouse Management',
         'storage-areas' => 'Storage Area Management',
@@ -1980,6 +1982,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'Manage profile-driven product masters with dynamic attributes.',
         'vendors' =>
           'Manage enterprise vendor masters with contacts, addresses, banking, and tax details.',
+        'vendor-categories' => 'Group vendors by what they supply.',
+        'vendor-types' =>
+          'Classify vendors by the kind of supplier they are.',
         'branches' =>
           'Manage branch hierarchy, managers, and operational status.',
         'warehouses' =>
@@ -2001,6 +2006,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'customers' => 'Customer Management',
           'products' => 'Product Management',
           'vendors' => 'Vendor Management',
+          'vendor-categories' => 'Vendor Categories',
+          'vendor-types' => 'Vendor Types',
           'branches' => 'Branch Management',
           'warehouses' => 'Warehouse Management',
           'storage-areas' => 'Storage Area Management',
