@@ -246,6 +246,35 @@ void main() {
     expect(api.saved!['temperature_controlled'], isFalse);
   });
 
+  testWidgets('a warehouse with no capacity sends null, not an empty string',
+      (tester) async {
+    // The server reads `capacity` as a decimal, and "" is not one -- so every
+    // save with the box left blank answered 422, from the first desktop
+    // commit until manual test 5.7 reached it (docs/BACKLOG.md 28). The
+    // fixture above fills the box in, which is why this test did not exist.
+    final _BranchApi api = _BranchApi();
+    await _open(tester, api, BranchWarehouseSection.warehouses, 'WH1');
+
+    await tester.enterText(find.widgetWithText(TextField, 'Capacity'), '');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Capacity Unit'), '');
+    await _save(tester);
+
+    expect(api.saved, isNotNull, reason: 'the save reached the server');
+    expect(api.saved!.containsKey('capacity'), isTrue);
+    expect(api.saved!['capacity'], isNull);
+    expect(api.saved!['capacity_unit'], isNull);
+  });
+
+  testWidgets('a stated capacity still travels as typed', (tester) async {
+    final _BranchApi api = _BranchApi();
+    await _open(tester, api, BranchWarehouseSection.warehouses, 'WH1');
+    await _save(tester);
+
+    expect(api.saved!['capacity'], '500');
+    expect(api.saved!['capacity_unit'], 'KG');
+  });
+
   testWidgets('an empty required field keeps the dialog open and is highlighted',
       (tester) async {
     // The form used to pop on Save whatever was typed, so a missing code left

@@ -195,6 +195,18 @@ class WarehouseWrite(BranchWarehouseSchema):
     #: that omits them leaves them alone.
     attributes: list[AttributeValueInput] = Field(default_factory=list, max_length=300)
 
+    @field_validator("capacity", mode="before")
+    @classmethod
+    def blank_capacity_is_none(cls, value: object) -> object:
+        """Read an empty capacity as no capacity."""
+        # A form with the box left blank sends "" rather than null, and a
+        # decimal field refuses "" -- so a warehouse could not be saved
+        # without stating a capacity. The desktop sends null now; this
+        # keeps the import file and any other client on the same footing.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("code", "capacity_unit", mode="before")
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
