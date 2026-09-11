@@ -1075,9 +1075,9 @@ class _BranchDialogState extends State<_BranchDialog> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _field(_code, 'Branch Code')),
+                    Expanded(child: _field(_code, 'Branch Code', errorText: _codeError)),
                     const SizedBox(width: 12),
-                    Expanded(child: _field(_name, 'Branch Name')),
+                    Expanded(child: _field(_name, 'Branch Name', errorText: _nameError)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1174,6 +1174,13 @@ class _BranchDialogState extends State<_BranchDialog> {
               child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
+              setState(() {
+                _codeError = _codeProblem(_code.text.trim(), 'Branch');
+                _nameError = _name.text.trim().isEmpty
+                    ? 'Branch name is required'
+                    : null;
+              });
+              if (_codeError != null || _nameError != null) return;
               final String? customField = _customFields.validate();
               if (customField != null) {
                 NotificationService.show(context, customField,
@@ -1242,10 +1249,31 @@ class _BranchDialogState extends State<_BranchDialog> {
         onChanged: (value) => setState(() => _typeId = value),
       );
 
-  Widget _field(TextEditingController controller, String label) => TextField(
+  // Set on Save when a required field is empty, so the error shows under
+  // the field and the dialog stays open instead of popping and letting the
+  // server refuse it after it has closed (docs/BACKLOG.md 25).
+  String? _codeError;
+  String? _nameError;
+
+  Widget _field(TextEditingController controller, String label,
+          {String? errorText}) =>
+      TextField(
         controller: controller,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, errorText: errorText),
       );
+
+  // The same rules the server enforces (code is uppercased on the way out),
+  // checked here so an invalid code keeps the dialog open and says why rather
+  // than popping and letting the server refuse it after (docs/BACKLOG.md 25).
+  String? _codeProblem(String value, String noun) {
+    final String code = value.toUpperCase();
+    if (code.isEmpty) return '$noun code is required';
+    if (code.length < 2) return '$noun code must be at least 2 characters';
+    if (!RegExp(r'^[A-Z0-9_-]+$').hasMatch(code)) {
+      return '$noun code: letters, digits, underscore or hyphen only';
+    }
+    return null;
+  }
 }
 
 class _WarehouseDialog extends StatefulWidget {
@@ -1419,9 +1447,9 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _field(_code, 'Warehouse Code')),
+                    Expanded(child: _field(_code, 'Warehouse Code', errorText: _codeError)),
                     const SizedBox(width: 12),
-                    Expanded(child: _field(_name, 'Warehouse Name')),
+                    Expanded(child: _field(_name, 'Warehouse Name', errorText: _nameError)),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1534,6 +1562,14 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
             onPressed: _branchId == null
                 ? null
                 : () {
+                    setState(() {
+                      _codeError =
+                          _codeProblem(_code.text.trim(), 'Warehouse');
+                      _nameError = _name.text.trim().isEmpty
+                          ? 'Warehouse name is required'
+                          : null;
+                    });
+                    if (_codeError != null || _nameError != null) return;
                     final String? customField = _customFields.validate();
                     if (customField != null) {
                       NotificationService.show(context, customField,
@@ -1575,10 +1611,31 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                         'attributes': _customFields.payload(),
                     };
 
-  Widget _field(TextEditingController controller, String label) => TextField(
+  // Set on Save when a required field is empty, so the error shows under
+  // the field and the dialog stays open instead of popping and letting the
+  // server refuse it after it has closed (docs/BACKLOG.md 25).
+  String? _codeError;
+  String? _nameError;
+
+  Widget _field(TextEditingController controller, String label,
+          {String? errorText}) =>
+      TextField(
         controller: controller,
-        decoration: InputDecoration(labelText: label),
+        decoration: InputDecoration(labelText: label, errorText: errorText),
       );
+
+  // The same rules the server enforces (code is uppercased on the way out),
+  // checked here so an invalid code keeps the dialog open and says why rather
+  // than popping and letting the server refuse it after (docs/BACKLOG.md 25).
+  String? _codeProblem(String value, String noun) {
+    final String code = value.toUpperCase();
+    if (code.isEmpty) return '$noun code is required';
+    if (code.length < 2) return '$noun code must be at least 2 characters';
+    if (!RegExp(r'^[A-Z0-9_-]+$').hasMatch(code)) {
+      return '$noun code: letters, digits, underscore or hyphen only';
+    }
+    return null;
+  }
 }
 
 class _TypeDialog extends StatefulWidget {
