@@ -366,13 +366,43 @@ class BranchWarehouseService:
             limit=page_size,
         )
 
+    def _resolve_branch(
+        self,
+        data: WarehouseCreate | WarehouseUpdate,
+        *,
+        firm_id: UUID,
+        current_id: UUID | None = None,
+    ) -> Branch:
+        """Find the branch a warehouse payload names, by id or by code.
+
+        ``current_id`` is the branch an existing warehouse already belongs to,
+        used when an update names neither. A code nobody in the firm holds is
+        refused by name: an import file is where codes come from, and the
+        person correcting it needs to know which cell.
+        """
+        if data.branch_id is not None:
+            return self.get_branch(data.branch_id, firm_scope=firm_id)
+        if data.branch_code:
+            branch_id = self._repository.branch_duplicate_id(
+                firm_id, code=data.branch_code
+            )
+            if branch_id is None:
+                raise ValidationError(
+                    f"No branch with code {data.branch_code} in this firm."
+                )
+            return self.get_branch(branch_id, firm_scope=firm_id)
+        if current_id is not None:
+            return self.get_branch(current_id, firm_scope=firm_id)
+        raise ValidationError("Either branch_id or branch_code is required.")
+
     def _stage_warehouse(
         self, data: WarehouseCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Warehouse:
         """Build and flush one warehouse without committing it."""
         self._assert_unique_warehouse_code(firm_id, data.code)
-        branch = self.get_branch(data.branch_id, firm_scope=firm_id)
+        branch = self._resolve_branch(data, firm_id=firm_id)
         values = self._warehouse_values(data)
+        values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
             branch.id, is_default=bool(values["is_default"]), exclude_id=None
         )
@@ -453,11 +483,15 @@ class BranchWarehouseService:
         """
         row = self.get_warehouse(warehouse_id, firm_scope=firm_scope)
         self._assert_unique_warehouse_code(row.firm_id, data.code, excluding_id=row.id)
-        self.get_branch(data.branch_id, firm_scope=row.firm_id)
+        branch = self._resolve_branch(
+            data, firm_id=row.firm_id, current_id=row.branch_id
+        )
         before: dict[str, object] = {"code": row.code, "status": row.status}
         values = self._warehouse_values(data, partial=True)
+        if "branch_id" in values or data.branch_code:
+            values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
-            data.branch_id,
+            branch.id,
             is_default=bool(values.get("is_default", row.is_default)),
             exclude_id=row.id,
         )
@@ -1107,6 +1141,8 @@ class BranchWarehouseService:
         values = data.model_dump(
             mode="python", exclude_unset=partial, exclude={"attributes"}
         )
+        # Resolved to an id by the caller; the row has no such column.
+        values.pop("branch_code", None)
         if "status" in values:
             values["status"] = data.status.value
         if "display_name" in values or "name" in values:

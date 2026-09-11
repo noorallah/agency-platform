@@ -40,7 +40,11 @@ class _ImportApi extends ApiClient {
         statusCode: 409,
       );
     }
-    sent.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+    // Only the import is a send; the warehouse dialog also reads the firm's
+    // branches when it opens, for the sample file's example row.
+    if (path.endsWith('/import')) {
+      sent.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+    }
     final List<dynamic> records =
         (body?['records'] as List<dynamic>?) ?? const <dynamic>[];
     return <String, dynamic>{
@@ -193,7 +197,7 @@ void main() {
       (tester) async {
     // The parser keys columns on a normalised heading (`displayname`), and
     // the dialog looked them up as written (`display_name`), so every
-    // multi-word column -- including the warehouse's required branch_id --
+    // multi-word column -- including the warehouse's required branch code --
     // was dropped from every file. Found by feeding the dialog its own
     // sample file.
     final _ImportApi api = _ImportApi();
@@ -226,7 +230,7 @@ void main() {
       target: BranchImportTarget.warehouses,
     );
 
-    expect(find.textContaining('Row 2: branch_id is required'), findsOneWidget);
+    expect(find.textContaining('Row 2: branch_code is required'), findsOneWidget);
     expect(api.sent, isEmpty);
   });
 }

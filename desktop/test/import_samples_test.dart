@@ -11,6 +11,7 @@ import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
+import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/branches/branch_warehouse_import_dialog.dart';
@@ -64,6 +65,33 @@ class _Api extends ApiClient {
       ],
     };
   }
+
+  /// The firm's branches, which the warehouse sample reads its example
+  /// branch code from.
+  @override
+  Future<PagedResult<BranchRecord>> branches({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    BranchQuery filters = const BranchQuery(),
+  }) async =>
+      PagedResult<BranchRecord>(
+        items: <BranchRecord>[
+          BranchRecord.fromJson(<String, dynamic>{
+            'id': 'b-1',
+            'firm_id': 'firm-1',
+            'code': 'WHL_HO',
+            'name': 'Head Office',
+            'display_name': 'Head Office',
+            'status': 'ACTIVE',
+            'is_default': true,
+            'warehouse_count': 0,
+          }),
+        ],
+        total: 1,
+      );
 
   @override
   Future<List<SalesTerritory>> importTerritories({
@@ -202,6 +230,12 @@ void main() {
           reason: 'the header row is the column list the parser reads',
         );
         expect(find.textContaining('Sample saved.'), findsOneWidget);
+        if (target == BranchImportTarget.warehouses) {
+          // The example names the firm's own first branch, so the file
+          // imports as it is rather than after somebody edits a guess.
+          expect(saved.content!.split('\r\n')[1], startsWith('WHL_HO,'));
+          expect(saved.content, isNot(contains('branch_id')));
+        }
 
         await tester.runAsync(() async {
           await tester.tap(find.widgetWithText(OutlinedButton, 'Choose file'));

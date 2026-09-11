@@ -159,7 +159,14 @@ class BranchUpdate(BranchWrite):
 class WarehouseWrite(BranchWarehouseSchema):
     """Shared warehouse write fields."""
 
-    branch_id: UUID
+    #: The branch this warehouse belongs to, by id **or** by code. A form
+    #: knows the id; a person filling in an import file knows the code, and
+    #: nothing on a screen shows them an id -- the sample file could only
+    #: write "<id of an existing branch>" until 2026-09-11. Create requires
+    #: one of the two; update takes either and keeps the branch when neither
+    #: is sent.
+    branch_id: UUID | None = None
+    branch_code: str | None = Field(default=None, min_length=2, max_length=50)
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     name: str = Field(min_length=1, max_length=200)
     display_name: str | None = Field(default=None, max_length=200)
@@ -207,7 +214,7 @@ class WarehouseWrite(BranchWarehouseSchema):
             return None
         return value
 
-    @field_validator("code", "capacity_unit", mode="before")
+    @field_validator("code", "branch_code", "capacity_unit", mode="before")
     @classmethod
     def normalize_codes(cls, value: str | None) -> str | None:
         """Uppercase and trim an optional identifier code."""
@@ -225,6 +232,13 @@ class WarehouseWrite(BranchWarehouseSchema):
 
 class WarehouseCreate(WarehouseWrite):
     """Create one warehouse."""
+
+    @model_validator(mode="after")
+    def names_a_branch(self) -> "WarehouseCreate":
+        """Require the branch, one way or the other."""
+        if self.branch_id is None and not self.branch_code:
+            raise ValueError("Either branch_id or branch_code is required.")
+        return self
 
 
 class WarehouseUpdate(WarehouseWrite):

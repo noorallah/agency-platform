@@ -5,7 +5,11 @@ wrote six columns and the importer read eleven, with the two they shared
 spelled differently, so an exported file was neither a backup nor a
 template. Both exports now write exactly the importer's columns, and these
 tests prove it the only way that means anything -- by reading the export
-back through the write schema.
+back through the write schema and the service.
+
+The warehouse file names its branch by **code**. It used to demand the
+branch's id, which nothing on a screen shows anybody, so the sample file
+could only write "<id of an existing branch>" and was refused on import.
 """
 
 from __future__ import annotations
@@ -13,8 +17,10 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date
-from uuid import UUID, uuid4
+from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -25,9 +31,10 @@ from app.branches.api.router import (
     branches_csv,
     warehouses_csv,
 )
-from app.branches.schemas import BranchCreate, WarehouseCreate
+from app.branches.schemas import BranchCreate, WarehouseCreate, WarehouseUpdate
 from app.branches.services import BranchWarehouseService
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.firms.models import Firm
 
 
@@ -111,8 +118,8 @@ def test_a_branch_export_carries_every_import_column_and_reads_back() -> None:
     assert again.mobile == "+919876543210"
 
 
-def test_a_warehouse_export_carries_every_import_column_and_reads_back() -> None:
-    """The warehouse twin, including the branch id the importer needs."""
+def test_a_warehouse_export_names_its_branch_by_code_and_reads_back() -> None:
+    """The warehouse twin: exported with the branch's code, imported by it."""
     session = _session()
     firm = _firm(session)
     actor = uuid4()
@@ -141,12 +148,86 @@ def test_a_warehouse_export_carries_every_import_column_and_reads_back() -> None
     text = warehouses_csv(session, firm_id=firm.id, search=None)
 
     assert text.splitlines()[0] == ",".join(WAREHOUSE_EXPORT_COLUMNS)
+    assert "branch_id" not in WAREHOUSE_EXPORT_COLUMNS
     (row,) = _rows(text)
-    assert UUID(row["branch_id"]) == branch.id
+    assert row["branch_code"] == "HO"
     assert row["display_name"] == "North WH"
     assert row["address_line1"] == "12 Ring Road"
     assert "address_line2" not in row, "an empty cell is blank, not 'None'"
-    again = WarehouseCreate.model_validate({**row, "code": "WH_NORTH_2"})
-    assert again.branch_id == branch.id
-    assert str(again.capacity) == "5000.000"
-    assert again.capacity_unit == "SQFT"
+
+    # The round trip, all the way into the store: the exported row, with a
+    # new code, creates a warehouse under the same branch.
+    again = service.import_warehouses(
+        [WarehouseCreate.model_validate({**row, "code": "WH_NORTH_2"})],
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    assert again[0].branch_id == branch.id
+    assert str(again[0].capacity) == "5000.000"
+    assert again[0].capacity_unit == "SQFT"
+
+
+def test_a_warehouse_naming_an_unknown_branch_code_is_refused_by_name() -> None:
+    """The person correcting the file needs to know which cell was wrong."""
+    session = _session()
+    firm = _firm(session)
+    service = BranchWarehouseService(session)
+
+    with pytest.raises(ValidationError, match="No branch with code NOWHERE"):
+        service.create_warehouse(
+            WarehouseCreate.model_validate(
+                {"branch_code": "nowhere", "code": "WH1", "name": "Lost"}
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    # Lower-case in the file, upper-case in the refusal: codes are normalised
+    # on the way in, so the message names the code as the store spells it.
+
+
+def test_a_new_warehouse_must_name_its_branch_one_way_or_the_other() -> None:
+    """Neither id nor code is a schema refusal, before any store is touched."""
+    with pytest.raises(PydanticValidationError, match="branch_id or branch_code"):
+        WarehouseCreate.model_validate({"code": "WH1", "name": "Nowhere"})
+
+
+def test_an_update_that_names_no_branch_keeps_the_one_it_has() -> None:
+    """A rename must not need the branch restated -- and may move it by code."""
+    session = _session()
+    firm = _firm(session)
+    actor = uuid4()
+    service = BranchWarehouseService(session)
+    first = service.create_branch(
+        BranchCreate.model_validate({"code": "HO", "name": "Head Office"}),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    second = service.create_branch(
+        BranchCreate.model_validate({"code": "DEPOT", "name": "Depot"}),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    warehouse = service.create_warehouse(
+        WarehouseCreate.model_validate(
+            {"branch_code": "HO", "code": "WH1", "name": "Main"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+    assert warehouse.branch_id == first.id
+
+    renamed = service.update_warehouse(
+        warehouse.id,
+        WarehouseUpdate(code="WH1", name="Main Store"),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert renamed.branch_id == first.id
+
+    moved = service.update_warehouse(
+        warehouse.id,
+        WarehouseUpdate(code="WH1", name="Main Store", branch_code="DEPOT"),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert moved.branch_id == second.id

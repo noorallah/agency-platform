@@ -313,9 +313,10 @@ BRANCH_EXPORT_COLUMNS: tuple[str, ...] = (
     "status",
 )
 
-#: The warehouse twin; ``branch_id`` because that is what the importer takes.
+#: The warehouse twin. ``branch_code`` rather than ``branch_id``: the importer
+#: takes either, and a code is the one a person can read and type.
 WAREHOUSE_EXPORT_COLUMNS: tuple[str, ...] = (
-    "branch_id",
+    "branch_code",
     "code",
     "name",
     "display_name",
@@ -382,7 +383,11 @@ def warehouses_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
         for row in rows:
             writer.writerow(
                 [
-                    _export_cell(getattr(row, column))
+                    _export_cell(
+                        row.branch.code
+                        if column == "branch_code"
+                        else getattr(row, column)
+                    )
                     for column in WAREHOUSE_EXPORT_COLUMNS
                 ]
             )
