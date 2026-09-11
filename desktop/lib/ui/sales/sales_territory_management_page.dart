@@ -22,10 +22,14 @@ class SalesTerritoryManagementPage extends StatefulWidget {
     super.key,
     required this.api,
     required this.permissions,
+    this.saveExportOverride,
   });
 
   final ApiClient api;
   final PermissionService permissions;
+
+  /// Injected by tests, which cannot open a native save dialog.
+  final SaveExportOverride? saveExportOverride;
 
   @override
   State<SalesTerritoryManagementPage> createState() =>
@@ -600,11 +604,19 @@ class _SalesTerritoryManagementPageState
     try {
       final csv =
           await widget.api.exportTerritories(search: _search.text.trim());
+      // Used to report the byte count and keep the bytes.
+      final String? path = await saveExportedText(
+        suggestedName: 'territories.csv',
+        content: csv,
+        override: widget.saveExportOverride,
+      );
       if (!mounted) return;
       NotificationService.show(
         context,
-        'Export generated (${csv.length} bytes).',
-        kind: AppNotificationKind.success,
+        path == null ? exportCancelledMessage : exportSavedMessage(path),
+        kind: path == null
+            ? AppNotificationKind.information
+            : AppNotificationKind.success,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;

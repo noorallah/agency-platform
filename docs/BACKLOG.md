@@ -1815,6 +1815,32 @@ wizard already does for products, branches and warehouses. Not done here:
 it changes what the server accepts, and the sample is honest about the gap
 rather than hiding it behind a made-up UUID.
 
+### 31.5 Export said success and saved nothing (2026-09-11, plan item 5.9) -- fixed the same day
+
+**Seen.** Branches → Export answered "Export completed." and no file
+appeared anywhere. The server log showed `GET /api/v1/branches/export`
+answered 200 twice.
+
+**Why.** Four Export actions fetched the CSV through `downloadText` and
+did nothing with it: branches and warehouses showed "Export completed.",
+territories "Export generated (N bytes)", vendors "Export ready (N rows)".
+Each reported a fact about bytes it was about to drop. Nothing in the
+tests could see it, because no test tapped Export on any of the four --
+the toolbar action existed, the permission gated it, and the handler's
+only observable effect was a notification whose text was true of nothing.
+
+**Done.** `saveExportedText` in `desktop/lib/ui/workspace/export_file.dart`
+is the one path: it asks where to save, writes the file and returns the
+path, and every one of the four reports `Export saved to <path>.` -- or
+"Export cancelled. No file was saved." when the dialog is dismissed, since
+a cancelled save reported as success is the same lie again. Each page takes
+a `saveExportOverride` so `exports_save_a_file_test.dart` can drive the
+toolbar and assert the CSV the server answered is the content handed to
+the save, byte for byte. Customers and Products were checked and left
+alone: they copy the CSV to the clipboard and say so, which is a different
+design that works. Inventory and Purchase Orders already saved through a
+dialog.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
