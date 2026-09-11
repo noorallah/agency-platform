@@ -292,21 +292,59 @@ def import_branches(
 # Above `/branches/{id}` on purpose: FastAPI matches in declaration order, so
 # that route read "export" as an id and answered 422. Unreachable from the
 # day it was written until 2026-08-22.
-@router.get("/branches/export")
-def export_branches(
-    scope: BranchWarehouseExportScope,
-    search: str | None = None,
-    db: Session = Depends(get_db),
-) -> StreamingResponse:
-    """Stream the filtered branches as CSV."""
+#: What an export writes, which is exactly what the desktop's importer reads
+#: (``_branchColumns`` in ``branch_warehouse_import_dialog.dart``), so an
+#: exported file can be edited and imported back. The export used to write six
+#: columns and the importer read eleven, and the two headings they shared were
+#: spelled differently -- found in manual testing on 2026-09-11.
+#: ``tests/unit/test_import_samples_match_the_server.py`` holds the two lists
+#: together.
+BRANCH_EXPORT_COLUMNS: tuple[str, ...] = (
+    "code",
+    "name",
+    "display_name",
+    "description",
+    "email",
+    "phone",
+    "mobile",
+    "address_line1",
+    "address_line2",
+    "currency_code",
+    "status",
+)
+
+#: The warehouse twin; ``branch_id`` because that is what the importer takes.
+WAREHOUSE_EXPORT_COLUMNS: tuple[str, ...] = (
+    "branch_id",
+    "code",
+    "name",
+    "display_name",
+    "description",
+    "address_line1",
+    "address_line2",
+    "capacity",
+    "capacity_unit",
+    "status",
+)
+
+
+def _export_cell(value: object) -> str:
+    """Render one attribute for CSV: blank for None, plain text otherwise."""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def branches_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
+    """Render a firm's branches as the CSV its importer reads back."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Code", "Name", "Status", "Email", "Phone", "Mobile"])
+    writer.writerow(BRANCH_EXPORT_COLUMNS)
     page = 1
     service = BranchWarehouseService(db)
     while True:
         rows, _ = service.list_branches(
-            firm_scope=scope.firm_id,
+            firm_scope=firm_id,
             filters=BranchListFilters(),
             page=page,
             page_size=1000,
@@ -316,20 +354,53 @@ def export_branches(
         )
         for row in rows:
             writer.writerow(
+                [_export_cell(getattr(row, column)) for column in BRANCH_EXPORT_COLUMNS]
+            )
+        if len(rows) < 1000:
+            break
+        page += 1
+    return output.getvalue()
+
+
+def warehouses_csv(db: Session, *, firm_id: UUID, search: str | None) -> str:
+    """Render a firm's warehouses as the CSV its importer reads back."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(WAREHOUSE_EXPORT_COLUMNS)
+    page = 1
+    service = BranchWarehouseService(db)
+    while True:
+        rows, _ = service.list_warehouses(
+            firm_scope=firm_id,
+            filters=WarehouseListFilters(),
+            page=page,
+            page_size=1000,
+            search=search,
+            sort_by="code",
+            descending=False,
+        )
+        for row in rows:
+            writer.writerow(
                 [
-                    row.code,
-                    row.name,
-                    row.status,
-                    row.email or "",
-                    row.phone or "",
-                    row.mobile or "",
+                    _export_cell(getattr(row, column))
+                    for column in WAREHOUSE_EXPORT_COLUMNS
                 ]
             )
         if len(rows) < 1000:
             break
         page += 1
+    return output.getvalue()
+
+
+@router.get("/branches/export")
+def export_branches(
+    scope: BranchWarehouseExportScope,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Stream the filtered branches as CSV, in the importer's own columns."""
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter([branches_csv(db, firm_id=scope.firm_id, search=search)]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="branches.csv"'},
     )
@@ -602,40 +673,9 @@ def export_warehouses(
     search: str | None = None,
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
-    """Stream the filtered warehouses as CSV."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(
-        ["Code", "Name", "Branch ID", "Status", "Capacity", "Capacity Unit"]
-    )
-    page = 1
-    service = BranchWarehouseService(db)
-    while True:
-        rows, _ = service.list_warehouses(
-            firm_scope=scope.firm_id,
-            filters=WarehouseListFilters(),
-            page=page,
-            page_size=1000,
-            search=search,
-            sort_by="code",
-            descending=False,
-        )
-        for row in rows:
-            writer.writerow(
-                [
-                    row.code,
-                    row.name,
-                    str(row.branch_id),
-                    row.status,
-                    str(row.capacity or ""),
-                    row.capacity_unit or "",
-                ]
-            )
-        if len(rows) < 1000:
-            break
-        page += 1
+    """Stream the filtered warehouses as CSV, in the importer's own columns."""
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter([warehouses_csv(db, firm_id=scope.firm_id, search=search)]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="warehouses.csv"'},
     )

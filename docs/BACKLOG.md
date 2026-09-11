@@ -1841,6 +1841,19 @@ alone: they copy the CSV to the clipboard and say so, which is a different
 design that works. Inventory and Purchase Orders already saved through a
 dialog.
 
+**And the file it saves is now the importer's own shape.** The owner's
+next observation, a minute later: the export had six columns and the
+import eleven, with the two they shared (`Code`, `Name`) spelled
+differently from the importer's `code`, `name` -- so an exported file was
+neither a backup nor a template. `BRANCH_EXPORT_COLUMNS` and
+`WAREHOUSE_EXPORT_COLUMNS` in `app/branches/api/router.py` are the
+importer's lists, `test_import_samples_match_the_server.py` holds them to
+the Dart column lists, and `test_branch_export_round_trips.py` reads an
+export back through the write schema. The territory export still writes
+`Path` and not `CustomerCodes`, so a territory round trip loses the shops
+on each round; left as it is, since building that column needs a customer
+lookup per row and nobody has asked for it yet.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
