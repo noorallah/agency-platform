@@ -538,7 +538,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                         for (final Customer item in widget.customers)
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text(item.displayName,
+                            child: Text('${item.code} - ${item.displayName}',
                                 overflow: TextOverflow.ellipsis),
                           ),
                       ],
@@ -625,7 +625,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                             for (final BranchRecord item in widget.branches)
                               DropdownMenuItem(
                                 value: item.id,
-                                child: Text(item.displayName,
+                                child: Text('${item.code} - ${item.displayName}',
                                     overflow: TextOverflow.ellipsis),
                               ),
                           ],
@@ -649,7 +649,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                                 in widget.warehouses)
                               DropdownMenuItem(
                                 value: item.id,
-                                child: Text(item.displayName,
+                                child: Text('${item.code} - ${item.displayName}',
                                     overflow: TextOverflow.ellipsis),
                               ),
                           ],
