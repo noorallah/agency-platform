@@ -554,3 +554,61 @@ def test_document_types_stay_platform_administered() -> None:
     assert (
         not writes
     ), f"these were widened along with the numbering rules: {sorted(writes)}"
+
+
+def test_a_counter_is_keyed_on_what_the_number_prints() -> None:
+    """A rule that does not print the branch counts once across branches.
+
+    The scope signature keyed on the branch regardless, so under a pattern
+    that never printed it each branch had its own counter and issued the
+    same number: the first purchase return from a second branch was
+    PR-2026-2027-000001, already held, and the unique key refused it.
+    Found in manual testing on 2026-09-12. A rule that does print the
+    branch keeps a counter per branch, which is the point of printing it.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+    shared = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="RETURNS",
+            name="Returns, one series for the firm",
+            prefix="PR",
+            include_financial_year=True,
+            include_branch_code=False,
+            auto_reset=True,
+        ),
+        actor_id,
+    )
+    per_branch = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="RECEIPTS",
+            name="Receipts, a series per branch",
+            prefix="GRN",
+            include_financial_year=True,
+            include_branch_code=True,
+            auto_reset=True,
+        ),
+        actor_id,
+    )
+
+    def reserve(rule_id: UUID, branch: str) -> str:
+        return service.reserve_number(
+            rule_id,
+            firm_id=firm_id,
+            document_date=date(2026, 9, 12),
+            financial_year_label="2026-2027",
+            branch_code=branch,
+            actor_id=actor_id,
+        )
+
+    assert reserve(shared.id, "WHL_HO") == "PR-2026-2027-000001"
+    assert reserve(shared.id, "WHL_HO") == "PR-2026-2027-000002"
+    # A second branch continues the firm's series rather than restarting it.
+    assert reserve(shared.id, "BR_NORTH") == "PR-2026-2027-000003"
+
+    assert reserve(per_branch.id, "WHL_HO") == "GRN-WHL_HO-2026-2027-000001"
+    assert reserve(per_branch.id, "BR_NORTH") == "GRN-BR_NORTH-2026-2027-000001"
+    assert reserve(per_branch.id, "WHL_HO") == "GRN-WHL_HO-2026-2027-000002"
