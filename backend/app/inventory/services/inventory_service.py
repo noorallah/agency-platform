@@ -1584,9 +1584,25 @@ class InventoryService:
                 remarks=data.remarks,
             ),
         )
+        # The destination sits under its own branch, which need not be the
+        # source's: moving goods between branches is the ordinary reason to
+        # transfer at all. Until 2026-09-12 the inbound leg was keyed on the
+        # request's branch, so any warehouse outside it was refused as
+        # "Warehouse does not belong to the selected branch" (plan item 8.3).
+        to_branch_id = self._session.scalar(
+            select(Warehouse.branch_id).where(
+                Warehouse.id == data.to_warehouse_id,
+                Warehouse.firm_id == firm_scope,
+                Warehouse.is_deleted.is_(False),
+            )
+        )
+        if to_branch_id is None:
+            raise ValidationError(
+                "The destination warehouse does not belong to the active firm."
+            )
         destination = self._ensure_inventory_projection(
             firm_id=firm_scope,
-            branch_id=data.branch_id,
+            branch_id=to_branch_id,
             warehouse_id=data.to_warehouse_id,
             storage_node_id=data.to_storage_node_id,
             product_id=data.product_id,
@@ -1623,6 +1639,7 @@ class InventoryService:
                 "reference_number": reference,
                 "quantity": str(base_quantity),
                 "from_warehouse_id": str(data.from_warehouse_id),
+                "to_branch_id": str(to_branch_id),
                 "to_warehouse_id": str(data.to_warehouse_id),
             },
         )
