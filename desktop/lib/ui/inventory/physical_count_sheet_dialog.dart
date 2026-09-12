@@ -408,7 +408,7 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                     SizedBox(
                       width: 260,
                       child: Text(
-                        line.productId,
+                        line.productLabel,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

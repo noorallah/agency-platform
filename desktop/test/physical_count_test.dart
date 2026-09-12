@@ -72,6 +72,8 @@ Json _line({
       'id': id,
       'line_number': int.parse(id.split('-').last),
       'product_id': 'p-$id',
+      'product_code': 'SKU-$id',
+      'product_name': 'Item $id',
       'batch_id': '',
       'expected_quantity': expected,
       'counted_quantity': counted,
@@ -282,5 +284,18 @@ void main() {
 
       expect(find.widgetWithText(FilledButton, 'Open Count'), findsNothing);
     });
+  });
+
+  testWidgets('a line names its product by code and name, never its id',
+      (tester) async {
+    // Found on the 2026-09-12 manual pass (plan item 8.4): the Product
+    // column printed the product's id, which nobody walking a shelf can
+    // read. The server sends the code and name beside it now.
+    final PhysicalCountSheet sheet = _sheet(lines: [
+      _line(id: 'l-1', expected: '10'),
+    ]);
+    await _pumpSheet(tester, _CountApi(sheets: [sheet]), sheet);
+    expect(find.text('SKU-l-1 - Item l-1'), findsOneWidget);
+    expect(find.text('p-l-1'), findsNothing);
   });
 }

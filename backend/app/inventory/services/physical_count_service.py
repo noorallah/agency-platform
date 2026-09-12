@@ -10,6 +10,7 @@ the general ledger, so a count that finds twenty missing cartons puts their
 value in the profit and loss without anybody keying a journal.
 """
 
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -38,6 +39,7 @@ from app.inventory.schemas import (
     PhysicalCountUpdate,
 )
 from app.inventory.services.inventory_service import InventoryService
+from app.products.models import Product
 
 ZERO = Decimal("0")
 
@@ -99,6 +101,26 @@ class PhysicalCountService(TransactionalDocumentService):
         if row is None:
             raise ResourceNotFoundError("Physical count not found.")
         return row
+
+    def product_labels(
+        self, *, firm_id: UUID, product_ids: Iterable[UUID]
+    ) -> dict[UUID, tuple[str, str]]:
+        """Return code and name for each product a sheet names.
+
+        A line stores the product's id; the person walking the shelf reads
+        its code and name. One query for the whole sheet rather than one per
+        line.
+        """
+        wanted = set(product_ids)
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(Product.id, Product.code, Product.name).where(
+                Product.firm_id == firm_id,
+                Product.id.in_(wanted),
+            )
+        ).all()
+        return {product_id: (code or "", name or "") for product_id, code, name in rows}
 
     def lines_for(self, count_id: UUID) -> list[PhysicalCountLine]:
         """Return the lines of one sheet, in the order they are walked."""

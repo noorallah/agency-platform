@@ -647,12 +647,28 @@ def _count_response(
         status=row.status,
         remarks=row.remarks,
         posted_at=row.posted_at,
-        lines=[
-            PhysicalCountLineResponse.model_validate(line)
-            for line in service.lines_for(row.id)
-        ],
+        lines=_count_lines(service, row),
         version=row.version,
     )
+
+
+def _count_lines(
+    service: PhysicalCountService, row: PhysicalCount
+) -> list[PhysicalCountLineResponse]:
+    """Return the sheet's lines with each product named, not only keyed."""
+    lines = service.lines_for(row.id)
+    labels = service.product_labels(
+        firm_id=row.firm_id, product_ids=[line.product_id for line in lines]
+    )
+    return [
+        PhysicalCountLineResponse.model_validate(line).model_copy(
+            update={
+                "product_code": labels.get(line.product_id, ("", ""))[0],
+                "product_name": labels.get(line.product_id, ("", ""))[1],
+            }
+        )
+        for line in lines
+    ]
 
 
 @router.post(

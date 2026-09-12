@@ -6,6 +6,8 @@ class PhysicalCountLine {
     required this.id,
     required this.lineNumber,
     required this.productId,
+    this.productCode = '',
+    this.productName = '',
     required this.batchId,
     required this.expectedQuantity,
     required this.countedQuantity,
@@ -17,7 +19,18 @@ class PhysicalCountLine {
   final String id;
   final int lineNumber;
   final String productId;
+  final String productCode;
+  final String productName;
   final String batchId;
+
+  /// How the line names its product on the sheet: code and name, the id
+  /// only when the server sent neither.
+  String get productLabel {
+    final String label = [productCode, productName]
+        .where((part) => part.isNotEmpty)
+        .join(' - ');
+    return label.isEmpty ? productId : label;
+  }
 
   /// What the system thought when the sheet was drawn up.
   ///
@@ -52,6 +65,8 @@ class PhysicalCountLine {
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
+        productCode: stringValue(json['product_code']),
+        productName: stringValue(json['product_name']),
         batchId: stringValue(json['batch_id']),
         expectedQuantity: stringValue(json['expected_quantity']),
         countedQuantity: stringValue(json['counted_quantity']),

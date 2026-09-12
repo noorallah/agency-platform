@@ -305,3 +305,21 @@ def test_a_posted_sheet_cannot_be_changed_or_posted_again() -> None:
             firm_id=books.firm.id,
             actor_id=books.actor_id,
         )
+
+
+def test_a_sheet_names_its_products_by_code_and_name() -> None:
+    """The person walking the shelf reads a code and a name, not an id.
+
+    The line stores the product's id, and the desktop printed exactly that
+    in the Product column -- found on the 2026-09-12 manual pass (plan item
+    8.4). The response carries the code and the name beside the id.
+    """
+    from app.inventory.api.router import _count_response
+
+    books = _Warehouse(_session_factory()())
+    count_id = books.sheet(None)
+    response = _count_response(
+        books.counts, books.counts.get(count_id, firm_id=books.firm.id)
+    )
+    assert [line.product_code for line in response.lines] == [books.product.code]
+    assert [line.product_name for line in response.lines] == [books.product.name]
