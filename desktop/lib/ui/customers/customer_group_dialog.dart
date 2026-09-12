@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -143,7 +144,8 @@ class _CustomerGroupDialogState extends State<CustomerGroupDialog> {
       if (!mounted) return;
       setState(() {
         // The dialog stays open, so the typing survives the refusal.
-        _error = error.message;
+        _error =
+            saveFailureMessage(error, 'customer group', changesKept: true);
         _saving = false;
       });
     }

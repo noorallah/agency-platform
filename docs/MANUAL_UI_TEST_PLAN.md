@@ -298,35 +298,39 @@ All as `whole01.admin` in WHOLE01, in order: each step feeds the next. Quotation
 
 ## 10. Pricing, promotions and incentives
 
+All as `whole01.admin` in WHOLE01. Price Lists, Promotions, Commission and Targets are tabs of the **Sales** module (a flat list); Loyalty is a tab of **Masters**; the promotion and loyalty reports are entries of **Reports → Operational Reports** or **Financial Reports** (two flat lists, no parameters). Seed facts, verified against the running backend on 2026-09-13: `STANDING` breaks 0 → 2%, 15 → 4.25%, 18 → 6.75% on DETER1K; `BULK5` has two revisions (5% to 2025-03-31, 7.5% from 2025-04-01), 34 claims across both; `BIGORDER` takes 200 off a bill of 4,500 or more and **ends the stack**; `WELCOME` is coupon-only at 2.5% with codes `WELCOME10` (4 claims) and `WELCOME10B` (never presented); the loyalty scheme gives 2 points per 100, worth 1 each, expiring after 24 months, 50 needed before spending; `whole01.sales1` is **Asha** (4% flat plus 15% of the *margin* on DETER1K) and `whole01.sales2` is **Bala** (a ladder: 2% to 50,000 then 4%, nothing below 1,000, 2% bonus when the target is met); two payouts are seeded for April to June 2026, Asha's paid and Bala's approved. On the collected basis Asha came out at **5.8%** and Bala at exactly **2.0%** on the day of writing.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 10.1 | Price lists → open `STANDING` | Three breaks on `DETER1K`: 0 / 15 / 18. |
-| 10.2 | Add a break at 25 and re-price a line of 30 | `BULK5` still wins — a promotion outranks a price list. Remove the promotion's window to see the list take effect. |
-| 10.3 | Promotions → open `BULK5` | **Two revisions.** Editing an active promotion supersedes it rather than changing it. |
-| 10.4 | Reports → Promotions → Performance | `BULK5` shows **one row** with 34 claims, not two rows of 14 and 20. |
-| 10.5 | Reports → Promotions → Coupons | `WELCOME10` has claims; `WELCOME10B` has none. Both are listed. |
-| 10.6 | Reports → Promotions → Claims | Each claim names its document and customer. |
-| 10.7 | Raise an order large enough for `BIGORDER` | `BIGORDER` applies and `CLEARANCE` does **not** — a non-stacking offer ends evaluation. |
-| 10.8 | Loyalty → a customer's balance and movements | The balance is the sum of the ledger. |
-| 10.9 | Redeem points against an invoice | The bill is **settled**, not discounted — the full GST is still charged. |
-| 10.10 | Try to redeem more than the balance | Refused outright, not trimmed. |
-| 10.11 | Loyalty → Expiring report | Points shown are what is left of each batch after spending, oldest first. |
-| 10.12 | Commission → report over the whole history, and divide commission by the collected amount | The first salesman comes out at a rate that is **neither** of the two that govern them — a blend of 15% of the **margin** on their scoped product and 4% of the *value* of everything else. It read **6.07%** on 2026-09-05; the figure moves whenever the data is reseeded, so check the shape rather than the number. |
-| 10.13 | The second salesman | Exactly **2.00%** — the bottom band of their ladder, and a round number precisely because a ladder's floor is. |
-| 10.14 | Accrue a payout, approve it, pay it | Three distinct journal references. An approved payout can be paid; the accrual cannot be paid twice. |
-| 10.15 | As `whole01.sales1`, try to approve or pay a payout | Refused. Whoever states a debt must not move the cash. |
+| 10.1 | Sales → **Price Lists**. Select `STANDING` (do not double-click yet). | The pane on the right reads `STANDING · applies to Everyone`, "In force from 2000-01-01", and under **Rates** three lines for DETER1K: `2%`, `from 15: 4.25%`, `from 18: 6.75%`. The grid's **Products** column reads 3 (it counts rate rows). |
+| 10.2 | Double-click `STANDING` (or the row's pencil) → **Add product**: Product `DETER1K`, **From qty** 25, **Discount %** 8, **Save**. Then Quotations → New Quotation for `WHOLE01C01`, `DETER1K` qty 30, Create draft, Revise to read the helper. Afterwards remove the 25 break again. | Toast "Price list saved." The quotation still reads "Last priced at **7.5**% by a promotion": `BULK5` outranks the list at 25 and above. *(To see the list take effect, Promotions → BULK5 revision 2 → Edit → set **Until** to yesterday → Save; then the same quotation reads 8% by the price list. Put the window back afterwards -- note that editing an active offer makes a new revision.)* |
+| 10.3 | Sales → **Promotions** (Offers). | `BULK5` appears as **two rows**: Gives `5% off the line` In force `2024-04-01 to 2025-03-31`, and `7.5% off the line` `From 2025-04-01`. Select the second: the pane reads "BULK5 · revision 2 · applies at 10" and "Applies when: line_quantity GREATER_OR_EQUAL 25". Edit it, change nothing but the Description, Save: toast "Promotion BULK5 saved as a new revision; the one you opened is now inactive." and a third BULK5 row appears -- an active offer is superseded, never rewritten. |
+| 10.4 | Reports → **Operational Reports** → **Promotion performance**. | One row per offer: `BULK5` with Version count **2**, Claimed count **34**, Benefit amount, Customer count 4 -- the two revisions collapsed to one row. `WELCOME` and `BIGORDER` and `CLEARANCE` each on one row too. |
+| 10.5 | Reports → Operational Reports → **Coupon performance**. | Two rows: `WELCOME10` (promotion WELCOME) with Claimed count 4, and `WELCOME10B` with 0 -- listed although nothing ever presented it. |
+| 10.6 | Reports → Operational Reports → **Promotion claims**. | One row per claim with Promotion code, Coupon code, Customer name, Document type (always SALES_ORDER -- only orders claim), Document number, Redeemed on, Benefit amount and Status (CLAIMED / PENDING / REVERSED). Your 9.7 order is here as `SO-...` with coupon WELCOME10. |
+| 10.7 | Sales Orders → New Order for `WHOLE01C01`: `DETER1K` qty **60** at 84 (gross 5,040), Create draft, Edit to read. | Under the line's blank box "Last priced at **7.5**% by a promotion" (BULK5, not CLEARANCE's 1% at 40+: promotions apply in priority order and BULK5 is first), and **Discount on the whole order** shows 200 -- `BIGORDER` took the bill. `CLEARANCE` (priority 30) did **not** apply: BIGORDER (priority 20) ends the stack. Cancel the order afterwards. |
+| 10.8 | Masters → **Loyalty**. Then Reports → Financial Reports → **Loyalty balances**. | The Loyalty page shows the scheme banner ("2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent.") and the ledger (On, Customer, Why, Against, Points, Worth, Expires). The balances report lists each customer's Points and Amount; Anand Agencies and Classic Departmental Stores hold the most. Pick one and add up its EARNED/REDEEMED/EXPIRED rows in Reports → Operational → **Loyalty movements**: the sum is the balance. |
+| 10.9 | Sales Invoices → select an APPROVED invoice of `WHOLE01C02` (Anand Agencies, ~1,300 points) with something still owed → **Use points**: in "Use points on SI-..." type 100 → **Use them**. | Toast "100 points used on SI-...". Finance → Journal Entries: `LOY-RED-SI-...` posts Dr Loyalty Payable / Cr Accounts Receivable. The invoice's Outstanding fell by 100; its Grand Total and tax are unchanged -- the bill is **settled**, not discounted. |
+| 10.10 | **Use points** again on the same invoice, type a number larger than the balance → **Use them**. | Refused outright, not trimmed: "That customer holds N points, not M." |
+| 10.11 | Reports → Operational Reports → **Points about to lapse**. | Rows per unspent batch within 90 days -- Customer name, Points (what is *left* of the batch after spending), Amount, Earned on, Expires on, Days remaining -- ordered by expiry then customer. |
+| 10.12 | Sales → **Commission** → **Collected** view: Collected from `2024-04-01` to today, **Show**. Divide each salesman's Commission by their Collected. | Asha's rate is **neither** of the two that govern her: a blend of 15% of the margin on DETER1K and 4% of the value of everything else (5.8% on 2026-09-13; it moves with the data, so check the shape). Her Paid on reads "Money collected", Target "Met". |
+| 10.13 | Same report, Bala. | Exactly **2.00%** -- the bottom band of his ladder; a round number precisely because a ladder's floor is. Target "Missed". |
+| 10.14 | Commission → **Payouts** view. Then **Accrue period** From `2025-05-01` To `2025-05-31`, **Accrue**. On Bala's new DRAFT row click **Approve**, then **Pay** (Paid on today, Paid from the cash account, **Record payment**). Cancel Asha's draft. | Toast "2 payout(s) accrued as drafts." Approve toast "Bala (WHOLE01 Sales) — approved. The cost and the debt are on the ledger."; Pay toast "... — paid." Finance → Journal Entries shows three references for that payout: `COMM-202505-<id>`, `COMM-202505-<id>-PAY`, and on a cancelled one `-REV`. Pay on a DRAFT is not offered; **(HTTP)** paying it answers 422 "Only an approved payout can be paid...". Accruing May 2025 again is refused: "A commission payout already covers part of that period for this salesman (2025-05-01 to 2025-05-31)." |
+| 10.15 | Sign in as `whole01.sales1@agency.local`. | **Commission is not in the sidebar at all** -- a SALES_EXECUTIVE holds no COMMISSION_VIEW. **(HTTP)** with that token, `POST /api/v1/commission/payouts/{id}/approve` and `/pay` answer **403**. Whoever states a debt must not move the cash. |
 
 ## 11. Territory, routes and beats
 
+All as `whole01.admin`. Geography, Route Types, Beat Plans, Call Lists, Coverage and Route Builder are tabs of **Sales**. Seed: `WHOLE01-RGN` Chennai Region → `WHOLE01-T-N` North Zone and `WHOLE01-T-S` South Zone → routes `WHOLE01-R-N1` North Sales Beat (Mon/Wed/Fri, Asha, Vijaya), `WHOLE01-R-N2` North Collections (Tue/Thu, Bala, Anand), `WHOLE01-R-S1` South Sales Beat (Tue/Thu, Asha, Classic). Beat plans: one weekly plan per working day per route (`WHOLE01-BP-R1-MON`, `-R1-WED`, `-R1-FRI`, `-R2-TUE`, `-R2-THU`, `-R3-TUE`, `-R3-THU`), `WHOLE01-BP-COLL` fortnightly on Tuesdays from 2026-04-07, and `WHOLE01-BP-MTH` monthly on the 2nd Tuesday.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 11.1 | Territories → the hierarchy | Region → zone → route, three routes under two zones. |
-| 11.2 | Open route `WHOLE01-R-N1` → working days | Monday, Wednesday, Friday. |
-| 11.3 | Call lists → pick a Monday | `WHOLE01-BP-R1-MON` is due with its stops. The Friday plan is listed and **not** due, with a reason. |
-| 11.4 | Pick the second Tuesday of a month | The weekly, the fortnightly and the monthly plan are all due. |
-| 11.5 | Route → customers, drag one shop above another, save | Both stop numbers change. No collision. |
-| 11.6 | Open a route, let the shop list load, then save without changing anything | The list is unchanged. (This screen **replaces** the whole list, so it must prove it read it first.) |
-| 11.7 | Assign a salesman who does not cover a customer's territory | Refused, naming the reason. |
+| 11.1 | Sales → **Geography**. Select any row: the right-hand **Territory tree** panel. **Expand all**. | Chennai Region (REGION) → North Zone and South Zone (TERRITORY) → the three routes (ROUTE). The grid's Hierarchy column carries the full path for every row. |
+| 11.2 | Double-click `WHOLE01-R-N1` → **Details** tab. | Section **Route**: Route type SALES, Visit frequency WEEKLY, **Working days** `Mon, Wed, Fri`, Runs from Always, Runs until No end. |
+| 11.3 | Sales → **Call Lists**. Use ‹ › or the date button to land on a **Monday**, Salesperson **Everyone**. | Status bar "N of 9 plan(s) run on <date>". `WHOLE01-BP-R1-MON` is badged **Runs today** with its stops (Vijaya Super Stores). `WHOLE01-BP-R1-FRI` is badged **Not today** and reads "Runs on Fridays; this is a Monday." -- every plan that is not due says why. |
+| 11.4 | Pick **2027-01-12** (a second Tuesday that is also an even fortnight from 2026-04-07; 2026-09-08 was the last such day). | `WHOLE01-BP-R2-TUE`, `WHOLE01-BP-R3-TUE`, the fortnightly `WHOLE01-BP-COLL` and the monthly `WHOLE01-BP-MTH` all read **Runs today**. On 2026-10-13 (a second Tuesday in an odd fortnight) COLL reads Not today. |
+| 11.5 | Sales → **Route Builder**: Route being built `WHOLE01-R-N1`. Double-click two outlets from the left (e.g. `WHOLE01C02` and `WHOLE01C03`) to add them, drag the last stop above the first, **Save round and order**. | Toast "3 outlet(s) on North Sales Beat, in order." Reopen the route: the stop numbers follow the new order and nothing collided. Remove the two added outlets afterwards (✕ **Remove from round**, Save). |
+| 11.6 | Route Builder: choose `WHOLE01-R-N1`, let the round load on the right, change nothing, **Save round and order**. | Toast for the same list; reopening shows it unchanged. The status bar says "Saving replaces the whole round with the list on the right." -- which is why the screen clears the panel before reading and refuses to save a round it could not read ("This round could not be read, so it cannot be saved over."). |
+| 11.7 | Sales Orders → **New Order** for `WHOLE01C02` (Anand, on North Collections, covered by Bala): **Salesman** `Asha`, one line `DETER1K` qty 1, **Create draft**. | Refused, in the editor: "The selected salesperson is not assigned to this territory." Choosing Bala saves; leaving Salesman blank saves and the customer's round supplies Bala. |
 
 ## 12. Compliance
 
@@ -372,30 +376,29 @@ As `whole01.admin` unless a row says otherwise. Finance is a flat list of tabs; 
 
 ## 14. Concurrency and two machines
 
-Run these with two clients pointed at one server, or two windows.
+Run these with two clients pointed at one server (or two windows of one client; the second `Start-Process` launch is a second client). Sign both in as `whole01.admin`. Every editor that sends a version shows the **same** sentence on a lost race, `Somebody else saved this <thing> while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs.` -- and keeps the dialog open with the typing in it. Until 2026-09-13 six of them (price list, promotion, customer group, sales invoice, target, packaging level) showed the server's generic "The request conflicts with existing data. Please retry." instead. Server-side facts: driven on 2026-09-13, a second approval of one order and a second accrual of one payout period were both refused rather than answered with a 500, and an unchanged save left the version where it was.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 14.1 | Open the same customer on both, save on A, then save on B | B is refused with a conflict message, and **keeps what was typed**. |
-| 14.2 | The same for a sales order, a product and a price list | Same behaviour. |
-| 14.3 | Save a record twice with no change in between | Accepted both times. An unchanged save must not move the version. |
-| 14.4 | Approve the same sales order on both clients at once | One succeeds; the other is refused by name. |
-| 14.5 | Both approve documents claiming the last redemption of an offer | The loser is **refused**, not silently repriced. |
-| 14.6 | Two clients accrue a commission payout for one salesman and period | One succeeds; the other is refused by name, not with a 500. |
+| 14.1 | On **A** and **B**: Customers → Customers → double-click `WHOLE01C03` (Classic Departmental Stores). On A change the phone, **Save**. On B change the phone to something else, **Save**. | A saves ("Customer updated."). B is refused **inside the editor** with the sentence above naming `customer`, the dialog stays open, B's typed phone is still in the box. Cancel B; reopen: A's phone is there. |
+| 14.2 | The same on a **sales order** (Sales → Sales Orders, any DRAFT, edit the Notes on both), a **product** (Masters → Products, edit the description) and a **price list** (Sales → Price Lists, double-click `STANDING`, edit the Description). | B refused each time with the sentence naming `sales order`, `product`, `price list`; typing kept, dialog open. |
+| 14.3 | On A alone: double-click `WHOLE01C03`, change nothing, **Save**. Then double-click again, **Save** again. **(HTTP)** `GET /api/v1/customers/{id}` twice around it and compare the `ETag`. | Accepted both times. The `ETag` (and `version` in the body) is **the same before and after** -- an unchanged save must not move the version, so a client re-sending the same `If-Match` is still accepted. |
+| 14.4 | On A and B: Sales → Sales Orders, select the same DRAFT order in both grids. **Approve** on A (confirm). Then **Approve** on B, whose grid still says DRAFT. | A: the grid reloads and the row reads APPROVED (there is no success toast on this page). B: a red toast, either "Only draft sales orders can be approved." (A finished first) or the conflict sentence (both in flight); never a silent no-op and never a 500. Refresh B: APPROVED once. |
+| 14.5 | Both clients approve a document that would claim the **last** redemption of an offer. | Covered by `test_the_refusal_is_for_the_race_two_orders_priced_before_either_approved` in `backend/tests/unit/test_promotions.py`: the loser is **refused by name**, not silently repriced. To see it by hand: Promotions → `WELCOME` → Edit → **Max redemptions** = claimed + 1 → Save (a new revision), raise two orders for `WHOLE01C01` with coupon `WELCOME10`, approve both: the second is refused naming the offer. Put the limit back afterwards. |
+| 14.6 | On A and B: Sales → Commission → **Payouts** → **Accrue period** From `2025-06-01` To `2025-06-30` on both, **Accrue** on A then on B. | A: "2 payout(s) accrued as drafts." B: "A commission payout already covers part of that period for this salesman (2025-06-01 to 2025-06-30)." -- a 409 by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`), the service supplies the sentence. **Cancel** the four drafts afterwards so the period is free again. |
 
 ## 15. Permissions
 
-Use `whole01.sales1` for every refusal case. The point is that the **server**
-refuses, not merely that the button is hidden.
+Sign in as `whole01.sales1@agency.local` (Asha, `SALES_EXECUTIVE`: `CUSTOMER_VIEW`, `TERRITORY_VIEW`, `SALES_VIEW` and the three `SALES_*_CREATE` codes -- nothing else). The point is that the **server** refuses, not merely that the button is hidden: every refusal below was driven over HTTP with this user's token on 2026-09-13 and answered `403`. To drive them yourself, sign in with `POST /api/v1/auth/login` (see the appendix) and send `X-Firm-ID: 30c66274-60e9-4789-97d9-138a7a1fdc61`.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 15.1 | Numbering series | Read-only. No New / Edit / Retire. |
-| 15.2 | Customer credit settings | Not offered. The role the limit constrains must not be able to switch it off. |
-| 15.3 | Commission → approve or pay a payout | Not offered, and refused if forced. |
-| 15.4 | Credit note → approve | Not offered. Drafting is bookkeeping; approving reverses a declared tax. |
-| 15.5 | TCS settings | Not offered. |
-| 15.6 **(HTTP)** | Call each of the above endpoints directly with this user's token | `403` every time. A hidden button is not a control. |
+| 15.1 | Look for **Administration** in the sidebar, and Numbering Series under it. | **Administration is not offered at all** -- Numbering Series needs `SETTINGS_VIEW`, which Asha lacks, and so does every other tab of that module. **(HTTP)** `GET /api/v1/document-framework/numbering-rules` → `403`; `PUT .../numbering-rules/{id}` → `403`. |
+| 15.2 | Customers → Customers → **Settings** (the credit-policy button on the toolbar). | The dialog **opens read-only**: the fields are disabled, **Save** is greyed and a notice reads "Changing the policy needs the manage customer settings permission." Somebody the policy warns may read the rule behind the warning. **(HTTP)** `PUT /api/v1/customers/credit-settings` → `403`. |
+| 15.3 | Look for **Commission** under Sales. | **Not in the sidebar** (`COMMISSION_VIEW` missing). **(HTTP)** `POST /api/v1/commission/payouts/{id}/approve` and `.../pay` (any seeded payout id from the admin's Payouts view) → `403`. |
+| 15.4 | Look for **Credit Notes** under Sales. | **Not offered** (`CREDIT_NOTE_VIEW` missing). **(HTTP)** `POST /api/v1/credit-notes/{id}/approve` → `403`. Drafting is bookkeeping; approving reverses a declared tax. |
+| 15.5 | Look for **TCS** under Sales. | **Not offered** (`TCS_VIEW` missing). **(HTTP)** `PUT /api/v1/tcs/settings` → `403`. |
+| 15.6 **(HTTP)** | Call all six endpoints above with Asha's token. | `403` every time, body `{"success": false, "error": {"code": "authorization_denied", ...}}`. A hidden button is not a control. |
 
 ## 16. Who a user is — the four tiers
 

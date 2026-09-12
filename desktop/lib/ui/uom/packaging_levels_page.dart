@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
@@ -467,7 +468,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.message;
+        _error =
+            saveFailureMessage(error, 'packaging level', changesKept: true);
         _saving = false;
       });
     }

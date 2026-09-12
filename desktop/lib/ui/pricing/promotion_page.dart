@@ -177,7 +177,21 @@ class _PromotionPageState extends State<PromotionPage> {
       context: context,
       builder: (_) => PromotionDialog(api: widget.api, existing: existing),
     );
-    if (saved ?? false) unawaited(_load());
+    if (!(saved ?? false)) return;
+    if (!mounted) return;
+    // An active offer is superseded rather than changed, and nothing on
+    // screen said so: the only sign was a second row after Refresh.
+    NotificationService.show(
+      context,
+      existing == null
+          ? 'Promotion created.'
+          : existing.status == 'DRAFT'
+              ? 'Promotion ${existing.code} saved.'
+              : 'Promotion ${existing.code} saved as a new revision; the one '
+                  'you opened is now inactive.',
+      kind: AppNotificationKind.success,
+    );
+    unawaited(_load());
   }
 
   Future<void> _delete(PromotionRecord row) async {
@@ -309,6 +323,8 @@ class _PromotionPageState extends State<PromotionPage> {
       ],
       onSelect: (row) => setState(() => _selected = row),
       onPageChanged: (page) => unawaited(_load(requestedPage: page)),
+      // Double-click edits, as the coupon grid beside it already did.
+      onOpen: _mayManage ? (row) => unawaited(_edit(existing: row)) : null,
       contextActions: const [
         WorkspaceContextAction.edit,
         WorkspaceContextAction.delete,

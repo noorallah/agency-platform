@@ -2181,26 +2181,20 @@ each is a decision or a small feature rather than a broken behaviour.
   customer filter and no balance column, though the API has both
   (`loyaltyEntries(customerId:)`, `GET /loyalty/{customer_id}`). The
   balances report is the route today.
-- **The price-list detail pane hides the break quantity**, so STANDING
-  reads as three identical product lines at 2 / 4.25 / 6.75 percent; the
-  grid's Products column counts rate rows, not products. Territory-scoped
-  lists cannot be created from the desktop (the third segment prints a
-  sentence).
-- **Promotions: no toast on create or edit**, so the only sign that an
-  edit superseded an active offer is a second row after Refresh; the
-  details pane prints conditions raw (`line_quantity GREATER_OR_EQUAL
-  25`); a condition on a product, customer, territory or route is typed
-  as a bare id.
+- **The price-list grid's Products column counts rate rows, not
+  products**, and territory-scoped lists cannot be created from the desktop
+  (the third segment prints a sentence). *(The pane now says where each
+  break starts, and double-click edits -- 2026-09-13.)*
+- **Promotions: the details pane prints conditions raw**
+  (`line_quantity GREATER_OR_EQUAL 25`), and a condition on a product,
+  customer, territory or route is typed as a bare id. *(The missing save
+  toast -- "saved as a new revision; the one you opened is now inactive"
+  -- and double-click to edit landed 2026-09-13.)*
 - **Targets cannot be set for a person from the desktop** -- the dialog
   sends no `salesman_id`, so every desktop-made target is "Whole firm".
-- **A call list's "Not today" carries no reason for the ordinary case**
-  (weekday mismatch); only window and configuration cases produce a
-  sentence.
-- **The seeder never gives a beat plan explicit stops**: it looks for
-  `<FIRM>-BP-MON` where the codes are `<FIRM>-BP-R1-MON`, so every call
-  list falls back to the route's customers and the 20-minute durations
-  are never seen. One-line fix in `seed_multi_firm_demo.py`, visible after
-  a reseed.
+- *(Closed 2026-09-13: a call list's "Not today" now says "Runs on
+  Fridays; this is a Monday.", and the seeder looks for `<FIRM>-BP-R1-MON`
+  so the Monday plan gets its explicit stops -- visible after a reseed.)*
 - **The commission collections report and the targets achievement report
   are not in the report catalogue**; they exist only as their own
   screens, and the catalogue guard polices `/reports/` paths only.

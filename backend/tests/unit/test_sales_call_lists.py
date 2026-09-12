@@ -535,3 +535,38 @@ def test_a_route_with_no_working_days_runs_whenever_its_plan_says() -> None:
     _plan(service, firm.id, actor, route, "MON")
 
     assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries[0].occurs
+
+
+def test_a_round_that_is_not_due_says_which_day_it_runs_on() -> None:
+    """The ordinary reason -- wrong day -- is said, not left blank.
+
+    A weekly Friday plan looked at on a Monday used to report no reason at
+    all, so the call list showed "Not today" and nothing else, while the
+    mis-configured cases each had a sentence (mapping section 11,
+    2026-09-13). The same day-name sentence covers weekly, fortnightly and
+    monthly plans.
+    """
+    from datetime import date
+
+    from app.sales.models.territory import BeatPlan
+    from app.sales.services.territory_service import (
+        SalesTerritoryService,
+        _wrong_day,
+    )
+
+    monday = date(2026, 9, 14)
+    assert _wrong_day(5, monday) == "Runs on Fridays; this is a Monday."
+    service = SalesTerritoryService.__new__(SalesTerritoryService)
+    weekly = BeatPlan(plan_type="WEEKLY", weekday=5)
+    assert service._occurs_on(weekly, monday) == (
+        False,
+        "Runs on Fridays; this is a Monday.",
+    )
+    assert service._occurs_on(weekly, date(2026, 9, 18)) == (True, None)
+    tuesday = "Runs on Tuesdays; this is a Monday."
+    fortnightly = BeatPlan(
+        plan_type="FORTNIGHTLY", weekday=2, starts_on=date(2026, 4, 7)
+    )
+    assert service._occurs_on(fortnightly, monday)[1] == tuesday
+    monthly = BeatPlan(plan_type="MONTHLY", weekday=2, week_of_month=2)
+    assert service._occurs_on(monthly, monday)[1] == tuesday

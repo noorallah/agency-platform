@@ -230,6 +230,8 @@ class _PriceListPageState extends State<PriceListPage> {
       ],
       onSelect: (row) => setState(() => _selected = row),
       onPageChanged: (page) => unawaited(_load(requestedPage: page)),
+      // Double-click edits, as on every other grid; it did nothing here.
+      onOpen: _mayManage ? (row) => unawaited(_edit(existing: row)) : null,
       contextActions: const [
         WorkspaceContextAction.edit,
         WorkspaceContextAction.delete,
@@ -272,7 +274,13 @@ class _PriceListPageState extends State<PriceListPage> {
               child: Row(
                 children: [
                   Expanded(child: Text(item.label)),
-                  Text('${item.discountPercent}%'),
+                  // The break the rate starts at, or the ladder reads as three
+                  // identical lines at different rates (mapping section 10).
+                  Text(
+                    (double.tryParse(item.minQuantity) ?? 0) > 0
+                        ? 'from ${item.minQuantity}: ${item.discountPercent}%'
+                        : '${item.discountPercent}%',
+                  ),
                 ],
               ),
             ),

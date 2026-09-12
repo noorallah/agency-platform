@@ -393,9 +393,15 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
+      // The server's 409 sentence is generic; the dialog says what a
+      // conflict means for the typing still on screen.
+      expect(
+        find.textContaining('Somebody else saved this invoice'),
+        findsOneWidget,
+      );
       expect(
         find.text('This invoice was changed by somebody else.'),
-        findsOneWidget,
+        findsNothing,
       );
     });
 
