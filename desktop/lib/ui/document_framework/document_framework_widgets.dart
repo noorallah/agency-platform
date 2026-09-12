@@ -178,6 +178,42 @@ class EnterpriseDocumentHeader extends StatelessWidget {
       );
 }
 
+/// A sideways scroll with a scrollbar that is always visible.
+///
+/// Owns the controller both halves need; a [Scrollbar] over a scroll view
+/// that is not the primary one must share a controller with it.
+class DocumentLinesScroller extends StatefulWidget {
+  const DocumentLinesScroller({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<DocumentLinesScroller> createState() => _DocumentLinesScrollerState();
+}
+
+class _DocumentLinesScrollerState extends State<DocumentLinesScroller> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scrollbar(
+        controller: _controller,
+        thumbVisibility: true,
+        trackVisibility: true,
+        child: SingleChildScrollView(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: widget.child,
+        ),
+      );
+}
+
 class EnterpriseDocumentLines extends StatelessWidget {
   const EnterpriseDocumentLines({
     super.key,
@@ -223,8 +259,10 @@ class EnterpriseDocumentLines extends StatelessWidget {
                   child: Text('No document lines.'),
                 )
               else
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                // Thirteen columns are wider than any dialog, and a sideways
+                // scroll with no bar is invisible to a mouse: the table read
+                // as cut off. The bar is always shown.
+                DocumentLinesScroller(
                   child: DataTable(
                     columns: [
                       const DataColumn(label: Text('#')),

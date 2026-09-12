@@ -1888,7 +1888,15 @@ owner asked for dropdowns as soon as 6.8 sent them there. Both are unit
 dropdowns by code now, defaulted from the product the moment it is
 chosen, with a blank left blank rather than the first unit chosen
 silently, and a unit the line names that is not in the list kept
-selectable as itself. `purchase_ux_test.dart` drives it.
+selectable as itself. `purchase_ux_test.dart` drives it. Two more from
+the same screen, minutes later: the order **view** printed the unit's id
+in its lines table (it shows the code now), and the table -- thirteen
+columns, scrolling sideways with no bar -- read as not displaying at all
+on a mouse-driven desktop. `DocumentLinesScroller` keeps the bar visible,
+for every document view that uses `EnterpriseDocumentLines`. The other
+document views (delivery note, goods receipt, purchase invoice, purchase
+return) still hand the table a unit **id** -- the same fix per screen,
+under §31.3.
 
 ## 32. Seed a standard India geography master into every firm store
 
