@@ -1861,6 +1861,37 @@ export back through the write schema. The territory export still writes
 on each round; left as it is, since building that column needs a customer
 lookup per row and nobody has asked for it yet.
 
+### 31.6 A refused save reported as saved (2026-09-12, plan item 6.5) -- fixed the same day
+
+**Seen.** Editing the WHOLESALE business profile as `master.ops` and
+ticking `IMEI` in Enabled features: the owner reported "it saved". The
+server log said otherwise -- `PUT .../profiles/{id}` 200, then
+`PUT .../profiles/{id}/features` 422 with "These features are not
+implemented yet and cannot be enabled: IMEI." -- and the profile carries
+no IMEI.
+
+**Why.** `ResourceManagementPage` writes a record in two requests, the
+record's own fields and then its assignments, and on an edit the first
+had already gone through when the second was refused. The dialog stayed
+open with the refusal in the validation summary at the top of the form,
+while the features picker somebody had just used sits at the foot of a
+long form, out of view -- so the refusal was easy to miss and the grid,
+once the dialog was closed, showed a profile whose details had indeed
+been written.
+
+**Done.** On an edit the assignments are written **first**, so a refusal
+leaves the record untouched and "not saved" is true; on a create the
+record must exist before anything attaches to it, and the create
+checkpoint stops a retry creating it twice. The form scrolls back to the
+summary when it shows a refusal. `save_refusal_keeps_the_record_test.dart`
+pins both: a refused edit makes no update call, a refused create is not
+created twice.
+
+**Still open.** The Enabled features picker shows nothing to mark the six
+roadmap features as unimplemented, so the only way to learn is to be
+refused on save. The catalogue carries `is_implemented`; the picker could
+grey those out or label them.
+
 ### 31.9 A purchase invoice cannot be raised from the desktop (2026-09-12, plan item 7.8)
 
 **Seen.** Writing the steps for 7.8 ("raise a purchase invoice against a
@@ -1881,6 +1912,7 @@ goods receipt (the twin of the Purchase Returns dialog, which picks the
 same thing), seeds the lines from it, takes the supplier's invoice number
 and date, and posts through the existing create route. Until then the
 plan's 7.8 uses a seeded invoice, and 7.11 pays a seeded bill.
+
 
 ## 32. Seed a standard India geography master into every firm store
 
