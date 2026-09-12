@@ -9,6 +9,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/purchase.dart';
 import 'package:agency_desktop/models/tax_framework.dart';
+import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/purchases/purchase_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
@@ -291,6 +292,64 @@ void main() {
     expect(find.text('Save the order before it can be sent for approval.'),
         findsOneWidget);
   });
+
+  testWidgets('a line names its units by code, not by id', (tester) async {
+    // Raised from manual testing at 6.8: the line editor had text boxes
+    // labelled "Purchase UOM ID" and "Inventory UOM ID", so a line in any
+    // unit but the product's default meant pasting a UUID.
+    _setDesktopSurface(tester);
+    final Directory temp =
+        Directory.systemTemp.createTempSync('purchase-units-test');
+    final DesktopPreferencesService preferences =
+        DesktopPreferencesService(directory: temp);
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': ['PURCHASE_VIEW', 'PURCHASE_CREATE'],
+      }));
+    final _PurchaseApi api = _PurchaseApi();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PurchaseManagementPage(
+            api: api,
+            preferences: preferences,
+            permissions: permissions,
+            hasActiveFirm: true,
+            section: PurchaseSection.purchaseOrders,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Line'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Purchase UOM ID'), findsNothing);
+    expect(find.text('Inventory UOM ID'), findsNothing);
+    expect(find.text('Purchase UOM'), findsOneWidget);
+    expect(find.text('Inventory UOM'), findsOneWidget);
+
+    // Nothing chosen yet, and nothing chosen silently.
+    expect(find.text('— choose —'), findsNWidgets(2));
+
+    final Finder purchaseUnit = find.ancestor(
+      of: find.text('— choose —').first,
+      matching: find.byType(DropdownButtonFormField<String>),
+    );
+    await tester.ensureVisible(purchaseUnit);
+    await tester.pumpAndSettle();
+    await tester.tap(purchaseUnit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('PACK — Pack').last);
+    await tester.pumpAndSettle();
+    expect(find.text('PACK — Pack'), findsOneWidget);
+    expect(find.text('— choose —'), findsOneWidget);
+  });
 }
 
 /// Double-click the seeded row, which is how the workspace opens a document.
@@ -488,6 +547,27 @@ class _PurchaseApi extends ApiClient {
     ProductQuery filters = const ProductQuery(),
   }) async =>
       const PagedResult(items: [_product], total: 1);
+
+  int uomCalls = 0;
+
+  @override
+  Future<List<UomRecord>> uoms({bool includeInactive = false}) async {
+    uomCalls++;
+    return <UomRecord>[
+        UomRecord.fromJson(<String, dynamic>{
+          'id': 'u-pack',
+          'code': 'PACK',
+          'name': 'Pack',
+          'status': 'ACTIVE',
+        }),
+        UomRecord.fromJson(<String, dynamic>{
+          'id': 'u-kg',
+          'code': 'KG',
+          'name': 'Kilogram',
+          'status': 'ACTIVE',
+        }),
+      ];
+  }
 
   @override
   Future<PagedResult<PlatformUser>> users({
