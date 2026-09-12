@@ -872,7 +872,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                     value: _customerId,
                     options: <({String id, String label})>[
                       for (final Customer item in _customers)
-                        (id: item.id, label: item.displayName),
+                        (id: item.id, label: '${item.code} - ${item.displayName}'),
                     ],
                     // Fixed while correcting: an order for a different shop is
                     // a different order, and its credit was checked against
@@ -913,7 +913,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                     value: _branchId,
                     options: <({String id, String label})>[
                       for (final BranchRecord item in _branches)
-                        (id: item.id, label: item.displayName),
+                        (id: item.id, label: '${item.code} - ${item.displayName}'),
                     ],
                     onChanged: (String? value) =>
                         setState(() => _branchId = value),
@@ -929,7 +929,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                     value: _warehouseId,
                     options: <({String id, String label})>[
                       for (final WarehouseRecord item in _warehouses)
-                        (id: item.id, label: item.displayName),
+                        (id: item.id, label: '${item.code} - ${item.displayName}'),
                     ],
                     onChanged: (String? value) =>
                         setState(() => _warehouseId = value),

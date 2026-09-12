@@ -206,7 +206,8 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                         for (final WarehouseRecord item in widget.warehouses)
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text(item.displayName, overflow: TextOverflow.ellipsis),
+                            child: Text('${item.code} - ${item.displayName}',
+                                overflow: TextOverflow.ellipsis),
                           ),
                       ],
                       validator: (value) =>

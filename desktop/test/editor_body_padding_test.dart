@@ -62,5 +62,12 @@ void main() {
     expect(customer.left - form.left, greaterThanOrEqualTo(16));
     expect(customer.top - form.top, greaterThanOrEqualTo(16));
     expect(form.right - customer.right, greaterThanOrEqualTo(16));
+
+    // And a customer is offered by code and name, the way every other
+    // picker names its rows: the plan says WHOLE01C01, the list said only
+    // "Vijaya Super Stores" (plan item 9.1).
+    await tester.tap(find.text('Customer'));
+    await tester.pumpAndSettle();
+    expect(find.text('WHOLE01C01 - Vijaya Super Stores'), findsWidgets);
   });
 }

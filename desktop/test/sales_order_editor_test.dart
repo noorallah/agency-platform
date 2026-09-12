@@ -225,7 +225,9 @@ Future<bool?> _pump(
 Future<void> _choose(WidgetTester tester, String key, String label) async {
   await tester.tap(find.byKey(ValueKey<String>(key)));
   await tester.pumpAndSettle();
-  await tester.tap(find.text(label).last);
+  // Pickers read `CODE - Name`; the tests name the row by the part a
+  // person remembers.
+  await tester.tap(find.textContaining(label).last);
   await tester.pumpAndSettle();
 }
 
