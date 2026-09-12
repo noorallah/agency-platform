@@ -837,3 +837,40 @@ def test_a_converted_order_carries_the_deal_not_the_shares() -> None:
     )
     assert line is not None
     assert line.bill_discount_amount == Decimal("40.0000")
+
+
+def test_a_line_records_where_its_rate_came_from() -> None:
+    """Typed and resolved rates look alike on the line; the source tells them apart.
+
+    A revision keeps a rate somebody typed and prices an inherited one
+    afresh, which needs the document to say which it was. Found on the
+    2026-09-13 manual pass (plan item 9.2): the desktop re-sent every stored
+    rate as typed, so a line moved from 12 to 18 units kept the 2% of the
+    first ladder step instead of taking the 6.75% of the third.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.customer.default_discount_percent = Decimal("10")
+    session.commit()
+
+    inherited = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    typed = setup.service.create_quotation(
+        setup.payload(discount_percent=Decimal("4")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    sources = {
+        row.id: [
+            line.discount_source
+            for line in session.scalars(
+                select(SalesQuotationLine).where(
+                    SalesQuotationLine.sales_quotation_id == row.id
+                )
+            )
+        ]
+        for row in (inherited, typed)
+    }
+    assert sources[inherited.id] == ["customer"]
+    assert sources[typed.id] == ["percent"]

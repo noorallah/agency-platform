@@ -215,6 +215,13 @@ class SalesOrderLine(BaseEntity):
     discount_percent: Mapped[Decimal] = mapped_column(
         Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Where the rate came from -- ``percent``/``amount`` when it was typed,
+    #: ``promotion``/``price_list``/``customer``/``customer_group`` when the
+    #: server resolved it, ``none`` when nothing applied. An editor reopening
+    #: the line keeps a typed rate and re-resolves an inherited one; without
+    #: this it re-sent every rate as typed, and a ladder never moved with
+    #: the quantity (plan item 9.2, 2026-09-13).
+    discount_source: Mapped[str | None] = mapped_column(String(20))
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

@@ -10,6 +10,7 @@ class QuotationLine {
     required this.quantity,
     required this.unitPrice,
     required this.discountPercent,
+    this.discountSource = '',
     this.freeQuantity = '0',
     required this.discountAmount,
     required this.taxAmount,
@@ -32,6 +33,10 @@ class QuotationLine {
   /// line silently re-sent it at full price.
   final String discountPercent;
 
+  /// `percent`/`amount` when typed, else where the server resolved it from;
+  /// empty for a line stored before the source was recorded.
+  final String discountSource;
+
   /// Thrown in with this line, charged for at nothing.
   final String freeQuantity;
   final String discountAmount;
@@ -47,6 +52,7 @@ class QuotationLine {
         quantity: stringValue(json['quantity']),
         unitPrice: stringValue(json['unit_price']),
         discountPercent: stringValue(json['discount_percent']),
+        discountSource: stringValue(json['discount_source']),
         freeQuantity: stringValue(json['free_quantity']).isEmpty
             ? '0'
             : stringValue(json['free_quantity']),

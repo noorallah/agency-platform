@@ -70,6 +70,7 @@ Json _draft({String status = 'DRAFT', int version = 6}) => <String, dynamic>{
           'free_quantity': '0',
           'unit_price': '95',
           'discount_percent': '0',
+          'discount_source': 'percent',
           'discount_amount': '0',
         },
       ],

@@ -207,6 +207,8 @@ class SalesOrderLineResponse(SalesOrderSchema):
     conversion_version: int | None
     unit_price: Decimal
     discount_percent: Decimal
+    #: See the line model: typed (``percent``/``amount``) or resolved.
+    discount_source: str | None = None
     discount_amount: Decimal
     gross_amount: Decimal
     tax_profile_id: UUID | None
