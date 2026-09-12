@@ -350,6 +350,17 @@ void main() {
     expect(find.text('PACK — Pack'), findsOneWidget);
     expect(find.text('— choose —'), findsOneWidget);
   });
+
+  testWidgets('the order view shows a unit by code, not by id',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PurchaseApi api = _PurchaseApi();
+    await _pumpWorkspace(tester, api: api);
+    await _openOrder(tester);
+
+    expect(find.text('u-kg'), findsNothing, reason: 'no raw unit id on the view');
+    expect(find.text('KG'), findsWidgets);
+  });
 }
 
 /// Double-click the seeded row, which is how the workspace opens a document.
@@ -779,7 +790,7 @@ const PurchaseOrder _purchaseOrder = PurchaseOrder(
       productId: 'product-1',
       description: 'Pain Relief',
       vendorProductCode: '',
-      purchaseUomId: '',
+      purchaseUomId: 'u-kg',
       inventoryUomId: '',
       conversionFactor: '1',
       conversionVersion: null,
