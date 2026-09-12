@@ -74,7 +74,9 @@ class PurchaseReturnDraftLine {
         'source_document_id': sourceDocumentId,
         'source_document_line_id': sourceDocumentLineId,
         'line_number': lineNumber,
-        if (description.isNotEmpty) 'description': description,
+        // No description: the server derives it from the receipt line it is
+        // told about, and PurchaseReturnLineWrite forbids the key. Every line
+        // carried one, seeded from the receipt, so every return was refused.
         'current_return_quantity':
             returnQuantity.trim().isEmpty ? '0' : returnQuantity.trim(),
         'rejected_quantity':
@@ -332,7 +334,7 @@ class _PurchaseReturnEditorDialogState
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
-        _error = exception.message;
+        _error = refusalMessage(exception);
         _saving = false;
       });
     }

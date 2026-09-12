@@ -2015,6 +2015,29 @@ create, update and line keys out of the Dart source and holds each to the
 matching server schema, so the next key that create takes and update does
 not fails the build instead of every edit.
 
+### 31.11 Every purchase return raised from the desktop was refused (2026-09-12, plan item 7.9) -- fixed the same day
+
+**Seen.** "Error while submitting return." The server log: `POST
+/api/v1/purchase-returns` answered 422, twice.
+
+**Why.** The return editor sent a `description` on every line, seeded
+from the receipt line so never empty, and `PurchaseReturnLineWrite` has
+no such field -- the server derives the description from the source line
+it is told about -- while `PurchaseReturnSchema` forbids unknown fields.
+So no return could be raised from the desktop, which is the second
+payload of the day the two suites could not see (§31.10 was the first).
+
+**Done.** The line no longer sends it; the return and receipt editors
+show a refusal with the fields it names; and
+`test_desktop_document_payloads_are_accepted.py` reads both editors'
+payload keys out of the Dart source and holds them to
+`PurchaseReturnCreate`/`PurchaseReturnLineWrite` and
+`GoodsReceiptCreate`/`GoodsReceiptLineWrite`. Three document editors are
+now guarded this way (purchase order, goods receipt, purchase return);
+the sales side -- quotation, sales order, delivery note, sales invoice,
+sales return, credit note -- is not, and the same afternoon's evidence
+says it should be.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
