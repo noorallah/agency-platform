@@ -172,8 +172,22 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   Future<void> _act(String suffix) async {
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
-    await widget.api.documentAction('sales-orders', selected['id'] as String, suffix);
-    await _load();
+    try {
+      await widget.api.documentAction(
+          'sales-orders', selected['id'] as String, suffix);
+      await _load();
+    } on ApiException catch (error) {
+      // The server's refusal is the only thing that says why -- a credit
+      // block, a hold, a stock shortfall. Unhandled, it went to the crash
+      // log and the button appeared to do nothing (plan item 8.7,
+      // 2026-09-12); every other document page shows it.
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        refusalMessage(error),
+        kind: AppNotificationKind.error,
+      );
+    }
   }
 
   /// Warn before approving, because approval is where credit is committed.
