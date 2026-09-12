@@ -227,19 +227,21 @@ Most of these screens sit under **Administration → Configuration**, a sidebar 
 
 ## 7. Buying — order to payment
 
+All as `whole01.admin` in WHOLE01. Purchase orders live under **Purchases → Purchase Orders**; receipts, invoices and returns each have their own sidebar module (**Goods Receipts**, **Purchase Invoices**, **Purchase Returns**); payments are **Finance → Payments**. Lifecycle buttons (Submit, Approve, Complete, Cancel, Close) sit on the toolbar and act on the selected row; on the purchase order they are also inside the view dialog. A goods receipt or return's Complete/Cancel fires straight away with no confirmation; only the order's Cancel and Close ask for a reason.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 7.1 | Purchase orders → New, one line, save as draft | Draft. |
-| 7.2 | Try Approve straight from draft | Refused: "Submit the order first." |
-| 7.3 | Submit, then Approve | Approved. |
-| 7.4 | Edit the approved order | The approval is withdrawn and it returns to draft, recorded on the timeline. |
-| 7.5 | Receive part of it (Goods receipt → New from the order), complete the receipt | The order reads **PARTIALLY_RECEIVED**. Stock rises. |
-| 7.6 | Receive the rest | The order reads **RECEIVED**. |
-| 7.7 | Cancel a completed receipt | Stock falls and the journal reverses. Run `verify_sample_data.py` — all five checks still pass. This is the case that put a store 2,287.42 out. |
-| 7.8 | Raise a purchase invoice against a receipt and approve it, then try to cancel the receipt | Refused: the invoice already cleared the accrual. A purchase return is the way. |
-| 7.9 | Purchase return → mark a line damaged, complete it | Stock falls, the journal reverses, and the line appears in Reports → Purchase returns → Damaged. |
-| 7.10 | Reports → Purchase → all six | Register 32 rows, Pending 2, Overdue 2, and by-vendor / by-buyer / by-product all populated. |
-| 7.11 | Payments → record a payment against a purchase invoice | The vendor balance falls and a journal entry exists. |
+| 7.1 | Purchases → Purchase Orders → **New**. Vendor, branch, warehouse, purchase date; **Add Line**, product `DETER1K`, quantity **10**, unit price 100; **Save**. (The draft `PO-WHOLE01-BR_NORTH-2026-2027-000001` from 6.8 serves if its quantity is raised to 10.) | The order appears with status **DRAFT**. The view dialog's Approval banner reads "Submit this draft to send it for approval." |
+| 7.2 | Select the draft → **Approve** (toolbar or inside the view) | Refused with "Submit the order first." Status stays DRAFT. |
+| 7.3 | **Submit** ("... submitted for approval."), then **Approve** | Toast "... approved."; status **APPROVED**; the grid updates without the dialog closing. |
+| 7.4 | Select the approved order → **Edit** | A dialog titled **Editing withdraws the approval** says changing it returns the order to Draft and it will need submitting and approving again. Click **Edit anyway**, change the remarks, Save. Status is **DRAFT** again and the **History** section of the view shows the approval withdrawn. Submit and Approve it once more before 7.5. |
+| 7.5 | **Goods Receipts → New**. **Purchase Order** picker lists approved orders only; pick yours. The line comes from the order with **Accepted** defaulted to the outstanding 10 and "Ordered 10 · already received 0" above it; set Accepted to **4**, choose the **Warehouse**, **Save Receipt**. Then select the draft receipt → **Complete**. | After save: "Goods receipt GRN-... created as a draft. Complete it to post the stock." After Complete: "Goods receipt ... updated.", status **COMPLETED**. Back on Purchase Orders the order reads **PARTIALLY_RECEIVED**. Inventory → the product's stock in that warehouse has risen by 4. |
+| 7.6 | Goods Receipts → New against the same order: the line now says "already received 4" and Accepted defaults to 6. Save, Complete. | The order reads **RECEIVED**. Stock is up by 10 in all. |
+| 7.7 | Select the **first** receipt (the 4) → **Cancel** | Status **CANCELLED**; stock falls by 4; the order drops back to **PARTIALLY_RECEIVED**; Finance → Journal shows a reversal entry against the receipt. Then in `backend/`: `uv run python scripts/verify_sample_data.py` — all five checks still pass. This is the case that once put a store 2,287.42 out. |
+| 7.8 | Goods Receipts → select a **seeded** receipt, e.g. `GRN-WHOLE01-WHL_HO-2026-2027-000006`, which purchase invoice `PI-2026-2027-000006` was raised against and approved → **Cancel** | Refused: "Goods receipt ... has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop -- Purchase Invoices offers View, Approve, Cancel and Close only, no New -- so the case uses a seeded one; BACKLOG §31.9.)* |
+| 7.9 | **Purchase Returns → New**. **Goods Receipt** picker lists completed receipts only; pick your second receipt (the 6). On its line set **Returning** to 2 and click the **Damaged** chip; **Save Return**. Select it → **Approve**, then **Complete**. | After save: "... created as a draft. Approving and completing it is what takes the stock off." After Complete: status **COMPLETED**, stock falls by 2, Finance → Journal shows the return's entry, and Reports → Operational Reports → **Damaged goods returned** lists the line. |
+| 7.10 | Reports → **Operational Reports**: `Purchase order register`, `Orders not yet received`, `Overdue purchase orders`, `Orders by supplier`, `Orders by buyer`, `Purchases by product` | Each opens with rows and a row count in the header. The register holds the 33 seeded orders plus yours; not-yet-received and overdue each hold the two seeded APPROVED orders; the three by-... reports are populated. |
+| 7.11 | Finance → **Payments → Record Payment**. **Paid to**: a vendor with bills listed (any of `WHOLE01V01`..`V03`); **Amount**: the outstanding of one bill; **Method** Bank; **Apply to bills** → **Oldest first**; **Record payment**. | Toast "PAY-... recorded and posted to the ledger." The bill's Outstanding on a fresh Record Payment dialog is lower by the amount, and Finance → Journal shows the payment entry (Dr Accounts Payable / Cr Bank). |
 
 ## 8. Stock
 

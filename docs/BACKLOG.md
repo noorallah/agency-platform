@@ -1861,6 +1861,27 @@ export back through the write schema. The territory export still writes
 on each round; left as it is, since building that column needs a customer
 lookup per row and nobody has asked for it yet.
 
+### 31.9 A purchase invoice cannot be raised from the desktop (2026-09-12, plan item 7.8)
+
+**Seen.** Writing the steps for 7.8 ("raise a purchase invoice against a
+receipt"): the Purchase Invoices screen offers View, Approve, Cancel and
+Close, and nothing else. It lists, approves and closes invoices that
+already exist -- the seeder raises them -- and never calls
+`POST /api/v1/purchase-invoices`.
+
+**Why the guard did not say so.** `test_routes_have_a_caller.py` asks
+whether a served path is named anywhere in `api_client.dart`, and the
+screen reaches its routes through the generic `documentPage` /
+`documentAction` helpers with the literal `'purchase-invoices'`, so the
+create route reads as called. It is the hole `reachable_features_test.dart`
+was written for on the sales side; nothing pins the purchase side.
+
+**What is needed.** A **New** on Purchase Invoices that picks a completed
+goods receipt (the twin of the Purchase Returns dialog, which picks the
+same thing), seeds the lines from it, takes the supplier's invoice number
+and date, and posts through the existing create route. Until then the
+plan's 7.8 uses a seeded invoice, and 7.11 pays a seeded bill.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
