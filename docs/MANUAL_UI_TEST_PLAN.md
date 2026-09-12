@@ -220,8 +220,8 @@ Most of these screens sit under **Administration → Configuration**, a sidebar 
 | 6.2 | Edit a series | **Next number is read-only**, with the reason. Only a new series may say where its counter starts. |
 | 6.3 | On a new series, switch off "include the financial year" while "restart each financial year" is on | The form says it would repeat a number in April. Saving anyway is refused by the server with the same sentence. |
 | 6.4 | Preview next on the sales invoice series | Matches the pattern, e.g. `SI-2026-2027-000010`. |
-| 6.5 | Administration → Configuration → Business Profiles → **Feature Flags** | Toggling a feature the firm does not implement is refused. The six roadmap features cannot be switched on at all. |
-| 6.6 | Administration → Configuration → Business Profiles → **Mandatory Attributes** | A rule can be added; a product missing that attribute is then refused, naming it. |
+| 6.5 | **As `master.ops`** with WHOLE01 selected (the Business Profiles branch is platform administration, gated on `PLATFORM_VIEW`; a firm administrator does not see it, by design): Administration → Configuration → Business Profiles → **Feature Flags** | Toggling a feature the firm does not implement is refused. The six roadmap features cannot be switched on at all. |
+| 6.6 | As `master.ops`, same branch → **Mandatory Attributes** | A rule can be added; a product missing that attribute is then refused, naming it. |
 | 6.7 | Administration → Configuration → Tax Configuration → **Rule Simulator** | The simulator answers with the components and the matched rule. |
 | 6.8 | Administration → Configuration → UOM & Packaging → **Conversion Rules** | A product's own rule outranks the firm-wide one. |
 
