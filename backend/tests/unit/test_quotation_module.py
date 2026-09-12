@@ -12,7 +12,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -31,6 +31,8 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
+from app.promotions.models import Promotion, PromotionAction, PromotionRedemption
+from app.promotions.schemas import PromotionActionType, PromotionStatus
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import (
     QuotationCreate,
@@ -874,3 +876,57 @@ def test_a_line_records_where_its_rate_came_from() -> None:
     }
     assert sources[inherited.id] == ["customer"]
     assert sources[typed.id] == ["percent"]
+
+
+def test_a_promotion_reaches_a_quotation_line() -> None:
+    """A quotation quotes the firm's live offers, as an order would apply them.
+
+    Found on the 2026-09-13 manual pass (plan item 9.4): a 30-unit line for
+    a customer on a 9.25% negotiated list still quoted 9.25%, where the same
+    line on a direct order took the BULK5 promotion's 7.5% -- the quotation
+    service priced with the price list and the standing rate only and never
+    asked the promotion engine. And the conversion carries the quoted rate
+    onto the order as agreed, so no promotion could ever reach an order that
+    began as a quotation. A quotation claims nothing: the engine is asked and
+    no redemption is staged.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    promotion = Promotion(
+        firm_id=setup.firm.id,
+        code="TENOFF",
+        name="Ten percent off",
+        priority=10,
+        status=PromotionStatus.ACTIVE.value,
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    session.add(promotion)
+    session.flush()
+    session.add(
+        PromotionAction(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type=PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+            parameters={"percent": "10"},
+        )
+    )
+    session.commit()
+
+    row = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    line = session.scalar(
+        select(SalesQuotationLine).where(
+            SalesQuotationLine.sales_quotation_id == row.id
+        )
+    )
+    assert line is not None
+    assert line.discount_percent == Decimal("10.0000")
+    assert line.discount_source == "promotion"
+    assert row.line_discount_total == Decimal("40.0000")
+    # An offer is not a claim: nothing is staged against the promotion.
+    assert session.scalar(select(func.count()).select_from(PromotionRedemption)) == 0
