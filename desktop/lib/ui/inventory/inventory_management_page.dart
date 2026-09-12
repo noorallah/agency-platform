@@ -805,6 +805,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             width: 180,
             child: DropdownButtonFormField<String>(
               initialValue: _status,
+              // A dropdown sizes its closed button to its widest item, so
+              // without this the button overflows the box it is given and
+              // the floating label is cut off with it. Plan item 8.2.
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Status'),
               items: const [
                 '',
@@ -829,6 +833,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             width: 220,
             child: DropdownButtonFormField<String>(
               initialValue: _transactionType,
+              isExpanded: true,
               decoration: const InputDecoration(labelText: 'Transaction type'),
               items: const [
                 '',
@@ -1790,6 +1795,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         width: 260,
         child: DropdownButtonFormField<String>(
           initialValue: value,
+          isExpanded: true,
           decoration: InputDecoration(labelText: label),
           items: [
             const DropdownMenuItem<String>(value: null, child: Text('All')),

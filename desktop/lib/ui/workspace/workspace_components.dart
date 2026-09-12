@@ -890,9 +890,11 @@ class FilterPanel extends StatelessWidget {
         ),
         children: [
           Padding(
+            // Room above the first row so a floating label does not sit
+            // against the tile's title.
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,
-              0,
+              AppSpacing.sm,
               AppSpacing.lg,
               AppSpacing.lg,
             ),
