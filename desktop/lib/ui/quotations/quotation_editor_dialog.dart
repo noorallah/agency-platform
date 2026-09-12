@@ -409,6 +409,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           Row(children: [
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 key: ValueKey<String>('quotation-line-product-$index'),
                 initialValue: line.productId,
                 decoration: InputDecoration(labelText: 'Product ${index + 1}'),
@@ -526,6 +527,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _customerId,
                       decoration: const InputDecoration(labelText: 'Customer'),
                       items: [
@@ -611,6 +613,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                     Row(children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
+                          isExpanded: true,
                           initialValue: _branchId,
                           decoration:
                               const InputDecoration(labelText: 'Branch'),
@@ -631,6 +634,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                         child: DropdownButtonFormField<String>(
+                          isExpanded: true,
                           initialValue: _warehouseId,
                           decoration: const InputDecoration(
                             labelText: 'Ships from',

@@ -519,6 +519,7 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                   },
                 ),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _uomId,
                   decoration: const InputDecoration(labelText: 'Unit'),
                   items: [
@@ -532,6 +533,7 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                   onChanged: (value) => setState(() => _uomId = value),
                 ),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _parentId,
                   decoration: const InputDecoration(
                     labelText: 'Sits inside',
@@ -541,7 +543,7 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                     for (final PackagingLevelRecord row in parents)
                       DropdownMenuItem(
                         value: row.id,
-                        child: Text(row.levelName),
+                        child: Text(row.levelName, overflow: TextOverflow.ellipsis),
                       ),
                   ],
                   onChanged: (value) => setState(() => _parentId = value),

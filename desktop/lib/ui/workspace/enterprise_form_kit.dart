@@ -432,6 +432,7 @@ class EnterpriseAddressEditor extends StatelessWidget {
           Row(children: [
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: kEnterpriseAddressTypes.contains(address.addressType)
                     ? address.addressType
                     : kEnterpriseAddressTypes.last,
@@ -604,6 +605,7 @@ class EnterpriseDocumentSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue:
                           kEnterpriseDocumentTypes.contains(documents[index].documentType)
                               ? documents[index].documentType

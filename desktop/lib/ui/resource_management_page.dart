@@ -849,6 +849,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 220),
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _filterValues[filter.key]?.isEmpty ?? true
                         ? null
                         : _filterValues[filter.key],
@@ -857,7 +858,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                     items: [
                       DropdownMenuItem<String>(
                         value: null,
-                        child: Text('All ${filter.label.toLowerCase()}'),
+                        child: Text('All ${filter.label.toLowerCase()}', overflow: TextOverflow.ellipsis),
                       ),
                       for (final ResourceFilterOption option in [
                         ...filter.options,
@@ -865,7 +866,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                       ])
                         DropdownMenuItem<String>(
                           value: option.value,
-                          child: Text(option.label),
+                          child: Text(option.label, overflow: TextOverflow.ellipsis),
                         ),
                     ],
                     onChanged: _loading
@@ -1700,7 +1701,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
             for (final String choice in choices)
               DropdownMenuItem<String>(
                 value: choice,
-                child: Text(choice.isEmpty ? 'Not set' : choice),
+                child: Text(choice.isEmpty ? 'Not set' : choice, overflow: TextOverflow.ellipsis),
               ),
           ],
           onChanged: widget.isReadOnly

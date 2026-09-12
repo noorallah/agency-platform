@@ -111,6 +111,7 @@ class _ControlAccountsPageState extends State<ControlAccountsPage> {
         children: [
           Expanded(
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               key: ValueKey('control-account-${row.purpose}'),
               initialValue: _chosen,
               isDense: true,

@@ -817,7 +817,7 @@ class _SalesTerritoryManagementPageState
                 for (final GeoPlaceRecord city in _filterCities)
                   DropdownMenuItem<String>(
                     value: city.id,
-                    child: Text(city.name),
+                    child: Text(city.name, overflow: TextOverflow.ellipsis),
                   ),
               ],
               onChanged: (value) {
@@ -830,6 +830,7 @@ class _SalesTerritoryManagementPageState
         SizedBox(
           width: 180,
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _status,
             decoration: const InputDecoration(labelText: 'Status'),
             items: const [
@@ -1320,7 +1321,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
             for (final TerritoryRouteTypeRecord type in widget.routeTypes)
               DropdownMenuItem<String?>(
                 value: type.id,
-                child: Text('${type.code} - ${type.name}'),
+                child: Text('${type.code} - ${type.name}', overflow: TextOverflow.ellipsis),
               ),
           ],
           onChanged: (value) => setState(() => _routeTypeId = value),
@@ -1334,7 +1335,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
             for (final String frequency in _frequencies)
               DropdownMenuItem<String>(
                 value: frequency,
-                child: Text(_titleCase(frequency)),
+                child: Text(_titleCase(frequency), overflow: TextOverflow.ellipsis),
               ),
           ],
           onChanged: (value) =>
@@ -1502,6 +1503,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _levelId,
                     decoration:
                         const InputDecoration(labelText: 'Hierarchy level'),
@@ -1509,7 +1511,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                         .map(
                           (level) => DropdownMenuItem(
                             value: level.id,
-                            child: Text(level.displayName),
+                            child: Text(level.displayName, overflow: TextOverflow.ellipsis),
                           ),
                         )
                         .toList(),
@@ -1520,17 +1522,18 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _parentId,
                     decoration: const InputDecoration(labelText: 'Parent'),
                     items: [
                       const DropdownMenuItem<String>(
                         value: '',
-                        child: Text('No parent (root)'),
+                        child: Text('No parent (root)', overflow: TextOverflow.ellipsis),
                       ),
                       ...widget.items.map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}'),
+                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                         ),
                       ),
                     ],
@@ -1541,6 +1544,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [

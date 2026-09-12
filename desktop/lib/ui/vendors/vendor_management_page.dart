@@ -272,6 +272,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         SizedBox(
           width: 220,
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _status,
             decoration: const InputDecoration(labelText: 'Status'),
             items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
@@ -545,6 +546,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     final bool missing =
         value != null && !options.any((option) => option.id == value);
     return DropdownButtonFormField<String?>(
+      isExpanded: true,
       initialValue: value,
       decoration: InputDecoration(
         labelText: label,
@@ -721,6 +723,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _status,
             decoration: const InputDecoration(labelText: 'Status'),
             items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
@@ -972,6 +975,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                 SizedBox(
                   width: 200,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: row.noteType,
                     decoration: const InputDecoration(labelText: 'Type'),
                     items: const [
@@ -1061,6 +1065,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                                   SizedBox(
                                     width: 180,
                                     child: DropdownButtonFormField<String>(
+                                      isExpanded: true,
                                       initialValue: row.addressType,
                                       decoration: const InputDecoration(
                                         labelText: 'Type',

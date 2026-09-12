@@ -821,7 +821,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
-                      child: Text(value.isEmpty ? 'All' : value),
+                      child: Text(value.isEmpty ? 'All' : value, overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -855,7 +855,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
-                      child: Text(value.isEmpty ? 'All' : value),
+                      child: Text(value.isEmpty ? 'All' : value, overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -1298,13 +1298,14 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: status,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const ['ACTIVE', 'INACTIVE', 'ARCHIVED']
                       .map(
                         (value) => DropdownMenuItem<String>(
                           value: value,
-                          child: Text(value),
+                          child: Text(value, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -1941,13 +1942,14 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _branchId,
                   decoration: const InputDecoration(labelText: 'Branch'),
                   items: widget.branches
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}'),
+                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -1970,13 +1972,14 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _warehouseId,
                   decoration: const InputDecoration(labelText: 'Warehouse'),
                   items: _filteredWarehouses
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}'),
+                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -1987,17 +1990,18 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _storageNodeId,
                   decoration: const InputDecoration(labelText: 'Storage node'),
                   items: [
                     const DropdownMenuItem<String>(
                       value: null,
-                      child: Text('None'),
+                      child: Text('None', overflow: TextOverflow.ellipsis),
                     ),
                     ..._storageNodes.map(
                       (item) => DropdownMenuItem<String>(
                         value: item.id,
-                        child: Text('${item.code} - ${item.name}'),
+                        child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                       ),
                     ),
                   ],
@@ -2005,13 +2009,14 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _productId,
                   decoration: const InputDecoration(labelText: 'Product'),
                   items: widget.products
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}'),
+                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2268,13 +2273,14 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _branchId,
                         decoration: const InputDecoration(labelText: 'Branch'),
                         items: widget.branches
                             .map(
                               (item) => DropdownMenuItem<String>(
                                 value: item.id,
-                                child: Text('${item.code} - ${item.name}'),
+                                child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                               ),
                             )
                             .toList(),
@@ -2292,6 +2298,7 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _warehouseId,
                         decoration:
                             const InputDecoration(labelText: 'Warehouse'),
@@ -2299,7 +2306,7 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                             .map(
                               (item) => DropdownMenuItem<String>(
                                 value: item.id,
-                                child: Text('${item.code} - ${item.name}'),
+                                child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                               ),
                             )
                             .toList(),
@@ -2507,13 +2514,14 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: widget.line.productId,
                 decoration: const InputDecoration(labelText: 'Product'),
                 items: widget.products
                     .map(
                       (item) => DropdownMenuItem<String>(
                         value: item.id,
-                        child: Text('${item.code} - ${item.name}'),
+                        child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                       ),
                     )
                     .toList(),
@@ -2521,17 +2529,18 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: widget.line.storageNodeId,
                 decoration: const InputDecoration(labelText: 'Storage node'),
                 items: [
                   const DropdownMenuItem<String>(
                     value: null,
-                    child: Text('None'),
+                    child: Text('None', overflow: TextOverflow.ellipsis),
                   ),
                   ...widget.storageNodes.map(
                     (item) => DropdownMenuItem<String>(
                       value: item.id,
-                      child: Text('${item.code} - ${item.name}'),
+                      child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ],

@@ -122,6 +122,7 @@ class _BulkTerritoryActionsDialogState
                     Padding(
                       padding: const EdgeInsets.only(left: 16, bottom: 8),
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _status,
                         decoration:
                             const InputDecoration(labelText: 'New status'),
@@ -160,12 +161,12 @@ class _BulkTerritoryActionsDialogState
                         items: [
                           const DropdownMenuItem<String>(
                             value: '',
-                            child: Text('No parent (root)'),
+                            child: Text('No parent (root)', overflow: TextOverflow.ellipsis),
                           ),
                           for (final BulkParentOption option in widget.parents)
                             DropdownMenuItem<String>(
                               value: option.id,
-                              child: Text(option.label),
+                              child: Text(option.label, overflow: TextOverflow.ellipsis),
                             ),
                         ],
                         onChanged: (value) =>

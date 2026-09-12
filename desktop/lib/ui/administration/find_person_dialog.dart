@@ -201,6 +201,7 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
             if (_selected != null && !_selected!.alreadyAMember) ...[
               const Divider(),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _templateId.isEmpty ? null : _templateId,
                 decoration: const InputDecoration(
                   labelText: 'Job template',
@@ -209,12 +210,12 @@ class _FindPersonDialogState extends State<_FindPersonDialog> {
                 items: [
                   const DropdownMenuItem<String>(
                     value: '',
-                    child: Text('No job yet'),
+                    child: Text('No job yet', overflow: TextOverflow.ellipsis),
                   ),
                   for (final UserTemplate template in _templates)
                     DropdownMenuItem<String>(
                       value: template.id,
-                      child: Text(template.name),
+                      child: Text(template.name, overflow: TextOverflow.ellipsis),
                     ),
                 ],
                 onChanged: (value) =>

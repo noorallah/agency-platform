@@ -203,6 +203,7 @@ class _CouponDialogState extends State<CouponDialog> {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const [

@@ -266,7 +266,7 @@ class _RouteBuilderPageState extends State<RouteBuilderPage> {
               for (final SalesTerritory route in _routes)
                 DropdownMenuItem<String>(
                   value: route.id,
-                  child: Text('${route.code} - ${route.name}'),
+                  child: Text('${route.code} - ${route.name}', overflow: TextOverflow.ellipsis),
                 ),
             ],
             onChanged: (value) {

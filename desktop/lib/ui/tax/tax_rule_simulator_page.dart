@@ -379,6 +379,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
 
   Widget _buildTransactionTypeField(ColorScheme cs) {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: _transactionType,
       decoration: const InputDecoration(
         labelText: 'Transaction Type *',
@@ -454,6 +455,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
     required ValueChanged<String?> onChanged,
   }) {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: value,
       decoration: InputDecoration(
         labelText: label,

@@ -205,6 +205,7 @@ class _FirmSettingsPageState extends State<FirmSettingsPage> {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 520),
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _selectedProfileId.isEmpty
                             ? null
                             : _selectedProfileId,
@@ -215,7 +216,7 @@ class _FirmSettingsPageState extends State<FirmSettingsPage> {
                           for (final BusinessProfileRecord profile in _profiles)
                             DropdownMenuItem(
                               value: profile.id,
-                              child: Text('${profile.code} — ${profile.name}'),
+                              child: Text('${profile.code} — ${profile.name}', overflow: TextOverflow.ellipsis),
                             ),
                         ],
                         onChanged: _canAssign && !_saving

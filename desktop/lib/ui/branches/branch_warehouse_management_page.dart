@@ -289,6 +289,7 @@ class _BranchWarehouseManagementPageState
               SizedBox(
                 width: 220,
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
@@ -1120,6 +1121,7 @@ class _BranchDialogState extends State<_BranchDialog> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _status,
                         decoration: const InputDecoration(labelText: 'Status'),
                         items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
@@ -1449,13 +1451,14 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _branchId,
                   decoration: const InputDecoration(labelText: 'Branch'),
                   items: widget.branches
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.displayName}'),
+                          child: Text('${item.code} - ${item.displayName}', overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -1484,6 +1487,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                   children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _status,
                         decoration: const InputDecoration(labelText: 'Status'),
                         items: const ['DRAFT', 'ACTIVE', 'INACTIVE', 'ARCHIVED']
@@ -1786,6 +1790,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _type,
                 decoration: const InputDecoration(labelText: 'Type'),
                 items: const [
@@ -1803,6 +1808,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _parentId,
                 decoration:
                     const InputDecoration(labelText: 'Parent (Optional)'),
@@ -1814,7 +1820,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}'),
+                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
                         ),
                       ),
                 ],

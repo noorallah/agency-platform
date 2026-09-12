@@ -572,7 +572,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                       for (final SalesTerritory route in widget.routes)
                         DropdownMenuItem<String>(
                           value: route.id,
-                          child: Text('${route.code} — ${route.name}'),
+                          child: Text('${route.code} — ${route.name}', overflow: TextOverflow.ellipsis),
                         ),
                     ],
                     onChanged: (value) => setState(() => _territoryId = value),
@@ -589,7 +589,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                       for (final String type in beatPlanTypes)
                         DropdownMenuItem<String>(
                           value: type,
-                          child: Text(titleCaseCode(type)),
+                          child: Text(titleCaseCode(type), overflow: TextOverflow.ellipsis),
                         ),
                     ],
                     onChanged: (value) =>
@@ -605,7 +605,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                         for (int day = 1; day <= 7; day++)
                           DropdownMenuItem<int>(
                             value: day,
-                            child: Text(weekdayNames[day - 1]),
+                            child: Text(weekdayNames[day - 1], overflow: TextOverflow.ellipsis),
                           ),
                       ],
                       onChanged: (value) => setState(() => _weekday = value),
@@ -624,7 +624,7 @@ class _BeatPlanEditorDialogState extends State<_BeatPlanEditorDialog> {
                         for (int week = 1; week <= 5; week++)
                           DropdownMenuItem<int>(
                             value: week,
-                            child: Text(_ordinal(week)),
+                            child: Text(_ordinal(week), overflow: TextOverflow.ellipsis),
                           ),
                       ],
                       onChanged: (value) =>

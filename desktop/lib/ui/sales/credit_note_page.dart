@@ -503,15 +503,15 @@ class _CreditNoteDialogState extends State<CreditNoteDialog> {
                       items: const [
                         DropdownMenuItem(
                           value: 'RATE_DIFFERENCE',
-                          child: Text('Rate difference'),
+                          child: Text('Rate difference', overflow: TextOverflow.ellipsis),
                         ),
                         DropdownMenuItem(
                           value: 'POST_SALE_DISCOUNT',
-                          child: Text('Discount after the sale'),
+                          child: Text('Discount after the sale', overflow: TextOverflow.ellipsis),
                         ),
                         DropdownMenuItem(
                           value: 'DEFICIENCY_IN_SERVICE',
-                          child: Text('Deficiency'),
+                          child: Text('Deficiency', overflow: TextOverflow.ellipsis),
                         ),
                         DropdownMenuItem(value: 'OTHER', child: Text('Other')),
                       ],

@@ -1891,6 +1891,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       SizedBox(
         width: 240,
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: value?.isNotEmpty == true ? value : '',
           decoration: InputDecoration(labelText: label),
           items: [
@@ -3968,6 +3969,7 @@ class _NoteDialogState extends State<_NoteDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _type,
                 decoration: const InputDecoration(labelText: 'Note Type'),
                 items: const [
@@ -4099,27 +4101,29 @@ class _PurchaseExportDialogState extends State<_PurchaseExportDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<_PurchaseExportScope>(
+                isExpanded: true,
                 initialValue: _scope,
                 decoration: const InputDecoration(labelText: 'Scope'),
                 items: [
                   if (widget.hasSelection)
                     const DropdownMenuItem(
                       value: _PurchaseExportScope.selected,
-                      child: Text('Selected rows'),
+                      child: Text('Selected rows', overflow: TextOverflow.ellipsis),
                     ),
                   const DropdownMenuItem(
                     value: _PurchaseExportScope.currentView,
-                    child: Text('Current view'),
+                    child: Text('Current view', overflow: TextOverflow.ellipsis),
                   ),
                   const DropdownMenuItem(
                     value: _PurchaseExportScope.filteredView,
-                    child: Text('Filtered view'),
+                    child: Text('Filtered view', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: (value) => setState(() => _scope = value ?? _scope),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _format,
                 decoration: const InputDecoration(labelText: 'Format'),
                 items: const [
