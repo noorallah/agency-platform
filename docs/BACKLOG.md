@@ -1892,6 +1892,46 @@ roadmap features as unimplemented, so the only way to learn is to be
 refused on save. The catalogue carries `is_implemented`; the picker could
 grey those out or label them.
 
+### 31.7 The rule simulator could not match a rule (2026-09-12, plan item 6.7) -- fixed the same day
+
+**Seen.** Reading the screen ahead of driving it: every simulation from
+the desktop answered zero tax and "No rule matched -- using default
+profile".
+
+**Why, twice over.** The screen never sent `tax_profile_id`, which every
+seeded rule is keyed on and without which the engine applies no profile
+at all, so the answer was always zero. And its Transaction Type list read
+SALE, PURCHASE, SALE_RETURN, PURCHASE_RETURN, TRANSFER, ADJUSTMENT --
+names no rule has ever carried and no document module passes; the nine
+modules pass SALES_INVOICE, PURCHASE_INVOICE and their siblings, and the
+interstate rule names SALES_INTERSTATE. A third fault was waiting behind
+those two: the result widgets read every amount with `as num?`, and the
+server serialises Decimals as strings, so the first real answer would
+have thrown a type error. It never had a real answer to throw on.
+
+**Done.** A required **Tax Profile** dropdown, read from the firm's
+profiles; the type list is the engine's own names; amounts are read
+through `simulatorNumber`, which takes a number or a string.
+`tax_rule_simulator_test.dart` holds the type list to the engine's names
+and drives a run end to end against a fake answering the server's shape.
+
+**Worth a decision.** Nothing in the application passes
+`SALES_INTERSTATE` to the engine -- `grep -rn SALES_INTERSTATE app` finds
+only the template and its tests. `SalesInvoiceService` passes
+`SALES_INVOICE` for every sale, so the seeded `INTERSTATE_GST_*` rules,
+each conditioned on `transaction_type EQUALS SALES_INTERSTATE`, cannot
+fire on a real invoice however the profile condition is spelled; the
+2026-09-08 fix to `_normalize_compare` made the second condition
+matchable and left the first unmet. What the seeded interstate invoices
+actually carry was **not** verified here -- the customer list carries no
+state and the check needs a query per invoice -- so the open question is
+whether any real sale is taxed IGST through the rule engine at all, or
+only re-split after the fact by `gst_returns` and `einvoice`, which
+derive the border from the two states. Either the invoice must pass
+`SALES_INTERSTATE` when the buyer's state differs from the firm's, or the
+rule must be conditioned on something the invoice does send. Not changed
+here: it moves the tax on every interstate sale.
+
 ### 31.9 A purchase invoice cannot be raised from the desktop (2026-09-12, plan item 7.8)
 
 **Seen.** Writing the steps for 7.8 ("raise a purchase invoice against a

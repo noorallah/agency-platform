@@ -4,8 +4,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/entities.dart';
+import '../../models/tax_framework.dart';
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+
+/// Read a number the server may have sent as a string.
+///
+/// Every money and percentage field in a simulation result is a Decimal on
+/// the server and arrives as `"180.0000"`; the widgets read them with
+/// `as num?`, which threw `type 'String' is not a subtype of type 'num?'` on
+/// the first real answer. The screen had never shown one: with no tax
+/// profile sent, every result was zero.
+double? simulatorNumber(Object? value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value.toString());
+}
 
 class TaxRuleSimulatorPage extends StatefulWidget {
   const TaxRuleSimulatorPage({
@@ -16,6 +31,11 @@ class TaxRuleSimulatorPage extends StatefulWidget {
 
   final ApiClient api;
   final PermissionService permissions;
+
+  /// What the Transaction Type dropdown offers; public so a test can hold it
+  /// to the names the engine is actually called with.
+  static List<String> get transactionTypes =>
+      _TaxRuleSimulatorPageState.transactionTypes;
 
   @override
   State<TaxRuleSimulatorPage> createState() => _TaxRuleSimulatorPageState();
@@ -29,8 +49,16 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
 
   // ─── Form state ─────────────────────────────────────────────────────────────
   final _formKey = GlobalKey<FormState>();
-  String _transactionType = 'SALE';
+  String _transactionType = 'SALES_INVOICE';
   DateTime _transactionDate = DateTime.now();
+
+  /// The profile the line would carry, which the engine needs before any rule
+  /// can be judged: every seeded rule is keyed on it, and with none sent the
+  /// engine applies nothing and answers zero tax. The screen sent none until
+  /// 2026-09-12, so it always reported "No rule matched".
+  String? _taxProfileId;
+  List<TaxProfileRecord> _profiles = const [];
+  String? _profilesError;
   String? _customerType;
   String? _vendorType;
   String? _productType;
@@ -47,13 +75,23 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
   final _leftScroll = ScrollController();
   final _rightScroll = ScrollController();
 
-  static const _transactionTypes = [
-    'SALE',
+  /// The transaction types the engine is actually called with -- the nine
+  /// document modules each pass their own -- plus the two the seeded rules
+  /// name and no document passes yet. The list used to read SALE, PURCHASE,
+  /// TRANSFER..., which no rule has ever named, so nothing could match.
+  static const transactionTypes = [
+    'SALES_QUOTATION',
+    'SALES_ORDER',
+    'DELIVERY_NOTE',
+    'SALES_INVOICE',
+    'SALES_INTERSTATE',
+    'EXPORT',
+    'SALES_RETURN',
+    'CREDIT_NOTE',
     'PURCHASE',
-    'SALE_RETURN',
+    'GOODS_RECEIPT',
+    'PURCHASE_INVOICE',
     'PURCHASE_RETURN',
-    'TRANSFER',
-    'ADJUSTMENT',
   ];
   static const _customerTypes = [
     'LOCAL',
@@ -66,9 +104,34 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
   static const _productTypes = ['GOODS', 'SERVICE', 'MIXED', 'DIGITAL_SERVICE'];
 
   bool get _showCustomerType =>
-      _transactionType == 'SALE' || _transactionType == 'SALE_RETURN';
+      _transactionType.startsWith('SALES_') ||
+      _transactionType == 'DELIVERY_NOTE' ||
+      _transactionType == 'CREDIT_NOTE' ||
+      _transactionType == 'EXPORT';
   bool get _showVendorType =>
-      _transactionType == 'PURCHASE' || _transactionType == 'PURCHASE_RETURN';
+      _transactionType.startsWith('PURCHASE') ||
+      _transactionType == 'GOODS_RECEIPT';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  Future<void> _loadProfiles() async {
+    try {
+      final PagedResult<TaxProfileRecord> page =
+          await widget.api.taxProfiles(pageSize: 100, sortBy: 'code');
+      if (!mounted) return;
+      setState(() {
+        _profiles = page.items.where((p) => !p.isDeleted).toList();
+        _profilesError = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _profilesError = e.message);
+    }
+  }
 
   @override
   void dispose() {
@@ -100,6 +163,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
       final body = <String, dynamic>{
         'transaction_type': _transactionType,
         'transaction_date': _transactionDate.toIso8601String().substring(0, 10),
+        if (_taxProfileId != null) 'tax_profile_id': _taxProfileId,
         if (_customerType != null && _showCustomerType)
           'customer_type': _customerType,
         if (_vendorType != null && _showVendorType)
@@ -201,6 +265,8 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildTransactionTypeField(cs),
+                    const SizedBox(height: 14),
+                    _buildTaxProfileField(),
                     const SizedBox(height: 14),
                     _buildDateField(cs),
                     const SizedBox(height: 14),
@@ -319,7 +385,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
         border: OutlineInputBorder(),
         isDense: true,
       ),
-      items: _transactionTypes
+      items: transactionTypes
           .map((t) => DropdownMenuItem(value: t, child: Text(t)))
           .toList(),
       onChanged: (v) {
@@ -332,6 +398,33 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
       },
       validator: (v) =>
           (v == null || v.isEmpty) ? 'Transaction type is required' : null,
+    );
+  }
+
+  Widget _buildTaxProfileField() {
+    return DropdownButtonFormField<String>(
+      initialValue: _taxProfileId,
+      decoration: InputDecoration(
+        labelText: 'Tax Profile *',
+        helperText: _profilesError ??
+            'The profile the product line would carry; rules are keyed on it.',
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+      hint: const Text('— choose a profile —'),
+      isExpanded: true,
+      items: _profiles
+          .map((p) => DropdownMenuItem(
+                value: p.id,
+                child: Text(
+                  '${p.code} — ${p.name}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ))
+          .toList(),
+      onChanged: (v) => setState(() => _taxProfileId = v),
+      validator: (v) =>
+          (v == null || v.isEmpty) ? 'Choose the tax profile to simulate' : null,
     );
   }
 
@@ -663,15 +756,14 @@ class _TaxSummaryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final baseAmt = (result['base_amount'] as num?)?.toDouble();
-    final totalTax = (result['total_tax_amount'] as num?)?.toDouble();
+    final baseAmt = simulatorNumber(result['base_amount']);
+    final totalTax = simulatorNumber(result['total_tax_amount']);
     // Tax already inside the price, and tax the recipient self-accounts for
     // under reverse charge, are reported apart from the billed total because
     // neither is added to the document.
-    final inclusiveTax =
-        (result['inclusive_tax_amount'] as num?)?.toDouble() ?? 0;
+    final inclusiveTax = simulatorNumber(result['inclusive_tax_amount']) ?? 0;
     final reverseChargeTax =
-        (result['reverse_charge_tax_amount'] as num?)?.toDouble() ?? 0;
+        simulatorNumber(result['reverse_charge_tax_amount']) ?? 0;
     final exempt = result['exempt'] as bool? ?? false;
     final zeroRated = result['zero_rated'] as bool? ?? false;
     final reverseCharge = result['reverse_charge'] as bool? ?? false;
@@ -854,9 +946,9 @@ class _ComponentsCard extends StatelessWidget {
                   ],
                   rows: comps.map((c) {
                     final pct =
-                        (c['percentage'] as num?)?.toDouble() ?? 0.0;
+                        simulatorNumber(c['percentage']) ?? 0.0;
                     final amt =
-                        (c['amount'] as num?)?.toDouble() ?? 0.0;
+                        simulatorNumber(c['amount']) ?? 0.0;
                     final included =
                         c['included_in_price'] as bool? ?? false;
                     final recoverable =
@@ -951,8 +1043,8 @@ class _EvaluationTraceCard extends StatelessWidget {
         final bm = b['matched'] as bool? ?? false;
         if (am && !bm) return -1;
         if (!am && bm) return 1;
-        final ap = (a['priority'] as num?)?.toInt() ?? 0;
-        final bp = (b['priority'] as num?)?.toInt() ?? 0;
+        final ap = simulatorNumber(a['priority'])?.toInt() ?? 0;
+        final bp = simulatorNumber(b['priority'])?.toInt() ?? 0;
         return bp.compareTo(ap);
       });
 
@@ -1008,8 +1100,8 @@ class _DecisionRowState extends State<_DecisionRow> {
     final matched = widget.decision['matched'] as bool? ?? false;
     final code = widget.decision['code'] as String? ?? '';
     final name = widget.decision['name'] as String? ?? '';
-    final priority = widget.decision['priority'] as num? ?? 0;
-    final version = widget.decision['version_number'] as num? ?? 1;
+    final priority = simulatorNumber(widget.decision['priority']) ?? 0;
+    final version = simulatorNumber(widget.decision['version_number']) ?? 1;
     final reasons =
         (widget.decision['reasons'] as List? ?? []).cast<String>();
 
