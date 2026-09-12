@@ -187,4 +187,20 @@ void _densityTests() {
     // Over a 500px grid that is several extra rows on the smallest screen.
     expect(spacious - compact, greaterThanOrEqualTo(12));
   });
+
+  test('a banner is coloured as a refusal in both brightnesses', () {
+    // Every banner in the client bar one carries a refusal, and unstyled
+    // it read as a paragraph nobody noticed (plan item 8.3, 2026-09-12).
+    final ThemeManager manager = ThemeManager(_preferences());
+    for (final ThemeData theme in [manager.lightTheme, manager.darkTheme]) {
+      expect(
+        theme.bannerTheme.backgroundColor,
+        theme.colorScheme.errorContainer,
+      );
+      expect(
+        theme.bannerTheme.contentTextStyle?.color,
+        theme.colorScheme.onErrorContainer,
+      );
+    }
+  });
 }
