@@ -3230,6 +3230,14 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     setState(() => _draft = _draft.copyWith(notes: rows));
   }
 
+  /// A unit's code for display; the id itself when the unit is not known.
+  String _uomLabel(String id) {
+    for (final UomRecord unit in widget.uoms) {
+      if (unit.id == id) return unit.code;
+    }
+    return id;
+  }
+
   /// Choosing a product fills its default units into a line that has none,
   /// so the ordinary case needs no unit chosen at all.
   PurchaseOrderLine _withProduct(PurchaseOrderLine line, String productId) {
@@ -3419,7 +3427,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           lineNumber: line.lineNumber,
           product: _productLabel(line.productId),
           description: line.description,
-          uom: line.purchaseUomId,
+          // The unit's code, not its id: the view printed the UUID.
+          uom: _uomLabel(line.purchaseUomId),
           packaging: line.vendorProductCode,
           quantity: line.orderedQuantity,
           freeQuantity: line.freeQuantity,
