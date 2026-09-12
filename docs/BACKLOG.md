@@ -1953,10 +1953,13 @@ by key. Precedence itself was verified against the server: with a
 firm-wide PACK→KG factor of 2 in place, DETER1K still converts 10 PACK to
 10 KG by its own rule, and a product with no rule of its own gets 20.
 
-**Still open.** The purchase-order line editor asks for the **Purchase
-UOM ID** the same way, so raising a line in a unit other than the
-product's default still means pasting an id. Same shape, same fix, a
-different screen; not done here.
+**And the purchase-order line editor, the same afternoon.** Its line
+had text boxes labelled "Purchase UOM ID" and "Inventory UOM ID" -- the
+owner asked for dropdowns as soon as 6.8 sent them there. Both are unit
+dropdowns by code now, defaulted from the product the moment it is
+chosen, with a blank left blank rather than the first unit chosen
+silently, and a unit the line names that is not in the list kept
+selectable as itself. `purchase_ux_test.dart` drives it.
 
 ### 31.9 A purchase invoice cannot be raised from the desktop (2026-09-12, plan item 7.8)
 

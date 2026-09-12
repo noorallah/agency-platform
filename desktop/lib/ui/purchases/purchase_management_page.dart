@@ -18,6 +18,7 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../../models/tax_framework.dart';
+import '../../models/uom_packaging.dart';
 import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import 'purchase_import_sample.dart';
@@ -152,6 +153,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   List<BranchRecord> _branches = const [];
   List<WarehouseRecord> _warehouses = const [];
   List<Product> _products = const [];
+
+  /// The firm's units, so a line names its purchase and inventory units by
+  /// code. The editor asked for their ids.
+  List<UomRecord> _uoms = const [];
   List<PlatformUser> _buyers = const [];
   List<TaxProfileRecord> _taxProfiles = const [];
   List<StorageNodeRecord> _storageNodes = const [];
@@ -357,6 +362,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
             page: page, search: '', sortBy: 'name', descending: false),
       ),
     );
+    final List<UomRecord> uoms =
+        await _lookup(() => widget.api.uoms(includeInactive: false));
     final List<StorageNodeRecord> storageNodes = [];
     for (final WarehouseRecord warehouse in warehouses) {
       try {
@@ -374,6 +381,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       _buyers = buyers;
       _taxProfiles = taxProfiles;
       _storageNodes = storageNodes;
+      _uoms = uoms;
     });
   }
 
@@ -570,6 +578,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         buyers: _buyers,
         taxProfiles: _taxProfiles,
         storageNodes: _storageNodes,
+        uoms: _uoms,
         canSubmit: _canUpdate,
         canApprove: _canApprove,
       ),
@@ -1957,6 +1966,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
     required this.storageNodes,
     required this.canSubmit,
     required this.canApprove,
+    this.uoms = const <UomRecord>[],
   });
 
   final ApiClient api;
@@ -1969,6 +1979,11 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   final List<PlatformUser> buyers;
   final List<TaxProfileRecord> taxProfiles;
   final List<StorageNodeRecord> storageNodes;
+
+  /// The firm's units, offered by code on each line. Optional so an older
+  /// caller still builds; with none the unit fields fall back to the id the
+  /// line carries.
+  final List<UomRecord> uoms;
 
   /// Whether this user may send a draft for approval
   /// (`PURCHASE_UPDATE`).
@@ -2517,7 +2532,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                                   .toList(),
                               onChanged: (value) => _updateLine(
                                 index,
-                                line.copyWith(productId: value),
+                                _withProduct(line, value),
                               ),
                             ),
                             _textField(
@@ -2527,17 +2542,24 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                               onChanged: (value) =>
                                   _updateLine(index, line.copyWith(description: value)),
                             ),
-                            _textField(
-                              label: 'Purchase UOM ID',
+                            // Units by code, defaulted from the product the
+                            // moment it is chosen. These were text boxes
+                            // labelled "Purchase UOM ID" and "Inventory UOM
+                            // ID", so a line in any unit but the default
+                            // meant pasting a UUID.
+                            _dropdownField(
+                              label: 'Purchase UOM',
                               value: line.purchaseUomId,
                               readOnly: widget.isReadOnly,
+                              items: _unitItems(line.purchaseUomId),
                               onChanged: (value) =>
                                   _updateLine(index, line.copyWith(purchaseUomId: value)),
                             ),
-                            _textField(
-                              label: 'Inventory UOM ID',
+                            _dropdownField(
+                              label: 'Inventory UOM',
                               value: line.inventoryUomId,
                               readOnly: widget.isReadOnly,
+                              items: _unitItems(line.inventoryUomId),
                               onChanged: (value) =>
                                   _updateLine(index, line.copyWith(inventoryUomId: value)),
                             ),
@@ -3206,6 +3228,44 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   void _removeNote(int index) {
     final List<PurchaseNote> rows = [..._draft.notes]..removeAt(index);
     setState(() => _draft = _draft.copyWith(notes: rows));
+  }
+
+  /// Choosing a product fills its default units into a line that has none,
+  /// so the ordinary case needs no unit chosen at all.
+  PurchaseOrderLine _withProduct(PurchaseOrderLine line, String productId) {
+    final Product? product = widget.products
+        .cast<Product?>()
+        .firstWhere((p) => p?.id == productId, orElse: () => null);
+    return line.copyWith(
+      productId: productId,
+      purchaseUomId: line.purchaseUomId.isNotEmpty || product == null
+          ? line.purchaseUomId
+          : product.purchaseUomId,
+      inventoryUomId: line.inventoryUomId.isNotEmpty || product == null
+          ? line.inventoryUomId
+          : product.inventoryUomId,
+    );
+  }
+
+  /// The firm's units as dropdown items. A unit the line already names that
+  /// is not in the list -- retired, or the list never loaded -- stays
+  /// selectable as itself, or the dropdown would show the first unit while
+  /// the line kept another. A blank stays blank, so nothing is chosen
+  /// silently.
+  List<DropdownMenuItem<String>> _unitItems(String current) {
+    final List<DropdownMenuItem<String>> items = [
+      if (current.isEmpty)
+        const DropdownMenuItem<String>(value: '', child: Text('— choose —')),
+      for (final UomRecord unit in widget.uoms)
+        DropdownMenuItem<String>(
+          value: unit.id,
+          child: Text('${unit.code} — ${unit.name}'),
+        ),
+    ];
+    if (current.isNotEmpty && !widget.uoms.any((u) => u.id == current)) {
+      items.add(DropdownMenuItem<String>(value: current, child: Text(current)));
+    }
+    return items;
   }
 
   Widget _dropdownField({
