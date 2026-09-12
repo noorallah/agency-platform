@@ -2095,6 +2095,33 @@ migration has not reached still continues its series.
 `test_a_series_survives_its_counter_key_changing_shape` pins it.
 
 
+### 31.13 The Stock Ledger's type filter names movements the server never writes (2026-09-12, mapping section 8)
+
+**Seen while writing the section 8 steps**, not yet on screen by the tester.
+The **Transaction type** dropdown on the Stock Ledger and Transactions tabs
+(`inventory_management_page.dart`) offers `GOODS_ISSUE`, `PHYSICAL_COUNT`,
+`RESERVATION`, `RESERVATION_RELEASE`, `DAMAGE`, `EXPIRY`, `QUARANTINE`
+and `CORRECTION`, none of which the server ever writes -- the ledger's
+types are `OPENING_STOCK`, `GOODS_RECEIPT`, `ADJUSTMENT`, `RETURN`,
+`SALES_RETURN`, `RESERVE`, `UNRESERVE`, `DISPATCH`, `TRANSFER_OUT`,
+`TRANSFER_IN`, `WRITE_OFF`, `QUARANTINE_HOLD`, `QUARANTINE_RELEASE` and
+their `_REVERSAL` twins (`app/inventory/schemas/inventory.py`). Choosing
+one of the phantom values matches nothing, and the real ones a warehouse
+asks for most -- a dispatch, a write-off, a quarantine hold -- are not
+offered at all. A physical count posts as `ADJUSTMENT` referenced by the
+count number, so there is no `PHYSICAL_COUNT` to filter on either. The
+list should be read from the same enum the server writes, the way the
+document pickers read their statuses, rather than typed a second time.
+
+Two smaller ones from the same pass. The **Expiry Monitor** shows six
+counts per window plus each batch's absolute expiry date; there is no
+"days remaining" and the old test-plan row expected one -- a column on
+the All Batches grid is the obvious shape, and the API already sorts by
+`expiry_date`. And the **physical count sheet's Product column prints the
+product id** (`physical_count_sheet_dialog.dart`), the same class as
+§31.3.
+
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
