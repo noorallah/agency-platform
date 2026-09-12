@@ -59,6 +59,9 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
   Widget build(BuildContext context) => WorkspaceDialog(
         title: 'Open a count',
         subtitle: 'The sheet is drawn up from what the warehouse holds now.',
+        // The dialog is titled "Open a count"; a button reading Save sent
+        // the tester looking for an Open button (plan item 8.4).
+        saveLabel: 'Open',
         onClose: () => Navigator.of(context).pop(),
         onSave: _save,
         body: Column(
