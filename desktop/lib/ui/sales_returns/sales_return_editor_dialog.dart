@@ -146,6 +146,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
           : Form(
               key: _form,
               child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.xl),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

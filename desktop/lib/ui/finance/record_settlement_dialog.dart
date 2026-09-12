@@ -233,6 +233,7 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       body: LoadingOverlay(
         loading: _busy,
         child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

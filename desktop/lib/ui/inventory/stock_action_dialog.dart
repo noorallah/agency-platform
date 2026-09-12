@@ -163,6 +163,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
           StockAction.quarantine => _releasing ? 'Release' : 'Hold back',
         },
         body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.xl),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

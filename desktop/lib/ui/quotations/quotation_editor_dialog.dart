@@ -523,6 +523,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
           : Form(
               key: _form,
               child: SingleChildScrollView(
+                // Room around the form: flush against the dialog's edge the
+                // first row's floating labels were cut off and the edges'
+                // text touched the frame (plan item 9.1, 2026-09-13).
+                padding: const EdgeInsets.all(AppSpacing.xl),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
