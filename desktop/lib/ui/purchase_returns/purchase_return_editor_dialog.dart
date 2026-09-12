@@ -429,7 +429,7 @@ class _PurchaseReturnEditorDialogState
         runSpacing: AppSpacing.lg,
         children: [
           SizedBox(
-            width: 320,
+            width: AppDimensions.documentPickerWidth,
             child: DropdownButtonFormField<String>(
               initialValue: _receipt?.id,
               isExpanded: true,

@@ -455,12 +455,11 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
         runSpacing: AppSpacing.lg,
         children: [
           SizedBox(
-            width: 320,
+            width: AppDimensions.documentPickerWidth,
             child: DropdownButtonFormField<String>(
               initialValue: _order?.id,
-              // A document number and date is longer than the field on a
-              // 1366-wide screen; without this the closed dropdown overflows
-              // rather than truncating.
+              // A number that is still longer than the field truncates rather
+              // than overflowing; the width is sized so a seeded one does not.
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Purchase Order *',

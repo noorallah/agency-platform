@@ -18,6 +18,15 @@ abstract final class AppDimensions {
   static const double dialogScale = .88;
   static const double dialogInset = 24;
   static const double detailsPanelWidth = 300;
+
+  /// The width of a picker that names another document by its number.
+  ///
+  /// A seeded number reads `PO-WHOLE01-BR_NORTH-2026-2027-000001`, and the
+  /// pickers print the date beside it; at 320 the closed field cut the
+  /// number itself short, which is the one part the reader is choosing by.
+  /// Wide enough for that shape at the body size, and still a single cell
+  /// of the header's Wrap at 1366.
+  static const double documentPickerWidth = 480;
 }
 
 /// The type scale, with line heights, which the app previously had none of.
