@@ -2492,3 +2492,48 @@ improvement, deferred by the owner to do later.
   nobody trusts. What remains repo-wide is 181 findings in `scripts/` (130) and
   `alembic/` (51), mostly long lines and missing docstrings in older
   migrations.
+
+## 34. Stock movements should be numbered by the system, not typed
+
+Proposed 2026-09-12 during section 8 of the manual pass; **a decision for the
+owner, not yet scheduled.**
+
+**Today.** A transfer, write-off or quarantine hold/release asks the storeman
+for a **Reference** (free text, two characters or more, uppercased) and that
+text becomes the movement's identity in the stock ledger -- on both legs of a
+transfer, and on the write-off's journal entry. Nothing checks it is unique,
+so two people can both type `TRF-0001`; and because journal references *are*
+unique, a repeated reference on a write-off would refuse the second one with
+an error about the journal rather than the stock. Physical counts already do
+this the right way: `PhysicalCountService` draws `PC-...` from the document
+framework's numbering rules.
+
+**Proposal.**
+
+- Three numbering series per firm, seeded the way the `PC` series is:
+  `STOCK_TRANSFER` (`TRF-{FY}-000001`), `STOCK_WRITE_OFF` (`WO-...`),
+  `STOCK_QUARANTINE` (`QH-...`; hold and release share one series, since the
+  ledger type already says which). Administered on Settings -> Numbering
+  series like every other series.
+- The server issues the number through `reserve_number` inside the same
+  transaction as the movement and stamps it on both transfer legs and on the
+  write-off's journal. `reference_number` stays **optional** on the three
+  request schemas for imports and older clients: absent means "issue one",
+  a typed one is still accepted.
+- The dialog drops the Reference box and says "Reference: issued on save"
+  (the framework's `preview_number` can show it up front). **Remarks** is
+  where the gate pass, the damage report or who authorised it goes --
+  mirroring goods receipts, which keep the system number and the supplier's
+  invoice reference apart.
+- The toast names the number ("Stock transferred as TRF-2026-2027-000004")
+  so it can be found in the ledger straight away.
+
+**To decide alongside it.** Whether a movement should carry an optional
+*external reference* column for the counterpart's document number rather
+than burying it in remarks -- worth adding only when someone needs to filter
+by it. And retries: a typed reference was the only natural duplicate check
+on a double-click, so the dialog's save must stay disabled while the request
+is in flight, as the document editors already do.
+
+**Cost.** A migration seeding three document types and rules into every
+store, a few lines in the three service methods, the dialog, and tests.
