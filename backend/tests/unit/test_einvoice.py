@@ -491,3 +491,26 @@ def test_a_line_charge_is_registered_inside_the_assessable_value() -> None:
     item = payload["ItemList"][0]
     assert item["AssAmt"] == 1100.0
     assert item["OthChrg"] == 100.0
+
+
+def test_a_registration_page_names_each_invoice_and_customer() -> None:
+    """The grid needs more than an id to tell one registration from another.
+
+    Found mapping section 12 on 2026-09-13: the registrations screen showed
+    only references, so a reference could not be matched to a bill. The
+    service resolves the invoice number and customer name in one query for
+    the page.
+    """
+    books = _Books(_session_factory()())
+    labels = EInvoiceService(books.session, mode="SANDBOX").invoice_labels(
+        firm_scope=books.firm.id, invoice_ids=[books.invoice.id]
+    )
+    assert labels == {
+        books.invoice.id: (books.invoice.invoice_number, books.customer.name)
+    }
+    assert (
+        EInvoiceService(books.session, mode="SANDBOX").invoice_labels(
+            firm_scope=books.firm.id, invoice_ids=[]
+        )
+        == {}
+    )

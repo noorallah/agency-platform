@@ -322,7 +322,7 @@ const List<ReportDefinition> reportCatalog = [
   ),
   ReportDefinition(
     id: 'purchase-return-by-product',
-    label: 'Returns by product',
+    label: 'Purchase returns by product',
     description: 'Quantity and value returned per product.',
     path: '/api/v1/purchase-returns/reports/by-product',
     area: ReportArea.operational,
@@ -398,7 +398,7 @@ const List<ReportDefinition> reportCatalog = [
   ),
   ReportDefinition(
     id: 'sales-return-by-product',
-    label: 'Returns by product',
+    label: 'Sales returns by product',
     description: 'What comes back most, by quantity and by value.',
     path: '/api/v1/sales-returns/reports/by-product',
     area: ReportArea.operational,

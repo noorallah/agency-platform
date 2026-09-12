@@ -153,7 +153,7 @@ class _ConfigApi extends ApiClient {
 Future<void> _pumpYears(
   WidgetTester tester,
   _ConfigApi api, {
-  List<String> perms = const ['accounting', 'financial_year'],
+  List<String> perms = const ['FINANCIAL_YEAR_VIEW', 'FINANCIAL_YEAR_CLOSE'],
   bool hasActiveFirm = true,
 }) async {
   tester.view.physicalSize = const Size(1600, 900);
@@ -248,7 +248,7 @@ void main() {
       await _pumpYears(
         tester,
         _ConfigApi(years: [_year()], periods: [_period()]),
-        perms: const ['accounting'],
+        perms: const ['FINANCIAL_YEAR_VIEW'],
       );
 
       expect(find.text('OPEN'), findsOneWidget);

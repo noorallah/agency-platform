@@ -39,11 +39,17 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
   bool _loading = false;
   String? _error;
 
-  bool get _canView => widget.permissions.hasPermission('accounting');
+  // Permission *codes*, not the seed's group names: 'accounting' and
+  // 'financial_year' are dictionary keys in system_seed.py and never reach
+  // a token, so the screen refused everybody (found mapping section 13,
+  // 2026-09-13; the widget test passed the group names literally).
+  bool get _canView => widget.permissions.hasPermission('FINANCIAL_YEAR_VIEW');
 
   /// Closing a period stops anybody booking into it, so it is gated on the
   /// same code the server gates the endpoint with.
-  bool get _canClose => widget.permissions.hasPermission('financial_year');
+  bool get _canClose =>
+      widget.permissions.hasPermission('FINANCIAL_YEAR_CLOSE') ||
+      widget.permissions.hasPermission('FINANCIAL_YEAR_REOPEN');
 
   @override
   void initState() {

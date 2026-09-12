@@ -37,7 +37,10 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
   bool _loading = false;
   String? _error;
 
-  bool get _canView => widget.permissions.hasPermission('LEDGER_VIEW');
+  // The tab is offered on TRIAL_BALANCE_VIEW; the page used to check
+  // LEDGER_VIEW, so a user with one and not the other met a refusal behind
+  // an entry they had been offered (mapping section 13, 2026-09-13).
+  bool get _canView => widget.permissions.hasPermission('TRIAL_BALANCE_VIEW');
 
   @override
   void initState() {

@@ -12,6 +12,7 @@ The rules that are this module's own, rather than the portal's:
   every row and the sandbox marks every reference it mints.
 """
 
+from collections.abc import Iterable
 from decimal import Decimal
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import as_utc, utc_now
+from app.customers.models import Customer
 from app.einvoice.models import (
     EInvoiceRegistration,
     EWayBill,
@@ -67,6 +69,25 @@ class EInvoiceService:
             EInvoiceRegistration.firm_id == firm_id,
             EInvoiceRegistration.is_deleted.is_(False),
         )
+
+    def invoice_labels(
+        self, *, firm_scope: UUID, invoice_ids: Iterable[UUID]
+    ) -> dict[UUID, tuple[str, str]]:
+        """Return invoice number and customer name for each invoice named.
+
+        One query for the page rather than one per row.
+        """
+        wanted = set(invoice_ids)
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(SalesInvoice.id, SalesInvoice.invoice_number, Customer.name)
+            .join(Customer, Customer.id == SalesInvoice.customer_id, isouter=True)
+            .where(SalesInvoice.firm_id == firm_scope, SalesInvoice.id.in_(wanted))
+        ).all()
+        return {
+            invoice_id: (number or "", name or "") for invoice_id, number, name in rows
+        }
 
     def list_registrations(
         self, *, firm_scope: UUID, page: int, page_size: int, status: str | None = None

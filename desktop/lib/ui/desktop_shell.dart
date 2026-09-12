@@ -4128,6 +4128,11 @@ ResourceDefinition<Role> _roleDefinition(
       id: (role) => role.id,
       load: api.roles,
       canEdit: (role) => !role.isSystem,
+      // Said, not merely disabled: a system role double-clicked opened the
+      // view with no explanation (mapping section 13, 2026-09-13). The
+      // sentence is the server's own.
+      editRefusal: (role) =>
+          role.isSystem ? 'System roles cannot be modified.' : null,
       canUseAction: (action, _) => _canUseResourceAction(
         permissions,
         action,

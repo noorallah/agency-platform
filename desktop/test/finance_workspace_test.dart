@@ -58,7 +58,7 @@ AccountingPeriod _period(String id, String starts) => AccountingPeriod.fromJson(
 Future<void> _pump(
   WidgetTester tester,
   _FinanceApi api, {
-  List<String> perms = const ['LEDGER_VIEW'],
+  List<String> perms = const ['TRIAL_BALANCE_VIEW'],
   bool hasActiveFirm = true,
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
@@ -218,7 +218,7 @@ void main() {
       expect(find.textContaining('No accounting periods'), findsOneWidget);
     });
 
-    testWidgets('without LEDGER_VIEW it shows nothing and asks nothing',
+    testWidgets('without TRIAL_BALANCE_VIEW it shows nothing and asks nothing',
         (tester) async {
       final _FinanceApi api = _FinanceApi(periods: [_period('p-1', '2026-08-01')]);
       await _pump(tester, api, perms: const ['ACCOUNT_VIEW']);

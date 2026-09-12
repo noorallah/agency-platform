@@ -456,7 +456,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['BRANCH_VIEW', 'WAREHOUSE_VIEW'],
           requiresAnyPermission: true,
         ),
-        ModuleTabDefinition(id: 'financial-years', label: 'Financial Years'),
+        ModuleTabDefinition(
+          id: 'financial-years',
+          label: 'Financial Years',
+          requiredPermissions: ['FINANCIAL_YEAR_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'firm-settings',
           label: 'Firm Settings',
