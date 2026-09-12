@@ -629,6 +629,16 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       });
     } else {
       savedId = widget.definition.id(item);
+      // Assignments first on an edit. They are a second request, and the
+      // dialog promises "not saved" when it shows a refusal -- which was a
+      // lie whenever the record's own fields had already been written and
+      // only the assignments were refused. A business profile's details
+      // saved while its features were refused for naming an unimplemented
+      // one, and the grid then showed the profile as saved. The record
+      // already exists, so nothing here depends on the update going first.
+      if (widget.definition.saveAssignments != null) {
+        await widget.definition.saveAssignments!(savedId, values);
+      }
       if (widget.definition.updateEntity) {
         await widget.api.update(
           widget.definition.resource,
@@ -637,7 +647,11 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
           partial: widget.definition.partialUpdate,
         );
       }
+      return;
     }
+    // On a create the record has to exist before anything can be attached
+    // to it; a refused assignment leaves it created, and the checkpoint
+    // stops a retry creating it twice.
     if (widget.definition.saveAssignments != null) {
       await widget.definition.saveAssignments!(savedId, values);
     }
@@ -1218,6 +1232,11 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   bool _saving = false;
   bool _dirty = false;
   String? _submitError;
+
+  /// The form's scroll position, so a refusal can be brought into view: the
+  /// summary sits above the first section, and the field somebody just
+  /// edited is often at the foot of a long form, out of sight of it.
+  final ScrollController _scroll = ScrollController();
   Map<String, String> _fieldErrors = const {};
 
   static List<R> _decodeRecords<R>(
@@ -1265,6 +1284,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     for (final TextEditingController controller in _controllers.values) {
       controller.dispose();
     }
@@ -1354,6 +1374,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                     child: Form(
                       key: _formKey,
                       child: CrudFormPage(
+                        controller: _scroll,
                         children: [
                           EnterpriseValidationSummary(
                             message: _submitError,
@@ -1822,6 +1843,13 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
         _saving = false;
       });
       _formKey.currentState!.validate();
+      if (_scroll.hasClients) {
+        unawaited(_scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        ));
+      }
     }
   }
 
@@ -1913,12 +1941,14 @@ class CrudWorkspaceHeader extends StatelessWidget {
 }
 
 class CrudFormPage extends StatelessWidget {
-  const CrudFormPage({super.key, required this.children});
+  const CrudFormPage({super.key, required this.children, this.controller});
 
   final List<Widget> children;
+  final ScrollController? controller;
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
+        controller: controller,
         padding: const EdgeInsets.all(24),
         child: Align(
           alignment: Alignment.topCenter,
