@@ -3066,7 +3066,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           .pop(PurchaseEditorOutcome(order: saved, saved: true));
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _error = exception.message);
+      // The envelope's sentence plus the fields it names: "The request
+      // validation failed." on its own says nothing anybody can act on.
+      setState(() => _error = refusalMessage(exception));
     } finally {
       if (mounted) {
         setState(() => _saving = false);

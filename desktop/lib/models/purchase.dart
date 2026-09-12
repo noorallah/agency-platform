@@ -666,6 +666,13 @@ class PurchaseOrder {
   Json toUpdateJson() {
     final Json body = toCreateJson();
     body.remove('status');
+    // The number is the server's: PurchaseOrderCreate takes one, so a client
+    // can carry an old system's numbering in, but PurchaseOrderUpdate does
+    // not, and the server forbids unknown fields. A saved order always has
+    // its number, so every edit of one was refused with "The request
+    // validation failed." -- seven times on the day it was found, with the
+    // editor showing only that sentence.
+    body.remove('po_number');
     return body;
   }
 }

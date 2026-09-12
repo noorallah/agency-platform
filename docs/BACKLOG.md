@@ -1990,6 +1990,30 @@ same thing), seeds the lines from it, takes the supplier's invoice number
 and date, and posts through the existing create route. Until then the
 plan's 7.8 uses a seeded invoice, and 7.11 pays a seeded bill.
 
+### 31.10 Every edit of a saved purchase order was refused (2026-09-12, plan item 7.4) -- fixed the same day
+
+**Seen.** "I added line item remarks but its not saving, no error,
+nothing." The server log showed `PUT /api/v1/purchases/{id}` answering
+422 -- seven times that morning.
+
+**Why.** `PurchaseOrder.toUpdateJson` was `toCreateJson` minus `status`,
+and `toCreateJson` carries `po_number` whenever the order has one, which
+a saved order always does. `PurchaseOrderCreate` takes `po_number` (so an
+old system's numbering can be carried in); `PurchaseOrderUpdate` does
+not, and `PurchaseSchema` forbids unknown fields. So the desktop could
+create an order and never edit one -- and the editor showed only "The
+request validation failed.", in a banner at the top of a long dialog,
+which read as nothing happening. Neither suite could see it: the desktop
+fake accepts what it is given and the backend tests build their own
+requests -- the preferences gap of 2026-09-08 again, on another payload.
+
+**Done.** `toUpdateJson` drops `po_number`. The editor shows the refusal
+with the fields it names (`refusalMessage`, shared, in
+`desktop/lib/ui/workspace/api_refusal.dart`). And
+`test_desktop_purchase_payloads_are_accepted.py` reads the desktop's
+create, update and line keys out of the Dart source and holds each to the
+matching server schema, so the next key that create takes and update does
+not fails the build instead of every edit.
 
 ## 32. Seed a standard India geography master into every firm store
 
