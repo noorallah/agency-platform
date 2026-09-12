@@ -1660,3 +1660,109 @@ def test_a_write_off_condemns_quarantined_stock_first() -> None:
     assert service.valuation_for(
         firm_scope=firm.id, product_id=product.id
     ).quantity_on_hand == Decimal("7.0000")
+
+
+def test_a_transfer_may_cross_branches() -> None:
+    """The destination's branch is the destination warehouse's, not the source's.
+
+    Found on the 2026-09-12 manual pass (plan item 8.3): moving DETER1K from
+    WH_NORTH, under BR_NORTH, to WHL_DC, under the head office, was refused
+    with "Warehouse does not belong to the selected branch". The inbound leg
+    was keyed on the request's branch -- the source's -- so any warehouse
+    outside it was unreachable, though moving goods between branches is the
+    ordinary reason to transfer at all. The inbound projection lands under
+    the destination's own branch, and a warehouse outside the firm is still
+    refused by name.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "XBR")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    north = Branch(
+        firm_id=firm.id,
+        code="BR_NORTH",
+        name="North Branch",
+        display_name="North Branch",
+        business_profile_id=profile.id,
+        working_hours={},
+        status="ACTIVE",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(north)
+    session.flush()
+    north_warehouse = Warehouse(
+        firm_id=firm.id,
+        branch_id=north.id,
+        code="WH_NORTH",
+        name="North Warehouse",
+        display_name="North Warehouse",
+        business_profile_id=profile.id,
+        status="ACTIVE",
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(north_warehouse)
+    session.commit()
+    service = InventoryService(session)
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-XBR",
+        transaction_date=date(2026, 9, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("100.00"),
+    )
+
+    _outbound, inbound = service.transfer_stock(
+        StockTransferCreate(
+            branch_id=branch.id,
+            from_warehouse_id=warehouse.id,
+            to_warehouse_id=north_warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("3"),
+            reference_number="TRF-0001",
+            transaction_date=date(2026, 9, 12),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+    assert inbound.transaction_type == "TRANSFER_IN"
+
+    rows = {
+        row.warehouse_id: row
+        for row in service.list_inventory(
+            firm_scope=firm.id,
+            filters=InventoryListFilters(),
+            page=1,
+            page_size=50,
+            search=None,
+            sort_by="created_at",
+            descending=True,
+        )[0]
+    }
+    assert rows[warehouse.id].current_quantity == Decimal("7.0000")
+    assert rows[north_warehouse.id].current_quantity == Decimal("3.0000")
+    assert (
+        rows[north_warehouse.id].branch_id == north.id
+    ), "the stock is filed under the branch that now holds it"
+
+    with pytest.raises(ValidationError, match="destination warehouse"):
+        service.transfer_stock(
+            StockTransferCreate(
+                branch_id=branch.id,
+                from_warehouse_id=warehouse.id,
+                to_warehouse_id=uuid4(),
+                product_id=product.id,
+                quantity=Decimal("1"),
+                reference_number="TRF-0002",
+                transaction_date=date(2026, 9, 12),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )

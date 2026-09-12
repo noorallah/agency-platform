@@ -510,6 +510,8 @@ class StockTransferCreate(InventorySchema):
     amount would be noise in the ledger rather than information.
     """
 
+    #: The branch the stock is leaving from. The destination's branch is
+    #: read off the destination warehouse, so a transfer may cross branches.
     branch_id: UUID
     from_warehouse_id: UUID
     to_warehouse_id: UUID
