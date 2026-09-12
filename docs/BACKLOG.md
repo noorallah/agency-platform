@@ -2147,6 +2147,14 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
   one document cannot be told apart by product.
 - **Sales order and sales invoice view dialogs print product and tax
   profile ids** (already §31.3; the delivery note resolves them).
+- **A coupon cannot reach an order that began as a quotation.** The
+  conversion forwards each quoted rate as a typed rate -- the deal carries
+  over as the deal -- and a typed rate outranks every promotion, so a code
+  presented at order time changes nothing on a converted line (found at
+  9.7, 2026-09-13). Defensible either way; a decision for the owner. If
+  coupons should apply, the conversion could forward only rates that were
+  typed on the quotation (`discount_source` now says which) and let the
+  order re-resolve the rest.
 
 
 ## 32. Seed a standard India geography master into every firm store
