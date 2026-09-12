@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/document_framework.dart';
 import '../../models/goods_receipt.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../document_framework/document_line_labels.dart';
 import '../workspace/desktop_framework.dart';
 
 /// One goods receipt: its header, its lines, its totals and its timeline.
@@ -22,10 +23,14 @@ class GoodsReceiptViewDialog extends StatelessWidget {
     super.key,
     required this.receipt,
     required this.history,
+    this.labels = const DocumentLineLabels(),
   });
 
   final GoodsReceiptRecord receipt;
   final List<DocumentTimelineSnapshot> history;
+
+  /// Names for the ids a line carries; without them the view shows the ids.
+  final DocumentLineLabels labels;
 
   @override
   Widget build(BuildContext context) {
@@ -47,15 +52,15 @@ class GoodsReceiptViewDialog extends StatelessWidget {
                 for (final GoodsReceiptLine line in receipt.lines)
                   DocumentLineSnapshot(
                     lineNumber: line.lineNumber,
-                    product: line.productId,
+                    product: labels.product(line.productId),
                     description: line.description,
-                    uom: line.inventoryUomId,
+                    uom: labels.unit(line.inventoryUomId),
                     packaging: line.packagingTypeId,
                     quantity: line.currentReceiptQuantity,
                     freeQuantity: line.freeQuantity,
                     unitPrice: line.unitPrice,
                     discount: line.discountAmount,
-                    taxProfile: line.taxProfileId,
+                    taxProfile: labels.taxProfile(line.taxProfileId),
                     amount: line.grossAmount,
                     netAmount: line.netAmount,
                     remarks: line.remarks,

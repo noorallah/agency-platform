@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../models/product.dart';
+import '../../models/tax_framework.dart';
+import '../../models/uom_packaging.dart';
+import '../document_framework/document_line_labels.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
@@ -46,10 +50,46 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
   _PurchaseInvoiceRecord? _selected;
   List<DocumentTimelineSnapshot> _history = const [];
 
+
+  /// The lists the view dialog resolves a line's ids against. Read on their
+  /// own, after the workspace's own data, so a failure here costs a name and
+  /// never the list.
+  DocumentLineLabels _labels = const DocumentLineLabels();
+
+  Future<void> _loadLabels() async {
+    List<Product> products = const <Product>[];
+    List<UomRecord> units = const <UomRecord>[];
+    List<TaxProfileRecord> profiles = const <TaxProfileRecord>[];
+    try {
+      products = (await widget.api.products(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // A name falls back to its id.
+    }
+    try {
+      units = await widget.api.uoms(includeInactive: true);
+    } on ApiException {
+      // As above.
+    }
+    try {
+      profiles = (await widget.api.taxProfiles(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // As above.
+    }
+    if (!mounted) return;
+    setState(() {
+      _labels = DocumentLineLabels(
+        products: products,
+        units: units,
+        taxProfiles: profiles,
+      );
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadLabels());
   }
 
   @override
@@ -343,14 +383,14 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
           for (final _PurchaseInvoiceLine line in record.lines)
             DocumentLineSnapshot(
               lineNumber: line.lineNumber,
-              product: line.productId,
+              product: _labels.product(line.productId),
               description: line.description,
-              uom: line.invoiceUomId,
+              uom: _labels.unit(line.invoiceUomId),
               packaging: line.packagingTypeId,
               quantity: line.currentInvoiceQuantity,
               unitPrice: line.unitPrice,
               discount: line.discountAmount,
-              taxProfile: line.taxProfileId,
+              taxProfile: _labels.taxProfile(line.taxProfileId),
               amount: line.grossAmount,
               netAmount: line.netAmount,
               remarks: line.remarks,
