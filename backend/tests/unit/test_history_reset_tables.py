@@ -89,3 +89,35 @@ def test_no_master_table_is_reset() -> None:
     }
     caught = sorted(masters & set(RESET_ORDER))
     assert not caught, f"reset_history would delete master data: {caught}"
+
+
+def test_every_numbered_document_is_reset_with_its_counter() -> None:
+    """A table numbered from a series is cleared when the counters are.
+
+    ``reset_history`` clears ``document_number_sequences`` and puts every
+    numbering rule back to one, so any numbered document it leaves behind
+    collides with the first number issued afterwards. Physical counts were
+    left behind: a sheet cancelled on 2026-09-03 survived a reset, and on
+    2026-09-12 every attempt to open a count was refused as a duplicate of
+    ``PC-2026-2027-000001`` (plan item 8.4). The sales-returns note at the
+    top of ``RESET_ORDER`` describes the same collision.
+
+    A numbered document is recognised by its uniqueness key: ``firm_id``
+    beside one ``*_number`` column. Masters carry such keys for identity
+    numbers (a customer's PAN or GST) and are deliberately not reset, so
+    they are named here rather than matched.
+    """
+    identity_numbers = {"pan_number", "gst_number"}
+    numbered: set[str] = set()
+    for table in Base.metadata.tables.values():
+        for constraint in table.constraints:
+            columns = {column.name for column in getattr(constraint, "columns", ())}
+            if len(columns) != 2 or "firm_id" not in columns:
+                continue
+            (other,) = columns - {"firm_id"}
+            if other.endswith("_number") and other not in identity_numbers:
+                numbered.add(table.name)
+    missing = sorted(numbered - set(RESET_ORDER))
+    assert (
+        not missing
+    ), f"numbered from a series but left behind by reset_history: {missing}"
