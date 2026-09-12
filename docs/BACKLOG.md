@@ -1772,6 +1772,18 @@ customer name now uses -- then wire each of the six desktop views to show the
 names instead of the ids. Batch the name lookups: `_customer_name` does a
 `session.get` per row, which is an N+1 on a list of 100. This deserves its
 own PR, not a bolt-on.
+
+**The four document views resolve their lines as of 2026-09-12** (goods
+receipt, purchase return, purchase invoice, delivery note): product as
+`CODE — Name`, unit as its code, tax profile as its code, through one
+`DocumentLineLabels` in `desktop/lib/ui/document_framework/`, fed by the
+products, units and tax profiles each page reads on its own after its
+list (a failure there costs a name, never the list; an unknown id shows
+as itself, never blank). The owner hit it at 7.8: the goods receipt view
+read as a column of UUIDs. The packaging type on a line is still its id,
+and the headers of these views (vendor, branch, warehouse) are whatever
+`toHeader` puts there -- check them at the next case that opens one.
+
 ### 31.4 Import dialogs give no sample file, and their messages cannot be copied (2026-09-11, plan item 5.8) -- fixed the same day
 
 **Seen.** Driving 5.8, the first file was refused with "A valid E.164 phone
