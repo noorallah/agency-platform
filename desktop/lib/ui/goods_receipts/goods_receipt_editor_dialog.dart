@@ -368,7 +368,7 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
-        _error = exception.message;
+        _error = refusalMessage(exception);
         _saving = false;
       });
     }
